@@ -142,9 +142,9 @@ togglePill.Name = "SpectatorTogglePill"
 togglePill.Size = UDim2.new(0, 180, 0, 36)
 togglePill.AnchorPoint = Vector2.new(1, 1)
 togglePill.Position = UDim2.new(1, -20, 1, -25)
-togglePill.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
+togglePill.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
 togglePill.BackgroundTransparency = 0.15
-togglePill.TextColor3 = Color3.fromRGB(0, 229, 255)
+togglePill.TextColor3 = Color3.fromRGB(240, 245, 255)
 togglePill.Font = Enum.Font.GothamBold
 togglePill.TextSize = 12
 togglePill.Text = "👁️ Spectator HUD [H]"
@@ -156,9 +156,22 @@ pillCorner.CornerRadius = UDim.new(0, 18)
 pillCorner.Parent = togglePill
 
 local pillStroke = Instance.new("UIStroke")
-pillStroke.Color = Color3.fromRGB(0, 229, 255)
+pillStroke.Color = Color3.fromRGB(0, 200, 255)
 pillStroke.Thickness = 1.5
+pillStroke.Transparency = 0.4
+pillStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 pillStroke.Parent = togglePill
+
+-- Subtle hover animation
+togglePill.MouseEnter:Connect(function()
+	TweenService:Create(togglePill, TweenInfo.new(0.2), { BackgroundTransparency = 0.05 }):Play()
+	TweenService:Create(pillStroke, TweenInfo.new(0.2), { Transparency = 0.1 }):Play()
+end)
+
+togglePill.MouseLeave:Connect(function()
+	TweenService:Create(togglePill, TweenInfo.new(0.2), { BackgroundTransparency = 0.15 }):Play()
+	TweenService:Create(pillStroke, TweenInfo.new(0.2), { Transparency = 0.4 }):Play()
+end)
 
 -- Outer Container Frame (Docked Left)
 local outerFrame = Instance.new("Frame")

@@ -42,8 +42,8 @@ btnFrame.Name = "PlayAsQuinContainer"
 btnFrame.Size = UDim2.new(0, 180, 0, 36)
 btnFrame.AnchorPoint = Vector2.new(1, 1)
 btnFrame.Position = UDim2.new(1, -20, 1, -113)
-btnFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
-btnFrame.BackgroundTransparency = 0.2
+btnFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
+btnFrame.BackgroundTransparency = 0.15
 btnFrame.BorderSizePixel = 0
 btnFrame.Parent = screenGui
 
@@ -55,6 +55,7 @@ local stroke = Instance.new("UIStroke")
 stroke.Color = Color3.fromRGB(0, 200, 255)
 stroke.Thickness = 1.5
 stroke.Transparency = 0.4
+stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 stroke.Parent = btnFrame
 
 local toggleBtn = Instance.new("TextButton")
@@ -62,9 +63,9 @@ toggleBtn.Name = "PlayAsQuinBtn"
 toggleBtn.Size = UDim2.new(1, 0, 1, 0)
 toggleBtn.BackgroundTransparency = 1
 toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 13
+toggleBtn.TextSize = 12
 toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
-toggleBtn.Text = "▶ Play As Quin (P)"
+toggleBtn.Text = "▶ Play As Quin [P]"
 toggleBtn.Parent = btnFrame
 
 -- Subtle hover animation
@@ -74,7 +75,7 @@ toggleBtn.MouseEnter:Connect(function()
 end)
 
 toggleBtn.MouseLeave:Connect(function()
-	TweenService:Create(btnFrame, TweenInfo.new(0.2), { BackgroundTransparency = 0.2 }):Play()
+	TweenService:Create(btnFrame, TweenInfo.new(0.2), { BackgroundTransparency = 0.15 }):Play()
 	TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.4 }):Play()
 end)
 
@@ -99,7 +100,7 @@ local function startControlSession(quin)
 	_G.PlayerControlledQuin = quin
 
 	-- Update button UI
-	toggleBtn.Text = "⏹ Exit Quin Mode (P)"
+	toggleBtn.Text = "⏹ Exit Quin Mode [P]"
 	toggleBtn.TextColor3 = Color3.fromRGB(255, 180, 60)
 	stroke.Color = Color3.fromRGB(255, 140, 40)
 
@@ -196,7 +197,7 @@ local function stopControlSession()
 	activeRootPart = nil
 
 	-- Update button UI
-	toggleBtn.Text = "▶ Play As Quin (P)"
+	toggleBtn.Text = "▶ Play As Quin [P]"
 	toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
 	stroke.Color = Color3.fromRGB(0, 200, 255)
 
@@ -223,7 +224,7 @@ toggleQuinControl = function(desiredState)
 			startControlSession(possessedQuin)
 		else
 			warn("[PlayerQuinController] Server failed to possess or spawn Quin")
-			toggleBtn.Text = "▶ Play As Quin (P)"
+			toggleBtn.Text = "▶ Play As Quin [P]"
 		end
 	else
 		if controlFunction then
@@ -254,17 +255,17 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	if activeHumanoid.Health <= 0 then return end
 
 	-- Space: Ballistic Jump (Rule 6: single impulse, 88% landing retention)
-	if input.KeyCode == Enum.KeyCode.Space and not gp then
+	if input.KeyCode == Enum.KeyCode.Space then
 		local currentVel = activeRootPart.AssemblyLinearVelocity
 		local fwdSpeed = math.max(Vector3.new(currentVel.X, 0, currentVel.Z).Magnitude, 38.0)
 		LocomotionModule.jump(activeQuin, activeHumanoid, activeRootPart, 8.0, fwdSpeed, "jump")
 
 	-- C: Athletic Ground Slide
-	elseif input.KeyCode == Enum.KeyCode.C and not gp then
+	elseif input.KeyCode == Enum.KeyCode.C then
 		LocomotionModule.slide(activeQuin, activeHumanoid, activeRootPart, lastMoveDir, 0.42)
 
 	-- Q or E: Dash burst
-	elseif (input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E) and not gp then
+	elseif input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E then
 		local dashTarget = activeRootPart.Position + lastMoveDir * 35
 		LocomotionModule.dash(activeQuin, activeHumanoid, activeRootPart, dashTarget, 35)
 	end

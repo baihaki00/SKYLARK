@@ -26,6 +26,7 @@ local function getLocoData(fighter)
 			lastJumpTime = 0,
 			lastSkidTime = 0,
 			currentSpeed = 0,
+			distanceTraveled = 0,
 			activeLandedConn = nil,
 			activeAlign = nil,
 			activeAtt = nil,
@@ -118,6 +119,19 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	-- 3. Issue steering command to humanoid with native physics AutoRotate
 	humanoid.AutoRotate = true
 	humanoid:MoveTo(targetPosition)
+
+	-- 4. Footstep Audio Rhythm (Custom QuinCore sound)
+	if currentSpeed > 4.0 then
+		data.distanceTraveled = (data.distanceTraveled or 0) + (currentSpeed * dt)
+		local strideDistance = currentSpeed > 25.0 and 8.0 or 5.0
+		if data.distanceTraveled >= strideDistance then
+			data.distanceTraveled = 0
+			local stepVolume = currentSpeed > 25.0 and 0.65 or 0.40
+			AudioModule.playFootstep(fighter, stepVolume)
+		end
+	else
+		data.distanceTraveled = 0
+	end
 end
 
 -- ============================================================================
@@ -141,9 +155,17 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	-- Modulate speed to 0 smoothly instead of snapping in 1 frame
 	LocomotionModule.modulateSpeed(fighter, humanoid, 0, dt or 0.1)
 
+	-- Actively cancel humanoid active MoveTo translation so it doesn't walk in place
+	humanoid:Move(Vector3.zero, false)
+
+	-- Stop all movement tracks cleanly and ensure base idle
 	if AnimationModule.isPlaying(humanoid, "Movement.Run") then
 		AnimationModule.stop(humanoid, "Movement.Run", 0.2)
 	end
+	if AnimationModule.isPlaying(humanoid, "Movement.WalkConfident") then
+		AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.2)
+	end
+	AnimationModule.stopLocomotionOverlays(humanoid, 0.15)
 	AnimationModule.ensureBaseIdle(humanoid)
 end
 
@@ -204,10 +226,12 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	if LocomotionModule.isJumpSuppressed(fighter, humanoid) then
 		return
 	end
+
+	local data = getLocoData(fighter)
 	local now = os.clock()
 
 	-- Enforce jump debounce to eliminate rapid-fire double-hopping
-	local debounce = CombatConfig.Locomotion_JumpDebounce or 1.0
+	local debounce = CombatConfig.Locomotion_JumpDebounce or 0.35
 	if (now - data.lastJumpTime) < debounce then
 		return
 	end
@@ -218,7 +242,11 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	local jumpAnim = isVault and "Parkour.VaultObstacle" or "Movement.Jump"
 
 	AnimationModule.stop(humanoid, "Movement.Run")
+	AnimationModule.stop(humanoid, "Movement.WalkConfident")
 	AnimationModule.playConfig(humanoid, jumpAnim)
+
+	-- Audio feedback via QuinCore AudioModule
+	AudioModule.playJumpUp(rootPart.Position)
 
 	-- Single vertical ballistic impulse: v_y = sqrt(2 * g * h)
 	local gravity = Workspace.Gravity
@@ -289,13 +317,22 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		AnimationModule.stopConfig(humanoid, jumpAnim)
 		AnimationModule.stopConfig(humanoid, "Movement.Fall")
 
+		-- Audio feedback on landing via QuinCore AudioModule
+		AudioModule.playFallOnGround(rootPart.Position)
+
 		if isDismount then
 			AnimationModule.playConfig(humanoid, "Parkour.LedgeDropLanding", 1.4, Enum.AnimationPriority.Action3, false)
 		end
 
-		local pacingVel = fighter:GetAttribute("PacingVelocity") or 40
-		local resumeAnim = pacingVel < 20 and "Movement.WalkConfident" or "Movement.Run"
-		AnimationModule.playConfig(humanoid, resumeAnim)
+		local currentVel = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
+		local flatSpeed = Vector3.new(currentVel.X, 0, currentVel.Z).Magnitude
+		if flatSpeed > 3.0 then
+			local pacingVel = fighter:GetAttribute("PacingVelocity") or 40
+			local resumeAnim = pacingVel < 20 and "Movement.WalkConfident" or "Movement.Run"
+			AnimationModule.playConfig(humanoid, resumeAnim)
+		else
+			AnimationModule.ensureBaseIdle(humanoid)
+		end
 	end
 
 	-- Hook landing event to CONSERVE 88% forward momentum
@@ -403,6 +440,7 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, duration)
 
 	-- Animation & Sensory VFX
 	AnimationModule.playConfig(humanoid, "Movement.Slide", 1.25, Enum.AnimationPriority.Action3, false)
+	AudioModule.playDash(rootPart)
 	local elem = fighter:GetAttribute("Element")
 	VfxModule.createDust(rootPart.Position - dir * 2, 4, nil, elem)
 

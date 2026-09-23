@@ -353,15 +353,28 @@ local togglePill = Instance.new("TextButton")
 togglePill.Size = UDim2.new(0, 180, 0, 36)
 togglePill.AnchorPoint = Vector2.new(1, 1)
 togglePill.Position = UDim2.new(1, -20, 1, -69)
-togglePill.BackgroundColor3 = C_PANEL
-togglePill.TextColor3 = C_ACCENT
+togglePill.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
+togglePill.BackgroundTransparency = 0.15
+togglePill.TextColor3 = Color3.fromRGB(240, 245, 255)
 togglePill.Font = Enum.Font.GothamBold
 togglePill.TextSize = 12
 togglePill.Text = "⚔️ Quin Manager [M]"
 togglePill.Visible = true
 togglePill.Parent = screenGui
 applyCorner(togglePill, 18)
-applyStroke(togglePill, C_ACCENT, 1.5)
+local pillStroke = applyStroke(togglePill, Color3.fromRGB(0, 200, 255), 1.5)
+pillStroke.Transparency = 0.4
+
+-- Subtle hover animation
+togglePill.MouseEnter:Connect(function()
+	TweenService:Create(togglePill, TweenInfo.new(0.2), { BackgroundTransparency = 0.05 }):Play()
+	TweenService:Create(pillStroke, TweenInfo.new(0.2), { Transparency = 0.1 }):Play()
+end)
+
+togglePill.MouseLeave:Connect(function()
+	TweenService:Create(togglePill, TweenInfo.new(0.2), { BackgroundTransparency = 0.15 }):Play()
+	TweenService:Create(pillStroke, TweenInfo.new(0.2), { Transparency = 0.4 }):Play()
+end)
 
 updateRigStatusBadge = function()
 	if not rigStatusBadge or not respawnRigsBtn then return false end

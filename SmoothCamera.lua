@@ -35,6 +35,7 @@ local smoothYaw, smoothPitch = yaw, pitch
 local targetDistance = 18
 local currentDistance = targetDistance
 local smoothedTargetPos = nil
+local lastControlledQuin = nil
 
 local isLeftMouseDown = false
 local isRightMouseDown = false
@@ -286,7 +287,8 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 	if targetHRP and cameraMode ~= "QUIN_SPECTATE" then
 		cameraMode = "QUIN_SPECTATE"
 		shared.SpectatorState.Mode = cameraMode
-		if shared.PlayerControlledQuin then
+		if shared.PlayerControlledQuin and lastControlledQuin ~= quinModel then
+			lastControlledQuin = quinModel
 			targetDistance = 14
 			pitch = -12
 			local look = targetHRP.CFrame.LookVector
@@ -300,11 +302,11 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		cameraPos = Camera.CFrame.Position
 	end
 
-	-- Mouse rotation
+	-- Mouse rotation (Continuous, unconstrained 360-degree rotation)
 	local isHoldingLook = isLeftMouseDown or isRightMouseDown or isToggleLocked
 	if isHoldingLook then
 		local delta = UserInputService:GetMouseDelta()
-		yaw = (yaw - delta.X * flySensitivity) % 360
+		yaw = yaw - delta.X * flySensitivity
 		pitch = math.clamp(pitch - delta.Y * flySensitivity, -85, 85)
 	end
 
@@ -353,8 +355,11 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		local zoomAlpha = 1 - math.exp(-10 * dt)
 		local posAlpha = 1 - math.exp(-posSmoothness * dt)
 
-		smoothYaw += (yaw - smoothYaw) * rotAlpha
-		smoothPitch += (pitch - smoothPitch) * rotAlpha
+		-- Shortest-path circular angular lerp: ZERO degree boundaries, ZERO snap-backs
+		local diffYaw = (yaw - smoothYaw) % 360
+		if diffYaw > 180 then diffYaw = diffYaw - 360 end
+		smoothYaw = smoothYaw + diffYaw * rotAlpha
+		smoothPitch = smoothPitch + (pitch - smoothPitch) * rotAlpha
 		currentDistance += (targetDistance - currentDistance) * zoomAlpha
 
 		local rawTargetPos = targetHRP.Position + Vector3.new(0, 2.5, 0)

@@ -136,7 +136,7 @@ end
 
 -- Projectile Jump Audio Methods
 function AudioModule.playJumpUp(position)
-	playSoundAt(AudioIds.JumpUp, position, 0.05, math.random(90, 110)/100, 5)
+	playSoundAt(AudioIds.JumpUp, position, 0.6, math.random(90, 110)/100, 5)
 end
 
 function AudioModule.playChargeup(position)
@@ -152,11 +152,11 @@ function AudioModule.playSonicBoom(position)
 end
 
 function AudioModule.playFallOnGround(position)
-	playSoundAt(AudioIds.FallOnGround, position, 0.03, math.random(70, 100)/100, 15)
+	playSoundAt(AudioIds.FallOnGround, position, 0.5, math.random(70, 100)/100, 15)
 end
 
 function AudioModule.playFallOnGroundAfterMidAir(position)
-	playSoundAt(AudioIds.FallOnGroundMidAir, position, 0.03, math.random(70, 100)/100, 15)
+	playSoundAt(AudioIds.FallOnGroundMidAir, position, 0.5, math.random(70, 100)/100, 15)
 end
 
 local lastFootstep = {}

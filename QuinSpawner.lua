@@ -150,13 +150,31 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 	-- Dynamically apply data-driven Element visual identity
 	FXService.applyElementAppearance(clone, quinInstance.Element)
 
-	-- Set network owner to server
+	-- Set network owner to server & silence default Roblox character sounds
 	local rootPart = clone:FindFirstChild("HumanoidRootPart")
 	if rootPart then
 		task.defer(function()
 			pcall(function()
 				rootPart:SetNetworkOwner(nil)
 			end)
+		end)
+
+		-- Suppress default Roblox character sounds so QuinCore.AudioModule has total authority
+		local DEFAULT_ROBLOX_SOUNDS = {
+			Running = true, Jumping = true, Landing = true, Freefalling = true,
+			Climbing = true, Died = true, Swimming = true, GettingUp = true, Splash = true
+		}
+		for _, desc in ipairs(clone:GetDescendants()) do
+			if desc:IsA("Sound") and DEFAULT_ROBLOX_SOUNDS[desc.Name] then
+				desc:Destroy()
+			end
+		end
+		rootPart.ChildAdded:Connect(function(child)
+			if child:IsA("Sound") and DEFAULT_ROBLOX_SOUNDS[child.Name] then
+				task.defer(function()
+					pcall(function() child:Destroy() end)
+				end)
+			end
 		end)
 	end
 
