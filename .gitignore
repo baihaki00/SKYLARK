@@ -1,4 +1,25 @@
-﻿__pycache__/
+﻿# Python and virtual environments
+*.py
 *.pyc
+__pycache__/
+venv/
+env/
+
+# Data and archives
 *.zip
+*.tar
+*.gz
+*.json
+*.csv
 *.log
+
+# Media and documentation dumps
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+Docs/
+Tests/
+Tools/
+Archive/
