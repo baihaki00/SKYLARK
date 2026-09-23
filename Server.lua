@@ -9,15 +9,17 @@ local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 local QuinRosterService = require(ServerScriptService:WaitForChild("QuinRosterService"))
 local BattleSimulationHarness = require(ServerScriptService:WaitForChild("BattleSimulationHarness"))
 
--- Isolate spectator players to high altitude (Y = 600) so they do not interfere with simulation
+-- Isolate spectator players near PLAYERSPAWN so they do not interfere with simulation while keeping streaming focus
 local function isolateSpectatorPlayer(player)
 	player.CharacterAdded:Connect(function(char)
 		task.wait(0.1)
 		local hrp = char:WaitForChild("HumanoidRootPart", 5)
 		local hum = char:FindFirstChildOfClass("Humanoid")
+		local ps = Workspace:FindFirstChild("PLAYERSPAWN")
+		local isoCF = ps and (ps.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(0, 600, 0)
 		if hrp then
 			hrp.Anchored = true
-			hrp.CFrame = CFrame.new(0, 600, 0)
+			hrp.CFrame = isoCF
 		end
 		for _, part in ipairs(char:GetDescendants()) do
 			if part:IsA("BasePart") then
@@ -33,9 +35,11 @@ local function isolateSpectatorPlayer(player)
 	if player.Character then
 		task.spawn(function()
 			local hrp = player.Character:WaitForChild("HumanoidRootPart", 5)
+			local ps = Workspace:FindFirstChild("PLAYERSPAWN")
+			local isoCF = ps and (ps.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(0, 600, 0)
 			if hrp then
 				hrp.Anchored = true
-				hrp.CFrame = CFrame.new(0, 600, 0)
+				hrp.CFrame = isoCF
 			end
 			for _, part in ipairs(player.Character:GetDescendants()) do
 				if part:IsA("BasePart") then
@@ -90,40 +94,70 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 		local quinServer = Workspace:FindFirstChild("QuinServer")
 		local targetQuin = nil
 
-		-- 1. Try to find requested or existing Quin in QuinServer
+		-- Clean up any dead quins previously controlled by this player
+		if quinServer then
+			for _, child in ipairs(quinServer:GetChildren()) do
+				if child:GetAttribute("ControllingPlayer") == player.Name then
+					local hum = child:FindFirstChildOfClass("Humanoid")
+					if hum and hum.Health <= 0 then
+						child:Destroy()
+					end
+				end
+			end
+		end
+
+		-- 1. Try to find requested or existing living Quin in QuinServer
 		if targetQuinName and quinServer then
 			targetQuin = quinServer:FindFirstChild(targetQuinName)
 		end
 		if not targetQuin and quinServer then
 			for _, child in ipairs(quinServer:GetChildren()) do
-				if child:IsA("Model") and child:FindFirstChild("HumanoidRootPart") and not child:GetAttribute("IsPlayerControlled") then
+				local hum = child:FindFirstChildOfClass("Humanoid")
+				if child:IsA("Model") and child:FindFirstChild("HumanoidRootPart") and (not hum or hum.Health > 0) and not child:GetAttribute("IsPlayerControlled") then
 					targetQuin = child
 					break
 				end
 			end
 		end
 
-		-- 2. If no Quin exists in arena, spawn a clean one at map center
+		-- Calculate target spawn CFrame using PLAYERSPAWN
+		local playerSpawnObj = Workspace:FindFirstChild("PLAYERSPAWN")
+		local targetCFrame
+		if playerSpawnObj and playerSpawnObj:IsA("BasePart") then
+			targetCFrame = playerSpawnObj.CFrame * CFrame.new(0, playerSpawnObj.Size.Y / 2 + 3.5, 0)
+		else
+			targetCFrame = CFrame.new(0, 7.5, 0)
+		end
+
+		-- 2. If no living Quin exists in arena, spawn a clean one at PLAYERSPAWN
 		if not targetQuin then
-			local spawnPos = Vector3.new(0, 7.5, 0)
-			targetQuin = QuinSpawner.spawn("TypeA", spawnPos, "Team1", "Fire")
+			targetQuin = QuinSpawner.spawn("TypeA", targetCFrame.Position, "Team1", "Fire")
 		end
 
 		if targetQuin then
 			local root = targetQuin:FindFirstChild("HumanoidRootPart")
 			if root then
+				targetQuin:PivotTo(targetCFrame)
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
 				pcall(function()
 					root:SetNetworkOwner(player)
 				end)
 			end
 			targetQuin:SetAttribute("IsPlayerControlled", true)
 			targetQuin:SetAttribute("ControllingPlayer", player.Name)
-			print(string.format("[Server] Player %s possessed %s (NetworkOwner granted)", player.Name, targetQuin.Name))
+			pcall(function()
+				player.ReplicationFocus = root
+			end)
+			print(string.format("[Server] Player %s possessed %s at %s (NetworkOwner granted)", player.Name, targetQuin.Name, tostring(targetCFrame.Position)))
 			return targetQuin
 		end
 		return nil
 
 	elseif action == "Release" then
+		pcall(function()
+			player.ReplicationFocus = nil
+		end)
 		local quinServer = Workspace:FindFirstChild("QuinServer")
 		if quinServer then
 			for _, child in ipairs(quinServer:GetChildren()) do

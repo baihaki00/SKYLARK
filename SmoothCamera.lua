@@ -25,9 +25,10 @@ local minZoom, maxZoom = 4.0, 45.0
 -- === INITIAL STATE: FREEFLY ABOVE ARENA ===
 local cameraMode = "FREEFLY" -- "FREEFLY" or "QUIN_SPECTATE"
 shared.SpectatorState = { Mode = "FREEFLY" }
-local cameraPos = Vector3.new(0, 140, 160)
+local playerSpawnObj = workspace:FindFirstChild("PLAYERSPAWN")
+local cameraPos = playerSpawnObj and (playerSpawnObj.Position + Vector3.new(0, 15, 30)) or Vector3.new(0, 140, 160)
 local yaw = 0
-local pitch = -38.0 -- Angled downward at the battlefield center
+local pitch = playerSpawnObj and -18.0 or -38.0 -- Angled toward the course
 
 -- Orbit internals
 local smoothYaw, smoothPitch = yaw, pitch
@@ -44,9 +45,11 @@ local function isolatePlayerCharacter(char)
 	if not char then return end
 	local root = char:WaitForChild("HumanoidRootPart", 5)
 	local hum = char:FindFirstChildOfClass("Humanoid")
+	local ps = workspace:FindFirstChild("PLAYERSPAWN")
+	local isoCF = ps and (ps.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(0, 600, 0)
 	if root then
 		root.Anchored = true
-		root.CFrame = CFrame.new(0, 600, 0)
+		root.CFrame = isoCF
 	end
 	for _, part in ipairs(char:GetDescendants()) do
 		if part:IsA("BasePart") then
@@ -208,8 +211,9 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		shared.SpectatedQuin = nil
 		_G.SpectatedQuin = nil
 		workspace:SetAttribute("SpectatedQuin", "")
-		cameraPos = Vector3.new(0, 140, 160)
-		pitch = -38.0
+		local ps = workspace:FindFirstChild("PLAYERSPAWN")
+		cameraPos = ps and (ps.Position + Vector3.new(0, 15, 30)) or Vector3.new(0, 140, 160)
+		pitch = ps and -18.0 or -38.0
 		yaw = 0
 		print("[SmoothCamera] Returned to default Freefly Spectator overview.")
 

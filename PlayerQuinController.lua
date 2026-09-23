@@ -271,3 +271,12 @@ UserInputService.InputBegan:Connect(function(input, gp)
 end)
 
 print("[PlayerQuinController] Initialized. Press 'P' or click 'Play As Quin' to hop in.")
+
+-- Auto-spawn into Quin mode at PLAYERSPAWN on startup
+task.spawn(function()
+	task.wait(0.5)
+	if not activeQuin then
+		print("[PlayerQuinController] Auto-spawning player at PLAYERSPAWN...")
+		toggleQuinControl(true)
+	end
+end)
