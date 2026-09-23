@@ -539,6 +539,14 @@ task.spawn(function()
 			end
 		end
 
+		-- === Player-Controlled Bypass ===
+		-- When a human player is piloting this Quin, bypass autonomous AI decisions and FSM movement
+		if Quin:GetAttribute("IsPlayerControlled") == true then
+			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+			task.wait(math.clamp(0.05 / speedMult, 0.015, 0.05))
+			continue
+		end
+
 		-- === Tactical Perception & Emergent Decision Layer ===
 		local showdownRole = Quin:GetAttribute("LeaderShowdownRole")
 		local isShowdownPerimeter = (showdownRole == "PerimeterGuard" or showdownRole == "Transition")

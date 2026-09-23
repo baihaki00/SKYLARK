@@ -145,6 +145,15 @@ end)
 
 -- Check active spectated Quin
 local function getActiveSpectatedQuin()
+	local playerQuin = shared.PlayerControlledQuin or _G.PlayerControlledQuin
+	if playerQuin and playerQuin.Parent and playerQuin:FindFirstChild("HumanoidRootPart") then
+		local hum = playerQuin:FindFirstChildOfClass("Humanoid")
+		local hrp = playerQuin:FindFirstChild("HumanoidRootPart")
+		if hum and hum.Health > 0 and hrp then
+			return hrp, playerQuin
+		end
+	end
+
 	local specQuin = shared.SpectatedQuin or _G.SpectatedQuin
 	if not specQuin or not specQuin.Parent then
 		local specName = workspace:GetAttribute("SpectatedQuin")
@@ -268,11 +277,19 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 
 	Camera.CameraType = Enum.CameraType.Scriptable
 
-	-- Check if a Quin is selected from the HUD
+	-- Check if a Quin is selected from the HUD or player possessed
 	local targetHRP, quinModel = getActiveSpectatedQuin()
 	if targetHRP and cameraMode ~= "QUIN_SPECTATE" then
 		cameraMode = "QUIN_SPECTATE"
 		shared.SpectatorState.Mode = cameraMode
+		if shared.PlayerControlledQuin then
+			targetDistance = 14
+			pitch = -12
+			local look = targetHRP.CFrame.LookVector
+			yaw = math.deg(math.atan2(-look.X, -look.Z))
+			smoothYaw = yaw
+			smoothPitch = pitch
+		end
 	elseif not targetHRP and cameraMode == "QUIN_SPECTATE" then
 		cameraMode = "FREEFLY"
 		shared.SpectatorState.Mode = cameraMode

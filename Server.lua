@@ -75,4 +75,75 @@ speedEvent.OnServerEvent:Connect(function(player, newSpeed)
 	print(string.format("[GameSpeed] Simulation speed set to %.1fx by %s", val, player and player.Name or "Server"))
 end)
 
+-- ============================================================
+-- PLAYER QUIN POSSESSION CONTROLLER (Play As Quin)
+-- ============================================================
+local quinControlFunction = ReplicatedStorage:FindFirstChild("PlayerQuinControlFunction")
+if not quinControlFunction then
+	quinControlFunction = Instance.new("RemoteFunction")
+	quinControlFunction.Name = "PlayerQuinControlFunction"
+	quinControlFunction.Parent = ReplicatedStorage
+end
+
+quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
+	if action == "Possess" then
+		local quinServer = Workspace:FindFirstChild("QuinServer")
+		local targetQuin = nil
+
+		-- 1. Try to find requested or existing Quin in QuinServer
+		if targetQuinName and quinServer then
+			targetQuin = quinServer:FindFirstChild(targetQuinName)
+		end
+		if not targetQuin and quinServer then
+			for _, child in ipairs(quinServer:GetChildren()) do
+				if child:IsA("Model") and child:FindFirstChild("HumanoidRootPart") and not child:GetAttribute("IsPlayerControlled") then
+					targetQuin = child
+					break
+				end
+			end
+		end
+
+		-- 2. If no Quin exists in arena, spawn a clean one at map center
+		if not targetQuin then
+			local spawnPos = Vector3.new(0, 7.5, 0)
+			targetQuin = QuinSpawner.spawn("TypeA", spawnPos, "Team1", "Fire")
+		end
+
+		if targetQuin then
+			local root = targetQuin:FindFirstChild("HumanoidRootPart")
+			if root then
+				pcall(function()
+					root:SetNetworkOwner(player)
+				end)
+			end
+			targetQuin:SetAttribute("IsPlayerControlled", true)
+			targetQuin:SetAttribute("ControllingPlayer", player.Name)
+			print(string.format("[Server] Player %s possessed %s (NetworkOwner granted)", player.Name, targetQuin.Name))
+			return targetQuin
+		end
+		return nil
+
+	elseif action == "Release" then
+		local quinServer = Workspace:FindFirstChild("QuinServer")
+		if quinServer then
+			for _, child in ipairs(quinServer:GetChildren()) do
+				if child:GetAttribute("ControllingPlayer") == player.Name or child.Name == targetQuinName then
+					child:SetAttribute("IsPlayerControlled", false)
+					child:SetAttribute("ControllingPlayer", nil)
+					local root = child:FindFirstChild("HumanoidRootPart")
+					if root then
+						pcall(function()
+							root:SetNetworkOwner(nil)
+						end)
+					end
+					print(string.format("[Server] Player %s released %s (NetworkOwner reverted to Server)", player.Name, child.Name))
+				end
+			end
+		end
+		return true
+	end
+	return nil
+end
+
 print("[Server] All QuinCore server services initialized successfully. Default speed: 1.0x")
+
