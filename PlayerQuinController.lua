@@ -39,15 +39,16 @@ end
 
 local btnFrame = Instance.new("Frame")
 btnFrame.Name = "PlayAsQuinContainer"
-btnFrame.Size = UDim2.new(0, 180, 0, 40)
-btnFrame.Position = UDim2.new(0, 20, 0, 70)
+btnFrame.Size = UDim2.new(0, 180, 0, 36)
+btnFrame.AnchorPoint = Vector2.new(1, 1)
+btnFrame.Position = UDim2.new(1, -20, 1, -113)
 btnFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
 btnFrame.BackgroundTransparency = 0.2
 btnFrame.BorderSizePixel = 0
 btnFrame.Parent = screenGui
 
 local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 8)
+corner.CornerRadius = UDim.new(0, 18)
 corner.Parent = btnFrame
 
 local stroke = Instance.new("UIStroke")

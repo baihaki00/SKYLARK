@@ -132,22 +132,23 @@ gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- HUD Visibility flag (Visible by default; press H or click pill to toggle)
-local isHudVisible = true
+-- HUD Visibility flag (Closed by default; press H or click pill to toggle)
+local isHudVisible = false
 local showVerboseTrace = true
 
--- Floating Toggle Pill (Top-Left, docked opposite to Quin Manager Menu)
+-- Floating Toggle Pill (Docked bottom-right in stack)
 local togglePill = Instance.new("TextButton")
 togglePill.Name = "SpectatorTogglePill"
 togglePill.Size = UDim2.new(0, 180, 0, 36)
-togglePill.Position = UDim2.new(0, 15, 0, 15)
+togglePill.AnchorPoint = Vector2.new(1, 1)
+togglePill.Position = UDim2.new(1, -20, 1, -25)
 togglePill.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
 togglePill.BackgroundTransparency = 0.15
 togglePill.TextColor3 = Color3.fromRGB(0, 229, 255)
 togglePill.Font = Enum.Font.GothamBold
 togglePill.TextSize = 12
 togglePill.Text = "👁️ Spectator HUD [H]"
-togglePill.Visible = false
+togglePill.Visible = true
 togglePill.Parent = gui
 
 local pillCorner = Instance.new("UICorner")
@@ -350,7 +351,8 @@ local function setHudVisibility(visible)
 		togglePill.Visible = false
 	else
 		outerFrame.Visible = visible
-		togglePill.Visible = not visible
+		togglePill.Visible = true
+		togglePill.Text = visible and "👁️ Close Spectator [H]" or "👁️ Spectator HUD [H]"
 	end
 end
 
@@ -636,7 +638,8 @@ RunService.Heartbeat:Connect(function()
 	else
 		local showHUD = isHudVisible and (count > 0)
 		outerFrame.Visible = showHUD
-		togglePill.Visible = not showHUD
+		togglePill.Visible = true
+		togglePill.Text = showHUD and "👁️ Close Spectator [H]" or "👁️ Spectator HUD [H]"
 	end
 
 	-- Prune stale cards

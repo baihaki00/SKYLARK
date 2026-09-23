@@ -769,10 +769,13 @@ end)
 -- ======================================
 -- AUTO-START CONFIGURATION
 -- ======================================
-local GAME_MODE = 3
+local GAME_MODE = 0 -- 0: Inactive on default Play (do nothing)
 
 task.delay(3, function()
-	if GAME_MODE == 1 then
+	if GAME_MODE == 0 or not GAME_MODE then
+		-- Do nothing on default Play as requested
+		return
+	elseif GAME_MODE == 1 then
 		broadcastStatus("Auto-starting Jump Projectile Test Mode...")
 		GameModeManager.startJumpProjectileTestMode(1)
 		

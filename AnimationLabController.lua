@@ -348,10 +348,11 @@ mainFrame.Parent = screenGui
 applyCorner(mainFrame, 10)
 applyStroke(mainFrame, Color3.fromRGB(60, 72, 95), 1.5)
 
--- Floating Toggle Pill
+-- Floating Toggle Pill (Docked bottom-right in stack)
 local togglePill = Instance.new("TextButton")
 togglePill.Size = UDim2.new(0, 180, 0, 36)
-togglePill.Position = UDim2.new(1, -195, 0, 15)
+togglePill.AnchorPoint = Vector2.new(1, 1)
+togglePill.Position = UDim2.new(1, -20, 1, -69)
 togglePill.BackgroundColor3 = C_PANEL
 togglePill.TextColor3 = C_ACCENT
 togglePill.Font = Enum.Font.GothamBold
