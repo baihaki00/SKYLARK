@@ -261,7 +261,16 @@ if enableghostmode then
 				if root and ghostRoot then
 					local yOffset = CombatConfig.VisualGhostHeightOffset or 0.16
 					local targetCF = root.CFrame * CFrame.new(0, yOffset, 0)
-					ghostRoot.CFrame = ghostRoot.CFrame:Lerp(targetCF, SMOOTH_FACTOR)
+					
+					-- Adaptive frame-rate independent exponential smoothing
+					local currentVel = root.AssemblyLinearVelocity
+					local flatSpeed = Vector3.new(currentVel.X, 0, currentVel.Z).Magnitude
+					local distErr = (ghostRoot.Position - targetCF.Position).Magnitude
+					local lambda = 25.0 + 0.35 * flatSpeed + math.max(0, (distErr - 0.8) * 20.0)
+					local alpha = 1.0 - math.exp(-lambda * dt)
+					alpha = math.clamp(alpha, 0.10, 1.0)
+					
+					ghostRoot.CFrame = ghostRoot.CFrame:Lerp(targetCF, alpha)
 				end
 
 				local isDead = (aiModel:GetAttribute("CurrentState") == "Death")

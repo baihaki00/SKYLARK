@@ -396,7 +396,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			if rearModel and rearModel:FindFirstChild("HumanoidRootPart") then
 				local rHRP = rearModel.HumanoidRootPart
 				local snapLook = CFrame.lookAt(rootPart.Position, Vector3.new(rHRP.Position.X, rootPart.Position.Y, rHRP.Position.Z))
-				rootPart.CFrame = snapLook
+				rootPart.CFrame = rootPart.CFrame:Lerp(snapLook, 0.35)
 				AnimationModule.playConfig(humanoid, "Awareness.Turn180Pivot", 1.5, Enum.AnimationPriority.Action4, false)
 				
 				fighter:SetAttribute("CurrentTarget", rearModel.Name)
@@ -435,6 +435,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				data.pacingSwitchTime = now + ((data.isPacingWalk and math.random(1.5, 2.5) or math.random(3.5, 6)) / speedMult)
 			end
 			shouldWalk = data.isPacingWalk and (distance > 40)
+		end
+
+		-- Pacing Commitment Hysteresis: do not abort sprint pursuit within 2.0s of initiating sprint
+		local sprintDwell = (now - (data.sprintStartTime or 0)) < (2.0 / speedMult)
+		if sprintDwell and not data.wasWalking and distance > 10 then
+			shouldWalk = false
 		end
 	end
 
@@ -520,7 +526,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local obsInfo = SpatialModule.analyzeObstacleAhead(rootPart, targetHRP.Position, 22)
 	local obstacleSteer = nil
 	if obsInfo.hasObstacle and not inShowdown then
-		if obsInfo.canVault and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+		local isJumpSuppressed = LocomotionModule.isJumpSuppressed(fighter, humanoid)
+		if obsInfo.canVault and not isJumpSuppressed and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
 			local soundPart = fighter:FindFirstChild("Sounds")
 			if soundPart then
 				local jumpSound = soundPart:FindFirstChild("jump")
@@ -532,7 +539,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			end
 			fighter:SetAttribute("ObstacleAwareness", obsInfo.isOB and "Parkour Vaulting OB" or "Parkour Vaulting Obstacle")
 			JumpHandler.performJump(humanoid, rootPart, obsInfo.height, nil, "vault")
-		elseif obsInfo.isTall then
+		else
+			-- Ground pathfinding fallback: tall barrier or jumps suppressed -> steer along tangent around obstacle
 			fighter:SetAttribute("ObstacleAwareness", obsInfo.isOB and "Navigating OB" or "Avoiding Obstacle")
 			obstacleSteer = obsInfo.steerDirection
 		end
@@ -657,43 +665,18 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	local speed = fighter:GetAttribute("Speed") or 40
 	local targetSpeed = (shouldWalk and 16 or speed) * speedMult
-	
-	-- Locomotion Acceleration & Deceleration Buffer (Phase 1)
+
+	-- Locomotion Timing & Continuity: delegate acceleration & braking to LocomotionModule
 	local lastUpdate = data.lastUpdateTime or (now - 0.05)
 	local dt = math.clamp(now - lastUpdate, 0.016, 0.25)
 	data.lastUpdateTime = now
 
-	local accelRate = (CombatConfig.LocomotionAcceleration or 70) * speedMult
-	local decelRate = (CombatConfig.LocomotionDeceleration or 130) * speedMult
 	local currentSpeed = humanoid.WalkSpeed
-
-	local brakeThreshold = CombatConfig.WalkBrakingThreshold or 6.0
-	if currentSpeed < targetSpeed then
-		currentSpeed = math.min(targetSpeed, currentSpeed + accelRate * dt)
-		data.isAccelerating = true
-		data.isDecelerating = false
-		if data.playedBrakeStop then
-			data.playedBrakeStop = false
-			AnimationModule.stopConfig(humanoid, "Movement.BrakingStop", 0.1)
-		end
-	elseif currentSpeed > targetSpeed then
-		currentSpeed = math.max(targetSpeed, currentSpeed - decelRate * dt)
-		data.isAccelerating = false
-		data.isDecelerating = true
-		if currentSpeed < brakeThreshold and currentSpeed > 1.0 and not data.playedBrakeStop then
-			data.playedBrakeStop = true
-			AnimationModule.playConfig(humanoid, "Movement.BrakingStop", 1.65, Enum.AnimationPriority.Action, false)
-		end
-	else
-		data.isAccelerating = false
-		data.isDecelerating = false
-		if data.playedBrakeStop then
-			data.playedBrakeStop = false
-			AnimationModule.stopConfig(humanoid, "Movement.BrakingStop", 0.1)
-		end
-	end
+	data.isAccelerating = (currentSpeed < targetSpeed - 2.0)
+	data.isDecelerating = (currentSpeed > targetSpeed + 2.0)
 	data.currentSpeed = currentSpeed
-	fighter:SetAttribute("PacingVelocity", math.floor(currentSpeed + 0.5))
+	data.targetSpeed = targetSpeed
+	data.dt = dt
 
 	-- Clean up expired turn or arc overlays so they never hold bone transforms frozen
 	if data.turnAnim and now >= (data.turnActiveUntil or 0) then
@@ -878,17 +861,6 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.currentAnim = turnAnim
 		
 		AnimationModule.playConfig(humanoid, turnAnim, 1.35, Enum.AnimationPriority.Action, false)
-		
-		-- Pivot impulse towards target
-		local targetLookCF = CFrame.lookAt(rootPart.Position, rootPart.Position + flatTargetDir)
-		rootPart.CFrame = rootPart.CFrame:Lerp(targetLookCF, 0.40)
-		
-		-- Speed dips slightly for kinetic pivot friction
-		currentSpeed = math.max(10, currentSpeed * 0.70)
-	elseif now < (data.turnActiveUntil or 0) and data.turnTargetHeading then
-		-- Actively turning: smoothly complete the orientation pivot
-		local targetLookCF = CFrame.lookAt(rootPart.Position, rootPart.Position + data.turnTargetHeading)
-		rootPart.CFrame = rootPart.CFrame:Lerp(targetLookCF, 0.25)
 	end
 
 	-- 2. Athletic 90-Degree Plant Cut (Mirrored Left / Right)
@@ -910,13 +882,6 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.currentAnim = turn90Anim
 
 		AnimationModule.playConfig(humanoid, turn90Anim, 1.65, Enum.AnimationPriority.Action, false)
-
-		-- Pivot impulse towards target
-		local targetLookCF = CFrame.lookAt(rootPart.Position, rootPart.Position + flatTargetDir)
-		rootPart.CFrame = rootPart.CFrame:Lerp(targetLookCF, 0.45)
-
-		-- Kinetic plant friction: momentary speed dip for athletic weight
-		currentSpeed = math.max(12, currentSpeed * 0.75)
 	end
 
 	-- 3. Curved Pursuit / Arc Run 30 Degree Rear (Mirrored Left / Right)
@@ -940,7 +905,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		AnimationModule.playConfig(humanoid, arcAnim, 1.20, Enum.AnimationPriority.Movement, false)
 	end
 
-	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, currentSpeed, 0.1)
+	-- Authoritative single-driver steering & speed modulation
+	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, targetSpeed, dt)
 	
 	local rootJoint = data.rootJoint
 	if not rootJoint then

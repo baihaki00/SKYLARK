@@ -100,36 +100,52 @@ function SpatialModule.isNearArenaEdge(rootPart, threshold)
 	return false, Vector3.zero
 end
 
--- Get a safe direction to move when obstacles are ahead
+-- Get a safe direction to move when obstacles are ahead with multi-ray whisker array
 function SpatialModule.getObstacleAvoidanceDirection(rootPart, checkDistance)
-	checkDistance = checkDistance or 8
+	checkDistance = checkDistance or 14
 	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = {rootPart.Parent}
+	local excludeList = {rootPart.Parent}
+	local qs = Workspace:FindFirstChild("QuinServer")
+	if qs then table.insert(excludeList, qs) end
+	params.FilterDescendantsInstances = excludeList
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	
+
 	local forward = rootPart.CFrame.LookVector
-	local right = rootPart.CFrame.RightVector
-	
-	-- Check forward
-	local fwd = Workspace:Raycast(rootPart.Position, forward * checkDistance, params)
-	if not fwd then
-		return forward -- Clear ahead
+	local flatFwd = Vector3.new(forward.X, 0, forward.Z)
+	flatFwd = flatFwd.Magnitude > 0.01 and flatFwd.Unit or forward
+	local waistOrigin = rootPart.Position - Vector3.new(0, 2.0, 0)
+
+	-- Check direct forward
+	local fwdHit = Workspace:Raycast(waistOrigin, flatFwd * checkDistance, params)
+	if not fwdHit then
+		return flatFwd -- Clear ahead
 	end
-	
-	-- Check right
-	local rgt = Workspace:Raycast(rootPart.Position, right * checkDistance, params)
-	if not rgt then
-		return right
+
+	-- Tangent projection if normal is vertical/planar
+	if fwdHit.Normal and math.abs(fwdHit.Normal.Y) < 0.3 then
+		local flatNorm = Vector3.new(fwdHit.Normal.X, 0, fwdHit.Normal.Z).Unit
+		local tangent = flatFwd - (flatFwd:Dot(flatNorm) * flatNorm)
+		if tangent.Magnitude > 0.05 then
+			local tangentDir = (tangent.Unit + flatNorm * 0.35).Unit
+			local tHit = Workspace:Raycast(waistOrigin, tangentDir * (checkDistance * 0.85), params)
+			if not tHit then
+				return tangentDir
+			end
+		end
 	end
-	
-	-- Check left
-	local lft = Workspace:Raycast(rootPart.Position, -right * checkDistance, params)
-	if not lft then
-		return -right
+
+	-- Multi-ray whisker sweep (±25°, ±45°, ±75°, ±90°)
+	local angles = { 25, -25, 45, -45, 75, -75, 90, -90 }
+	for _, ang in ipairs(angles) do
+		local rot = CFrame.Angles(0, math.rad(ang), 0)
+		local testDir = (rot * flatFwd).Unit
+		local hit = Workspace:Raycast(waistOrigin, testDir * (checkDistance * 0.85), params)
+		if not hit then
+			return testDir
+		end
 	end
-	
-	-- Check backward
-	return -forward
+
+	return -flatFwd
 end
 
 -- Predict intercept point for anime-style arc movement
@@ -307,6 +323,19 @@ function SpatialModule.analyzeObstacleAhead(rootPart, targetPos, checkDistance)
 			if dot > bestDot then
 				bestDot = dot
 				bestSteerDir = testDir
+			end
+		end
+	end
+
+	-- Calculate obstacle surface tangent if hit normal is planar/vertical
+	if hit.Normal and math.abs(hit.Normal.Y) < 0.35 then
+		local flatNorm = Vector3.new(hit.Normal.X, 0, hit.Normal.Z).Unit
+		local proj = dir - (dir:Dot(flatNorm) * flatNorm)
+		if proj.Magnitude > 0.05 then
+			local tangentCandidate = (proj.Unit + flatNorm * 0.35).Unit
+			local tHit = Workspace:Raycast(waistOrigin, tangentCandidate * (checkDistance * 0.85), params)
+			if not tHit then
+				bestSteerDir = tangentCandidate
 			end
 		end
 	end

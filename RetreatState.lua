@@ -400,16 +400,9 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	local dt = math.clamp(now - lastUpdate, 0.016, 0.25)
 	data.lastUpdateTime = now
 
-	local accelRate = (CombatConfig.LocomotionAcceleration or 70) * speedMult
-	local currentSpeed = data.currentSpeed or humanoid.WalkSpeed
-	if currentSpeed < maxSpeed then
-		currentSpeed = math.min(maxSpeed, currentSpeed + accelRate * dt)
-		data.isAccelerating = true
-	else
-		data.isAccelerating = false
-	end
+	local currentSpeed = humanoid.WalkSpeed
+	data.isAccelerating = (currentSpeed < maxSpeed - 2.0)
 	data.currentSpeed = currentSpeed
-	humanoid.WalkSpeed = currentSpeed
 
 	-- Animation track selection with push-off awareness
 	local desiredAnim
@@ -465,7 +458,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- Continuous per-frame target steering with dynamic traction skid
-	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, currentSpeed, 0.1)
+	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, maxSpeed, dt)
 
 	-- Dynamic forward torso lean & banking (rootJoint.C0)
 	local rootJoint = data.rootJoint

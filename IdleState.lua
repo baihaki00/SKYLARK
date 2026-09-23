@@ -13,6 +13,7 @@ local IdleState = { name = "Idle" }
 local idleData = {}
 
 function IdleState.enter(fighter, humanoid, rootPart)
+	LocomotionModule.brake(fighter, humanoid, rootPart, 0.05)
 	humanoid.WalkSpeed = 0
 	AnimationModule.playConfig(humanoid, "Movement.Idle")
 
@@ -57,6 +58,8 @@ end
 
 function IdleState.exit(fighter, humanoid, rootPart)
 	AnimationModule.stopConfig(humanoid, "Movement.Idle")
+	local gyro = rootPart and rootPart:FindFirstChild("IdleGyro")
+	if gyro then gyro:Destroy() end
 	idleData[fighter] = nil
 end
 
@@ -101,9 +104,23 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 	if target then
 		local targetHRP = target:FindFirstChild("HumanoidRootPart")
 		if targetHRP then
-			-- Smooth face target
+			-- Smooth face target via AlignOrientation (Authoritative physics torque, zero CFrame snapping)
 			local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
-			rootPart.CFrame = rootPart.CFrame:Lerp(lookCF, 0.2)
+			local gyro = rootPart:FindFirstChild("IdleGyro")
+			if not gyro then
+				gyro = Instance.new("AlignOrientation")
+				gyro.Name = "IdleGyro"
+				gyro.Mode = Enum.OrientationAlignmentMode.OneAttachment
+				local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+				att.Name = "RootAttachment"
+				gyro.Attachment0 = att
+				gyro.RigidityEnabled = false
+				gyro.Responsiveness = 15
+				gyro.MaxTorque = 100000
+				gyro.CFrame = rootPart.CFrame
+				gyro.Parent = rootPart
+			end
+			gyro.CFrame = lookCF
 		end
 		
 		fighter:SetAttribute("CurrentTarget", target.Name)

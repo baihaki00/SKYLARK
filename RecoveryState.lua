@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 
 local RecoveryState = { name = "Recovery" }
 
@@ -14,26 +15,24 @@ local recoveryData = {}
 function RecoveryState.enter(fighter, humanoid, rootPart)
 	local kbType = fighter:GetAttribute("KnockbackType") or "ground"
 	
+	LocomotionModule.brake(fighter, humanoid, rootPart, 0.05)
 	humanoid.WalkSpeed = 0
 	humanoid.PlatformStand = false
 
 	-- Physical Upright Alignment & Floor Clearance
 	local upY = rootPart.CFrame.UpVector.Y
-	local lookFlat = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
-	if lookFlat.Magnitude < 0.05 then
-		lookFlat = Vector3.new(-rootPart.CFrame.UpVector.X, 0, -rootPart.CFrame.UpVector.Z)
-		if lookFlat.Magnitude < 0.05 then
-			lookFlat = Vector3.new(0, 0, -1)
-		end
-	end
-	lookFlat = lookFlat.Unit
-
-	local currentPos = rootPart.Position
 	if upY < 0.85 then
-		-- Lift +1.2 studs to clear floor collision mesh so HipHeight raycast engages cleanly
+		-- Prone tumble recovery: lift +1.2 studs to clear floor collision mesh so HipHeight raycast engages cleanly
+		local lookFlat = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+		if lookFlat.Magnitude < 0.05 then
+			lookFlat = Vector3.new(-rootPart.CFrame.UpVector.X, 0, -rootPart.CFrame.UpVector.Z)
+			if lookFlat.Magnitude < 0.05 then
+				lookFlat = Vector3.new(0, 0, -1)
+			end
+		end
+		lookFlat = lookFlat.Unit
+		local currentPos = rootPart.Position
 		rootPart.CFrame = CFrame.lookAt(currentPos + Vector3.new(0, 1.2, 0), currentPos + Vector3.new(0, 1.2, 0) + lookFlat, Vector3.new(0, 1, 0))
-	else
-		rootPart.CFrame = CFrame.lookAt(currentPos, currentPos + lookFlat, Vector3.new(0, 1, 0))
 	end
 
 	rootPart.AssemblyLinearVelocity = Vector3.zero
@@ -82,8 +81,6 @@ function RecoveryState.exit(fighter, humanoid, rootPart)
 	
 	humanoid.PlatformStand = false
 	rootPart.AssemblyAngularVelocity = Vector3.zero
-	local speed = fighter:GetAttribute("Speed") or 40
-	humanoid.WalkSpeed = speed
 	
 	fighter:SetAttribute("KnockbackType", nil)
 	recoveryData[fighter] = nil

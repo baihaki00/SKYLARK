@@ -38,8 +38,17 @@ end
 -- 1. ACCELERATION & BRAKING (Smooth velocity modulation; zero 1-frame snaps)
 -- ============================================================================
 
+function LocomotionModule.isJumpSuppressed(fighter, humanoid)
+	if not fighter or not humanoid then return true end
+	if fighter:GetAttribute("DisableJumping") == true then return true end
+	if workspace:GetAttribute("DisableJumping") == true then return true end
+	if humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping) == false then return true end
+	return false
+end
+
 function LocomotionModule.modulateSpeed(fighter, humanoid, targetSpeed, dt)
-	dt = dt or 0.1
+	dt = dt or 0.05
+	dt = math.clamp(dt, 0.016, 0.25)
 	local data = getLocoData(fighter)
 	local currentSpeed = humanoid.WalkSpeed
 
@@ -55,17 +64,19 @@ function LocomotionModule.modulateSpeed(fighter, humanoid, targetSpeed, dt)
 
 	humanoid.WalkSpeed = newSpeed
 	data.currentSpeed = newSpeed
+	fighter:SetAttribute("PacingVelocity", math.floor(newSpeed + 0.5))
 	return newSpeed
 end
 
 -- ============================================================================
--- 2. STEERING & TRACTION (Dynamic 180° Skid & Centripetal Steering)
+-- 2. STEERING & TRACTION (Dynamic 180° Skid & Continuous Centripetal Steering)
 -- ============================================================================
 
 function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, targetSpeed, dt)
 	if not fighter or not humanoid or not rootPart or not targetPosition then return end
 
-	dt = dt or 0.1
+	dt = dt or 0.05
+	dt = math.clamp(dt, 0.016, 0.25)
 	local data = getLocoData(fighter)
 
 	-- 1. Smoothly accelerate / decelerate to target speed
@@ -88,24 +99,23 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		local cosTheta = curDir:Dot(desDir)
 
 		-- Sharp reversal: >= 120 degrees cut (cos theta < -0.5)
-		if cosTheta < -0.5 and (now - data.lastSkidTime) >= 1.5 then
+		if cosTheta < -0.5 and (now - data.lastSkidTime) >= 1.4 then
 			data.lastSkidTime = now
 
 			-- Visual: Play 180 Turn animation
-			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.25, Enum.AnimationPriority.Action3, false)
+			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.35, Enum.AnimationPriority.Action3, false)
 
-			-- Physical traction slip: carry residual forward momentum along original heading
-			local skidSpeed = currentSpeed * (CombatConfig.Locomotion_TractionSlipFactor or 0.35)
-			KnockbackModule.applySlide(fighter, curDir, skidSpeed, 0.28)
+			-- Kinetic plant friction: drop speed dynamically for athletic weight, NO contradictory slide impulse
+			humanoid.WalkSpeed = math.max(10.0, currentSpeed * 0.45)
+			data.currentSpeed = humanoid.WalkSpeed
 
 			-- VFX: Kick up dust along skid vector
-			local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
 			local elem = fighter:GetAttribute("Element") or "Fire"
 			VfxModule.createDust(rootPart.Position, 3, curDir, elem)
 		end
 	end
 
-	-- 3. Issue steering command to humanoid
+	-- 3. Issue steering command to humanoid with native physics AutoRotate
 	humanoid.AutoRotate = true
 	humanoid:MoveTo(targetPosition)
 end
@@ -190,7 +200,10 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	end
 	if not fighter or not humanoid or not rootPart then return end
 
-	local data = getLocoData(fighter)
+	-- Pure Ground Locomotion: suppress ballistic jump impulse if jumping is disabled
+	if LocomotionModule.isJumpSuppressed(fighter, humanoid) then
+		return
+	end
 	local now = os.clock()
 
 	-- Enforce jump debounce to eliminate rapid-fire double-hopping
@@ -344,8 +357,9 @@ function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
 		dashDir = Vector3.new(look.X, 0, look.Z).Unit
 	end
 
-	-- Face direction
-	rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + dashDir)
+	-- Align orientation smoothly towards dash direction
+	local targetLookCF = CFrame.lookAt(rootPart.Position, rootPart.Position + dashDir)
+	rootPart.CFrame = rootPart.CFrame:Lerp(targetLookCF, 0.35)
 
 	-- Animation & Sensory VFX
 	AnimationModule.stopConfig(humanoid, "Movement.Run")

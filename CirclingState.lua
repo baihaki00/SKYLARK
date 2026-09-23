@@ -95,15 +95,11 @@ function CirclingState.enter(fighter, humanoid, rootPart)
 	end
 	
 	circlingData[fighter].currentAnim = animId
+	circlingData[fighter].lastUpdateTime = now
 	
 	local speed = fighter:GetAttribute("Speed") or 40
-	if tension == "run" then
-		humanoid.WalkSpeed = speed * 0.6
-	elseif tension == "walk" then
-		humanoid.WalkSpeed = speed * STRAFE_SPEED_MULT
-	else
-		humanoid.WalkSpeed = speed * 0.2
-	end
+	local targetStrafeSpeed = speed * (tension == "run" and 0.6 or (tension == "walk" and STRAFE_SPEED_MULT or 0.2))
+	LocomotionModule.modulateSpeed(fighter, humanoid, targetStrafeSpeed, 0.05)
 	
 	-- Prevent Roblox from auto-rotating so we can control facing manually without jitter
 	humanoid.AutoRotate = false
@@ -351,6 +347,15 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		moveDirection = (moveDirection + centerPull.Unit * 0.6).Unit
 	end
 	
+	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+	local speed = (fighter:GetAttribute("Speed") or 40) * speedMult
+	local lastUpdate = data.lastUpdateTime or (now - 0.05)
+	local dt = math.clamp(now - lastUpdate, 0.016, 0.25)
+	data.lastUpdateTime = now
+
+	local targetStrafeSpeed = speed * (data.tension == "run" and 0.6 or (data.tension == "walk" and STRAFE_SPEED_MULT or 0.2))
+	LocomotionModule.modulateSpeed(fighter, humanoid, targetStrafeSpeed, dt)
+
 	humanoid:MoveTo(rootPart.Position + moveDirection * 5)
 	
 	-- Energy recovery during circling
@@ -358,14 +363,23 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local recovery = (CombatConfig.EnergyRecovery_Walk or 4) * 0.1
 	fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recovery))
 	
-	-- Face the target smoothly via AlignOrientation instead of teleporting CFrame
+	-- Face the target smoothly via AlignOrientation (Authoritative physics torque, zero CFrame snapping)
 	local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
 	local alignOri = rootPart:FindFirstChild("CirclingGyro")
-	if alignOri then
-		alignOri.CFrame = lookCF
-	else
-		rootPart.CFrame = rootPart.CFrame:Lerp(lookCF, FACE_SPEED)
+	if not alignOri then
+		alignOri = Instance.new("AlignOrientation")
+		alignOri.Name = "CirclingGyro"
+		alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+		att.Name = "RootAttachment"
+		alignOri.Attachment0 = att
+		alignOri.RigidityEnabled = false
+		alignOri.Responsiveness = 15
+		alignOri.MaxTorque = 100000
+		alignOri.CFrame = rootPart.CFrame
+		alignOri.Parent = rootPart
 	end
+	alignOri.CFrame = lookCF
 	
 	return CirclingState
 end
