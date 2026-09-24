@@ -168,6 +168,15 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 			targetQuin:SetAttribute("IsPlayerControlled", true)
 			targetQuin:SetAttribute("ControllingPlayer", player.Name)
 
+			-- Stop server animations so client player controller has exclusive authoritative animation control
+			local hum = targetQuin:FindFirstChildOfClass("Humanoid")
+			local animator = hum and hum:FindFirstChildOfClass("Animator")
+			if animator then
+				for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+					track:Stop(0)
+				end
+			end
+
 			-- Assign as player.Character so client native character controller simulates movement
 			player.Character = targetQuin
 			if root then

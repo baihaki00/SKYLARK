@@ -91,7 +91,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local toTarget = (targetPosition - rootPart.Position)
 	local flatDesired = Vector3.new(toTarget.X, 0, toTarget.Z)
 
-	local skidThreshold = CombatConfig.Locomotion_SkidSpeedThreshold or 20.0
+	local skidThreshold = CombatConfig.Locomotion_SkidSpeedThreshold or 13.0
 	local now = os.clock()
 
 	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 then
@@ -99,9 +99,10 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		local desDir = flatDesired.Unit
 		local cosTheta = curDir:Dot(desDir)
 
-		-- Sharp reversal: >= 120 degrees cut (cos theta < -0.5)
-		if cosTheta < -0.5 and (now - data.lastSkidTime) >= 1.4 then
+		-- Sharp reversal: >= 107 degrees cut (cos theta < -0.3), relaxed cooldown for agile cuts
+		if cosTheta < -0.3 and (now - (data.lastSkidTime or 0)) >= 0.75 then
 			data.lastSkidTime = now
+			data.skidEndTime = now + 0.45 -- Lockout window so turn plant completes cleanly
 
 			-- Visual: Play 180 Turn animation
 			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.35, Enum.AnimationPriority.Action3, false)
@@ -129,15 +130,32 @@ end
 function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	if not fighter or not humanoid or not rootPart then return end
 
+	local data = getLocoData(fighter)
 	local currentVel = rootPart.AssemblyLinearVelocity
 	local flatVel = Vector3.new(currentVel.X, 0, currentVel.Z)
 	local speed = flatVel.Magnitude
+	local now = os.clock()
 
-	-- If the Quin was sprinting into range, carry follow-through momentum into melee stance
-	if speed > 15.0 then
+	-- If the Quin was running/sprinting, play StopRun plant animation and carry follow-through slide
+	if speed > 14.0 and (now - (data.lastStopRunTime or 0)) > 0.75 then
+		data.lastStopRunTime = now
+		data.stopRunEndTime = now + 0.48
+
+		-- Fast fade out running track
+		AnimationModule.stop(humanoid, "Movement.Run", 0.08)
+		AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.08)
+
+		-- Play StopRun plant animation
+		AnimationModule.playConfig(humanoid, "Movement.StopRun", 1.15, Enum.AnimationPriority.Action2, false)
+
+		-- Kinetic slide follow-through into stop plant
 		local slideDir = flatVel.Unit
-		local slideSpeed = math.min(speed * 0.45, CombatConfig.Melee_SlideSpeed or 12.0)
+		local slideSpeed = math.min(speed * 0.40, CombatConfig.Melee_SlideSpeed or 10.0)
 		KnockbackModule.applySlide(fighter, slideDir, slideSpeed, 0.18)
+
+		-- VFX: small ground dust puff
+		local elem = fighter:GetAttribute("Element") or "Earth"
+		VfxModule.createDust(rootPart.Position, 2, slideDir, elem)
 	end
 
 	-- Modulate speed to 0 smoothly instead of snapping in 1 frame
@@ -146,15 +164,19 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	-- Actively cancel humanoid active MoveTo translation so it doesn't walk in place
 	humanoid:Move(Vector3.zero, false)
 
-	-- Stop all movement tracks cleanly and ensure base idle
-	if AnimationModule.isPlaying(humanoid, "Movement.Run") then
-		AnimationModule.stop(humanoid, "Movement.Run", 0.2)
+	-- When nearly stopped and no stop/skid overlay is active, ensure combat idle / neutral idle
+	local isOverlayActive = (data.stopRunEndTime and now < data.stopRunEndTime)
+		or (data.skidEndTime and now < data.skidEndTime)
+
+	if speed < 2.5 and not isOverlayActive then
+		if AnimationModule.isPlaying(humanoid, "Movement.Run") then
+			AnimationModule.stop(humanoid, "Movement.Run", 0.15)
+		end
+		if AnimationModule.isPlaying(humanoid, "Movement.WalkConfident") then
+			AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.15)
+		end
+		AnimationModule.ensureBaseIdle(humanoid)
 	end
-	if AnimationModule.isPlaying(humanoid, "Movement.WalkConfident") then
-		AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.2)
-	end
-	AnimationModule.stopLocomotionOverlays(humanoid, 0.15)
-	AnimationModule.ensureBaseIdle(humanoid)
 end
 
 -- ============================================================================

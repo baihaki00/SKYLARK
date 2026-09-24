@@ -35,7 +35,7 @@ AnimationConfig.Registry = {
 		},
 	},
 	Idles = {
-		CombatIdle = { id = "rbxassetid://109837817595150", speed = 2.00, fadeTime = 0.15, priority = "Idle", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Combat Idle (Active Stance)" },
+		CombatIdle = { id = "rbxassetid://87288357256775", speed = 1.00, fadeTime = 0.15, priority = "Idle", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "IdleReady_Stance (Combat Stance)" },
 		SurveyIdle = { id = "rbxassetid://109837817595150", speed = 1.20, fadeTime = 0.15, priority = "Action2", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Target Assessment Survey" },
 	},
 	Movement = {
@@ -47,7 +47,7 @@ AnimationConfig.Registry = {
 		Fall = { id = "rbxassetid://79340771026707", speed = 1.00, fadeTime = 0.10, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Airborne Descent" },
 		FallAirKnockback = { id = "rbxassetid://88475997278069", speed = 1.00, fadeTime = 0.10, priority = "Action3", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "FallAirKnockback" },
 		FallStraight = { id = "rbxassetid://80583167665730", speed = 1.00, fadeTime = 0.10, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Fall Straight to Ground 01" },
-		Idle = { id = "rbxassetid://109837817595150", speed = 2.00, fadeTime = 0.15, priority = "Idle", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Combat Stance Idle" },
+		Idle = { id = "rbxassetid://109837817595150", speed = 1.00, fadeTime = 0.15, priority = "Idle", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Neutral Stance Idle" },
 		IdleToRun1 = { id = "rbxassetid://113556439462127", speed = 1.25, fadeTime = 0.08, priority = "Movement", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Idle To Run Push-Off 1" },
 		IdleToRun2 = { id = "rbxassetid://113571639405597", speed = 1.25, fadeTime = 0.08, priority = "Movement", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Idle To Run Push-Off 2" },
 		Jump = { id = "rbxassetid://85622241844167", speed = 1.00, fadeTime = 0.05, priority = "Movement", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Jump Launch" },
@@ -59,6 +59,7 @@ AnimationConfig.Registry = {
 		RunTurn180Right = { id = "rbxassetid://129355316172688", speed = 1.35, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Run Turn Right" },
 		StartSprint = { id = "rbxassetid://113556439462127", speed = 1.35, fadeTime = 0.08, priority = "Movement", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Sprint Push-Off" },
 		Slide = { id = "rbxassetid://83869147275692", speed = 1.40, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Athletic Ground Slide" },
+		StopRun = { id = "rbxassetid://121718461462558", speed = 1.15, fadeTime = 0.08, priority = "Action2", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Run Stop Plant" },
 		WalkConfident = { id = "rbxassetid://117985748552966", speed = 1.00, fadeTime = 0.15, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Confident Walk" },
 		WalkThug = { id = "rbxassetid://117985748552966", speed = 0.90, fadeTime = 0.15, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Aggressive Walk" },
 	},

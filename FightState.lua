@@ -311,7 +311,7 @@ function FightState.enter(fighter, humanoid, rootPart)
 	AnimationModule.stop(humanoid, AnimationIds.Run, 0.2)
 	AnimationModule.stop(humanoid, AnimationIds.Fall, 0.2)
 	AnimationModule.stop(humanoid, AnimationIds.Jump, 0.2)
-	AnimationModule.playConfig(humanoid, "Movement.Idle", 1.0, Enum.AnimationPriority.Idle, true)
+	AnimationModule.playConfig(humanoid, "Idles.CombatIdle", 1.0, Enum.AnimationPriority.Idle, true)
 end
 
 function FightState.exit(fighter, humanoid, rootPart)

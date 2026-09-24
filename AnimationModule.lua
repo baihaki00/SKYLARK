@@ -62,6 +62,8 @@ local KNOWN_TRACK_LENGTHS = {
 	["rbxassetid://95406088712190"]  = 1.000, -- Reactions.GetUpBackFast
 	["rbxassetid://108624065264351"] = 1.200, -- Reactions.GetUpFromCrouch
 	["rbxassetid://98616724907377"]  = 1.000, -- Awareness.LookingBehind
+	["rbxassetid://87288357256775"]  = 0.900, -- Idles.CombatIdle / IdleReady_Stance
+	["rbxassetid://121718461462558"] = 0.600, -- Movement.StopRun
 }
 
 local KNOWN_NAMES = {
@@ -115,6 +117,8 @@ local KNOWN_NAMES = {
 	["rbxassetid://95406088712190"]  = "GetUpBackFast",
 	["rbxassetid://108624065264351"] = "GetUpFromCrouch",
 	["rbxassetid://98616724907377"]  = "LookingBehind",
+	["rbxassetid://87288357256775"]  = "IdleReady_Stance",
+	["rbxassetid://121718461462558"] = "StopRun",
 }
 
 local LOCOMOTION_OVERLAY_IDS = {
@@ -124,6 +128,7 @@ local LOCOMOTION_OVERLAY_IDS = {
 	["rbxassetid://88475997278069"] = true, -- FallAirKnockback
 	["rbxassetid://83869147275692"] = true, -- BrakingStop / Slide
 	["rbxassetid://129355316172688"] = true, -- RunTurn180 / Turn180Pivot
+	["rbxassetid://121718461462558"] = true, -- StopRun / RunStopPlant
 	["rbxassetid://89227245782124"] = true, -- ArcRun30Rear
 	["rbxassetid://113556439462127"] = true, -- IdleToRun1 / StartSprint
 	["rbxassetid://113571639405597"] = true, -- IdleToRun2
@@ -313,18 +318,41 @@ end
 function AnimationModule.ensureBaseIdle(humanoid)
 	if not humanoid or not humanoid.Parent then return nil end
 	local ac = getAnimationConfig()
-	local entry = ac and ac.get("Movement.Idle")
+	local fighter = humanoid.Parent
+	local inCombat = fighter and (fighter:GetAttribute("IsPlayerControlled") or fighter:GetAttribute("CurrentState") == "Fight" or fighter:GetAttribute("Target") ~= nil)
+	local dotPath = inCombat and "Idles.CombatIdle" or "Movement.Idle"
+	local entry = ac and ac.get(dotPath)
+	if not entry or not entry.id or entry.id == "" then
+		entry = ac and ac.get("Movement.Idle")
+	end
 	if not entry or not entry.id or entry.id == "" then return nil end
+
+	-- Stop competing idle if switching between combat and neutral idle
+	local otherPath = inCombat and "Movement.Idle" or "Idles.CombatIdle"
+	local otherEntry = ac and ac.get(otherPath)
+	if otherEntry and otherEntry.id then
+		AnimationModule.stop(humanoid, otherEntry.id, 0.15)
+	end
+
+	-- Also stop ANY playing Idle priority track that does not match our desired entry.id
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+			if t.Priority == Enum.AnimationPriority.Idle and t.Animation and t.Animation.AnimationId ~= entry.id and t.IsPlaying then
+				t:Stop(0.15)
+			end
+		end
+	end
 
 	local track = getTrack(humanoid, entry.id)
 	if not track then return nil end
 
 	track.Priority = Enum.AnimationPriority.Idle
-	track.Looped = true
 
 	if not track.IsPlaying then
 		track:Play(entry.fadeTime or 0.2, 1, entry.speed or 1.0)
 	end
+	track.Looped = true
 	return track
 end
 
@@ -456,8 +484,10 @@ function AnimationModule.play(humanoid, animIdOrPath, priority, looped, speed, f
 					-- Competing movement (e.g. walk replacing strafe) -> stop old movement
 					otherTrack:Stop(fadeIn or 0.1)
 				elseif newPrioVal == Enum.AnimationPriority.Movement.Value and LOCOMOTION_OVERLAY_IDS[otherId] then
-					-- Locomotion base running/walking resuming: clear any finished or lingering locomotion overlays (vaults, turns, slides, braking stops)
-					otherTrack:Stop(fadeIn or 0.1)
+					-- Locomotion base running/walking resuming: only clear finished or near-finished locomotion overlays, or lower-priority overlays
+					if (not otherTrack.Looped and otherTrack.Length > 0 and otherTrack.TimePosition >= (otherTrack.Length - 0.12)) or (otherPrioVal <= Enum.AnimationPriority.Movement.Value) then
+						otherTrack:Stop(fadeIn or 0.1)
+					end
 				elseif newPrioVal >= otherPrioVal and otherTrack.Priority ~= Enum.AnimationPriority.Idle then
 					-- Higher priority overriding non-idle lower track
 					otherTrack:Stop(fadeIn or 0.1)
@@ -506,21 +536,33 @@ end
 
 -- Stop a specific animation
 function AnimationModule.stop(humanoid, animIdOrPath, fadeOut)
-	if not animationTracks[humanoid] then return end
+	if not humanoid then return end
 	local animId = animIdOrPath
 	if type(animIdOrPath) == "string" and animIdOrPath:find("%.") then
 		local ac = getAnimationConfig()
 		local entry = ac and ac.get(animIdOrPath)
 		if entry and entry.id then animId = entry.id end
 	end
-	local track = animationTracks[humanoid][animId]
-	if track and track.IsPlaying then
-		track:Stop(fadeOut or 0.15)
-		local rt = getRuntimeTracer()
-		if rt and humanoid and humanoid.Parent then
-			local animName = resolveAnimFriendlyName(animIdOrPath)
-			rt.checkpoint(humanoid.Parent, "StopTrack: " .. animName, 2)
+	local fade = fadeOut or 0.15
+	if animationTracks[humanoid] and animationTracks[humanoid][animId] then
+		local track = animationTracks[humanoid][animId]
+		if track.IsPlaying then
+			track:Stop(fade)
 		end
+	end
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+			local a = track.Animation
+			if a and a.AnimationId == animId and track.IsPlaying then
+				track:Stop(fade)
+			end
+		end
+	end
+	local rt = getRuntimeTracer()
+	if rt and humanoid and humanoid.Parent then
+		local animName = resolveAnimFriendlyName(animIdOrPath)
+		rt.checkpoint(humanoid.Parent, "StopTrack: " .. animName, 2)
 	end
 end
 
@@ -563,15 +605,26 @@ end
 
 -- Check if a specific animation is playing
 function AnimationModule.isPlaying(humanoid, animIdOrPath)
-	if not animationTracks[humanoid] then return false end
+	if not humanoid then return false end
 	local animId = animIdOrPath
 	if type(animIdOrPath) == "string" and animIdOrPath:find("%.") then
 		local ac = getAnimationConfig()
 		local entry = ac and ac.get(animIdOrPath)
 		if entry and entry.id then animId = entry.id end
 	end
-	local track = animationTracks[humanoid][animId]
-	return track and track.IsPlaying
+	if animationTracks[humanoid] and animationTracks[humanoid][animId] and animationTracks[humanoid][animId].IsPlaying then
+		return true
+	end
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+			local a = track.Animation
+			if a and a.AnimationId == animId and track.IsPlaying then
+				return true
+			end
+		end
+	end
+	return false
 end
 
 -- Query true effective duration in seconds (Length / speed)

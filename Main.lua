@@ -91,9 +91,23 @@ Quin:SetAttribute("CurrentState", currentState.name)
 if Quin:GetAttribute("Energy") == nil then
 	Quin:SetAttribute("Energy", CombatConfig.MaxEnergy or 100)
 end
-if currentState.enter then
+if not Quin:GetAttribute("IsPlayerControlled") and currentState.enter then
 	currentState.enter(Quin, humanoid, rootPart)
 end
+
+-- If this Quin becomes possessed by a human player, immediately kill server animation tracks
+Quin:GetAttributeChangedSignal("IsPlayerControlled"):Connect(function()
+	if Quin:GetAttribute("IsPlayerControlled") == true then
+		local animMod = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+		animMod.stopAll(humanoid, 0)
+		local animator = humanoid:FindFirstChildOfClass("Animator")
+		if animator then
+			for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+				t:Stop(0)
+			end
+		end
+	end
+end)
 
 -- === GHOSTMODE: Hide server AI visuals ===
 if GHOSTMODE then

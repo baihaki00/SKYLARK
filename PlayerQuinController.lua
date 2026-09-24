@@ -92,6 +92,17 @@ local function startControlSession(quin)
 	shared.PlayerControlledQuin = quin
 	_G.PlayerControlledQuin = quin
 
+	-- Stop any stale tracks so IdleReady_Stance has a clean slate
+	local animator = activeHumanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+			t:Stop(0)
+		end
+	end
+
+	-- Immediately engage combat idle posture (IdleReady_Stance)
+	AnimationModule.ensureBaseIdle(activeHumanoid)
+
 	-- Update button UI
 	toggleBtn.Text = "⏹ Exit Quin Mode [P]"
 	toggleBtn.TextColor3 = Color3.fromRGB(255, 180, 60)
@@ -142,7 +153,18 @@ local function startControlSession(quin)
 		local isSprint = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 		local maxPacing = CombatConfig.Locomotion_PacingSpeedMax or 50.0
 		local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
-		local targetSpeed = isSprint and maxPacing or minPacing
+		local goalSpeed = isSprint and maxPacing or minPacing
+
+		-- Smooth kinetic acceleration curve: emulates natural inertia and weight on keyboard
+		local curPilotSpeed = activeQuin:GetAttribute("CurrentPilotSpeed") or minPacing
+		local accelRate = isSprint and 85.0 or 60.0
+		if curPilotSpeed < goalSpeed then
+			curPilotSpeed = math.min(curPilotSpeed + accelRate * dt, goalSpeed)
+		else
+			curPilotSpeed = math.max(curPilotSpeed - accelRate * 1.5 * dt, goalSpeed)
+		end
+		activeQuin:SetAttribute("CurrentPilotSpeed", curPilotSpeed)
+		local targetSpeed = curPilotSpeed
 
 		local isAirborne = (activeHumanoid:GetState() == Enum.HumanoidStateType.Jumping)
 			or (activeHumanoid:GetState() == Enum.HumanoidStateType.Freefall)
@@ -160,13 +182,23 @@ local function startControlSession(quin)
 
 			-- Only drive ground locomotion animations when grounded (do not overwrite jump in mid-air)
 			if not isAirborne then
-				local desiredAnim = isSprint and "Movement.Run" or "Movement.WalkConfident"
-				if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
-					AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
-					AnimationModule.playConfig(activeHumanoid, desiredAnim)
+				-- Protect turn skids and stop plants from being crushed by base locomotion
+				local isTurnOrStopPlaying = AnimationModule.isPlaying(activeHumanoid, "Movement.RunTurn180")
+					or AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun")
+
+				if not isTurnOrStopPlaying then
+					local desiredAnim = (isSprint or curPilotSpeed > 26.0) and "Movement.Run" or "Movement.WalkConfident"
+					if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
+						AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
+						AnimationModule.stop(activeHumanoid, "Idles.CombatIdle", 0.15)
+						AnimationModule.playConfig(activeHumanoid, desiredAnim)
+					end
 				end
 			end
 		else
+			-- Reset pilot speed towards min pacing when keys are released
+			activeQuin:SetAttribute("CurrentPilotSpeed", minPacing)
+
 			if not isAirborne then
 				-- Authoritative QuinCore brake: smooth deceleration, slide follow-through, stops run, ensures idle
 				LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, dt)
