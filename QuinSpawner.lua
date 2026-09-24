@@ -154,9 +154,11 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 	local rootPart = clone:FindFirstChild("HumanoidRootPart")
 	if rootPart then
 		task.defer(function()
-			pcall(function()
-				rootPart:SetNetworkOwner(nil)
-			end)
+			if not clone:GetAttribute("IsPlayerControlled") then
+				pcall(function()
+					rootPart:SetNetworkOwner(nil)
+				end)
+			end
 		end)
 
 		-- Suppress default Roblox character sounds so QuinCore.AudioModule has total authority

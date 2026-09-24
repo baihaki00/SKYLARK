@@ -262,7 +262,14 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		flatLook = flatLook.Unit
 	end
 
-	local fwdSpeed = forwardImpulse or math.max(rootPart.AssemblyLinearVelocity.Magnitude, 38.0)
+	local currentHVel = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Magnitude
+	local fwdSpeed = forwardImpulse
+	if fwdSpeed == nil then
+		fwdSpeed = (currentHVel > 2.0) and currentHVel or 0.0
+	end
+
+	-- Unstick humanoid from ground plane
+	humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 
 	-- Direct native physics assignment: ZERO BodyVelocity!
 	rootPart.AssemblyLinearVelocity = (flatLook * fwdSpeed) + Vector3.new(0, upImpulse, 0)

@@ -20,7 +20,9 @@ if rootPart then
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
 	
-	rootPart:SetNetworkOwner(nil) -- Server owns movement
+	if not Quin:GetAttribute("IsPlayerControlled") then
+		rootPart:SetNetworkOwner(nil) -- Server owns movement
+	end
 end
 
 -- === DATA & CONFIG ===
@@ -418,6 +420,14 @@ end
 
 task.spawn(function()
 	while enableAI and Quin.Parent and humanoid.Health > 0 do
+		-- === Player-Controlled Bypass ===
+		-- When a human player is piloting this Quin, bypass autonomous AI decisions, FSM movement, and AI arena safety net
+		if Quin:GetAttribute("IsPlayerControlled") == true then
+			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+			task.wait(math.clamp(0.05 / speedMult, 0.015, 0.05))
+			continue
+		end
+
 		-- === Arena Safety Net & Cinematic Re-Entry ===
 		if rootPart then
 			-- === Leader Showdown Authoritative Ring Enforcement ===
@@ -537,14 +547,6 @@ task.spawn(function()
 					end
 				end
 			end
-		end
-
-		-- === Player-Controlled Bypass ===
-		-- When a human player is piloting this Quin, bypass autonomous AI decisions and FSM movement
-		if Quin:GetAttribute("IsPlayerControlled") == true then
-			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-			task.wait(math.clamp(0.05 / speedMult, 0.015, 0.05))
-			continue
 		end
 
 		-- === Tactical Perception & Emergent Decision Layer ===

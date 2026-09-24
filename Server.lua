@@ -4,19 +4,24 @@ print("[Server] Initializing QuinCore server services...")
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
+local CollectionService = game:GetService("CollectionService")
+local Workspace = game:GetService("Workspace")
 
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 local QuinRosterService = require(ServerScriptService:WaitForChild("QuinRosterService"))
 local BattleSimulationHarness = require(ServerScriptService:WaitForChild("BattleSimulationHarness"))
 
--- Isolate spectator players near PLAYERSPAWN so they do not interfere with simulation while keeping streaming focus
+-- Isolate spectator dummy characters near SpawnLocation so they do not interfere with simulation
 local function isolateSpectatorPlayer(player)
 	player.CharacterAdded:Connect(function(char)
+		if char:GetAttribute("QuinType") or char:GetAttribute("IsPlayerControlled") or CollectionService:HasTag(char, "Quin") then
+			return -- Never isolate active Quin characters
+		end
 		task.wait(0.1)
 		local hrp = char:WaitForChild("HumanoidRootPart", 5)
 		local hum = char:FindFirstChildOfClass("Humanoid")
-		local ps = Workspace:FindFirstChild("PLAYERSPAWN")
-		local isoCF = ps and (ps.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(0, 600, 0)
+		local spawnObj = Workspace:FindFirstChildOfClass("SpawnLocation") or Workspace:FindFirstChild("SpawnLocation")
+		local isoCF = spawnObj and (spawnObj.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(182.5, 20, 468.5)
 		if hrp then
 			hrp.Anchored = true
 			hrp.CFrame = isoCF
@@ -34,14 +39,18 @@ local function isolateSpectatorPlayer(player)
 	end)
 	if player.Character then
 		task.spawn(function()
-			local hrp = player.Character:WaitForChild("HumanoidRootPart", 5)
-			local ps = Workspace:FindFirstChild("PLAYERSPAWN")
-			local isoCF = ps and (ps.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(0, 600, 0)
+			local char = player.Character
+			if char:GetAttribute("QuinType") or char:GetAttribute("IsPlayerControlled") or CollectionService:HasTag(char, "Quin") then
+				return
+			end
+			local hrp = char:WaitForChild("HumanoidRootPart", 5)
+			local spawnObj = Workspace:FindFirstChildOfClass("SpawnLocation") or Workspace:FindFirstChild("SpawnLocation")
+			local isoCF = spawnObj and (spawnObj.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(182.5, 20, 468.5)
 			if hrp then
 				hrp.Anchored = true
 				hrp.CFrame = isoCF
 			end
-			for _, part in ipairs(player.Character:GetDescendants()) do
+			for _, part in ipairs(char:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.CanCollide = false
 					part.Transparency = 1
@@ -120,16 +129,30 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 			end
 		end
 
-		-- Calculate target spawn CFrame using PLAYERSPAWN
-		local playerSpawnObj = Workspace:FindFirstChild("PLAYERSPAWN")
+		-- Calculate target spawn CFrame using SpawnLocation in Workspace
+		local spawnLocation = Workspace:FindFirstChildOfClass("SpawnLocation") or Workspace:FindFirstChild("SpawnLocation") or Workspace:FindFirstChild("PLAYERSPAWN")
 		local targetCFrame
-		if playerSpawnObj and playerSpawnObj:IsA("BasePart") then
-			targetCFrame = playerSpawnObj.CFrame * CFrame.new(0, playerSpawnObj.Size.Y / 2 + 3.5, 0)
+		if spawnLocation and spawnLocation:IsA("BasePart") then
+			targetCFrame = spawnLocation.CFrame * CFrame.new(0, spawnLocation.Size.Y / 2 + 3.5, 0)
 		else
-			targetCFrame = CFrame.new(0, 7.5, 0)
+			targetCFrame = CFrame.new(182.5, 5.5, 468.5)
 		end
 
-		-- 2. If no living Quin exists in arena, spawn a clean one at PLAYERSPAWN
+		-- Clean up any dead quins previously controlled by this player, or reuse living one
+		if quinServer then
+			for _, child in ipairs(quinServer:GetChildren()) do
+				if child:GetAttribute("ControllingPlayer") == player.Name then
+					local hum = child:FindFirstChildOfClass("Humanoid")
+					if hum and hum.Health <= 0 then
+						child:Destroy()
+					else
+						targetQuin = child
+					end
+				end
+			end
+		end
+
+		-- 2. If no living Quin exists in arena, spawn a clean one at SpawnLocation
 		if not targetQuin then
 			targetQuin = QuinSpawner.spawn("TypeA", targetCFrame.Position, "Team1", "Fire")
 		end
@@ -137,19 +160,25 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 		if targetQuin then
 			local root = targetQuin:FindFirstChild("HumanoidRootPart")
 			if root then
+				root.Anchored = false
 				targetQuin:PivotTo(targetCFrame)
 				root.AssemblyLinearVelocity = Vector3.zero
 				root.AssemblyAngularVelocity = Vector3.zero
+			end
+			targetQuin:SetAttribute("IsPlayerControlled", true)
+			targetQuin:SetAttribute("ControllingPlayer", player.Name)
+
+			-- Assign as player.Character so client native character controller simulates movement
+			player.Character = targetQuin
+			if root then
 				pcall(function()
 					root:SetNetworkOwner(player)
 				end)
 			end
-			targetQuin:SetAttribute("IsPlayerControlled", true)
-			targetQuin:SetAttribute("ControllingPlayer", player.Name)
 			pcall(function()
 				player.ReplicationFocus = root
 			end)
-			print(string.format("[Server] Player %s possessed %s at %s (NetworkOwner granted)", player.Name, targetQuin.Name, tostring(targetCFrame.Position)))
+			print(string.format("[Server] Player %s possessed %s as Character at %s (NetworkOwner granted)", player.Name, targetQuin.Name, tostring(targetCFrame.Position)))
 			return targetQuin
 		end
 		return nil
@@ -158,6 +187,7 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 		pcall(function()
 			player.ReplicationFocus = nil
 		end)
+		player.Character = nil
 		local quinServer = Workspace:FindFirstChild("QuinServer")
 		if quinServer then
 			for _, child in ipairs(quinServer:GetChildren()) do
@@ -174,6 +204,9 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 				end
 			end
 		end
+		pcall(function()
+			player:LoadCharacter()
+		end)
 		return true
 	end
 	return nil

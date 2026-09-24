@@ -37,45 +37,38 @@ if not screenGui then
 	screenGui.Parent = playerGui
 end
 
-local btnFrame = Instance.new("Frame")
-btnFrame.Name = "PlayAsQuinContainer"
-btnFrame.Size = UDim2.new(0, 180, 0, 36)
-btnFrame.AnchorPoint = Vector2.new(1, 1)
-btnFrame.Position = UDim2.new(1, -20, 1, -113)
-btnFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
-btnFrame.BackgroundTransparency = 0.15
-btnFrame.BorderSizePixel = 0
-btnFrame.Parent = screenGui
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Name = "PlayAsQuinBtn"
+toggleBtn.Size = UDim2.new(0, 180, 0, 36)
+toggleBtn.AnchorPoint = Vector2.new(1, 1)
+toggleBtn.Position = UDim2.new(1, -20, 1, -113)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
+toggleBtn.BackgroundTransparency = 0.15
+toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 12
+toggleBtn.Text = "▶ Play As Quin [P]"
+toggleBtn.Parent = screenGui
 
 local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 18)
-corner.Parent = btnFrame
+corner.Parent = toggleBtn
 
 local stroke = Instance.new("UIStroke")
 stroke.Color = Color3.fromRGB(0, 200, 255)
 stroke.Thickness = 1.5
 stroke.Transparency = 0.4
 stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-stroke.Parent = btnFrame
+stroke.Parent = toggleBtn
 
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Name = "PlayAsQuinBtn"
-toggleBtn.Size = UDim2.new(1, 0, 1, 0)
-toggleBtn.BackgroundTransparency = 1
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 12
-toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
-toggleBtn.Text = "▶ Play As Quin [P]"
-toggleBtn.Parent = btnFrame
-
--- Subtle hover animation
+-- Subtle hover animation matching spectator and manager pills
 toggleBtn.MouseEnter:Connect(function()
-	TweenService:Create(btnFrame, TweenInfo.new(0.2), { BackgroundTransparency = 0.05 }):Play()
+	TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.05 }):Play()
 	TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.1 }):Play()
 end)
 
 toggleBtn.MouseLeave:Connect(function()
-	TweenService:Create(btnFrame, TweenInfo.new(0.2), { BackgroundTransparency = 0.15 }):Play()
+	TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.15 }):Play()
 	TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.4 }):Play()
 end)
 
@@ -151,6 +144,10 @@ local function startControlSession(quin)
 		local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
 		local targetSpeed = isSprint and maxPacing or minPacing
 
+		local isAirborne = (activeHumanoid:GetState() == Enum.HumanoidStateType.Jumping)
+			or (activeHumanoid:GetState() == Enum.HumanoidStateType.Freefall)
+			or (activeHumanoid.FloorMaterial == Enum.Material.Air and not SpatialModule.isGrounded(activeRootPart))
+
 		if moveDir.Magnitude > 0.1 then
 			moveDir = moveDir.Unit
 			lastMoveDir = moveDir
@@ -159,16 +156,21 @@ local function startControlSession(quin)
 
 			-- Authoritative QuinCore steer: modulates speed, checks 180° skids, turns with AutoRotate
 			LocomotionModule.steer(activeQuin, activeHumanoid, activeRootPart, targetPosition, targetSpeed, dt)
+			activeHumanoid:Move(moveDir, false)
 
-			-- Ensure locomotion animation is playing
-			local desiredAnim = isSprint and "Movement.Run" or "Movement.WalkConfident"
-			if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
-				AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
-				AnimationModule.playConfig(activeHumanoid, desiredAnim)
+			-- Only drive ground locomotion animations when grounded (do not overwrite jump in mid-air)
+			if not isAirborne then
+				local desiredAnim = isSprint and "Movement.Run" or "Movement.WalkConfident"
+				if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
+					AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
+					AnimationModule.playConfig(activeHumanoid, desiredAnim)
+				end
 			end
 		else
-			-- Authoritative QuinCore brake: smooth deceleration, slide follow-through, stops run, ensures idle
-			LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, dt)
+			if not isAirborne then
+				-- Authoritative QuinCore brake: smooth deceleration, slide follow-through, stops run, ensures idle
+				LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, dt)
+			end
 		end
 	end)
 
@@ -257,7 +259,8 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	-- Space: Ballistic Jump (Rule 6: single impulse, 88% landing retention)
 	if input.KeyCode == Enum.KeyCode.Space then
 		local currentVel = activeRootPart.AssemblyLinearVelocity
-		local fwdSpeed = math.max(Vector3.new(currentVel.X, 0, currentVel.Z).Magnitude, 38.0)
+		local hSpeed = Vector3.new(currentVel.X, 0, currentVel.Z).Magnitude
+		local fwdSpeed = (hSpeed > 2.0) and hSpeed or 0.0
 		LocomotionModule.jump(activeQuin, activeHumanoid, activeRootPart, 8.0, fwdSpeed, "jump")
 
 	-- C: Athletic Ground Slide
@@ -273,11 +276,11 @@ end)
 
 print("[PlayerQuinController] Initialized. Press 'P' or click 'Play As Quin' to hop in.")
 
--- Auto-spawn into Quin mode at PLAYERSPAWN on startup
+-- Auto-spawn into Quin mode at SpawnLocation on startup
 task.spawn(function()
 	task.wait(0.5)
 	if not activeQuin then
-		print("[PlayerQuinController] Auto-spawning player at PLAYERSPAWN...")
+		print("[PlayerQuinController] Auto-spawning player at SpawnLocation...")
 		toggleQuinControl(true)
 	end
 end)

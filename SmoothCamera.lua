@@ -5,6 +5,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local CollectionService = game:GetService("CollectionService")
 local Camera = workspace.CurrentCamera
 
 local player = Players.LocalPlayer
@@ -25,10 +26,10 @@ local minZoom, maxZoom = 4.0, 45.0
 -- === INITIAL STATE: FREEFLY ABOVE ARENA ===
 local cameraMode = "FREEFLY" -- "FREEFLY" or "QUIN_SPECTATE"
 shared.SpectatorState = { Mode = "FREEFLY" }
-local playerSpawnObj = workspace:FindFirstChild("PLAYERSPAWN")
-local cameraPos = playerSpawnObj and (playerSpawnObj.Position + Vector3.new(0, 15, 30)) or Vector3.new(0, 140, 160)
+local playerSpawnObj = workspace:FindFirstChildOfClass("SpawnLocation") or workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChild("PLAYERSPAWN")
+local cameraPos = playerSpawnObj and (playerSpawnObj.Position + Vector3.new(0, 15, 30)) or Vector3.new(182.5, 20, 500)
 local yaw = 0
-local pitch = playerSpawnObj and -18.0 or -38.0 -- Angled toward the course
+local pitch = playerSpawnObj and -18.0 or -25.0 -- Angled toward the course
 
 -- Orbit internals
 local smoothYaw, smoothPitch = yaw, pitch
@@ -41,13 +42,16 @@ local isLeftMouseDown = false
 local isRightMouseDown = false
 local isToggleLocked = false
 
--- Ensure player character is non-interfering spectator
+-- Ensure dummy spectator character is non-interfering (NEVER isolate a Quin)
 local function isolatePlayerCharacter(char)
 	if not char then return end
+	if char:GetAttribute("QuinType") or char:GetAttribute("IsPlayerControlled") or CollectionService:HasTag(char, "Quin") then
+		return -- Never isolate active Quin characters
+	end
 	local root = char:WaitForChild("HumanoidRootPart", 5)
 	local hum = char:FindFirstChildOfClass("Humanoid")
-	local ps = workspace:FindFirstChild("PLAYERSPAWN")
-	local isoCF = ps and (ps.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(0, 600, 0)
+	local sl = workspace:FindFirstChildOfClass("SpawnLocation") or workspace:FindFirstChild("SpawnLocation")
+	local isoCF = sl and (sl.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(182.5, 20, 468.5)
 	if root then
 		root.Anchored = true
 		root.CFrame = isoCF
@@ -212,9 +216,9 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		shared.SpectatedQuin = nil
 		_G.SpectatedQuin = nil
 		workspace:SetAttribute("SpectatedQuin", "")
-		local ps = workspace:FindFirstChild("PLAYERSPAWN")
-		cameraPos = ps and (ps.Position + Vector3.new(0, 15, 30)) or Vector3.new(0, 140, 160)
-		pitch = ps and -18.0 or -38.0
+		local ps = workspace:FindFirstChildOfClass("SpawnLocation") or workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChild("PLAYERSPAWN")
+		cameraPos = ps and (ps.Position + Vector3.new(0, 15, 30)) or Vector3.new(182.5, 20, 500)
+		pitch = ps and -18.0 or -25.0
 		yaw = 0
 		print("[SmoothCamera] Returned to default Freefly Spectator overview.")
 
