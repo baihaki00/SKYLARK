@@ -536,39 +536,37 @@ function GameModeManager.startTestAnimationMode()
 	Workspace:SetAttribute("NormalCombatActive", false)
 
 	task.wait(0.2)
-	local p1 = Vector3.new(0, 7.5, -5)
-	local p2 = Vector3.new(0, 7.5, 5)
+	local p1 = Vector3.new(0, 7.5, 0)
 
 	local quinA = QuinSpawner.spawn("TypeA", p1, "TeamAlpha")
-	local quinB = QuinSpawner.spawn("TypeB", p2, "TeamBeta")
 
-	if quinA and quinB then
+	if quinA then
 		quinA.Name = "QuinA_Tester"
-		quinB.Name = "QuinB_SparringPartner"
 
 		task.wait(0.1)
 		local hrpA = quinA:FindFirstChild("HumanoidRootPart")
-		local hrpB = quinB:FindFirstChild("HumanoidRootPart")
-		if hrpA and hrpB then
-			hrpA.CFrame = CFrame.lookAt(hrpA.Position, Vector3.new(hrpB.Position.X, hrpA.Position.Y, hrpB.Position.Z))
-			hrpB.CFrame = CFrame.lookAt(hrpB.Position, Vector3.new(hrpA.Position.X, hrpB.Position.Y, hrpA.Position.Z))
+		if hrpA then
+			hrpA.CFrame = CFrame.new(0, 7.5, 0)
+			hrpA.AssemblyLinearVelocity = Vector3.zero
+			hrpA.AssemblyAngularVelocity = Vector3.zero
 		end
 
 		local humA = quinA:FindFirstChildOfClass("Humanoid")
-		local humB = quinB:FindFirstChildOfClass("Humanoid")
-		if humA then humA.WalkSpeed = 0 humA.Health = 100 end
-		if humB then humB.WalkSpeed = 0 humB.Health = 100 end
+		if humA then
+			humA.WalkSpeed = 0
+			humA.AutoRotate = false
+			humA.Health = 1000
+		end
 
+		quinA:SetAttribute("IsInert", true)
 		quinA:SetAttribute("IsTester", true)
-		quinB:SetAttribute("IsSparringPartner", true)
-		quinA:SetAttribute("TargetQuin", "QuinB_SparringPartner")
-		quinB:SetAttribute("TargetQuin", "QuinA_Tester")
+		quinA:SetAttribute("InCombat", false)
+		quinA:SetAttribute("TargetQuin", nil)
+		quinA:SetAttribute("CurrentTarget", nil)
 		quinA:SetAttribute("CurrentState", "Idle")
-		quinB:SetAttribute("CurrentState", "Idle")
 		quinA:SetAttribute("ForceState", "Idle")
-		quinB:SetAttribute("ForceState", "Idle")
 	end
-	broadcastStatus("Animation Lab Mode: QuinA_Tester & QuinB_SparringPartner spawned stationary.")
+	broadcastStatus("Animation Lab Mode: Single inert tester rig (QuinA_Tester) ready.")
 end
 
 function GameModeManager.startCleanSlateJumpState()

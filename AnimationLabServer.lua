@@ -122,27 +122,36 @@ end
 
 loadPersistentOverrides()
 
-local function getOrSpawnTesterRigs(force)
+local function getOrSpawnTesterRig(force)
 	local quinServer = Workspace:FindFirstChild("QuinServer") or Workspace
 	local tester = quinServer:FindFirstChild("QuinA_Tester")
-	local partner = quinServer:FindFirstChild("QuinB_SparringPartner")
 
-	if force or not tester or not partner then
+	if force or not tester then
 		local GMM = _G.GameModeManager
 		if GMM and GMM.startTestAnimationMode then
-			print("[AnimationLabServer] Spawning AnimationLab tester rigs (force=" .. tostring(force) .. ")...")
+			print("[AnimationLabServer] Spawning single inert tester rig (QuinA_Tester, force=" .. tostring(force) .. ")...")
 			GMM.startTestAnimationMode()
 			local deadline = os.clock() + 3
-			while (not tester or not partner) and os.clock() < deadline do
+			while not tester and os.clock() < deadline do
 				task.wait(0.1)
 				quinServer = Workspace:FindFirstChild("QuinServer") or Workspace
 				tester = quinServer:FindFirstChild("QuinA_Tester")
-				partner = quinServer:FindFirstChild("QuinB_SparringPartner")
 			end
 		end
 	end
 
-	return tester, partner
+	if tester then
+		tester:SetAttribute("IsInert", true)
+		tester:SetAttribute("IsTester", true)
+		local hum = tester:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum.WalkSpeed = 0
+			hum.AutoRotate = false
+			hum.Health = 1000
+		end
+	end
+
+	return tester
 end
 
 -- Unified Action Handler (invokable by client remote or direct server dispatch)
@@ -152,17 +161,16 @@ local function handleLabAction(player, action, data)
 
 	if action == "EnsureTesterRigs" or action == "ResetTesterRigs" then
 		local force = data and data.force == true
-		local tester, partner = getOrSpawnTesterRigs(force)
+		local tester = getOrSpawnTesterRig(force)
 		labEvent:FireAllClients("TesterRigsReady", {
 			testerName = "QuinA_Tester",
-			partnerName = "QuinB_SparringPartner",
-			success = (tester ~= nil and partner ~= nil)
+			success = (tester ~= nil)
 		})
 
 	elseif action == "PlayAnimation" then
 		local model = quinServer:FindFirstChild(data.targetName or "QuinA_Tester")
 		if not model then
-			model = getOrSpawnTesterRigs(false)
+			model = getOrSpawnTesterRig(false)
 			quinServer = Workspace:FindFirstChild("QuinServer") or Workspace
 		end
 		if not model then return end
@@ -222,7 +230,7 @@ local function handleLabAction(player, action, data)
 	elseif action == "ScrubAnimation" then
 		local model = quinServer:FindFirstChild(data.targetName or "QuinA_Tester")
 		if not model then
-			model = getOrSpawnTesterRigs(false)
+			model = getOrSpawnTesterRig(false)
 			quinServer = Workspace:FindFirstChild("QuinServer") or Workspace
 		end
 		if not model then return end
@@ -234,6 +242,66 @@ local function handleLabAction(player, action, data)
 		if track then
 			track:AdjustSpeed(0)
 			track.TimePosition = math.clamp(data.timePos or 0, 0, track.Length > 0 and track.Length or 5)
+		end
+
+	elseif action == "Combinator_PlayStack" then
+		local model = quinServer:FindFirstChild(data.targetName or "QuinA_Tester")
+		if not model then
+			model = getOrSpawnTesterRig(false)
+			quinServer = Workspace:FindFirstChild("QuinServer") or Workspace
+		end
+		if not model then return end
+
+		stopAllTracks(model, 0.05)
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		if not hum then return end
+
+		local layers = data.layers or {}
+		for _, layer in ipairs(layers) do
+			if layer.enabled ~= false and not layer.muted and layer.id and layer.id ~= "" then
+				local prio = Enum.AnimationPriority[layer.priority or "Action4"] or Enum.AnimationPriority.Action4
+				local track = AnimationModule.play(hum, layer.id, prio, layer.looped == true, layer.speed or 1.0, layer.fadeTime or 0.05)
+				if track then
+					track:AdjustWeight(layer.weight or 1.0, 0.05)
+					local startCut = tonumber(layer.startCut) or 0
+					if startCut > 0 then
+						track.TimePosition = startCut
+					end
+				end
+			end
+		end
+
+	elseif action == "Combinator_Scrub" then
+		local model = quinServer:FindFirstChild(data.targetName or "QuinA_Tester")
+		if not model then return end
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		if not hum then return end
+
+		local layers = data.layers or {}
+		local scrubTime = tonumber(data.scrubTime) or 0
+		for _, layer in ipairs(layers) do
+			if layer.enabled ~= false and not layer.muted and layer.id and layer.id ~= "" then
+				local prio = Enum.AnimationPriority[layer.priority or "Action4"] or Enum.AnimationPriority.Action4
+				local track = AnimationModule.play(hum, layer.id, prio, false, 0, 0)
+				if track then
+					local startCut = tonumber(layer.startCut) or 0
+					local endCut = tonumber(layer.endCut) or (track.Length > 0 and track.Length or 3.0)
+					local duration = math.max(0.01, endCut - startCut)
+					local layerTime = startCut + math.clamp(scrubTime * (layer.speed or 1.0), 0, duration)
+					track.TimePosition = layerTime
+					track:AdjustWeight(layer.weight or 1.0, 0)
+				end
+			end
+		end
+
+	elseif action == "Combinator_Stop" then
+		local model = quinServer:FindFirstChild(data.targetName or "QuinA_Tester")
+		if model then
+			stopAllTracks(model, 0.05)
+			local idleData = AnimationConfig.get("Movement.Idle")
+			if idleData then
+				playTrack(model, idleData.id, idleData.speed, 0.15, "Idle", true)
+			end
 		end
 
 	elseif action == "PlayCombo" then
@@ -488,19 +556,21 @@ local function handleLabAction(player, action, data)
 		local partner = quinServer:FindFirstChild("QuinB_SparringPartner")
 
 		if enabled then
-			-- The UI can be opened before Test Animation Mode finishes spawning.
-			-- Wait briefly so combat is never enabled against a missing Quin.
-			local deadline = os.clock() + 5
-			while (not tester or not partner) and os.clock() < deadline do
-				task.wait(0.1)
-				quinServer = Workspace:FindFirstChild("QuinServer") or Workspace
-				tester = quinServer:FindFirstChild("QuinA_Tester")
-				partner = quinServer:FindFirstChild("QuinB_SparringPartner")
+			if not tester then
+				tester = getOrSpawnTesterRig(false)
+			end
+			if not partner then
+				local ServerScriptService = game:GetService("ServerScriptService")
+				local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
+				partner = QuinSpawner.spawn("TypeB", Vector3.new(0, 7.5, 25), "TeamBeta")
+				if partner then
+					partner.Name = "QuinB_SparringPartner"
+				end
 			end
 			if not tester or not partner then
 				labEvent:FireClient(player, "CombatModeChanged", {
 					enabled = false,
-					message = "Combat Mode needs both test Quins to spawn first.",
+					message = "Combat Mode failed to spawn sparring Quins.",
 				})
 				return
 			end
@@ -515,21 +585,25 @@ local function handleLabAction(player, action, data)
 
 			-- 2. Configure combat targets and humanoids
 			if tester then
+				tester:SetAttribute("IsInert", false)
 				tester:SetAttribute("IsTester", false)
 				tester:SetAttribute("TargetQuin", partner and partner.Name or nil)
 				local hum = tester:FindFirstChildOfClass("Humanoid")
 				if hum then
 					hum.WalkSpeed = 16
+					hum.AutoRotate = true
 					hum.Health = 100
 				end
 			end
 
 			if partner then
+				partner:SetAttribute("IsInert", false)
 				partner:SetAttribute("IsSparringPartner", false)
 				partner:SetAttribute("TargetQuin", tester and tester.Name or nil)
 				local hum = partner:FindFirstChildOfClass("Humanoid")
 				if hum then
 					hum.WalkSpeed = 16
+					hum.AutoRotate = true
 					hum.Health = 100
 				end
 			end
@@ -559,20 +633,31 @@ local function handleLabAction(player, action, data)
 			labEvent:FireAllClients("CombatModeChanged", { enabled = true })
 
 		else
-			-- Restore Stationary Lab Mode
+			-- Restore Stationary Lab Mode: strictly single inert Quin
 			_G.CombatBrawlActive = false
+
+			if partner then
+				partner:Destroy()
+				partner = nil
+			end
 
 			if tester then
 				stopAllTracks(tester, 0.1)
+				tester:SetAttribute("IsInert", true)
 				tester:SetAttribute("IsTester", true)
+				tester:SetAttribute("TargetQuin", nil)
+				tester:SetAttribute("CurrentTarget", nil)
 				local hum = tester:FindFirstChildOfClass("Humanoid")
 				if hum then
 					hum.WalkSpeed = 0
-					hum.Health = 100
+					hum.AutoRotate = false
+					hum.Health = 1000
 				end
 				local hrp = tester:FindFirstChild("HumanoidRootPart")
 				if hrp then
 					hrp.CFrame = CFrame.new(0, 7.5, 0)
+					hrp.AssemblyLinearVelocity = Vector3.zero
+					hrp.AssemblyAngularVelocity = Vector3.zero
 				end
 				tester:SetAttribute("ForceState", "Idle")
 				local idleData = AnimationConfig.get("Movement.Idle")
@@ -581,26 +666,7 @@ local function handleLabAction(player, action, data)
 				end
 			end
 
-			if partner then
-				stopAllTracks(partner, 0.1)
-				partner:SetAttribute("IsSparringPartner", true)
-				local hum = partner:FindFirstChildOfClass("Humanoid")
-				if hum then
-					hum.WalkSpeed = 0
-					hum.Health = 100
-				end
-				local hrp = partner:FindFirstChild("HumanoidRootPart")
-				if hrp then
-					hrp.CFrame = CFrame.new(0, 7.5, 5) * CFrame.Angles(0, math.rad(180), 0)
-				end
-				partner:SetAttribute("ForceState", "Idle")
-				local idleData = AnimationConfig.get("Movement.Idle")
-				if idleData then
-					playTrack(partner, idleData.id, idleData.speed, 0.15, "Idle", true)
-				end
-			end
-
-			print("[AnimationLabServer] LAB MODE RESTORED: Quins reset to stationary positions.")
+			print("[AnimationLabServer] LAB MODE RESTORED: Single inert tester rig (QuinA_Tester) ready.")
 			labEvent:FireAllClients("CombatModeChanged", { enabled = false })
 		end
 

@@ -398,6 +398,21 @@ task.spawn(function()
 			continue
 		end
 
+		-- === Inert Laboratory Rig Bypass ===
+		-- When marked IsInert or IsTester (without explicit combat mode active), keep Quin completely passive
+		local isInert = Quin:GetAttribute("IsInert") == true
+		local isTester = Quin:GetAttribute("IsTester") == true and not _G.CombatBrawlActive
+		if isInert or isTester then
+			humanoid.WalkSpeed = 0
+			humanoid.AutoRotate = false
+			if rootPart then
+				rootPart.AssemblyLinearVelocity = Vector3.zero
+			end
+			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+			task.wait(math.clamp(0.15 / speedMult, 0.05, 0.2))
+			continue
+		end
+
 		-- === Arena Safety Net & Cinematic Re-Entry ===
 		if rootPart then
 			-- === Leader Showdown Authoritative Ring Enforcement ===

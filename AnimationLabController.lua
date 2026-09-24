@@ -758,18 +758,27 @@ subNavLayout.Parent = subNavFrame
 
 local subTabs = {
 	{ id = "AnimStudio", label = "🎬 Animation Studio" },
+	{ id = "AnimCombinator", label = "🎛️ Animation Combinator" },
 	{ id = "LocoIK", label = "🏃 Locomotion & IK" },
 	{ id = "RagdollLab", label = "💥 Ragdoll Lab" },
 	{ id = "Maneuvers", label = "🎮 Maneuvers" },
 }
 
--- 4 Sub-View Containers inside powerhouseView:
+-- 5 Sub-View Containers inside powerhouseView:
 local animStudioView = Instance.new("Frame")
 animStudioView.Name = "AnimStudioView"
 animStudioView.Size = UDim2.new(1, 0, 1, -38)
 animStudioView.Position = UDim2.new(0, 0, 0, 38)
 animStudioView.BackgroundTransparency = 1
 animStudioView.Parent = powerhouseView
+
+local animCombinatorView = Instance.new("Frame")
+animCombinatorView.Name = "AnimCombinatorView"
+animCombinatorView.Size = UDim2.new(1, 0, 1, -38)
+animCombinatorView.Position = UDim2.new(0, 0, 0, 38)
+animCombinatorView.BackgroundTransparency = 1
+animCombinatorView.Visible = false
+animCombinatorView.Parent = powerhouseView
 
 local locoIkView = Instance.new("Frame")
 locoIkView.Name = "LocoIKView"
@@ -798,6 +807,7 @@ maneuversView.Parent = powerhouseView
 local function switchPowerhouseSubTab(subId)
 	activePowerhouseSubTab = subId
 	animStudioView.Visible = (subId == "AnimStudio")
+	animCombinatorView.Visible = (subId == "AnimCombinator")
 	locoIkView.Visible = (subId == "LocoIK")
 	ragdollLabView.Visible = (subId == "RagdollLab")
 	maneuversView.Visible = (subId == "Maneuvers")
@@ -1033,6 +1043,7 @@ applyStroke(searchContainer, C_BORDER, 1)
 
 local searchBox = Instance.new("TextBox")
 searchBox.Name = "AnimSearchBox"
+searchBox.Text = ""
 searchBox.Size = UDim2.new(1, -30, 1, 0)
 searchBox.Position = UDim2.new(0, 8, 0, 0)
 searchBox.BackgroundTransparency = 1
@@ -1539,6 +1550,7 @@ applyCorner(exportBtn, 6)
 --------------------------------------------------------------------------------
 -- 5. POPUP MODAL FOR EXPORTED CODE
 --------------------------------------------------------------------------------
+local showLuauExportModal
 do
 	local modalBackdrop = Instance.new("Frame")
 modalBackdrop.Size = UDim2.new(1, 0, 1, 0)
@@ -1620,23 +1632,28 @@ copyNotifyBtn.ZIndex = 53
 copyNotifyBtn.Parent = modalFrame
 applyCorner(copyNotifyBtn, 6)
 
+showLuauExportModal = function(code, title)
+	modalTitle.Text = title or "  EXPORTED ANIMATION CONFIG (LUAU)"
+	modalTextBox.Text = code or ""
+	modalScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(600, #modalTextBox.Text * 0.8))
+	modalBackdrop.Visible = true
+end
+
 exportBtn.MouseButton1Click:Connect(function()
 	local luauCode = AnimationConfig.exportLuau()
-	modalTextBox.Text = luauCode
-	modalScroll.CanvasSize = UDim2.new(0, 0, 0, 1400)
-	modalBackdrop.Visible = true
+	showLuauExportModal(luauCode, "  EXPORTED ANIMATION CONFIG (LUAU)")
 end)
 
 copyNotifyBtn.MouseButton1Click:Connect(function()
-	local luauCode = AnimationConfig.exportLuau()
+	local luauCode = modalTextBox.Text
 	print("========================================")
-	print("QUIN ANIMATION CONFIG EXPORT:")
+	print(modalTitle.Text)
 	print(luauCode)
 	print("========================================")
 	modalTextBox:CaptureFocus()
 	copyNotifyBtn.Text = "✓ Printed to Console Output!"
 	task.delay(1.5, function() copyNotifyBtn.Text = "Print to Studio Output & Select All" end)
-	end)
+end)
 end
 
 --------------------------------------------------------------------------------
@@ -1829,6 +1846,1767 @@ mainFrame:GetAttributeChangedSignal("SearchQuery"):Connect(function()
 	if q and _G.SetAnimSearch then _G.SetAnimSearch(q) end
 end)
 
+end
+
+--------------------------------------------------------------------------------
+-- 4A2. SUB-TAB: ANIMATION COMBINATOR (LABORATORY, STACK, SCRUBBER, TRANSITIONS)
+--------------------------------------------------------------------------------
+do
+	-- State for Combinator
+	local combinatorLayers = {}
+	local combinatorGlobalDuration = 2.0
+	local combinatorCurrentTime = 0.0
+	local combinatorIsPlaying = false
+	local combinatorLoop = true
+	local combinatorPlaySpeed = 1.0
+
+	-- Transition Inspector State
+	local transLayerAIdx = 1
+	local transLayerBIdx = 2
+	local transBlendTime = 0.15
+	local isTransitionTesting = false
+	local transitionThread = nil
+
+	-- Forward declarations
+	local refreshStackView
+	local updateGlobalDuration
+	local updateScrubberVisuals
+	local syncScrubToServer
+	local triggerStackPlayback
+	local stopCombinatorPlayback
+	local getActiveLayersPayload
+
+	-- Master Top Container (3 Columns)
+	local topArea = Instance.new("Frame")
+	topArea.Name = "CombinatorTopArea"
+	topArea.Size = UDim2.new(1, 0, 1, -112)
+	topArea.Position = UDim2.new(0, 0, 0, 4)
+	topArea.BackgroundTransparency = 1
+	topArea.Parent = animCombinatorView
+
+	-- Master Bottom Container (Global Timeline Scrubber & Master Transport)
+	local bottomPanel = Instance.new("Frame")
+	bottomPanel.Name = "CombinatorBottomPanel"
+	bottomPanel.Size = UDim2.new(1, -16, 0, 104)
+	bottomPanel.Position = UDim2.new(0, 8, 1, -106)
+	bottomPanel.BackgroundColor3 = C_PANEL
+	bottomPanel.ClipsDescendants = true
+	bottomPanel.Parent = animCombinatorView
+	applyCorner(bottomPanel, 8)
+	applyStroke(bottomPanel, C_BORDER, 1)
+
+	----------------------------------------------------------------------------
+	-- LEFT COLUMN: DIRECT ID INSERTER & PRE-REGISTERED LIBRARY
+	----------------------------------------------------------------------------
+	local libPanel = Instance.new("Frame")
+	libPanel.Name = "LibraryPanel"
+	libPanel.Size = UDim2.new(0, 270, 1, 0)
+	libPanel.Position = UDim2.new(0, 8, 0, 0)
+	libPanel.BackgroundColor3 = C_PANEL
+	libPanel.ClipsDescendants = true
+	libPanel.Parent = topArea
+	applyCorner(libPanel, 8)
+	applyStroke(libPanel, C_BORDER, 1)
+
+	-- Direct ID Inserter Header
+	local directIdHeader = Instance.new("TextLabel")
+	directIdHeader.Text = "⚡ DIRECT ID INSERTER"
+	directIdHeader.Size = UDim2.new(1, -16, 0, 20)
+	directIdHeader.Position = UDim2.new(0, 8, 0, 6)
+	directIdHeader.BackgroundTransparency = 1
+	directIdHeader.TextColor3 = C_ACCENT
+	directIdHeader.Font = Enum.Font.GothamBold
+	directIdHeader.TextSize = 11
+	directIdHeader.TextXAlignment = Enum.TextXAlignment.Left
+	directIdHeader.Parent = libPanel
+
+	local directIdBox = Instance.new("TextBox")
+	directIdBox.Name = "DirectIdBox"
+	directIdBox.Size = UDim2.new(1, -16, 0, 26)
+	directIdBox.Position = UDim2.new(0, 8, 0, 28)
+	directIdBox.BackgroundColor3 = Color3.fromRGB(30, 36, 48)
+	directIdBox.TextColor3 = C_TEXT
+	directIdBox.PlaceholderText = "Paste ID (e.g. 81038616654818)..."
+	directIdBox.PlaceholderColor3 = C_TEXT_MUTED
+	directIdBox.Font = Enum.Font.Code
+	directIdBox.TextSize = 11
+	directIdBox.TextXAlignment = Enum.TextXAlignment.Left
+	directIdBox.ClearTextOnFocus = false
+	directIdBox.Text = ""
+	directIdBox.Parent = libPanel
+	applyCorner(directIdBox, 4)
+	applyStroke(directIdBox, Color3.fromRGB(50, 60, 80), 1)
+
+	local directBtnsFrame = Instance.new("Frame")
+	directBtnsFrame.Size = UDim2.new(1, -16, 0, 26)
+	directBtnsFrame.Position = UDim2.new(0, 8, 0, 58)
+	directBtnsFrame.BackgroundTransparency = 1
+	directBtnsFrame.Parent = libPanel
+
+	local previewIdBtn = Instance.new("TextButton")
+	previewIdBtn.Text = "▶ Audition"
+	previewIdBtn.Size = UDim2.new(0.48, -2, 1, 0)
+	previewIdBtn.Position = UDim2.new(0, 0, 0, 0)
+	previewIdBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 120)
+	previewIdBtn.TextColor3 = Color3.fromRGB(220, 245, 255)
+	previewIdBtn.Font = Enum.Font.GothamBold
+	previewIdBtn.TextSize = 11
+	previewIdBtn.Parent = directBtnsFrame
+	applyCorner(previewIdBtn, 4)
+
+	local addIdBtn = Instance.new("TextButton")
+	addIdBtn.Text = "+ Add Layer"
+	addIdBtn.Size = UDim2.new(0.52, -2, 1, 0)
+	addIdBtn.Position = UDim2.new(0.48, 4, 0, 0)
+	addIdBtn.BackgroundColor3 = C_ACCENT
+	addIdBtn.TextColor3 = Color3.new(0, 0, 0)
+	addIdBtn.Font = Enum.Font.GothamBold
+	addIdBtn.TextSize = 11
+	addIdBtn.Parent = directBtnsFrame
+	applyCorner(addIdBtn, 4)
+
+	-- Divider
+	local libDivider = Instance.new("Frame")
+	libDivider.Size = UDim2.new(1, -16, 0, 1)
+	libDivider.Position = UDim2.new(0, 8, 0, 90)
+	libDivider.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
+	libDivider.BorderSizePixel = 0
+	libDivider.Parent = libPanel
+
+	-- Pre-Registered Library Header
+	local libHeader = Instance.new("TextLabel")
+	libHeader.Text = "📚 PRE-REGISTERED LIBRARY"
+	libHeader.Size = UDim2.new(1, -16, 0, 20)
+	libHeader.Position = UDim2.new(0, 8, 0, 96)
+	libHeader.BackgroundTransparency = 1
+	libHeader.TextColor3 = C_TEXT
+	libHeader.Font = Enum.Font.GothamBold
+	libHeader.TextSize = 11
+	libHeader.TextXAlignment = Enum.TextXAlignment.Left
+	libHeader.Parent = libPanel
+
+	-- Category Tabs Bar
+	local combCatTabBar = Instance.new("ScrollingFrame")
+	combCatTabBar.Size = UDim2.new(1, -16, 0, 24)
+	combCatTabBar.Position = UDim2.new(0, 8, 0, 118)
+	combCatTabBar.BackgroundTransparency = 1
+	combCatTabBar.ScrollBarThickness = 2
+	combCatTabBar.CanvasSize = UDim2.new(0, 520, 0, 0)
+	combCatTabBar.Parent = libPanel
+
+	local combCatLayout = Instance.new("UIListLayout")
+	combCatLayout.FillDirection = Enum.FillDirection.Horizontal
+	combCatLayout.Padding = UDim.new(0, 4)
+	combCatLayout.Parent = combCatTabBar
+
+	-- Library Search Box
+	local combSearchBox = Instance.new("TextBox")
+	combSearchBox.Size = UDim2.new(1, -16, 0, 24)
+	combSearchBox.Position = UDim2.new(0, 8, 0, 146)
+	combSearchBox.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+	combSearchBox.TextColor3 = C_TEXT
+	combSearchBox.PlaceholderText = "🔍 Search library (e.g. idle, punch)..."
+	combSearchBox.PlaceholderColor3 = C_TEXT_MUTED
+	combSearchBox.Font = Enum.Font.Gotham
+	combSearchBox.TextSize = 10
+	combSearchBox.TextXAlignment = Enum.TextXAlignment.Left
+	combSearchBox.ClearTextOnFocus = false
+	combSearchBox.Text = ""
+	combSearchBox.Parent = libPanel
+	applyCorner(combSearchBox, 4)
+	applyStroke(combSearchBox, C_BORDER, 1)
+
+	-- Library Scroll List
+	local libScroll = Instance.new("ScrollingFrame")
+	libScroll.Size = UDim2.new(1, -16, 1, -176)
+	libScroll.Position = UDim2.new(0, 8, 0, 174)
+	libScroll.BackgroundColor3 = Color3.fromRGB(20, 24, 32)
+	libScroll.ScrollBarThickness = 3
+	libScroll.ClipsDescendants = true
+	libScroll.Parent = libPanel
+	applyCorner(libScroll, 6)
+
+	local libLayout = Instance.new("UIListLayout")
+	libLayout.Padding = UDim.new(0, 3)
+	libLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	libLayout.Parent = libScroll
+	libScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+	----------------------------------------------------------------------------
+	-- CENTER COLUMN: COMBINATION STACK & LAYER INSPECTOR
+	----------------------------------------------------------------------------
+	local stackPanel = Instance.new("Frame")
+	stackPanel.Name = "StackPanel"
+	stackPanel.Size = UDim2.new(0, 420, 1, 0)
+	stackPanel.Position = UDim2.new(0, 286, 0, 0)
+	stackPanel.BackgroundColor3 = C_PANEL
+	stackPanel.ClipsDescendants = true
+	stackPanel.Parent = topArea
+	applyCorner(stackPanel, 8)
+	applyStroke(stackPanel, C_BORDER, 1)
+
+	-- Stack Top Bar
+	local stackTitle = Instance.new("TextLabel")
+	stackTitle.Text = "🎛️ COMBINATION STACK"
+	stackTitle.Size = UDim2.new(0, 170, 0, 28)
+	stackTitle.Position = UDim2.new(0, 10, 0, 4)
+	stackTitle.BackgroundTransparency = 1
+	stackTitle.TextColor3 = C_ACCENT
+	stackTitle.Font = Enum.Font.GothamBold
+	stackTitle.TextSize = 12
+	stackTitle.TextXAlignment = Enum.TextXAlignment.Left
+	stackTitle.Parent = stackPanel
+
+	local stackCountBadge = Instance.new("TextLabel")
+	stackCountBadge.Text = "(0 Layers)"
+	stackCountBadge.Size = UDim2.new(0, 70, 0, 28)
+	stackCountBadge.Position = UDim2.new(0, 175, 0, 4)
+	stackCountBadge.BackgroundTransparency = 1
+	stackCountBadge.TextColor3 = C_TEXT_MUTED
+	stackCountBadge.Font = Enum.Font.Gotham
+	stackCountBadge.TextSize = 11
+	stackCountBadge.TextXAlignment = Enum.TextXAlignment.Left
+	stackCountBadge.Parent = stackPanel
+
+	local addEmptyLayerBtn = Instance.new("TextButton")
+	addEmptyLayerBtn.Text = "+ Add Blank"
+	addEmptyLayerBtn.Size = UDim2.new(0, 85, 0, 22)
+	addEmptyLayerBtn.Position = UDim2.new(1, -165, 0, 7)
+	addEmptyLayerBtn.BackgroundColor3 = Color3.fromRGB(36, 75, 115)
+	addEmptyLayerBtn.TextColor3 = Color3.fromRGB(220, 245, 255)
+	addEmptyLayerBtn.Font = Enum.Font.GothamBold
+	addEmptyLayerBtn.TextSize = 10
+	addEmptyLayerBtn.Parent = stackPanel
+	applyCorner(addEmptyLayerBtn, 4)
+
+	local clearStackBtn = Instance.new("TextButton")
+	clearStackBtn.Text = "🗑 Clear"
+	clearStackBtn.Size = UDim2.new(0, 65, 0, 22)
+	clearStackBtn.Position = UDim2.new(1, -74, 0, 7)
+	clearStackBtn.BackgroundColor3 = Color3.fromRGB(70, 32, 36)
+	clearStackBtn.TextColor3 = C_DANGER
+	clearStackBtn.Font = Enum.Font.GothamBold
+	clearStackBtn.TextSize = 10
+	clearStackBtn.Parent = stackPanel
+	applyCorner(clearStackBtn, 4)
+
+	-- Stack Scroll List
+	local stackScroll = Instance.new("ScrollingFrame")
+	stackScroll.Name = "StackScroll"
+	stackScroll.Size = UDim2.new(1, -16, 1, -40)
+	stackScroll.Position = UDim2.new(0, 8, 0, 34)
+	stackScroll.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+	stackScroll.ScrollBarThickness = 4
+	stackScroll.ClipsDescendants = true
+	stackScroll.Parent = stackPanel
+	applyCorner(stackScroll, 6)
+
+	local stackLayout = Instance.new("UIListLayout")
+	stackLayout.Padding = UDim.new(0, 6)
+	stackLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	stackLayout.Parent = stackScroll
+	stackScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+	local emptyStackNotice = Instance.new("TextLabel")
+	emptyStackNotice.Text = "No animation layers in stack.\nClick '+' on any clip in the Library or use\nDirect ID Inserter to start combining animations!"
+	emptyStackNotice.Size = UDim2.new(1, -20, 0, 90)
+	emptyStackNotice.Position = UDim2.new(0, 10, 0, 20)
+	emptyStackNotice.BackgroundTransparency = 1
+	emptyStackNotice.TextColor3 = C_TEXT_MUTED
+	emptyStackNotice.Font = Enum.Font.Gotham
+	emptyStackNotice.TextSize = 11
+	emptyStackNotice.TextYAlignment = Enum.TextYAlignment.Center
+	emptyStackNotice.Parent = stackScroll
+
+	----------------------------------------------------------------------------
+	-- RIGHT COLUMN: TRANSITION INSPECTOR, PRESETS & EXPORT
+	----------------------------------------------------------------------------
+	local inspPanel = Instance.new("Frame")
+	inspPanel.Name = "InspectorPanel"
+	inspPanel.Size = UDim2.new(1, -714, 1, 0)
+	inspPanel.Position = UDim2.new(0, 714, 0, 0)
+	inspPanel.BackgroundColor3 = C_PANEL
+	inspPanel.ClipsDescendants = true
+	inspPanel.Parent = topArea
+	applyCorner(inspPanel, 8)
+	applyStroke(inspPanel, C_BORDER, 1)
+
+	local inspScroll = Instance.new("ScrollingFrame")
+	inspScroll.Size = UDim2.new(1, -8, 1, -8)
+	inspScroll.Position = UDim2.new(0, 4, 0, 4)
+	inspScroll.BackgroundTransparency = 1
+	inspScroll.ScrollBarThickness = 3
+	inspScroll.CanvasSize = UDim2.new(0, 0, 0, 440)
+	inspScroll.Parent = inspPanel
+
+	-- Section: Transition Inspector
+	local transTitle = Instance.new("TextLabel")
+	transTitle.Text = "⚡ TRANSITION INSPECTOR"
+	transTitle.Size = UDim2.new(1, -12, 0, 20)
+	transTitle.Position = UDim2.new(0, 6, 0, 4)
+	transTitle.BackgroundTransparency = 1
+	transTitle.TextColor3 = C_ACCENT
+	transTitle.Font = Enum.Font.GothamBold
+	transTitle.TextSize = 11
+	transTitle.TextXAlignment = Enum.TextXAlignment.Left
+	transTitle.Parent = inspScroll
+
+	local transSubtitle = Instance.new("TextLabel")
+	transSubtitle.Text = "Inspect blend & handoff between 2 layers"
+	transSubtitle.Size = UDim2.new(1, -12, 0, 14)
+	transSubtitle.Position = UDim2.new(0, 6, 0, 24)
+	transSubtitle.BackgroundTransparency = 1
+	transSubtitle.TextColor3 = C_TEXT_MUTED
+	transSubtitle.Font = Enum.Font.Gotham
+	transSubtitle.TextSize = 9
+	transSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+	transSubtitle.Parent = inspScroll
+
+	local transLayerABtn = Instance.new("TextButton")
+	transLayerABtn.Text = "From: Layer 1"
+	transLayerABtn.Size = UDim2.new(0.48, -2, 0, 24)
+	transLayerABtn.Position = UDim2.new(0, 6, 0, 42)
+	transLayerABtn.BackgroundColor3 = Color3.fromRGB(30, 36, 48)
+	transLayerABtn.TextColor3 = C_TEXT
+	transLayerABtn.Font = Enum.Font.GothamBold
+	transLayerABtn.TextSize = 10
+	transLayerABtn.Parent = inspScroll
+	applyCorner(transLayerABtn, 4)
+	applyStroke(transLayerABtn, C_BORDER, 1)
+
+	local transLayerBBtn = Instance.new("TextButton")
+	transLayerBBtn.Text = "To: Layer 2"
+	transLayerBBtn.Size = UDim2.new(0.48, -2, 0, 24)
+	transLayerBBtn.Position = UDim2.new(0.50, 4, 0, 42)
+	transLayerBBtn.BackgroundColor3 = Color3.fromRGB(30, 36, 48)
+	transLayerBBtn.TextColor3 = C_TEXT
+	transLayerBBtn.Font = Enum.Font.GothamBold
+	transLayerBBtn.TextSize = 10
+	transLayerBBtn.Parent = inspScroll
+	applyCorner(transLayerBBtn, 4)
+	applyStroke(transLayerBBtn, C_BORDER, 1)
+
+	local transBlendLabel = Instance.new("TextLabel")
+	transBlendLabel.Text = string.format("Blend Crossfade: %.2fs (F%d)", transBlendTime, math.floor(transBlendTime * 30))
+	transBlendLabel.Size = UDim2.new(1, -12, 0, 18)
+	transBlendLabel.Position = UDim2.new(0, 6, 0, 70)
+	transBlendLabel.BackgroundTransparency = 1
+	transBlendLabel.TextColor3 = C_TEXT
+	transBlendLabel.Font = Enum.Font.Gotham
+	transBlendLabel.TextSize = 10
+	transBlendLabel.TextXAlignment = Enum.TextXAlignment.Left
+	transBlendLabel.Parent = inspScroll
+
+	local transBlendMinus = Instance.new("TextButton")
+	transBlendMinus.Text = "- 1F"
+	transBlendMinus.Size = UDim2.new(0, 36, 0, 20)
+	transBlendMinus.Position = UDim2.new(0, 6, 0, 90)
+	transBlendMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+	transBlendMinus.TextColor3 = C_TEXT
+	transBlendMinus.Font = Enum.Font.GothamBold
+	transBlendMinus.TextSize = 10
+	transBlendMinus.Parent = inspScroll
+	applyCorner(transBlendMinus, 4)
+
+	local transBlendPlus = Instance.new("TextButton")
+	transBlendPlus.Text = "+ 1F"
+	transBlendPlus.Size = UDim2.new(0, 36, 0, 20)
+	transBlendPlus.Position = UDim2.new(0, 48, 0, 90)
+	transBlendPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+	transBlendPlus.TextColor3 = C_TEXT
+	transBlendPlus.Font = Enum.Font.GothamBold
+	transBlendPlus.TextSize = 10
+	transBlendPlus.Parent = inspScroll
+	applyCorner(transBlendPlus, 4)
+
+	local playTransitionBtn = Instance.new("TextButton")
+	playTransitionBtn.Text = "⚡ Play Transition Only"
+	playTransitionBtn.Size = UDim2.new(1, -12, 0, 28)
+	playTransitionBtn.Position = UDim2.new(0, 6, 0, 116)
+	playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
+	playTransitionBtn.TextColor3 = Color3.fromRGB(240, 250, 255)
+	playTransitionBtn.Font = Enum.Font.GothamBold
+	playTransitionBtn.TextSize = 11
+	playTransitionBtn.Parent = inspScroll
+	applyCorner(playTransitionBtn, 6)
+
+	-- Section: Presets
+	local presetsDivider = Instance.new("Frame")
+	presetsDivider.Size = UDim2.new(1, -12, 0, 1)
+	presetsDivider.Position = UDim2.new(0, 6, 0, 154)
+	presetsDivider.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
+	presetsDivider.BorderSizePixel = 0
+	presetsDivider.Parent = inspScroll
+
+	local presetsTitle = Instance.new("TextLabel")
+	presetsTitle.Text = "✨ QUICK PRESETS"
+	presetsTitle.Size = UDim2.new(1, -12, 0, 20)
+	presetsTitle.Position = UDim2.new(0, 6, 0, 160)
+	presetsTitle.BackgroundTransparency = 1
+	presetsTitle.TextColor3 = C_TEXT
+	presetsTitle.Font = Enum.Font.GothamBold
+	presetsTitle.TextSize = 11
+	presetsTitle.TextXAlignment = Enum.TextXAlignment.Left
+	presetsTitle.Parent = inspScroll
+
+	local presetList = {
+		{ name = "🏃 Run + 👊 Lead Punch", presetId = "RunPunch" },
+		{ name = "🧘 Idle + ⚔️ Ready Stance", presetId = "IdleStance" },
+		{ name = "⚡ Sprint + 🔄 180 Turn", presetId = "Sprint180" },
+		{ name = "🦸 Superhero Landing", presetId = "SuperheroLanding" },
+	}
+
+	for pIdx, pData in ipairs(presetList) do
+		local pBtn = Instance.new("TextButton")
+		pBtn.Text = pData.name
+		pBtn.Size = UDim2.new(1, -12, 0, 24)
+		pBtn.Position = UDim2.new(0, 6, 0, 182 + (pIdx - 1) * 28)
+		pBtn.BackgroundColor3 = Color3.fromRGB(30, 36, 48)
+		pBtn.TextColor3 = C_TEXT
+		pBtn.Font = Enum.Font.Gotham
+		pBtn.TextSize = 10
+		pBtn.Parent = inspScroll
+		applyCorner(pBtn, 4)
+		applyStroke(pBtn, C_BORDER, 1)
+
+		pBtn.MouseButton1Click:Connect(function()
+			if pData.presetId == "RunPunch" then
+				combinatorLayers = {
+					{
+						id = "rbxassetid://109090784752055",
+						name = "Movement.Run",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.467,
+						weight = 1.0,
+						speed = 1.0,
+						priority = "Movement",
+						bodyMask = "Lower Body",
+						looped = true,
+					},
+					{
+						id = "rbxassetid://113219639247452",
+						name = "Attacks.Punch1",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.833,
+						weight = 1.0,
+						speed = 1.0,
+						priority = "Action4",
+						bodyMask = "Upper Body",
+						looped = true,
+					}
+				}
+			elseif pData.presetId == "IdleStance" then
+				combinatorLayers = {
+					{
+						id = "rbxassetid://81038616654818",
+						name = "IDLE_DEFAULT",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 4.0,
+						weight = 0.6,
+						speed = 1.0,
+						priority = "Idle",
+						bodyMask = "Full Body",
+						looped = true,
+					},
+					{
+						id = "rbxassetid://123350689285769",
+						name = "IDLEREADY_STANCE",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 1.95,
+						weight = 0.8,
+						speed = 1.0,
+						priority = "Action",
+						bodyMask = "Upper Body",
+						looped = true,
+					}
+				}
+			elseif pData.presetId == "Sprint180" then
+				combinatorLayers = {
+					{
+						id = "rbxassetid://109090784752055",
+						name = "Movement.Run",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.467,
+						weight = 0.5,
+						speed = 1.0,
+						priority = "Movement",
+						bodyMask = "Full Body",
+						looped = true,
+					},
+					{
+						id = "rbxassetid://129355316172688",
+						name = "RunTurn180",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.667,
+						weight = 1.0,
+						speed = 1.0,
+						priority = "Action3",
+						bodyMask = "Full Body",
+						looped = true,
+					}
+				}
+			elseif pData.presetId == "SuperheroLanding" then
+				combinatorLayers = {
+					{
+						id = "rbxassetid://94804914683754",
+						name = "SUPERHERO LANDING",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.883,
+						weight = 1.0,
+						speed = 1.0,
+						priority = "Action4",
+						bodyMask = "Full Body",
+						looped = false,
+					},
+					{
+						id = "rbxassetid://95406088712190",
+						name = "GetUpBackFast",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 1.0,
+						weight = 0.9,
+						speed = 1.0,
+						priority = "Action",
+						bodyMask = "Full Body",
+						looped = false,
+					}
+				}
+			end
+			updateGlobalDuration()
+			refreshStackView()
+		end)
+	end
+
+	-- Section: Export
+	local exportDivider = Instance.new("Frame")
+	exportDivider.Size = UDim2.new(1, -12, 0, 1)
+	exportDivider.Position = UDim2.new(0, 6, 0, 304)
+	exportDivider.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
+	exportDivider.BorderSizePixel = 0
+	exportDivider.Parent = inspScroll
+
+	local exportStackBtn = Instance.new("TextButton")
+	exportStackBtn.Text = "📋 Export Stack to Luau"
+	exportStackBtn.Size = UDim2.new(1, -12, 0, 30)
+	exportStackBtn.Position = UDim2.new(0, 6, 0, 314)
+	exportStackBtn.BackgroundColor3 = C_ACCENT
+	exportStackBtn.TextColor3 = Color3.new(0, 0, 0)
+	exportStackBtn.Font = Enum.Font.GothamBold
+	exportStackBtn.TextSize = 11
+	exportStackBtn.Parent = inspScroll
+	applyCorner(exportStackBtn, 6)
+
+	exportStackBtn.MouseButton1Click:Connect(function()
+		local lines = {}
+		table.insert(lines, "-- Generated Quin Animation Combinator Configuration")
+		table.insert(lines, "-- Timestamp: " .. os.date("!%Y-%m-%dT%H:%M:%SZ"))
+		table.insert(lines, "local CombinatorStack = {")
+		table.insert(lines, string.format("\tDuration = %.3f,", combinatorGlobalDuration))
+		table.insert(lines, "\tLayers = {")
+		for i, l in ipairs(combinatorLayers) do
+			table.insert(lines, string.format("\t\t[%d] = {", i))
+			table.insert(lines, string.format("\t\t\tname = %q,", l.name))
+			table.insert(lines, string.format("\t\t\tid = %q,", l.id))
+			table.insert(lines, string.format("\t\t\tenabled = %s,", tostring(l.enabled)))
+			table.insert(lines, string.format("\t\t\tstartCut = %.3f, -- Frame %d", l.startCut, math.floor(l.startCut * 30)))
+			table.insert(lines, string.format("\t\t\tendCut = %.3f, -- Frame %d", l.endCut, math.floor(l.endCut * 30)))
+			table.insert(lines, string.format("\t\t\tweight = %.2f,", l.weight))
+			table.insert(lines, string.format("\t\t\tspeed = %.2f,", l.speed))
+			table.insert(lines, string.format("\t\t\tpriority = %q,", l.priority))
+			table.insert(lines, string.format("\t\t\tbodyMask = %q,", l.bodyMask))
+			table.insert(lines, "\t\t},")
+		end
+		table.insert(lines, "\t}")
+		table.insert(lines, "}")
+		table.insert(lines, "return CombinatorStack")
+		local luauCode = table.concat(lines, "\n")
+		if showLuauExportModal then
+			showLuauExportModal(luauCode, "  EXPORTED COMBINATOR STACK CONFIG (LUAU)")
+		else
+			print(luauCode)
+		end
+	end)
+
+	----------------------------------------------------------------------------
+	-- BOTTOM PANEL: GLOBAL TIMELINE SCRUBBER & MASTER TRANSPORT CONTROLS
+	----------------------------------------------------------------------------
+	-- Row 1: Readouts
+	local timeReadout = Instance.new("TextLabel")
+	timeReadout.Text = "⏱ Scrub: 0.00s / 2.00s"
+	timeReadout.Size = UDim2.new(0, 180, 0, 18)
+	timeReadout.Position = UDim2.new(0, 10, 0, 4)
+	timeReadout.BackgroundTransparency = 1
+	timeReadout.TextColor3 = C_ACCENT
+	timeReadout.Font = Enum.Font.GothamBold
+	timeReadout.TextSize = 11
+	timeReadout.TextXAlignment = Enum.TextXAlignment.Left
+	timeReadout.Parent = bottomPanel
+
+	local frameReadout = Instance.new("TextLabel")
+	frameReadout.Text = "🎞 Frame: 0 / 60 (@ 30 FPS)"
+	frameReadout.Size = UDim2.new(0, 200, 0, 18)
+	frameReadout.Position = UDim2.new(0, 200, 0, 4)
+	frameReadout.BackgroundTransparency = 1
+	frameReadout.TextColor3 = C_TEXT
+	frameReadout.Font = Enum.Font.Gotham
+	frameReadout.TextSize = 10
+	frameReadout.TextXAlignment = Enum.TextXAlignment.Left
+	frameReadout.Parent = bottomPanel
+
+	local statusReadout = Instance.new("TextLabel")
+	statusReadout.Text = "Stack: Ready (0 Layers Active)"
+	statusReadout.Size = UDim2.new(1, -420, 0, 18)
+	statusReadout.Position = UDim2.new(0, 410, 0, 4)
+	statusReadout.BackgroundTransparency = 1
+	statusReadout.TextColor3 = C_TEXT_MUTED
+	statusReadout.Font = Enum.Font.Gotham
+	statusReadout.TextSize = 10
+	statusReadout.TextXAlignment = Enum.TextXAlignment.Right
+	statusReadout.Parent = bottomPanel
+
+	-- Row 2: Draggable Timeline Scrubber Track
+	local scrubTrack = Instance.new("Frame")
+	scrubTrack.Name = "ScrubTrack"
+	scrubTrack.Size = UDim2.new(1, -20, 0, 14)
+	scrubTrack.Position = UDim2.new(0, 10, 0, 24)
+	scrubTrack.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
+	scrubTrack.Parent = bottomPanel
+	applyCorner(scrubTrack, 7)
+	applyStroke(scrubTrack, Color3.fromRGB(55, 65, 88), 1)
+
+	local scrubFill = Instance.new("Frame")
+	scrubFill.Name = "ScrubFill"
+	scrubFill.Size = UDim2.new(0, 0, 1, 0)
+	scrubFill.BackgroundColor3 = C_ACCENT
+	scrubFill.BorderSizePixel = 0
+	scrubFill.Parent = scrubTrack
+	applyCorner(scrubFill, 7)
+
+	local scrubHead = Instance.new("Frame")
+	scrubHead.Name = "ScrubHead"
+	scrubHead.Size = UDim2.new(0, 16, 0, 16)
+	scrubHead.AnchorPoint = Vector2.new(0.5, 0.5)
+	scrubHead.Position = UDim2.new(0, 0, 0.5, 0)
+	scrubHead.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	scrubHead.Parent = scrubTrack
+	applyCorner(scrubHead, 8)
+	applyStroke(scrubHead, C_ACCENT, 2)
+
+	-- Row 3: Master Transport & Frame Stepping Controls
+	local transportRow = Instance.new("Frame")
+	transportRow.Size = UDim2.new(1, -20, 0, 32)
+	transportRow.Position = UDim2.new(0, 10, 0, 50)
+	transportRow.BackgroundTransparency = 1
+	transportRow.Parent = bottomPanel
+
+	local jumpStartBtn = Instance.new("TextButton")
+	jumpStartBtn.Text = "⏮ Start"
+	jumpStartBtn.Size = UDim2.new(0, 60, 0, 26)
+	jumpStartBtn.Position = UDim2.new(0, 0, 0, 3)
+	jumpStartBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
+	jumpStartBtn.TextColor3 = C_TEXT
+	jumpStartBtn.Font = Enum.Font.GothamBold
+	jumpStartBtn.TextSize = 10
+	jumpStartBtn.Parent = transportRow
+	applyCorner(jumpStartBtn, 4)
+
+	local stepBackBtn = Instance.new("TextButton")
+	stepBackBtn.Text = "◀ 1 Frame"
+	stepBackBtn.Size = UDim2.new(0, 75, 0, 26)
+	stepBackBtn.Position = UDim2.new(0, 66, 0, 3)
+	stepBackBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
+	stepBackBtn.TextColor3 = C_TEXT
+	stepBackBtn.Font = Enum.Font.GothamBold
+	stepBackBtn.TextSize = 10
+	stepBackBtn.Parent = transportRow
+	applyCorner(stepBackBtn, 4)
+
+	local playPauseBtn = Instance.new("TextButton")
+	playPauseBtn.Text = "▶ Play Stack"
+	playPauseBtn.Size = UDim2.new(0, 110, 0, 26)
+	playPauseBtn.Position = UDim2.new(0, 147, 0, 3)
+	playPauseBtn.BackgroundColor3 = C_ACCENT
+	playPauseBtn.TextColor3 = Color3.new(0, 0, 0)
+	playPauseBtn.Font = Enum.Font.GothamBold
+	playPauseBtn.TextSize = 11
+	playPauseBtn.Parent = transportRow
+	applyCorner(playPauseBtn, 4)
+
+	local stepFwdBtn = Instance.new("TextButton")
+	stepFwdBtn.Text = "▶ 1 Frame"
+	stepFwdBtn.Size = UDim2.new(0, 75, 0, 26)
+	stepFwdBtn.Position = UDim2.new(0, 263, 0, 3)
+	stepFwdBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
+	stepFwdBtn.TextColor3 = C_TEXT
+	stepFwdBtn.Font = Enum.Font.GothamBold
+	stepFwdBtn.TextSize = 10
+	stepFwdBtn.Parent = transportRow
+	applyCorner(stepFwdBtn, 4)
+
+	local jumpEndBtn = Instance.new("TextButton")
+	jumpEndBtn.Text = "⏭ End"
+	jumpEndBtn.Size = UDim2.new(0, 60, 0, 26)
+	jumpEndBtn.Position = UDim2.new(0, 344, 0, 3)
+	jumpEndBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
+	jumpEndBtn.TextColor3 = C_TEXT
+	jumpEndBtn.Font = Enum.Font.GothamBold
+	jumpEndBtn.TextSize = 10
+	jumpEndBtn.Parent = transportRow
+	applyCorner(jumpEndBtn, 4)
+
+	local loopBtn = Instance.new("TextButton")
+	loopBtn.Text = "🔄 Loop: ON"
+	loopBtn.Size = UDim2.new(0, 85, 0, 26)
+	loopBtn.Position = UDim2.new(0, 410, 0, 3)
+	loopBtn.BackgroundColor3 = Color3.fromRGB(30, 95, 65)
+	loopBtn.TextColor3 = Color3.fromRGB(220, 255, 230)
+	loopBtn.Font = Enum.Font.GothamBold
+	loopBtn.TextSize = 10
+	loopBtn.Parent = transportRow
+	applyCorner(loopBtn, 4)
+
+	local stopResetBtn = Instance.new("TextButton")
+	stopResetBtn.Text = "■ Reset Idle"
+	stopResetBtn.Size = UDim2.new(0, 85, 0, 26)
+	stopResetBtn.Position = UDim2.new(0, 501, 0, 3)
+	stopResetBtn.BackgroundColor3 = Color3.fromRGB(65, 35, 40)
+	stopResetBtn.TextColor3 = C_DANGER
+	stopResetBtn.Font = Enum.Font.GothamBold
+	stopResetBtn.TextSize = 10
+	stopResetBtn.Parent = transportRow
+	applyCorner(stopResetBtn, 4)
+
+	-- Speed Selector Pills
+	local speedPillsFrame = Instance.new("Frame")
+	speedPillsFrame.Size = UDim2.new(0, 160, 0, 26)
+	speedPillsFrame.Position = UDim2.new(1, -165, 0, 3)
+	speedPillsFrame.BackgroundTransparency = 1
+	speedPillsFrame.Parent = transportRow
+
+	local speedOptions = {
+		{ label = "0.25x", val = 0.25 },
+		{ label = "0.5x",  val = 0.5 },
+		{ label = "1.0x",  val = 1.0 },
+		{ label = "1.5x",  val = 1.5 },
+	}
+	for sIdx, sOpt in ipairs(speedOptions) do
+		local sBtn = Instance.new("TextButton")
+		sBtn.Text = sOpt.label
+		sBtn.Size = UDim2.new(0.24, -2, 1, 0)
+		sBtn.Position = UDim2.new((sIdx - 1) * 0.25, 0, 0, 0)
+		sBtn.BackgroundColor3 = (sOpt.val == combinatorPlaySpeed) and C_ACCENT or Color3.fromRGB(38, 44, 58)
+		sBtn.TextColor3 = (sOpt.val == combinatorPlaySpeed) and Color3.new(0, 0, 0) or C_TEXT
+		sBtn.Font = Enum.Font.GothamBold
+		sBtn.TextSize = 9
+		sBtn.Parent = speedPillsFrame
+		applyCorner(sBtn, 4)
+
+		sBtn.MouseButton1Click:Connect(function()
+			combinatorPlaySpeed = sOpt.val
+			for _, child in ipairs(speedPillsFrame:GetChildren()) do
+				if child:IsA("TextButton") then
+					local isActive = (child.Text == sOpt.label)
+					child.BackgroundColor3 = isActive and C_ACCENT or Color3.fromRGB(38, 44, 58)
+					child.TextColor3 = isActive and Color3.new(0, 0, 0) or C_TEXT
+				end
+			end
+		end)
+	end
+
+	----------------------------------------------------------------------------
+	-- CORE LOGIC & SYNC ENGINE
+	----------------------------------------------------------------------------
+	getActiveLayersPayload = function()
+		local hasSolo = false
+		for _, layer in ipairs(combinatorLayers) do
+			if layer.solo then hasSolo = true break end
+		end
+		local list = {}
+		for _, layer in ipairs(combinatorLayers) do
+			local isMuted = layer.muted or (hasSolo and not layer.solo)
+			local effWeight = isMuted and 0 or (layer.weight or 1.0)
+			table.insert(list, {
+				id = layer.id,
+				name = layer.name,
+				enabled = layer.enabled and not isMuted,
+				muted = isMuted,
+				weight = effWeight,
+				speed = layer.speed or 1.0,
+				startCut = layer.startCut or 0.0,
+				endCut = layer.endCut or 2.0,
+				priority = layer.priority or "Action4",
+				bodyMask = layer.bodyMask or "Full Body",
+				looped = layer.looped == true,
+			})
+		end
+		return list
+	end
+
+	updateScrubberVisuals = function()
+		local ratio = math.clamp(combinatorCurrentTime / math.max(0.01, combinatorGlobalDuration), 0, 1)
+		scrubFill.Size = UDim2.new(ratio, 0, 1, 0)
+		scrubHead.Position = UDim2.new(ratio, 0, 0.5, 0)
+		timeReadout.Text = string.format("⏱ Scrub: %.2fs / %.2fs", combinatorCurrentTime, combinatorGlobalDuration)
+		local curFrame = math.floor(combinatorCurrentTime * 30)
+		local maxFrame = math.floor(combinatorGlobalDuration * 30)
+		frameReadout.Text = string.format("🎞 Frame: %d / %d (@ 30 FPS)", curFrame, maxFrame)
+
+		local activeCount = 0
+		for _, l in ipairs(combinatorLayers) do
+			if l.enabled and not l.muted then activeCount = activeCount + 1 end
+		end
+		statusReadout.Text = string.format("Stack: %s (%d Layers Active)", combinatorIsPlaying and "Playing" or "Ready", activeCount)
+	end
+
+	updateGlobalDuration = function()
+		local maxDur = 0.1
+		for _, layer in ipairs(combinatorLayers) do
+			if layer.enabled and not layer.muted then
+				local d = math.max(0.05, ((layer.endCut or 2.0) - (layer.startCut or 0.0)) / math.max(0.1, layer.speed or 1.0))
+				if d > maxDur then maxDur = d end
+			end
+		end
+		combinatorGlobalDuration = math.max(0.5, maxDur)
+		updateScrubberVisuals()
+	end
+
+	local lastScrubFire = 0
+	syncScrubToServer = function(force)
+		local now = os.clock()
+		if not force and (now - lastScrubFire < 0.033) then return end
+		lastScrubFire = now
+		labEvent:FireServer("Combinator_Scrub", {
+			targetName = testerName,
+			scrubTime = combinatorCurrentTime,
+			layers = getActiveLayersPayload(),
+		})
+	end
+
+	triggerStackPlayback = function()
+		combinatorIsPlaying = true
+		playPauseBtn.Text = "⏸ Pause Stack"
+		playPauseBtn.BackgroundColor3 = Color3.fromRGB(240, 175, 45)
+		labEvent:FireServer("Combinator_PlayStack", {
+			targetName = testerName,
+			layers = getActiveLayersPayload(),
+		})
+		updateScrubberVisuals()
+	end
+
+	stopCombinatorPlayback = function()
+		combinatorIsPlaying = false
+		playPauseBtn.Text = "▶ Play Stack"
+		playPauseBtn.BackgroundColor3 = C_ACCENT
+		combinatorCurrentTime = 0.0
+		if isTransitionTesting and transitionThread then
+			task.cancel(transitionThread)
+			isTransitionTesting = false
+			playTransitionBtn.Text = "⚡ Play Transition Only"
+			playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
+		end
+		updateScrubberVisuals()
+		labEvent:FireServer("Combinator_Stop", { targetName = testerName })
+	end
+
+	-- Scrub track interaction
+	local isScrubDragging = false
+	scrubTrack.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			isScrubDragging = true
+			if combinatorIsPlaying then
+				combinatorIsPlaying = false
+				playPauseBtn.Text = "▶ Play Stack"
+				playPauseBtn.BackgroundColor3 = C_ACCENT
+			end
+			local r = math.clamp((input.Position.X - scrubTrack.AbsolutePosition.X) / math.max(1, scrubTrack.AbsoluteSize.X), 0, 1)
+			combinatorCurrentTime = r * combinatorGlobalDuration
+			updateScrubberVisuals()
+			syncScrubToServer(true)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if isScrubDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local r = math.clamp((input.Position.X - scrubTrack.AbsolutePosition.X) / math.max(1, scrubTrack.AbsoluteSize.X), 0, 1)
+			combinatorCurrentTime = r * combinatorGlobalDuration
+			updateScrubberVisuals()
+			syncScrubToServer(false)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if isScrubDragging then
+				isScrubDragging = false
+				syncScrubToServer(true)
+			end
+		end
+	end)
+
+	-- Transport Buttons Wireup
+	jumpStartBtn.MouseButton1Click:Connect(function()
+		combinatorCurrentTime = 0.0
+		updateScrubberVisuals()
+		syncScrubToServer(true)
+	end)
+
+	jumpEndBtn.MouseButton1Click:Connect(function()
+		combinatorCurrentTime = combinatorGlobalDuration
+		updateScrubberVisuals()
+		syncScrubToServer(true)
+	end)
+
+	stepBackBtn.MouseButton1Click:Connect(function()
+		combinatorCurrentTime = math.max(0, combinatorCurrentTime - (1 / 30))
+		updateScrubberVisuals()
+		syncScrubToServer(true)
+	end)
+
+	stepFwdBtn.MouseButton1Click:Connect(function()
+		combinatorCurrentTime = math.min(combinatorGlobalDuration, combinatorCurrentTime + (1 / 30))
+		updateScrubberVisuals()
+		syncScrubToServer(true)
+	end)
+
+	playPauseBtn.MouseButton1Click:Connect(function()
+		if combinatorIsPlaying then
+			combinatorIsPlaying = false
+			playPauseBtn.Text = "▶ Play Stack"
+			playPauseBtn.BackgroundColor3 = C_ACCENT
+			syncScrubToServer(true)
+		else
+			if combinatorCurrentTime >= combinatorGlobalDuration then
+				combinatorCurrentTime = 0.0
+			end
+			triggerStackPlayback()
+		end
+	end)
+
+	loopBtn.MouseButton1Click:Connect(function()
+		combinatorLoop = not combinatorLoop
+		loopBtn.Text = combinatorLoop and "🔄 Loop: ON" or "🔄 Loop: OFF"
+		loopBtn.BackgroundColor3 = combinatorLoop and Color3.fromRGB(30, 95, 65) or Color3.fromRGB(48, 54, 66)
+	end)
+
+	stopResetBtn.MouseButton1Click:Connect(function()
+		stopCombinatorPlayback()
+	end)
+
+	-- Heartbeat playback progression loop
+	RunService.Heartbeat:Connect(function(dt)
+		if combinatorIsPlaying and animCombinatorView.Visible then
+			combinatorCurrentTime = combinatorCurrentTime + (dt * combinatorPlaySpeed)
+			if combinatorCurrentTime >= combinatorGlobalDuration then
+				if combinatorLoop then
+					combinatorCurrentTime = 0.0
+					triggerStackPlayback()
+				else
+					combinatorCurrentTime = combinatorGlobalDuration
+					combinatorIsPlaying = false
+					playPauseBtn.Text = "▶ Play Stack"
+					playPauseBtn.BackgroundColor3 = C_ACCENT
+				end
+			end
+			updateScrubberVisuals()
+		end
+	end)
+
+	-- Transition Crossfade Inspector Wireup
+	local function updateTransitionPickers()
+		local count = #combinatorLayers
+		if count == 0 then
+			transLayerABtn.Text = "From: None"
+			transLayerBBtn.Text = "To: None"
+			return
+		end
+		if transLayerAIdx > count then transLayerAIdx = 1 end
+		if transLayerBIdx > count then transLayerBIdx = math.min(2, count) end
+		local lA = combinatorLayers[transLayerAIdx]
+		local lB = combinatorLayers[transLayerBIdx]
+		transLayerABtn.Text = string.format("From: L%d (%s)", transLayerAIdx, lA and lA.name:sub(1, 10) or "?")
+		transLayerBBtn.Text = string.format("To: L%d (%s)", transLayerBIdx, lB and lB.name:sub(1, 10) or "?")
+	end
+
+	transLayerABtn.MouseButton1Click:Connect(function()
+		if #combinatorLayers > 0 then
+			transLayerAIdx = (transLayerAIdx % #combinatorLayers) + 1
+			updateTransitionPickers()
+		end
+	end)
+
+	transLayerBBtn.MouseButton1Click:Connect(function()
+		if #combinatorLayers > 0 then
+			transLayerBIdx = (transLayerBIdx % #combinatorLayers) + 1
+			updateTransitionPickers()
+		end
+	end)
+
+	transBlendMinus.MouseButton1Click:Connect(function()
+		transBlendTime = math.clamp(transBlendTime - (1 / 30), 0.033, 0.60)
+		transBlendLabel.Text = string.format("Blend Crossfade: %.2fs (F%d)", transBlendTime, math.floor(transBlendTime * 30))
+	end)
+
+	transBlendPlus.MouseButton1Click:Connect(function()
+		transBlendTime = math.clamp(transBlendTime + (1 / 30), 0.033, 0.60)
+		transBlendLabel.Text = string.format("Blend Crossfade: %.2fs (F%d)", transBlendTime, math.floor(transBlendTime * 30))
+	end)
+
+	playTransitionBtn.MouseButton1Click:Connect(function()
+		if isTransitionTesting then
+			if transitionThread then task.cancel(transitionThread) end
+			isTransitionTesting = false
+			playTransitionBtn.Text = "⚡ Play Transition Only"
+			playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
+			labEvent:FireServer("Combinator_Stop", { targetName = testerName })
+			return
+		end
+
+		if #combinatorLayers < 2 then
+			playTransitionBtn.Text = "⚠️ Need 2 Layers!"
+			task.delay(1.2, function() playTransitionBtn.Text = "⚡ Play Transition Only" end)
+			return
+		end
+
+		isTransitionTesting = true
+		playTransitionBtn.Text = "⏹ Stop Transition"
+		playTransitionBtn.BackgroundColor3 = C_DANGER
+
+		transitionThread = task.spawn(function()
+			while isTransitionTesting do
+				local layerA = combinatorLayers[transLayerAIdx]
+				local layerB = combinatorLayers[transLayerBIdx]
+				if not layerA or not layerB then break end
+
+				-- Play Layer A
+				labEvent:FireServer("PlayAnimation", {
+					targetName = testerName,
+					animId = layerA.id,
+					speed = layerA.speed or 1.0,
+					fadeTime = 0.05,
+					priority = layerA.priority or "Action4",
+					looped = false,
+					startCut = layerA.startCut or 0.0,
+					endCut = layerA.endCut,
+				})
+				local durA = math.max(0.1, ((layerA.endCut or 1.0) - (layerA.startCut or 0.0)) / math.max(0.1, layerA.speed or 1.0))
+				local waitBeforeBlend = math.max(0.05, durA - transBlendTime)
+				task.wait(waitBeforeBlend)
+				if not isTransitionTesting then break end
+
+				-- Crossfade to Layer B
+				labEvent:FireServer("PlayAnimation", {
+					targetName = testerName,
+					animId = layerB.id,
+					speed = layerB.speed or 1.0,
+					fadeTime = transBlendTime,
+					priority = layerB.priority or "Action4",
+					looped = false,
+					startCut = layerB.startCut or 0.0,
+					endCut = layerB.endCut,
+				})
+				local durB = math.max(0.1, ((layerB.endCut or 1.0) - (layerB.startCut or 0.0)) / math.max(0.1, layerB.speed or 1.0))
+				task.wait(durB + 0.3)
+			end
+			isTransitionTesting = false
+			playTransitionBtn.Text = "⚡ Play Transition Only"
+			playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
+		end)
+	end)
+
+	----------------------------------------------------------------------------
+	-- STACK VIEW RENDERING
+	----------------------------------------------------------------------------
+	refreshStackView = function()
+		for _, child in ipairs(stackScroll:GetChildren()) do
+			if child:IsA("Frame") and child ~= emptyStackNotice then
+				child:Destroy()
+			end
+		end
+
+		local count = #combinatorLayers
+		stackCountBadge.Text = string.format("(%d Layers)", count)
+		emptyStackNotice.Visible = (count == 0)
+		updateTransitionPickers()
+
+		local priorities = { "Action4", "Action3", "Action2", "Action", "Movement", "Idle" }
+		local bodyMasks = { "Full Body", "Upper Body", "Lower Body", "Head Only" }
+
+		for idx, layer in ipairs(combinatorLayers) do
+			local card = Instance.new("Frame")
+			card.Name = "LayerCard_" .. tostring(idx)
+			card.Size = UDim2.new(1, -8, 0, 134)
+			card.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
+			card.ClipsDescendants = true
+			card.Parent = stackScroll
+			applyCorner(card, 6)
+			applyStroke(card, layer.enabled and Color3.fromRGB(50, 65, 90) or Color3.fromRGB(40, 45, 55), 1)
+
+			-- Row 1: Header
+			local header = Instance.new("Frame")
+			header.Size = UDim2.new(1, -12, 0, 22)
+			header.Position = UDim2.new(0, 6, 0, 4)
+			header.BackgroundTransparency = 1
+			header.Parent = card
+
+			local title = Instance.new("TextLabel")
+			title.Text = string.format("L%d: %s", idx, layer.name)
+			title.Size = UDim2.new(1, -160, 1, 0)
+			title.Position = UDim2.new(0, 0, 0, 0)
+			title.BackgroundTransparency = 1
+			title.TextColor3 = layer.enabled and C_ACCENT or C_TEXT_MUTED
+			title.Font = Enum.Font.GothamBold
+			title.TextSize = 11
+			title.TextXAlignment = Enum.TextXAlignment.Left
+			title.Parent = header
+
+			-- Active Toggle [👁]
+			local eyeBtn = Instance.new("TextButton")
+			eyeBtn.Text = layer.enabled and "👁" or "⊘"
+			eyeBtn.Size = UDim2.new(0, 22, 0, 20)
+			eyeBtn.Position = UDim2.new(1, -154, 0, 1)
+			eyeBtn.BackgroundColor3 = layer.enabled and Color3.fromRGB(30, 80, 50) or Color3.fromRGB(45, 45, 55)
+			eyeBtn.TextColor3 = layer.enabled and C_SUCCESS or C_TEXT_MUTED
+			eyeBtn.Font = Enum.Font.GothamBold
+			eyeBtn.TextSize = 10
+			eyeBtn.Parent = header
+			applyCorner(eyeBtn, 3)
+
+			eyeBtn.MouseButton1Click:Connect(function()
+				layer.enabled = not layer.enabled
+				updateGlobalDuration()
+				refreshStackView()
+				if combinatorIsPlaying then triggerStackPlayback() end
+			end)
+
+			-- Mute Toggle [🔇]
+			local muteBtn = Instance.new("TextButton")
+			muteBtn.Text = layer.muted and "🔇" or "🔊"
+			muteBtn.Size = UDim2.new(0, 22, 0, 20)
+			muteBtn.Position = UDim2.new(1, -128, 0, 1)
+			muteBtn.BackgroundColor3 = layer.muted and Color3.fromRGB(80, 35, 40) or Color3.fromRGB(36, 42, 56)
+			muteBtn.TextColor3 = layer.muted and C_DANGER or C_TEXT
+			muteBtn.Font = Enum.Font.GothamBold
+			muteBtn.TextSize = 10
+			muteBtn.Parent = header
+			applyCorner(muteBtn, 3)
+
+			muteBtn.MouseButton1Click:Connect(function()
+				layer.muted = not layer.muted
+				updateGlobalDuration()
+				refreshStackView()
+				if combinatorIsPlaying then triggerStackPlayback() end
+			end)
+
+			-- Solo Toggle [S]
+			local soloBtn = Instance.new("TextButton")
+			soloBtn.Text = "S"
+			soloBtn.Size = UDim2.new(0, 22, 0, 20)
+			soloBtn.Position = UDim2.new(1, -102, 0, 1)
+			soloBtn.BackgroundColor3 = layer.solo and Color3.fromRGB(180, 140, 20) or Color3.fromRGB(36, 42, 56)
+			soloBtn.TextColor3 = layer.solo and Color3.new(0, 0, 0) or C_TEXT_MUTED
+			soloBtn.Font = Enum.Font.GothamBold
+			soloBtn.TextSize = 10
+			soloBtn.Parent = header
+			applyCorner(soloBtn, 3)
+
+			soloBtn.MouseButton1Click:Connect(function()
+				layer.solo = not layer.solo
+				refreshStackView()
+				if combinatorIsPlaying then triggerStackPlayback() end
+			end)
+
+			-- Move Up [▲]
+			local upBtn = Instance.new("TextButton")
+			upBtn.Text = "▲"
+			upBtn.Size = UDim2.new(0, 20, 0, 20)
+			upBtn.Position = UDim2.new(1, -76, 0, 1)
+			upBtn.BackgroundColor3 = Color3.fromRGB(36, 42, 56)
+			upBtn.TextColor3 = C_TEXT
+			upBtn.Font = Enum.Font.GothamBold
+			upBtn.TextSize = 9
+			upBtn.Parent = header
+			applyCorner(upBtn, 3)
+
+			upBtn.MouseButton1Click:Connect(function()
+				if idx > 1 then
+					local temp = combinatorLayers[idx]
+					combinatorLayers[idx] = combinatorLayers[idx - 1]
+					combinatorLayers[idx - 1] = temp
+					refreshStackView()
+				end
+			end)
+
+			-- Move Down [▼]
+			local downBtn = Instance.new("TextButton")
+			downBtn.Text = "▼"
+			downBtn.Size = UDim2.new(0, 20, 0, 20)
+			downBtn.Position = UDim2.new(1, -52, 0, 1)
+			downBtn.BackgroundColor3 = Color3.fromRGB(36, 42, 56)
+			downBtn.TextColor3 = C_TEXT
+			downBtn.Font = Enum.Font.GothamBold
+			downBtn.TextSize = 9
+			downBtn.Parent = header
+			applyCorner(downBtn, 3)
+
+			downBtn.MouseButton1Click:Connect(function()
+				if idx < #combinatorLayers then
+					local temp = combinatorLayers[idx]
+					combinatorLayers[idx] = combinatorLayers[idx + 1]
+					combinatorLayers[idx + 1] = temp
+					refreshStackView()
+				end
+			end)
+
+			-- Delete [✕]
+			local delBtn = Instance.new("TextButton")
+			delBtn.Text = "✕"
+			delBtn.Size = UDim2.new(0, 24, 0, 20)
+			delBtn.Position = UDim2.new(1, -28, 0, 1)
+			delBtn.BackgroundColor3 = Color3.fromRGB(70, 30, 35)
+			delBtn.TextColor3 = C_DANGER
+			delBtn.Font = Enum.Font.GothamBold
+			delBtn.TextSize = 10
+			delBtn.Parent = header
+			applyCorner(delBtn, 3)
+
+			delBtn.MouseButton1Click:Connect(function()
+				table.remove(combinatorLayers, idx)
+				updateGlobalDuration()
+				refreshStackView()
+			end)
+
+			-- Row 2: ID input box
+			local idRow = Instance.new("Frame")
+			idRow.Size = UDim2.new(1, -12, 0, 20)
+			idRow.Position = UDim2.new(0, 6, 0, 28)
+			idRow.BackgroundTransparency = 1
+			idRow.Parent = card
+
+			local idLabel = Instance.new("TextLabel")
+			idLabel.Text = "ID:"
+			idLabel.Size = UDim2.new(0, 24, 1, 0)
+			idLabel.Position = UDim2.new(0, 0, 0, 0)
+			idLabel.BackgroundTransparency = 1
+			idLabel.TextColor3 = C_TEXT_MUTED
+			idLabel.Font = Enum.Font.Gotham
+			idLabel.TextSize = 10
+			idLabel.Parent = idRow
+
+			local cardIdBox = Instance.new("TextBox")
+			cardIdBox.Size = UDim2.new(1, -30, 1, 0)
+			cardIdBox.Position = UDim2.new(0, 26, 0, 0)
+			cardIdBox.BackgroundColor3 = Color3.fromRGB(32, 38, 52)
+			cardIdBox.TextColor3 = C_TEXT
+			cardIdBox.Font = Enum.Font.Code
+			cardIdBox.TextSize = 10
+			cardIdBox.TextXAlignment = Enum.TextXAlignment.Left
+			cardIdBox.ClearTextOnFocus = false
+			cardIdBox.Text = layer.id or ""
+			cardIdBox.Parent = idRow
+			applyCorner(cardIdBox, 3)
+
+			cardIdBox.FocusLost:Connect(function()
+				layer.id = cardIdBox.Text
+			end)
+
+			-- Row 3: Trimming Sliders (Start Cut & End Cut)
+			local trimRow = Instance.new("Frame")
+			trimRow.Size = UDim2.new(1, -12, 0, 24)
+			trimRow.Position = UDim2.new(0, 6, 0, 52)
+			trimRow.BackgroundTransparency = 1
+			trimRow.Parent = card
+
+			-- Start Cut
+			local startCutLabel = Instance.new("TextLabel")
+			startCutLabel.Text = string.format("Start: %.2fs (F%d)", layer.startCut or 0.0, math.floor((layer.startCut or 0.0) * 30))
+			startCutLabel.Size = UDim2.new(0.35, 0, 1, 0)
+			startCutLabel.Position = UDim2.new(0, 0, 0, 0)
+			startCutLabel.BackgroundTransparency = 1
+			startCutLabel.TextColor3 = C_TEXT
+			startCutLabel.Font = Enum.Font.Gotham
+			startCutLabel.TextSize = 9
+			startCutLabel.TextXAlignment = Enum.TextXAlignment.Left
+			startCutLabel.Parent = trimRow
+
+			local startMinus = Instance.new("TextButton")
+			startMinus.Text = "-"
+			startMinus.Size = UDim2.new(0, 18, 0, 18)
+			startMinus.Position = UDim2.new(0.35, 2, 0, 3)
+			startMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+			startMinus.TextColor3 = C_TEXT
+			startMinus.Font = Enum.Font.GothamBold
+			startMinus.TextSize = 10
+			startMinus.Parent = trimRow
+			applyCorner(startMinus, 3)
+
+			local startPlus = Instance.new("TextButton")
+			startPlus.Text = "+"
+			startPlus.Size = UDim2.new(0, 18, 0, 18)
+			startPlus.Position = UDim2.new(0.35, 22, 0, 3)
+			startPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+			startPlus.TextColor3 = C_TEXT
+			startPlus.Font = Enum.Font.GothamBold
+			startPlus.TextSize = 10
+			startPlus.Parent = trimRow
+			applyCorner(startPlus, 3)
+
+			startMinus.MouseButton1Click:Connect(function()
+				layer.startCut = math.max(0, (layer.startCut or 0.0) - (1 / 30))
+				startCutLabel.Text = string.format("Start: %.2fs (F%d)", layer.startCut, math.floor(layer.startCut * 30))
+				updateGlobalDuration()
+			end)
+			startPlus.MouseButton1Click:Connect(function()
+				layer.startCut = math.min((layer.endCut or 2.0) - 0.033, (layer.startCut or 0.0) + (1 / 30))
+				startCutLabel.Text = string.format("Start: %.2fs (F%d)", layer.startCut, math.floor(layer.startCut * 30))
+				updateGlobalDuration()
+			end)
+
+			-- End Cut
+			local endCutLabel = Instance.new("TextLabel")
+			endCutLabel.Text = string.format("End: %.2fs (F%d)", layer.endCut or 2.0, math.floor((layer.endCut or 2.0) * 30))
+			endCutLabel.Size = UDim2.new(0.35, 0, 1, 0)
+			endCutLabel.Position = UDim2.new(0.52, 0, 0, 0)
+			endCutLabel.BackgroundTransparency = 1
+			endCutLabel.TextColor3 = C_TEXT
+			endCutLabel.Font = Enum.Font.Gotham
+			endCutLabel.TextSize = 9
+			endCutLabel.TextXAlignment = Enum.TextXAlignment.Left
+			endCutLabel.Parent = trimRow
+
+			local endMinus = Instance.new("TextButton")
+			endMinus.Text = "-"
+			endMinus.Size = UDim2.new(0, 18, 0, 18)
+			endMinus.Position = UDim2.new(0.87, 0, 0, 3)
+			endMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+			endMinus.TextColor3 = C_TEXT
+			endMinus.Font = Enum.Font.GothamBold
+			endMinus.TextSize = 10
+			endMinus.Parent = trimRow
+			applyCorner(endMinus, 3)
+
+			local endPlus = Instance.new("TextButton")
+			endPlus.Text = "+"
+			endPlus.Size = UDim2.new(0, 18, 0, 18)
+			endPlus.Position = UDim2.new(0.87, 20, 0, 3)
+			endPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+			endPlus.TextColor3 = C_TEXT
+			endPlus.Font = Enum.Font.GothamBold
+			endPlus.TextSize = 10
+			endPlus.Parent = trimRow
+			applyCorner(endPlus, 3)
+
+			endMinus.MouseButton1Click:Connect(function()
+				layer.endCut = math.max((layer.startCut or 0.0) + 0.033, (layer.endCut or 2.0) - (1 / 30))
+				endCutLabel.Text = string.format("End: %.2fs (F%d)", layer.endCut, math.floor(layer.endCut * 30))
+				updateGlobalDuration()
+			end)
+			endPlus.MouseButton1Click:Connect(function()
+				layer.endCut = (layer.endCut or 2.0) + (1 / 30)
+				endCutLabel.Text = string.format("End: %.2fs (F%d)", layer.endCut, math.floor(layer.endCut * 30))
+				updateGlobalDuration()
+			end)
+
+			-- Row 4: Weight & Speed
+			local wsRow = Instance.new("Frame")
+			wsRow.Size = UDim2.new(1, -12, 0, 22)
+			wsRow.Position = UDim2.new(0, 6, 0, 80)
+			wsRow.BackgroundTransparency = 1
+			wsRow.Parent = card
+
+			local wLabel = Instance.new("TextLabel")
+			wLabel.Text = string.format("Weight: %.2f", layer.weight or 1.0)
+			wLabel.Size = UDim2.new(0.35, 0, 1, 0)
+			wLabel.Position = UDim2.new(0, 0, 0, 0)
+			wLabel.BackgroundTransparency = 1
+			wLabel.TextColor3 = C_TEXT_MUTED
+			wLabel.Font = Enum.Font.Gotham
+			wLabel.TextSize = 9
+			wLabel.TextXAlignment = Enum.TextXAlignment.Left
+			wLabel.Parent = wsRow
+
+			local wMinus = Instance.new("TextButton")
+			wMinus.Text = "-"
+			wMinus.Size = UDim2.new(0, 18, 0, 18)
+			wMinus.Position = UDim2.new(0.35, 2, 0, 2)
+			wMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+			wMinus.TextColor3 = C_TEXT
+			wMinus.Font = Enum.Font.GothamBold
+			wMinus.TextSize = 10
+			wMinus.Parent = wsRow
+			applyCorner(wMinus, 3)
+
+			local wPlus = Instance.new("TextButton")
+			wPlus.Text = "+"
+			wPlus.Size = UDim2.new(0, 18, 0, 18)
+			wPlus.Position = UDim2.new(0.35, 22, 0, 2)
+			wPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+			wPlus.TextColor3 = C_TEXT
+			wPlus.Font = Enum.Font.GothamBold
+			wPlus.TextSize = 10
+			wPlus.Parent = wsRow
+			applyCorner(wPlus, 3)
+
+			wMinus.MouseButton1Click:Connect(function()
+				layer.weight = math.clamp((layer.weight or 1.0) - 0.1, 0.0, 1.0)
+				wLabel.Text = string.format("Weight: %.2f", layer.weight)
+			end)
+			wPlus.MouseButton1Click:Connect(function()
+				layer.weight = math.clamp((layer.weight or 1.0) + 0.1, 0.0, 1.0)
+				wLabel.Text = string.format("Weight: %.2f", layer.weight)
+			end)
+
+			local sLabel = Instance.new("TextLabel")
+			sLabel.Text = string.format("Speed: %.2fx", layer.speed or 1.0)
+			sLabel.Size = UDim2.new(0.35, 0, 1, 0)
+			sLabel.Position = UDim2.new(0.52, 0, 0, 0)
+			sLabel.BackgroundTransparency = 1
+			sLabel.TextColor3 = C_TEXT_MUTED
+			sLabel.Font = Enum.Font.Gotham
+			sLabel.TextSize = 9
+			sLabel.TextXAlignment = Enum.TextXAlignment.Left
+			sLabel.Parent = wsRow
+
+			local sMinus = Instance.new("TextButton")
+			sMinus.Text = "-"
+			sMinus.Size = UDim2.new(0, 18, 0, 18)
+			sMinus.Position = UDim2.new(0.87, 0, 0, 2)
+			sMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+			sMinus.TextColor3 = C_TEXT
+			sMinus.Font = Enum.Font.GothamBold
+			sMinus.TextSize = 10
+			sMinus.Parent = wsRow
+			applyCorner(sMinus, 3)
+
+			local sPlus = Instance.new("TextButton")
+			sPlus.Text = "+"
+			sPlus.Size = UDim2.new(0, 18, 0, 18)
+			sPlus.Position = UDim2.new(0.87, 20, 0, 2)
+			sPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+			sPlus.TextColor3 = C_TEXT
+			sPlus.Font = Enum.Font.GothamBold
+			sPlus.TextSize = 10
+			sPlus.Parent = wsRow
+			applyCorner(sPlus, 3)
+
+			sMinus.MouseButton1Click:Connect(function()
+				layer.speed = math.clamp((layer.speed or 1.0) - 0.1, 0.1, 3.0)
+				sLabel.Text = string.format("Speed: %.2fx", layer.speed)
+				updateGlobalDuration()
+			end)
+			sPlus.MouseButton1Click:Connect(function()
+				layer.speed = math.clamp((layer.speed or 1.0) + 0.1, 0.1, 3.0)
+				sLabel.Text = string.format("Speed: %.2fx", layer.speed)
+				updateGlobalDuration()
+			end)
+
+			-- Row 5: Priority & Body Mask Selectors
+			local metaRow = Instance.new("Frame")
+			metaRow.Size = UDim2.new(1, -12, 0, 22)
+			metaRow.Position = UDim2.new(0, 6, 0, 106)
+			metaRow.BackgroundTransparency = 1
+			metaRow.Parent = card
+
+			local pBtn = Instance.new("TextButton")
+			pBtn.Text = "Prio: " .. (layer.priority or "Action4")
+			pBtn.Size = UDim2.new(0.48, -2, 1, 0)
+			pBtn.Position = UDim2.new(0, 0, 0, 0)
+			pBtn.BackgroundColor3 = Color3.fromRGB(36, 42, 58)
+			pBtn.TextColor3 = Color3.fromRGB(200, 230, 255)
+			pBtn.Font = Enum.Font.GothamBold
+			pBtn.TextSize = 9
+			pBtn.Parent = metaRow
+			applyCorner(pBtn, 3)
+
+			pBtn.MouseButton1Click:Connect(function()
+				local cur = layer.priority or "Action4"
+				local nextIdx = 1
+				for pI, pVal in ipairs(priorities) do
+					if pVal == cur then nextIdx = (pI % #priorities) + 1 break end
+				end
+				layer.priority = priorities[nextIdx]
+				pBtn.Text = "Prio: " .. layer.priority
+			end)
+
+			local mBtn = Instance.new("TextButton")
+			mBtn.Text = "Mask: " .. (layer.bodyMask or "Full Body")
+			mBtn.Size = UDim2.new(0.48, -2, 1, 0)
+			mBtn.Position = UDim2.new(0.50, 4, 0, 0)
+			mBtn.BackgroundColor3 = Color3.fromRGB(36, 42, 58)
+			mBtn.TextColor3 = Color3.fromRGB(240, 220, 170)
+			mBtn.Font = Enum.Font.GothamBold
+			mBtn.TextSize = 9
+			mBtn.Parent = metaRow
+			applyCorner(mBtn, 3)
+
+			mBtn.MouseButton1Click:Connect(function()
+				local cur = layer.bodyMask or "Full Body"
+				local nextIdx = 1
+				for mI, mVal in ipairs(bodyMasks) do
+					if mVal == cur then nextIdx = (mI % #bodyMasks) + 1 break end
+				end
+				layer.bodyMask = bodyMasks[nextIdx]
+				mBtn.Text = "Mask: " .. layer.bodyMask
+			end)
+		end
+	end
+
+	-- Add Blank Layer
+	addEmptyLayerBtn.MouseButton1Click:Connect(function()
+		table.insert(combinatorLayers, {
+			id = "rbxassetid://109837817595150",
+			name = "CustomLayer_" .. tostring(#combinatorLayers + 1),
+			enabled = true,
+			muted = false,
+			solo = false,
+			startCut = 0.0,
+			endCut = 2.0,
+			weight = 1.0,
+			speed = 1.0,
+			priority = "Action4",
+			bodyMask = "Full Body",
+			looped = true,
+		})
+		updateGlobalDuration()
+		refreshStackView()
+	end)
+
+	-- Clear Stack
+	clearStackBtn.MouseButton1Click:Connect(function()
+		combinatorLayers = {}
+		stopCombinatorPlayback()
+		updateGlobalDuration()
+		refreshStackView()
+	end)
+
+	----------------------------------------------------------------------------
+	-- DIRECT ID INSERTER & LIBRARY ACTIONS
+	----------------------------------------------------------------------------
+	previewIdBtn.MouseButton1Click:Connect(function()
+		local rawDigits = string.match(directIdBox.Text, "%d+")
+		if rawDigits then
+			local id = "rbxassetid://" .. rawDigits
+			labEvent:FireServer("PlayAnimation", {
+				targetName = testerName,
+				animId = id,
+				speed = 1.0,
+				fadeTime = 0.05,
+				priority = "Action4",
+				looped = true,
+			})
+		else
+			directIdBox.PlaceholderText = "⚠️ Please paste a valid numeric ID!"
+		end
+	end)
+
+	addIdBtn.MouseButton1Click:Connect(function()
+		local rawDigits = string.match(directIdBox.Text, "%d+")
+		if rawDigits then
+			local id = "rbxassetid://" .. rawDigits
+			local name = "Clip_" .. rawDigits:sub(-4)
+			table.insert(combinatorLayers, {
+				id = id,
+				name = name,
+				enabled = true,
+				muted = false,
+				solo = false,
+				startCut = 0.0,
+				endCut = 2.0,
+				weight = 1.0,
+				speed = 1.0,
+				priority = "Action4",
+				bodyMask = "Full Body",
+				looped = true,
+			})
+			directIdBox.Text = ""
+			updateGlobalDuration()
+			refreshStackView()
+		else
+			directIdBox.PlaceholderText = "⚠️ Enter ID first!"
+		end
+	end)
+
+	-- Populate Pre-Registered Library
+	local combCurrentCat = "All"
+	local function populateLibraryList(cat, query)
+		for _, child in ipairs(libScroll:GetChildren()) do
+			if child:IsA("Frame") or child:IsA("TextLabel") then child:Destroy() end
+		end
+
+		local allPaths = AnimationConfig.getAllPaths()
+		local q = query and string.lower(string.gsub(query, "^%s*(.-)%s*$", "%1")) or ""
+		local isSearching = (#q > 0)
+		local count = 0
+
+		for _, item in ipairs(allPaths) do
+			local match = false
+			if isSearching then
+				local nLower = string.lower(item.name or "")
+				local pLower = string.lower(item.path or "")
+				local cLower = string.lower(item.category or "")
+				if nLower:find(q, 1, true) or pLower:find(q, 1, true) or cLower:find(q, 1, true) then
+					match = true
+				end
+			else
+				if cat == "All" then
+					match = true
+				elseif cat == "Custom" then
+					match = item.category:find("Custom") ~= nil
+				else
+					match = item.category:find(cat) ~= nil or item.path:find(cat) ~= nil
+				end
+			end
+
+			if match then
+				count = count + 1
+				local row = Instance.new("Frame")
+				row.Size = UDim2.new(1, -6, 0, 26)
+				row.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+				row.Parent = libScroll
+				applyCorner(row, 4)
+
+				local label = Instance.new("TextLabel")
+				label.Text = item.name
+				label.Size = UDim2.new(1, -64, 1, 0)
+				label.Position = UDim2.new(0, 6, 0, 0)
+				label.BackgroundTransparency = 1
+				label.TextColor3 = C_TEXT
+				label.Font = Enum.Font.Gotham
+				label.TextSize = 10
+				label.TextXAlignment = Enum.TextXAlignment.Left
+				label.Parent = row
+
+				local auditionBtn = Instance.new("TextButton")
+				auditionBtn.Text = "▶"
+				auditionBtn.Size = UDim2.new(0, 24, 0, 20)
+				auditionBtn.Position = UDim2.new(1, -54, 0, 3)
+				auditionBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 120)
+				auditionBtn.TextColor3 = Color3.fromRGB(220, 245, 255)
+				auditionBtn.Font = Enum.Font.GothamBold
+				auditionBtn.TextSize = 10
+				auditionBtn.Parent = row
+				applyCorner(auditionBtn, 3)
+
+				auditionBtn.MouseButton1Click:Connect(function()
+					local entry = item.entry or AnimationConfig.get(item.path) or {}
+					if entry.id then
+						labEvent:FireServer("PlayAnimation", {
+							targetName = testerName,
+							animId = entry.id,
+							speed = entry.speed or 1.0,
+							fadeTime = 0.05,
+							priority = entry.priority or "Action4",
+							looped = true,
+						})
+					end
+				end)
+
+				local addBtn = Instance.new("TextButton")
+				addBtn.Text = "+"
+				addBtn.Size = UDim2.new(0, 24, 0, 20)
+				addBtn.Position = UDim2.new(1, -26, 0, 3)
+				addBtn.BackgroundColor3 = C_ACCENT
+				addBtn.TextColor3 = Color3.new(0, 0, 0)
+				addBtn.Font = Enum.Font.GothamBold
+				addBtn.TextSize = 12
+				addBtn.Parent = row
+				applyCorner(addBtn, 3)
+
+				addBtn.MouseButton1Click:Connect(function()
+					local entry = item.entry or AnimationConfig.get(item.path) or {}
+					local animId = entry.id or ""
+					local startCut = entry.startCut or 0.0
+					local endCut = entry.endCut or 2.0
+					if endCut <= 0 then endCut = 2.0 end
+					table.insert(combinatorLayers, {
+						id = animId,
+						name = item.name or item.path,
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = startCut,
+						endCut = endCut,
+						weight = 1.0,
+						speed = entry.speed or 1.0,
+						priority = entry.priority or "Action4",
+						bodyMask = "Full Body",
+						looped = true,
+					})
+					updateGlobalDuration()
+					refreshStackView()
+				end)
+			end
+		end
+
+		if count == 0 then
+			local noRes = Instance.new("TextLabel")
+			noRes.Text = isSearching and ("No matches for '" .. q .. "'") or "No clips in category."
+			noRes.Size = UDim2.new(1, -10, 0, 30)
+			noRes.BackgroundTransparency = 1
+			noRes.TextColor3 = C_TEXT_MUTED
+			noRes.Font = Enum.Font.Gotham
+			noRes.TextSize = 10
+			noRes.Parent = libScroll
+		end
+	end
+
+	-- Categories setup
+	local libCategories = { "All", "Attacks", "Idles", "Movement", "Parkour", "Reactions", "Strafe", "Custom" }
+	for _, cat in ipairs(libCategories) do
+		local cBtn = Instance.new("TextButton")
+		cBtn.Text = cat
+		cBtn.Size = UDim2.new(0, math.max(50, #cat * 8 + 14), 1, 0)
+		cBtn.BackgroundColor3 = (cat == combCurrentCat) and C_ACCENT or Color3.fromRGB(35, 42, 56)
+		cBtn.TextColor3 = (cat == combCurrentCat) and Color3.new(0, 0, 0) or C_TEXT
+		cBtn.Font = Enum.Font.GothamBold
+		cBtn.TextSize = 10
+		cBtn.Parent = combCatTabBar
+		applyCorner(cBtn, 4)
+
+		cBtn.MouseButton1Click:Connect(function()
+			combCurrentCat = cat
+			combSearchBox.Text = ""
+			for _, b in ipairs(combCatTabBar:GetChildren()) do
+				if b:IsA("TextButton") then
+					local isActive = (b.Text == cat)
+					b.BackgroundColor3 = isActive and C_ACCENT or Color3.fromRGB(35, 42, 56)
+					b.TextColor3 = isActive and Color3.new(0, 0, 0) or C_TEXT
+				end
+			end
+			populateLibraryList(cat, "")
+		end)
+	end
+
+	combSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+		populateLibraryList(combCurrentCat, combSearchBox.Text)
+	end)
+
+	-- Initial populate
+	populateLibraryList("All", "")
+	refreshStackView()
+	updateGlobalDuration()
 end
 
 -- Forward declarations for controls referenced across tabs & Section 9 event listeners
