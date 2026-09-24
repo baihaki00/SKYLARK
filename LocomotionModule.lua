@@ -106,13 +106,13 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		local desDir = flatDesired.Unit
 		local cosTheta = curDir:Dot(desDir)
 
-		-- Sharp reversal: >= 107 degrees cut (cos theta < -0.3), relaxed cooldown for agile cuts
-		if cosTheta < -0.3 and (now - (data.lastSkidTime or 0)) >= 0.75 then
+		-- Sharp reversal: >= 101 degrees cut (cos theta < -0.2), relaxed cooldown for agile cuts
+		if cosTheta < -0.2 and (now - (data.lastSkidTime or 0)) >= 0.75 then
 			data.lastSkidTime = now
-			data.skidEndTime = now + 0.45 -- Lockout window so turn plant completes cleanly
+			data.skidEndTime = now + 0.55 -- Lockout window so turn plant completes cleanly
 
-			-- Visual: Play 180 Turn animation
-			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.35, Enum.AnimationPriority.Action3, false)
+			-- Visual: Play 180 Turn animation (runtimeMultiplier 1.0 so speed is not double-compounded)
+			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.0, Enum.AnimationPriority.Action3, false)
 
 			-- Kinetic plant friction: drop speed dynamically for athletic weight, NO contradictory slide impulse
 			humanoid.WalkSpeed = math.max(10.0, currentSpeed * 0.45)
