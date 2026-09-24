@@ -101,11 +101,15 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		AnimationModule.stop(humanoid, "Movement.StopRun", 0.08)
 	end
 
-	-- If previously stationary and now starting to steer/move forward, trigger StartRun push-off
-	if not data.isMoving and flatDesired.Magnitude > 2.0 then
+	-- For autonomous AI Quins (when not player controlled), trigger StartRun push-off from standstill
+	if not fighter:GetAttribute("IsPlayerControlled") then
+		if not data.isMoving and flatDesired.Magnitude > 2.0 then
+			data.isMoving = true
+			data.startRunEndTime = now + 0.45
+			AnimationModule.playConfig(humanoid, "Movement.StartRun", 1.15, Enum.AnimationPriority.Action2, false)
+		end
+	else
 		data.isMoving = true
-		data.startRunEndTime = now + 0.40
-		AnimationModule.playConfig(humanoid, "Movement.StartRun", 1.15, Enum.AnimationPriority.Action2, false)
 	end
 	fighter:SetAttribute("LastActivityTime", now)
 

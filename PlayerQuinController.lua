@@ -202,7 +202,7 @@ local function startControlSession(quin)
 					or isStartRunActive
 
 				if not isTurnOrStopPlaying then
-					local desiredAnim = (isSprint or curPilotSpeed > 26.0) and "Movement.Run" or "Movement.WalkConfident"
+					local desiredAnim = "Movement.Run"
 					if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
 						AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
 						AnimationModule.stop(activeHumanoid, "Idles.ReadyStance", 0.15)
