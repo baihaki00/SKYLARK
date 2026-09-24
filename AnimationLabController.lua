@@ -758,18 +758,27 @@ subNavLayout.Parent = subNavFrame
 
 local subTabs = {
 	{ id = "AnimStudio", label = "🎬 Animation Studio" },
+	{ id = "AnimCombinator", label = "🎛️ Animation Combinator" },
 	{ id = "LocoIK", label = "🏃 Locomotion & IK" },
 	{ id = "RagdollLab", label = "💥 Ragdoll Lab" },
 	{ id = "Maneuvers", label = "🎮 Maneuvers" },
 }
 
--- 4 Sub-View Containers inside powerhouseView:
+-- 5 Sub-View Containers inside powerhouseView:
 local animStudioView = Instance.new("Frame")
 animStudioView.Name = "AnimStudioView"
 animStudioView.Size = UDim2.new(1, 0, 1, -38)
 animStudioView.Position = UDim2.new(0, 0, 0, 38)
 animStudioView.BackgroundTransparency = 1
 animStudioView.Parent = powerhouseView
+
+local animCombinatorView = Instance.new("Frame")
+animCombinatorView.Name = "AnimCombinatorView"
+animCombinatorView.Size = UDim2.new(1, 0, 1, -38)
+animCombinatorView.Position = UDim2.new(0, 0, 0, 38)
+animCombinatorView.BackgroundTransparency = 1
+animCombinatorView.Visible = false
+animCombinatorView.Parent = powerhouseView
 
 local locoIkView = Instance.new("Frame")
 locoIkView.Name = "LocoIKView"
@@ -798,6 +807,7 @@ maneuversView.Parent = powerhouseView
 local function switchPowerhouseSubTab(subId)
 	activePowerhouseSubTab = subId
 	animStudioView.Visible = (subId == "AnimStudio")
+	animCombinatorView.Visible = (subId == "AnimCombinator")
 	locoIkView.Visible = (subId == "LocoIK")
 	ragdollLabView.Visible = (subId == "RagdollLab")
 	maneuversView.Visible = (subId == "Maneuvers")
@@ -1033,6 +1043,7 @@ applyStroke(searchContainer, C_BORDER, 1)
 
 local searchBox = Instance.new("TextBox")
 searchBox.Name = "AnimSearchBox"
+searchBox.Text = ""
 searchBox.Size = UDim2.new(1, -30, 1, 0)
 searchBox.Position = UDim2.new(0, 8, 0, 0)
 searchBox.BackgroundTransparency = 1
@@ -1539,6 +1550,7 @@ applyCorner(exportBtn, 6)
 --------------------------------------------------------------------------------
 -- 5. POPUP MODAL FOR EXPORTED CODE
 --------------------------------------------------------------------------------
+local showLuauExportModal
 do
 	local modalBackdrop = Instance.new("Frame")
 modalBackdrop.Size = UDim2.new(1, 0, 1, 0)
@@ -1620,23 +1632,28 @@ copyNotifyBtn.ZIndex = 53
 copyNotifyBtn.Parent = modalFrame
 applyCorner(copyNotifyBtn, 6)
 
+showLuauExportModal = function(code, title)
+	modalTitle.Text = title or "  EXPORTED ANIMATION CONFIG (LUAU)"
+	modalTextBox.Text = code or ""
+	modalScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(600, #modalTextBox.Text * 0.8))
+	modalBackdrop.Visible = true
+end
+
 exportBtn.MouseButton1Click:Connect(function()
 	local luauCode = AnimationConfig.exportLuau()
-	modalTextBox.Text = luauCode
-	modalScroll.CanvasSize = UDim2.new(0, 0, 0, 1400)
-	modalBackdrop.Visible = true
+	showLuauExportModal(luauCode, "  EXPORTED ANIMATION CONFIG (LUAU)")
 end)
 
 copyNotifyBtn.MouseButton1Click:Connect(function()
-	local luauCode = AnimationConfig.exportLuau()
+	local luauCode = modalTextBox.Text
 	print("========================================")
-	print("QUIN ANIMATION CONFIG EXPORT:")
+	print(modalTitle.Text)
 	print(luauCode)
 	print("========================================")
 	modalTextBox:CaptureFocus()
 	copyNotifyBtn.Text = "✓ Printed to Console Output!"
 	task.delay(1.5, function() copyNotifyBtn.Text = "Print to Studio Output & Select All" end)
-	end)
+end)
 end
 
 --------------------------------------------------------------------------------
@@ -1831,1275 +1848,1030 @@ end)
 
 end
 
--- Forward declarations for controls referenced across tabs & Section 9 event listeners
-local walkStrideSlider, runStrideSlider, maxRollSlider, bankRespSlider
-local isFootIKActive = false
-local ikToggleBtn
-local rayDistSlider, heightOffsetSlider, maxStepDownSlider, hipsDipSlider
-local isAnkleAlign = true
-local ankleBtn
-local isLedgeGrip = true
-local ledgeBtn
-local muscleStiffSlider, dampingSlider, tumbleScaleSlider, groundFrictionSlider, recoveryDelaySlider
-isContinuousRagdoll = false
-local toggleContinuousRagBtn
-local createModeCard
-
 --------------------------------------------------------------------------------
--- 4B. SUB-TAB 2: CONTINUOUS LOCOMOTION & PROCEDURAL FOOT IK
+-- 4A2. SUB-TAB: ANIMATION COMBINATOR (LABORATORY, STACK, SCRUBBER, TRANSITIONS)
 --------------------------------------------------------------------------------
 do
--- Left Card: Continuous Locomotion Tuning
-local locoCard = Instance.new("ScrollingFrame")
-locoCard.Size = UDim2.new(0, 460, 1, -12)
-locoCard.Position = UDim2.new(0, 10, 0, 6)
-locoCard.BackgroundColor3 = C_PANEL
-locoCard.ClipsDescendants = true
-locoCard.ScrollBarThickness = 4
-locoCard.CanvasSize = UDim2.new(0, 0, 0, 480)
-locoCard.Parent = locoIkView
-applyCorner(locoCard, 8)
-applyStroke(locoCard, C_BORDER, 1)
-
-local locoTitle = Instance.new("TextLabel")
-locoTitle.Text = "🏃 CONTINUOUS LOCOMOTION TUNING"
-locoTitle.Size = UDim2.new(1, -20, 0, 22)
-locoTitle.Position = UDim2.new(0, 10, 0, 8)
-locoTitle.BackgroundTransparency = 1
-locoTitle.TextColor3 = C_TEXT
-locoTitle.Font = Enum.Font.GothamBold
-locoTitle.TextSize = 12
-locoTitle.TextXAlignment = Enum.TextXAlignment.Left
-locoTitle.Parent = locoCard
-
-local locoSub = Instance.new("TextLabel")
-locoSub.Text = "Synchronized stride scaling & centripetal torso roll banking into turns."
-locoSub.Size = UDim2.new(1, -20, 0, 16)
-locoSub.Position = UDim2.new(0, 10, 0, 28)
-locoSub.BackgroundTransparency = 1
-locoSub.TextColor3 = C_TEXT_MUTED
-locoSub.Font = Enum.Font.Gotham
-locoSub.TextSize = 10
-locoSub.TextXAlignment = Enum.TextXAlignment.Left
-locoSub.Parent = locoCard
-
-walkStrideSlider = createPrecisionSlider(locoCard, 50, "Walk Stride Base (Studs/s)", 8.0, 32.0, CombatConfig.WalkStrideBase or 16.0, 0.5, "%.1f studs/s", function(v)
-	CombatConfig.WalkStrideBase = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "WalkStrideBase", value = v })
-end)
-
-runStrideSlider = createPrecisionSlider(locoCard, 96, "Run Stride Base (Studs/s)", 20.0, 60.0, CombatConfig.RunStrideBase or 38.0, 1.0, "%.1f studs/s", function(v)
-	CombatConfig.RunStrideBase = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "RunStrideBase", value = v })
-end)
-
-maxRollSlider = createPrecisionSlider(locoCard, 142, "Torso Banking Max Roll", 0.0, 35.0, CombatConfig.TorsoBankingMaxRoll or 12.0, 1.0, "%.1f°", function(v)
-	CombatConfig.TorsoBankingMaxRoll = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "TorsoBankingMaxRoll", value = v })
-end)
-
-bankRespSlider = createPrecisionSlider(locoCard, 188, "Banking Responsiveness", 2.0, 25.0, CombatConfig.TorsoBankingResponsiveness or 10.0, 0.5, "%.1f", function(v)
-	CombatConfig.TorsoBankingResponsiveness = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "TorsoBankingResponsiveness", value = v })
-end)
-
-local locoTelemetryBox = Instance.new("Frame")
-locoTelemetryBox.Size = UDim2.new(1, -20, 0, 120)
-locoTelemetryBox.Position = UDim2.new(0, 10, 0, 240)
-locoTelemetryBox.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
-locoTelemetryBox.Parent = locoCard
-applyCorner(locoTelemetryBox, 6)
-applyStroke(locoTelemetryBox, Color3.fromRGB(45, 55, 75), 1)
-
-local locoTelemetryLabel = Instance.new("TextLabel")
-locoTelemetryLabel.Size = UDim2.new(1, -16, 1, -12)
-locoTelemetryLabel.Position = UDim2.new(0, 8, 0, 6)
-locoTelemetryLabel.BackgroundTransparency = 1
-locoTelemetryLabel.TextColor3 = Color3.fromRGB(150, 220, 255)
-locoTelemetryLabel.Font = Enum.Font.Code
-locoTelemetryLabel.TextSize = 10
-locoTelemetryLabel.TextXAlignment = Enum.TextXAlignment.Left
-locoTelemetryLabel.TextYAlignment = Enum.TextYAlignment.Top
-locoTelemetryLabel.Text = "Locomotion Telemetry: Connecting to QuinA_Tester..."
-locoTelemetryLabel.Parent = locoTelemetryBox
-
--- Right Card: Procedural Foot IK
-local ikCard = Instance.new("ScrollingFrame")
-ikCard.Size = UDim2.new(0, 470, 1, -12)
-ikCard.Position = UDim2.new(0, 480, 0, 6)
-ikCard.BackgroundColor3 = C_PANEL
-ikCard.ClipsDescendants = true
-ikCard.ScrollBarThickness = 4
-ikCard.CanvasSize = UDim2.new(0, 0, 0, 520)
-ikCard.Parent = locoIkView
-applyCorner(ikCard, 8)
-applyStroke(ikCard, C_BORDER, 1)
-
-local ikTitle = Instance.new("TextLabel")
-ikTitle.Text = "🦶 PROCEDURAL FOOT IK (IKControl)"
-ikTitle.Size = UDim2.new(1, -20, 0, 22)
-ikTitle.Position = UDim2.new(0, 10, 0, 8)
-ikTitle.BackgroundTransparency = 1
-ikTitle.TextColor3 = C_TEXT
-ikTitle.Font = Enum.Font.GothamBold
-ikTitle.TextSize = 12
-ikTitle.TextXAlignment = Enum.TextXAlignment.Left
-ikTitle.Parent = ikCard
-
-local ikSub = Instance.new("TextLabel")
-ikSub.Text = "Two-bone raycast floor conformer on mixamorig:LeftLeg & RightLeg."
-ikSub.Size = UDim2.new(1, -20, 0, 16)
-ikSub.Position = UDim2.new(0, 10, 0, 28)
-ikSub.BackgroundTransparency = 1
-ikSub.TextColor3 = C_TEXT_MUTED
-ikSub.Font = Enum.Font.Gotham
-ikSub.TextSize = 10
-ikSub.TextXAlignment = Enum.TextXAlignment.Left
-ikSub.Parent = ikCard
-
-isFootIKActive = (CombatConfig.FootIK_Enabled ~= false)
-
-ikToggleBtn = Instance.new("TextButton")
-ikToggleBtn.Size = UDim2.new(1, -20, 0, 32)
-ikToggleBtn.Position = UDim2.new(0, 10, 0, 52)
-ikToggleBtn.BackgroundColor3 = isFootIKActive and C_SUCCESS or Color3.fromRGB(48, 56, 74)
-ikToggleBtn.TextColor3 = isFootIKActive and Color3.new(0, 0, 0) or C_TEXT
-ikToggleBtn.Font = Enum.Font.GothamBold
-ikToggleBtn.TextSize = 11
-ikToggleBtn.Text = isFootIKActive and "Foot IK: ACTIVE (Conforming to Terrain)" or "Foot IK: OFF (Canned Poses Only)"
-ikToggleBtn.Parent = ikCard
-applyCorner(ikToggleBtn, 6)
-
-ikToggleBtn.MouseButton1Click:Connect(function()
-	isFootIKActive = not isFootIKActive
-	CombatConfig.FootIK_Enabled = isFootIKActive
-	ikToggleBtn.Text = isFootIKActive and "Foot IK: ACTIVE (Conforming to Terrain)" or "Foot IK: OFF (Canned Poses Only)"
-	ikToggleBtn.BackgroundColor3 = isFootIKActive and C_SUCCESS or Color3.fromRGB(48, 56, 74)
-	ikToggleBtn.TextColor3 = isFootIKActive and Color3.new(0, 0, 0) or C_TEXT
-	labEvent:FireServer("ToggleFootIK", { enabled = isFootIKActive })
-end)
-
-rayDistSlider = createPrecisionSlider(ikCard, 96, "Raycast Ground Distance", 4.0, 9.0, CombatConfig.FootIK_RayDistance or 6.8, 0.1, "%.1f studs", function(v)
-	CombatConfig.FootIK_RayDistance = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "FootIK_RayDistance", value = v })
-end)
-
-heightOffsetSlider = createPrecisionSlider(ikCard, 142, "Foot Height Offset (Fine Pitch)", -1.0, 1.0, CombatConfig.FootIK_HeightOffset or 0.0, 0.05, "%.2f studs", function(v)
-	CombatConfig.FootIK_HeightOffset = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "FootIK_HeightOffset", value = v })
-end)
-
-maxStepDownSlider = createPrecisionSlider(ikCard, 188, "Max Step Drop Limit", 0.5, 4.0, CombatConfig.FootIK_MaxStepDown or 2.4, 0.1, "%.1f studs", function(v)
-	CombatConfig.FootIK_MaxStepDown = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "FootIK_MaxStepDown", value = v })
-end)
-
-hipsDipSlider = createPrecisionSlider(ikCard, 234, "Pelvis Dip Compensation Scale", 0.0, 1.0, CombatConfig.FootIK_HipsDipScale or 0.50, 0.05, "%.2f", function(v)
-	CombatConfig.FootIK_HipsDipScale = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "FootIK_HipsDipScale", value = v })
-end)
-
-local togglesRow = Instance.new("Frame")
-togglesRow.Size = UDim2.new(1, -20, 0, 32)
-togglesRow.Position = UDim2.new(0, 10, 0, 280)
-togglesRow.BackgroundTransparency = 1
-togglesRow.Parent = ikCard
-
-isAnkleAlign = (CombatConfig.FootIK_AnkleAlignment ~= false)
-ankleBtn = Instance.new("TextButton")
-ankleBtn.Size = UDim2.new(0.48, -4, 1, 0)
-ankleBtn.Position = UDim2.new(0, 0, 0, 0)
-ankleBtn.BackgroundColor3 = isAnkleAlign and C_PRIMARY or Color3.fromRGB(48, 56, 74)
-ankleBtn.TextColor3 = C_TEXT
-ankleBtn.Font = Enum.Font.GothamBold
-ankleBtn.TextSize = 10
-ankleBtn.Text = isAnkleAlign and "Surface Normal: ON" or "Surface Normal: FLAT"
-ankleBtn.Parent = togglesRow
-applyCorner(ankleBtn, 6)
-
-ankleBtn.MouseButton1Click:Connect(function()
-	isAnkleAlign = not isAnkleAlign
-	CombatConfig.FootIK_AnkleAlignment = isAnkleAlign
-	ankleBtn.BackgroundColor3 = isAnkleAlign and C_PRIMARY or Color3.fromRGB(48, 56, 74)
-	ankleBtn.Text = isAnkleAlign and "Surface Normal: ON" or "Surface Normal: FLAT"
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "FootIK_AnkleAlignment", value = isAnkleAlign })
-end)
-
-isLedgeGrip = (CombatConfig.FootIK_LedgeGrip ~= false)
-ledgeBtn = Instance.new("TextButton")
-ledgeBtn.Size = UDim2.new(0.48, -4, 1, 0)
-ledgeBtn.Position = UDim2.new(0.52, 0, 0, 0)
-ledgeBtn.BackgroundColor3 = isLedgeGrip and C_ACCENT or Color3.fromRGB(48, 56, 74)
-ledgeBtn.TextColor3 = Color3.new(0, 0, 0)
-ledgeBtn.Font = Enum.Font.GothamBold
-ledgeBtn.TextSize = 10
-ledgeBtn.Text = isLedgeGrip and "Ledge Gripping: ON" or "Ledge Gripping: OFF"
-ledgeBtn.Parent = togglesRow
-applyCorner(ledgeBtn, 6)
-
-ledgeBtn.MouseButton1Click:Connect(function()
-	isLedgeGrip = not isLedgeGrip
-	CombatConfig.FootIK_LedgeGrip = isLedgeGrip
-	ledgeBtn.BackgroundColor3 = isLedgeGrip and C_ACCENT or Color3.fromRGB(48, 56, 74)
-	ledgeBtn.Text = isLedgeGrip and "Ledge Gripping: ON" or "Ledge Gripping: OFF"
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "FootIK_LedgeGrip", value = isLedgeGrip })
-end)
-
-local ikTelemetryBox = Instance.new("Frame")
-ikTelemetryBox.Size = UDim2.new(1, -20, 0, 140)
-ikTelemetryBox.Position = UDim2.new(0, 10, 0, 322)
-ikTelemetryBox.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
-ikTelemetryBox.Parent = ikCard
-applyCorner(ikTelemetryBox, 6)
-applyStroke(ikTelemetryBox, Color3.fromRGB(45, 55, 75), 1)
-
-local ikTelemetryLabel = Instance.new("TextLabel")
-ikTelemetryLabel.Size = UDim2.new(1, -16, 1, -12)
-ikTelemetryLabel.Position = UDim2.new(0, 8, 0, 6)
-ikTelemetryLabel.BackgroundTransparency = 1
-ikTelemetryLabel.TextColor3 = Color3.fromRGB(150, 255, 200)
-ikTelemetryLabel.Font = Enum.Font.Code
-ikTelemetryLabel.TextSize = 10
-ikTelemetryLabel.TextXAlignment = Enum.TextXAlignment.Left
-ikTelemetryLabel.TextYAlignment = Enum.TextYAlignment.Top
-ikTelemetryLabel.Text = "Foot IK Telemetry: Initializing..."
-ikTelemetryLabel.Parent = ikTelemetryBox
-
-end
-
---------------------------------------------------------------------------------
--- 4C. SUB-TAB 3: ACTIVE MUSCLE RAGDOLL & SPECTACLE KNOCKBACK SANDBOX
---------------------------------------------------------------------------------
-do
-local ragdollCard = Instance.new("ScrollingFrame")
-ragdollCard.Size = UDim2.new(0, 460, 1, -12)
-ragdollCard.Position = UDim2.new(0, 10, 0, 6)
-ragdollCard.BackgroundColor3 = C_PANEL
-ragdollCard.ClipsDescendants = true
-ragdollCard.ScrollBarThickness = 4
-ragdollCard.CanvasSize = UDim2.new(0, 0, 0, 480)
-ragdollCard.Parent = ragdollLabView
-applyCorner(ragdollCard, 8)
-applyStroke(ragdollCard, C_BORDER, 1)
-
-local ragTitle = Instance.new("TextLabel")
-ragTitle.Text = "💥 ACTIVE MUSCLE RAGDOLL CALIBRATION"
-ragTitle.Size = UDim2.new(1, -20, 0, 22)
-ragTitle.Position = UDim2.new(0, 10, 0, 8)
-ragTitle.BackgroundTransparency = 1
-ragTitle.TextColor3 = C_TEXT
-ragTitle.Font = Enum.Font.GothamBold
-ragTitle.TextSize = 12
-ragTitle.TextXAlignment = Enum.TextXAlignment.Left
-ragTitle.Parent = ragdollCard
-
-local ragSub = Instance.new("TextLabel")
-ragSub.Text = "AlignOrientation muscle spring stiffness, tumble torque, and ground slide friction."
-ragSub.Size = UDim2.new(1, -20, 0, 16)
-ragSub.Position = UDim2.new(0, 10, 0, 28)
-ragSub.BackgroundTransparency = 1
-ragSub.TextColor3 = C_TEXT_MUTED
-ragSub.Font = Enum.Font.Gotham
-ragSub.TextSize = 10
-ragSub.TextXAlignment = Enum.TextXAlignment.Left
-ragSub.Parent = ragdollCard
-
-muscleStiffSlider = createPrecisionSlider(ragdollCard, 50, "Muscle Stiffness (AlignTorque)", 1000, 50000, CombatConfig.Ragdoll_MuscleStiffness or 8000, 500, "%.0f N*m", function(v)
-	CombatConfig.Ragdoll_MuscleStiffness = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "Ragdoll_MuscleStiffness", value = v })
-end)
-
-dampingSlider = createPrecisionSlider(ragdollCard, 96, "Ragdoll Joint Damping", 20, 400, CombatConfig.Ragdoll_Damping or 120, 10, "%.0f", function(v)
-	CombatConfig.Ragdoll_Damping = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "Ragdoll_Damping", value = v })
-end)
-
-tumbleScaleSlider = createPrecisionSlider(ragdollCard, 142, "Tumble Angular Torque Scale", 0.0, 3.0, CombatConfig.Ragdoll_TumbleScale or 1.0, 0.1, "%.1fx", function(v)
-	CombatConfig.Ragdoll_TumbleScale = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "Ragdoll_TumbleScale", value = v })
-end)
-
-groundFrictionSlider = createPrecisionSlider(ragdollCard, 188, "Ground Impact Slide Friction", 0.1, 1.0, CombatConfig.Ragdoll_GroundFriction or 0.55, 0.05, "%.2f", function(v)
-	CombatConfig.Ragdoll_GroundFriction = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "Ragdoll_GroundFriction", value = v })
-end)
-
-recoveryDelaySlider = createPrecisionSlider(ragdollCard, 234, "Recovery Get-Up Delay", 0.1, 2.5, CombatConfig.Ragdoll_RecoveryDelay or 0.40, 0.05, "%.2fs", function(v)
-	CombatConfig.Ragdoll_RecoveryDelay = v
-	labEvent:FireServer("UpdateLocomotionConfig", { key = "Ragdoll_RecoveryDelay", value = v })
-end)
-
--- Right Card: Spectacle Test Launches
-local launchCard = Instance.new("ScrollingFrame")
-launchCard.Size = UDim2.new(0, 470, 1, -12)
-launchCard.Position = UDim2.new(0, 480, 0, 6)
-launchCard.BackgroundColor3 = C_PANEL
-launchCard.ClipsDescendants = true
-launchCard.ScrollBarThickness = 4
-launchCard.CanvasSize = UDim2.new(0, 0, 0, 480)
-launchCard.Parent = ragdollLabView
-applyCorner(launchCard, 8)
-applyStroke(launchCard, C_BORDER, 1)
-
-local launchTitle = Instance.new("TextLabel")
-launchTitle.Text = "🧪 SPECTACLE TEST LAUNCHES"
-launchTitle.Size = UDim2.new(1, -20, 0, 22)
-launchTitle.Position = UDim2.new(0, 10, 0, 8)
-launchTitle.BackgroundTransparency = 1
-launchTitle.TextColor3 = C_TEXT
-launchTitle.Font = Enum.Font.GothamBold
-launchTitle.TextSize = 12
-launchTitle.TextXAlignment = Enum.TextXAlignment.Left
-launchTitle.Parent = launchCard
-
-local launchSub = Instance.new("TextLabel")
-launchSub.Text = "Fire physical parabolic knockbacks on QuinA_Tester to audition dynamic ragdoll & get-up recovery."
-launchSub.Size = UDim2.new(1, -20, 0, 16)
-launchSub.Position = UDim2.new(0, 10, 0, 28)
-launchSub.BackgroundTransparency = 1
-launchSub.TextColor3 = C_TEXT_MUTED
-launchSub.Font = Enum.Font.Gotham
-launchSub.TextSize = 10
-launchSub.TextXAlignment = Enum.TextXAlignment.Left
-launchSub.Parent = launchCard
-
-local highArcBtn = Instance.new("TextButton")
-highArcBtn.Size = UDim2.new(1, -20, 0, 36)
-highArcBtn.Position = UDim2.new(0, 10, 0, 52)
-highArcBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 220)
-highArcBtn.TextColor3 = Color3.new(1, 1, 1)
-highArcBtn.Font = Enum.Font.GothamBold
-highArcBtn.TextSize = 11
-highArcBtn.Text = "💥 Launch Test Knockback (High Arc Parabolic)"
-highArcBtn.Parent = launchCard
-applyCorner(highArcBtn, 6)
-
-highArcBtn.MouseButton1Click:Connect(function()
-	if checkAndSpawnTesters then checkAndSpawnTesters(false) end
-	labEvent:FireServer("TestKnockbackLaunch", { style = "high_arc" })
-	statusToast.Text = "💥 High Arc Parabolic Knockback Launched on QuinA_Tester!"
-	statusToast.TextColor3 = C_ACCENT
-end)
-
-local lowSmashBtn = Instance.new("TextButton")
-lowSmashBtn.Size = UDim2.new(1, -20, 0, 36)
-lowSmashBtn.Position = UDim2.new(0, 10, 0, 96)
-lowSmashBtn.BackgroundColor3 = Color3.fromRGB(220, 100, 40)
-lowSmashBtn.TextColor3 = Color3.new(1, 1, 1)
-lowSmashBtn.Font = Enum.Font.GothamBold
-lowSmashBtn.TextSize = 11
-lowSmashBtn.Text = "⚡ Launch Test Knockback (Low Smash Horizontal)"
-lowSmashBtn.Parent = launchCard
-applyCorner(lowSmashBtn, 6)
-
-lowSmashBtn.MouseButton1Click:Connect(function()
-	if checkAndSpawnTesters then checkAndSpawnTesters(false) end
-	labEvent:FireServer("TestKnockbackLaunch", { style = "low_smash" })
-	statusToast.Text = "⚡ Low Smash Horizontal Knockback Launched on QuinA_Tester!"
-	statusToast.TextColor3 = Color3.fromRGB(255, 170, 50)
-end)
-
-isContinuousRagdoll = false
-toggleContinuousRagBtn = Instance.new("TextButton")
-toggleContinuousRagBtn.Size = UDim2.new(1, -20, 0, 34)
-toggleContinuousRagBtn.Position = UDim2.new(0, 10, 0, 140)
-toggleContinuousRagBtn.BackgroundColor3 = Color3.fromRGB(48, 56, 74)
-toggleContinuousRagBtn.TextColor3 = C_TEXT
-toggleContinuousRagBtn.Font = Enum.Font.GothamBold
-toggleContinuousRagBtn.TextSize = 11
-toggleContinuousRagBtn.Text = "Toggle Continuous Ragdoll Mode (PlatformStand)"
-toggleContinuousRagBtn.Parent = launchCard
-applyCorner(toggleContinuousRagBtn, 6)
-
-toggleContinuousRagBtn.MouseButton1Click:Connect(function()
-	isContinuousRagdoll = not isContinuousRagdoll
-	toggleContinuousRagBtn.Text = isContinuousRagdoll and "Continuous Ragdoll: ACTIVE (Loose Limbs)" or "Continuous Ragdoll: OFF"
-	toggleContinuousRagBtn.BackgroundColor3 = isContinuousRagdoll and C_DANGER or Color3.fromRGB(48, 56, 74)
-	labEvent:FireServer("ToggleRagdoll", { active = isContinuousRagdoll })
-end)
-
-local ragResetBtn = Instance.new("TextButton")
-ragResetBtn.Size = UDim2.new(1, -20, 0, 32)
-ragResetBtn.Position = UDim2.new(0, 10, 0, 182)
-ragResetBtn.BackgroundColor3 = Color3.fromRGB(35, 75, 110)
-ragResetBtn.TextColor3 = C_ACCENT
-ragResetBtn.Font = Enum.Font.GothamBold
-ragResetBtn.TextSize = 11
-ragResetBtn.Text = "🔄 Reset Tester Upright & Stationary"
-ragResetBtn.Parent = launchCard
-applyCorner(ragResetBtn, 6)
-
-ragResetBtn.MouseButton1Click:Connect(function()
-	if checkAndSpawnTesters then checkAndSpawnTesters(true) end
-end)
-
-local ragTelemetryBox = Instance.new("Frame")
-ragTelemetryBox.Size = UDim2.new(1, -20, 0, 120)
-ragTelemetryBox.Position = UDim2.new(0, 10, 0, 224)
-ragTelemetryBox.BackgroundColor3 = Color3.fromRGB(20, 24, 34)
-ragTelemetryBox.Parent = launchCard
-applyCorner(ragTelemetryBox, 6)
-applyStroke(ragTelemetryBox, Color3.fromRGB(45, 55, 75), 1)
-
-local ragTelemetryLabel = Instance.new("TextLabel")
-ragTelemetryLabel.Size = UDim2.new(1, -16, 1, -12)
-ragTelemetryLabel.Position = UDim2.new(0, 8, 0, 6)
-ragTelemetryLabel.BackgroundTransparency = 1
-ragTelemetryLabel.TextColor3 = Color3.fromRGB(255, 200, 150)
-ragTelemetryLabel.Font = Enum.Font.Code
-ragTelemetryLabel.TextSize = 10
-ragTelemetryLabel.TextXAlignment = Enum.TextXAlignment.Left
-ragTelemetryLabel.TextYAlignment = Enum.TextYAlignment.Top
-ragTelemetryLabel.Text = "Ragdoll Telemetry: Ready for impact tests."
-ragTelemetryLabel.Parent = ragTelemetryBox
-
-end
-
---------------------------------------------------------------------------------
--- 4D. SUB-TAB 4: AUTONOMOUS LOCOMOTION MANEUVER SUITE
---------------------------------------------------------------------------------
-do
-local manHeader = Instance.new("TextLabel")
-manHeader.Text = "QUIN AUTONOMOUS LOCOMOTION MANEUVER SUITE"
-manHeader.Size = UDim2.new(1, -20, 0, 22)
-manHeader.Position = UDim2.new(0, 10, 0, 8)
-manHeader.BackgroundTransparency = 1
-manHeader.TextColor3 = C_TEXT
-manHeader.Font = Enum.Font.GothamBold
-manHeader.TextSize = 13
-manHeader.TextXAlignment = Enum.TextXAlignment.Left
-manHeader.Parent = maneuversView
-
-local manSub = Instance.new("TextLabel")
-manSub.Text = "Command QuinA_Tester through high-stress directional cuts, orbital banking arcs, and hard braking."
-manSub.Size = UDim2.new(1, -20, 0, 16)
-manSub.Position = UDim2.new(0, 10, 0, 30)
-manSub.BackgroundTransparency = 1
-manSub.TextColor3 = C_TEXT_MUTED
-manSub.Font = Enum.Font.Gotham
-manSub.TextSize = 10
-manSub.TextXAlignment = Enum.TextXAlignment.Left
-manSub.Parent = maneuversView
-
-local manGrid = Instance.new("ScrollingFrame")
-manGrid.Size = UDim2.new(1, -20, 1, -56)
-manGrid.Position = UDim2.new(0, 10, 0, 50)
-manGrid.BackgroundTransparency = 1
-manGrid.ScrollBarThickness = 4
-manGrid.CanvasSize = UDim2.new(0, 960, 0, 0)
-manGrid.Parent = maneuversView
-
-local function createManeuverCard(parent, xPos, title, badge, desc, accentCol, onClick)
-	local card = Instance.new("Frame")
-	card.Size = UDim2.new(0, 224, 0, 380)
-	card.Position = UDim2.new(0, xPos, 0, 0)
-	card.BackgroundColor3 = C_CARD
-	card.Parent = parent
-	applyCorner(card, 8)
-	applyStroke(card, C_BORDER, 1)
-
-	local cardBadge = Instance.new("TextLabel")
-	cardBadge.Size = UDim2.new(1, -20, 0, 18)
-	cardBadge.Position = UDim2.new(0, 10, 0, 12)
-	cardBadge.BackgroundTransparency = 1
-	cardBadge.TextColor3 = accentCol
-	cardBadge.Font = Enum.Font.GothamBold
-	cardBadge.TextSize = 10
-	cardBadge.TextXAlignment = Enum.TextXAlignment.Left
-	cardBadge.Text = string.upper(badge)
-	cardBadge.Parent = card
-
-	local cardTitle = Instance.new("TextLabel")
-	cardTitle.Size = UDim2.new(1, -20, 0, 24)
-	cardTitle.Position = UDim2.new(0, 10, 0, 32)
-	cardTitle.BackgroundTransparency = 1
-	cardTitle.TextColor3 = C_TEXT
-	cardTitle.Font = Enum.Font.GothamBold
-	cardTitle.TextSize = 14
-	cardTitle.TextXAlignment = Enum.TextXAlignment.Left
-	cardTitle.Text = title
-	cardTitle.Parent = card
-
-	local cardDesc = Instance.new("TextLabel")
-	cardDesc.Size = UDim2.new(1, -20, 0, 80)
-	cardDesc.Position = UDim2.new(0, 10, 0, 60)
-	cardDesc.BackgroundTransparency = 1
-	cardDesc.TextColor3 = C_TEXT_MUTED
-	cardDesc.Font = Enum.Font.Gotham
-	cardDesc.TextSize = 10
-	cardDesc.TextXAlignment = Enum.TextXAlignment.Left
-	cardDesc.TextYAlignment = Enum.TextYAlignment.Top
-	cardDesc.TextWrapped = true
-	cardDesc.Text = desc
-	cardDesc.Parent = card
-
-	local actBtn = Instance.new("TextButton")
-	actBtn.Size = UDim2.new(1, -20, 0, 36)
-	actBtn.Position = UDim2.new(0, 10, 1, -48)
-	actBtn.BackgroundColor3 = accentCol
-	actBtn.TextColor3 = Color3.new(0, 0, 0)
-	actBtn.Font = Enum.Font.GothamBold
-	actBtn.TextSize = 11
-	actBtn.Text = "Execute Maneuver ▶"
-	actBtn.Parent = card
-	applyCorner(actBtn, 6)
-
-	actBtn.MouseButton1Click:Connect(function()
-		if onClick then onClick(actBtn) end
-	end)
-end
-
-createManeuverCard(
-	manGrid, 0, "Sprint & 180° Cut", "Directional Pivot",
-	"Commands QuinA_Tester to sprint at 50 studs/s, execute an instant 180-degree directional pivot, and sprint back. Inspects stride scaling and anti-sliding.",
-	Color3.fromRGB(0, 220, 255),
-	function(btn)
-		labEvent:FireServer("RunLocomotionTest", { testType = "Sprint180" })
-		statusToast.Text = "🏃 Executing Sprint & 180° Cut maneuver..."
-		statusToast.TextColor3 = C_ACCENT
-	end
-)
-
-createManeuverCard(
-	manGrid, 238, "Arc Run 30°", "Centripetal Banking",
-	"Drives QuinA_Tester along a 28-stud radius circular orbital path at 44 studs/s, tilting the torso roll angle into the turn based on centripetal speed.",
-	Color3.fromRGB(160, 220, 40),
-	function(btn)
-		labEvent:FireServer("RunLocomotionTest", { testType = "ArcRun" })
-		statusToast.Text = "🌀 Executing 30° Centripetal Arc Run maneuver..."
-		statusToast.TextColor3 = Color3.fromRGB(180, 240, 50)
-	end
-)
-
-createManeuverCard(
-	manGrid, 476, "Sprint & Hard Brake", "Kinetic Skid",
-	"Sprints forward at 52 studs/s and halts abruptly into a kinetic skid stop, testing deceleration friction decay and transition into combat idle.",
-	Color3.fromRGB(255, 160, 40),
-	function(btn)
-		labEvent:FireServer("RunLocomotionTest", { testType = "SprintBrake" })
-		statusToast.Text = "🛑 Executing Sprint & Hard Brake skid..."
-		statusToast.TextColor3 = Color3.fromRGB(255, 180, 50)
-	end
-)
-
-createManeuverCard(
-	manGrid, 714, "Diagnostic Filmstrip", "Python Capture Ready",
-	"Positions camera and arms QuinA_Tester for high-frequency burst frame captures via inspect_locomotion_cycle.py.",
-	Color3.fromRGB(220, 100, 255),
-	function(btn)
-		statusToast.Text = "📸 Diagnostic Burst Ready: Run inspect_locomotion_cycle.py in terminal!"
-		statusToast.TextColor3 = Color3.fromRGB(230, 120, 255)
-	end
-)
-
--- Periodic Telemetry Heartbeat updater for Locomotion, IK, and Ragdoll tabs
-RunService.Heartbeat:Connect(function()
-	if not mainFrame.Visible or activeMainTab ~= "Powerhouse" then return end
-	local quinServer = Workspace:FindFirstChild("QuinServer")
-	local tester = quinServer and quinServer:FindFirstChild(testerName)
-	if not tester or not tester.Parent then return end
-
-	local hrp = tester:FindFirstChild("HumanoidRootPart")
-	local hum = tester:FindFirstChildOfClass("Humanoid")
-	if not hrp or not hum then return end
-
-	if activePowerhouseSubTab == "LocoIK" then
-		local linVel = hrp.AssemblyLinearVelocity
-		local horizSpeed = Vector3.new(linVel.X, 0, linVel.Z).Magnitude
-		local strideBase = CombatConfig.RunStrideBase or 38.0
-		local dynamicMult = horizSpeed > 0.5 and (horizSpeed / strideBase) or 1.0
-		local rollAngle = hrp.Orientation.Z
-
-		locoTelemetryLabel.Text = string.format(
-			"Rig: %s\nHorizontal Speed: %.1f studs/s\nWalkSpeed: %.1f\nCalculated Stride Scale: %.2fx (Base: %.1f)\nCurrent Torso Bank Roll: %.1f° (Max: %.1f°)",
-			tester.Name, horizSpeed, hum.WalkSpeed, dynamicMult, strideBase, rollAngle, CombatConfig.TorsoBankingMaxRoll or 12.0
-		)
-
-		local lIK = hum:FindFirstChild("LeftFootIK") or hum:FindFirstChild("GhostLeftFootIK")
-		local rIK = hum:FindFirstChild("RightFootIK") or hum:FindFirstChild("GhostRightFootIK")
-		local lWeight = lIK and lIK.Weight or 0
-		local rWeight = rIK and rIK.Weight or 0
-		local lAtt = hrp:FindFirstChild("LeftFootTargetAtt") or hrp:FindFirstChild("GhostLeftFootTargetAtt")
-		local rAtt = hrp:FindFirstChild("RightFootTargetAtt") or hrp:FindFirstChild("GhostRightFootTargetAtt")
-
-		ikTelemetryLabel.Text = string.format(
-			"Foot IK Status: %s | Normal Align: %s | Ledge Grip: %s\nLeft Foot Weight: %.2f | Target: %s\nRight Foot Weight: %.2f | Target: %s\nRay Dist: %.1f studs | Max Step Drop: %.1f studs\nPelvis Dip Scale: %.2f | Ankle Height Offset: %.2f studs",
-			(CombatConfig.FootIK_Enabled and "ACTIVE" or "DISABLED"),
-			(CombatConfig.FootIK_AnkleAlignment ~= false and "YES" or "NO"),
-			(CombatConfig.FootIK_LedgeGrip ~= false and "YES" or "NO"),
-			lWeight, lAtt and string.format("(%.1f, %.1f, %.1f)", lAtt.Position.X, lAtt.Position.Y, lAtt.Position.Z) or "None",
-			rWeight, rAtt and string.format("(%.1f, %.1f, %.1f)", rAtt.Position.X, rAtt.Position.Y, rAtt.Position.Z) or "None",
-			CombatConfig.FootIK_RayDistance or 6.8,
-			CombatConfig.FootIK_MaxStepDown or 2.4,
-			CombatConfig.FootIK_HipsDipScale or 0.50,
-			CombatConfig.FootIK_HeightOffset or 0.0
-		)
-
-	elseif activePowerhouseSubTab == "RagdollLab" then
-		local linVel = hrp.AssemblyLinearVelocity
-		local angVel = hrp.AssemblyAngularVelocity
-		local isProne = hum.PlatformStand
-		local hasMuscle = hrp:FindFirstChild("LabMuscleStabilizer") ~= nil
-
-		ragTelemetryLabel.Text = string.format(
-			"Rig: %s | PlatformStand: %s\nLinear Velocity: (%.1f, %.1f, %.1f) Mag: %.1f\nAngular Velocity: (%.1f, %.1f, %.1f) Rad/s\nActive Muscle Stabilizer: %s (MaxTorque: %.0f N*m)\nGround Contact Ray: %.1f studs to floor",
-			tester.Name, tostring(isProne), linVel.X, linVel.Y, linVel.Z, linVel.Magnitude,
-			angVel.X, angVel.Y, angVel.Z,
-			hasMuscle and "ENGAGED" or "NONE",
-			CombatConfig.Ragdoll_MuscleStiffness or 8000,
-			(Workspace:Raycast(hrp.Position, Vector3.new(0, -10, 0)) and (hrp.Position - (Workspace:Raycast(hrp.Position, Vector3.new(0, -10, 0)).Position)).Magnitude or 99.0)
-		)
-	end
-end)
-
-end
-
-function createModeCard(parent, xPos, title, badge, desc, accentCol, onClick)
-	local card = Instance.new("Frame")
-	card.Size = UDim2.new(0, 220, 0, 420)
-	card.Position = UDim2.new(0, xPos, 0, 0)
-	card.BackgroundColor3 = C_CARD
-	card.Parent = parent
-	applyCorner(card, 8)
-	applyStroke(card, C_BORDER, 1)
-
-	local cardBadge = Instance.new("TextLabel")
-	cardBadge.Size = UDim2.new(1, -20, 0, 20)
-	cardBadge.Position = UDim2.new(0, 10, 0, 14)
-	cardBadge.BackgroundTransparency = 1
-	cardBadge.TextColor3 = accentCol
-	cardBadge.Font = Enum.Font.GothamBold
-	cardBadge.TextSize = 10
-	cardBadge.TextXAlignment = Enum.TextXAlignment.Left
-	cardBadge.Text = string.upper(badge)
-	cardBadge.Parent = card
-
-	local cardTitle = Instance.new("TextLabel")
-	cardTitle.Size = UDim2.new(1, -20, 0, 26)
-	cardTitle.Position = UDim2.new(0, 10, 0, 36)
-	cardTitle.BackgroundTransparency = 1
-	cardTitle.TextColor3 = C_TEXT
-	cardTitle.Font = Enum.Font.GothamBold
-	cardTitle.TextSize = 15
-	cardTitle.TextXAlignment = Enum.TextXAlignment.Left
-	cardTitle.Text = title
-	cardTitle.Parent = card
-
-	local cardDesc = Instance.new("TextLabel")
-	cardDesc.Size = UDim2.new(1, -20, 0, 240)
-	cardDesc.Position = UDim2.new(0, 10, 0, 68)
-	cardDesc.BackgroundTransparency = 1
-	cardDesc.TextColor3 = C_TEXT_MUTED
-	cardDesc.Font = Enum.Font.Gotham
-	cardDesc.TextSize = 12
-	cardDesc.TextXAlignment = Enum.TextXAlignment.Left
-	cardDesc.TextYAlignment = Enum.TextYAlignment.Top
-	cardDesc.TextWrapped = true
-	cardDesc.Text = desc
-	cardDesc.Parent = card
-
-	local launchBtn = Instance.new("TextButton")
-	launchBtn.Size = UDim2.new(1, -20, 0, 40)
-	launchBtn.Position = UDim2.new(0, 10, 1, -52)
-	launchBtn.BackgroundColor3 = accentCol
-	launchBtn.TextColor3 = Color3.new(0, 0, 0)
-	launchBtn.Font = Enum.Font.GothamBold
-	launchBtn.TextSize = 12
-	launchBtn.Text = "Launch Mode ▶"
-	launchBtn.Parent = card
-	applyCorner(launchBtn, 6)
-
-	launchBtn.MouseButton1Click:Connect(function()
-		onClick(launchBtn)
-	end)
-
-	return card
-end
-
---------------------------------------------------------------------------------
--- 7. GAME MODES VIEW (1v1, 2v2, FFA, CLEAN)
---------------------------------------------------------------------------------
-do
-local gmHeader = Instance.new("TextLabel")
-gmHeader.Text = "QUIN PRODUCTION GAME MODES"
-gmHeader.Size = UDim2.new(1, -20, 0, 26)
-gmHeader.Position = UDim2.new(0, 10, 0, 8)
-gmHeader.BackgroundTransparency = 1
-gmHeader.TextColor3 = C_TEXT
-gmHeader.Font = Enum.Font.GothamBold
-gmHeader.TextSize = 14
-gmHeader.TextXAlignment = Enum.TextXAlignment.Left
-gmHeader.Parent = gameModesView
-
-local gmSub = Instance.new("TextLabel")
-gmSub.Text = "Launch autonomous Quin combat encounters. Spectate AI tactics, decision loops, and health dynamics."
-gmSub.Size = UDim2.new(1, -20, 0, 18)
-gmSub.Position = UDim2.new(0, 10, 0, 36)
-gmSub.BackgroundTransparency = 1
-gmSub.TextColor3 = C_TEXT_MUTED
-gmSub.Font = Enum.Font.Gotham
-gmSub.TextSize = 11
-gmSub.TextXAlignment = Enum.TextXAlignment.Left
-gmSub.Parent = gameModesView
-
-local gmGrid = Instance.new("ScrollingFrame")
-gmGrid.Name = "ModesGrid"
-gmGrid.Size = UDim2.new(1, -20, 1, -76)
-gmGrid.Position = UDim2.new(0, 10, 0, 64)
-gmGrid.BackgroundTransparency = 1
-gmGrid.BorderSizePixel = 0
-gmGrid.ScrollBarThickness = 6
-gmGrid.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 180)
-gmGrid.CanvasSize = UDim2.new(0, 1220, 0, 0)
-gmGrid.Parent = gameModesView
-
-
-
-local function createTeamBattleCard(parent, xPos)
-	local card = Instance.new("Frame")
-	card.Size = UDim2.new(0, 220, 0, 420)
-	card.Position = UDim2.new(0, xPos, 0, 0)
-	card.BackgroundColor3 = C_CARD
-	card.Parent = parent
-	applyCorner(card, 8)
-	applyStroke(card, C_BORDER, 1)
-
-	local cardBadge = Instance.new("TextLabel")
-	cardBadge.Size = UDim2.new(1, -20, 0, 20)
-	cardBadge.Position = UDim2.new(0, 10, 0, 14)
-	cardBadge.BackgroundTransparency = 1
-	cardBadge.TextColor3 = Color3.fromRGB(160, 110, 255)
-	cardBadge.Font = Enum.Font.GothamBold
-	cardBadge.TextSize = 10
-	cardBadge.TextXAlignment = Enum.TextXAlignment.Left
-	cardBadge.Text = "SELECTABLE SIZES"
-	cardBadge.Parent = card
-
-	local cardTitle = Instance.new("TextLabel")
-	cardTitle.Size = UDim2.new(1, -20, 0, 26)
-	cardTitle.Position = UDim2.new(0, 10, 0, 36)
-	cardTitle.BackgroundTransparency = 1
-	cardTitle.TextColor3 = C_TEXT
-	cardTitle.Font = Enum.Font.GothamBold
-	cardTitle.TextSize = 15
-	cardTitle.TextXAlignment = Enum.TextXAlignment.Left
-	cardTitle.Text = "Team Skirmish / War"
-	cardTitle.Parent = card
-
-	local cardDesc = Instance.new("TextLabel")
-	cardDesc.Size = UDim2.new(1, -20, 0, 110)
-	cardDesc.Position = UDim2.new(0, 10, 0, 68)
-	cardDesc.BackgroundTransparency = 1
-	cardDesc.TextColor3 = C_TEXT_MUTED
-	cardDesc.Font = Enum.Font.Gotham
-	cardDesc.TextSize = 12
-	cardDesc.TextXAlignment = Enum.TextXAlignment.Left
-	cardDesc.TextYAlignment = Enum.TextYAlignment.Top
-	cardDesc.TextWrapped = true
-	cardDesc.Text = "Two opposing teams battle in coordinated combat. Select team size below (2v2 up to massive 16v16 Arena War with 32 Quins):"
-	cardDesc.Parent = card
-
-	-- Team Size Pills Container
-	local pillsFrame = Instance.new("Frame")
-	pillsFrame.Size = UDim2.new(1, -20, 0, 36)
-	pillsFrame.Position = UDim2.new(0, 10, 0, 190)
-	pillsFrame.BackgroundTransparency = 1
-	pillsFrame.Parent = card
-
-	local selectedTeamCount = 4
-	local pillBtns = {}
-	local sizes = {
-		{ label = "2v2", count = 2 },
-		{ label = "4v4", count = 4 },
-		{ label = "6v6", count = 6 },
-		{ label = "8v8", count = 8 },
-		{ label = "16v16", count = 16 },
+	-- State for Combinator
+	local combinatorLayers = {}
+	local combinatorGlobalDuration = 2.0
+	local combinatorCurrentTime = 0.0
+	local combinatorIsPlaying = false
+	local combinatorLoop = true
+	local combinatorPlaySpeed = 1.0
+
+	-- Transition Inspector State
+	local transLayerAIdx = 1
+	local transLayerBIdx = 2
+	local transBlendTime = 0.15
+	local isTransitionTesting = false
+	local transitionThread = nil
+
+	-- Forward declarations
+	local refreshStackView
+	local updateGlobalDuration
+	local updateScrubberVisuals
+	local syncScrubToServer
+	local triggerStackPlayback
+	local stopCombinatorPlayback
+	local getActiveLayersPayload
+
+	-- Master Top Container (3 Columns)
+	local topArea = Instance.new("Frame")
+	topArea.Name = "CombinatorTopArea"
+	topArea.Size = UDim2.new(1, 0, 1, -112)
+	topArea.Position = UDim2.new(0, 0, 0, 4)
+	topArea.BackgroundTransparency = 1
+	topArea.Parent = animCombinatorView
+
+	-- Master Bottom Container (Global Timeline Scrubber & Master Transport)
+	local bottomPanel = Instance.new("Frame")
+	bottomPanel.Name = "CombinatorBottomPanel"
+	bottomPanel.Size = UDim2.new(1, -16, 0, 104)
+	bottomPanel.Position = UDim2.new(0, 8, 1, -106)
+	bottomPanel.BackgroundColor3 = C_PANEL
+	bottomPanel.ClipsDescendants = true
+	bottomPanel.Parent = animCombinatorView
+	applyCorner(bottomPanel, 8)
+	applyStroke(bottomPanel, C_BORDER, 1)
+
+	----------------------------------------------------------------------------
+	-- LEFT COLUMN: DIRECT ID INSERTER & PRE-REGISTERED LIBRARY
+	----------------------------------------------------------------------------
+	local libPanel = Instance.new("Frame")
+	libPanel.Name = "LibraryPanel"
+	libPanel.Size = UDim2.new(0, 270, 1, 0)
+	libPanel.Position = UDim2.new(0, 8, 0, 0)
+	libPanel.BackgroundColor3 = C_PANEL
+	libPanel.ClipsDescendants = true
+	libPanel.Parent = topArea
+	applyCorner(libPanel, 8)
+	applyStroke(libPanel, C_BORDER, 1)
+
+	-- Direct ID Inserter Header
+	local directIdHeader = Instance.new("TextLabel")
+	directIdHeader.Text = "⚡ DIRECT ID INSERTER"
+	directIdHeader.Size = UDim2.new(1, -16, 0, 20)
+	directIdHeader.Position = UDim2.new(0, 8, 0, 6)
+	directIdHeader.BackgroundTransparency = 1
+	directIdHeader.TextColor3 = C_ACCENT
+	directIdHeader.Font = Enum.Font.GothamBold
+	directIdHeader.TextSize = 11
+	directIdHeader.TextXAlignment = Enum.TextXAlignment.Left
+	directIdHeader.Parent = libPanel
+
+	local directIdBox = Instance.new("TextBox")
+	directIdBox.Name = "DirectIdBox"
+	directIdBox.Size = UDim2.new(1, -16, 0, 26)
+	directIdBox.Position = UDim2.new(0, 8, 0, 28)
+	directIdBox.BackgroundColor3 = Color3.fromRGB(30, 36, 48)
+	directIdBox.TextColor3 = C_TEXT
+	directIdBox.PlaceholderText = "Paste ID (e.g. 81038616654818)..."
+	directIdBox.PlaceholderColor3 = C_TEXT_MUTED
+	directIdBox.Font = Enum.Font.Code
+	directIdBox.TextSize = 11
+	directIdBox.TextXAlignment = Enum.TextXAlignment.Left
+	directIdBox.ClearTextOnFocus = false
+	directIdBox.Text = ""
+	directIdBox.Parent = libPanel
+	applyCorner(directIdBox, 4)
+	applyStroke(directIdBox, Color3.fromRGB(50, 60, 80), 1)
+
+	local directBtnsFrame = Instance.new("Frame")
+	directBtnsFrame.Size = UDim2.new(1, -16, 0, 26)
+	directBtnsFrame.Position = UDim2.new(0, 8, 0, 58)
+	directBtnsFrame.BackgroundTransparency = 1
+	directBtnsFrame.Parent = libPanel
+
+	local previewIdBtn = Instance.new("TextButton")
+	previewIdBtn.Text = "▶ Audition"
+	previewIdBtn.Size = UDim2.new(0.48, -2, 1, 0)
+	previewIdBtn.Position = UDim2.new(0, 0, 0, 0)
+	previewIdBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 120)
+	previewIdBtn.TextColor3 = Color3.fromRGB(220, 245, 255)
+	previewIdBtn.Font = Enum.Font.GothamBold
+	previewIdBtn.TextSize = 11
+	previewIdBtn.Parent = directBtnsFrame
+	applyCorner(previewIdBtn, 4)
+
+	local addIdBtn = Instance.new("TextButton")
+	addIdBtn.Text = "+ Add Layer"
+	addIdBtn.Size = UDim2.new(0.52, -2, 1, 0)
+	addIdBtn.Position = UDim2.new(0.48, 4, 0, 0)
+	addIdBtn.BackgroundColor3 = C_ACCENT
+	addIdBtn.TextColor3 = Color3.new(0, 0, 0)
+	addIdBtn.Font = Enum.Font.GothamBold
+	addIdBtn.TextSize = 11
+	addIdBtn.Parent = directBtnsFrame
+	applyCorner(addIdBtn, 4)
+
+	-- Divider
+	local libDivider = Instance.new("Frame")
+	libDivider.Size = UDim2.new(1, -16, 0, 1)
+	libDivider.Position = UDim2.new(0, 8, 0, 90)
+	libDivider.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
+	libDivider.BorderSizePixel = 0
+	libDivider.Parent = libPanel
+
+	-- Pre-Registered Library Header
+	local libHeader = Instance.new("TextLabel")
+	libHeader.Text = "📚 PRE-REGISTERED LIBRARY"
+	libHeader.Size = UDim2.new(1, -16, 0, 20)
+	libHeader.Position = UDim2.new(0, 8, 0, 96)
+	libHeader.BackgroundTransparency = 1
+	libHeader.TextColor3 = C_TEXT
+	libHeader.Font = Enum.Font.GothamBold
+	libHeader.TextSize = 11
+	libHeader.TextXAlignment = Enum.TextXAlignment.Left
+	libHeader.Parent = libPanel
+
+	-- Category Tabs Bar
+	local combCatTabBar = Instance.new("ScrollingFrame")
+	combCatTabBar.Size = UDim2.new(1, -16, 0, 24)
+	combCatTabBar.Position = UDim2.new(0, 8, 0, 118)
+	combCatTabBar.BackgroundTransparency = 1
+	combCatTabBar.ScrollBarThickness = 2
+	combCatTabBar.CanvasSize = UDim2.new(0, 520, 0, 0)
+	combCatTabBar.Parent = libPanel
+
+	local combCatLayout = Instance.new("UIListLayout")
+	combCatLayout.FillDirection = Enum.FillDirection.Horizontal
+	combCatLayout.Padding = UDim.new(0, 4)
+	combCatLayout.Parent = combCatTabBar
+
+	-- Library Search Box
+	local combSearchBox = Instance.new("TextBox")
+	combSearchBox.Size = UDim2.new(1, -16, 0, 24)
+	combSearchBox.Position = UDim2.new(0, 8, 0, 146)
+	combSearchBox.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
+	combSearchBox.TextColor3 = C_TEXT
+	combSearchBox.PlaceholderText = "🔍 Search library (e.g. idle, punch)..."
+	combSearchBox.PlaceholderColor3 = C_TEXT_MUTED
+	combSearchBox.Font = Enum.Font.Gotham
+	combSearchBox.TextSize = 10
+	combSearchBox.TextXAlignment = Enum.TextXAlignment.Left
+	combSearchBox.ClearTextOnFocus = false
+	combSearchBox.Text = ""
+	combSearchBox.Parent = libPanel
+	applyCorner(combSearchBox, 4)
+	applyStroke(combSearchBox, C_BORDER, 1)
+
+	-- Library Scroll List
+	local libScroll = Instance.new("ScrollingFrame")
+	libScroll.Size = UDim2.new(1, -16, 1, -176)
+	libScroll.Position = UDim2.new(0, 8, 0, 174)
+	libScroll.BackgroundColor3 = Color3.fromRGB(20, 24, 32)
+	libScroll.ScrollBarThickness = 3
+	libScroll.ClipsDescendants = true
+	libScroll.Parent = libPanel
+	applyCorner(libScroll, 6)
+
+	local libLayout = Instance.new("UIListLayout")
+	libLayout.Padding = UDim.new(0, 3)
+	libLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	libLayout.Parent = libScroll
+	libScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+	----------------------------------------------------------------------------
+	-- CENTER COLUMN: COMBINATION STACK & LAYER INSPECTOR
+	----------------------------------------------------------------------------
+	local stackPanel = Instance.new("Frame")
+	stackPanel.Name = "StackPanel"
+	stackPanel.Size = UDim2.new(0, 420, 1, 0)
+	stackPanel.Position = UDim2.new(0, 286, 0, 0)
+	stackPanel.BackgroundColor3 = C_PANEL
+	stackPanel.ClipsDescendants = true
+	stackPanel.Parent = topArea
+	applyCorner(stackPanel, 8)
+	applyStroke(stackPanel, C_BORDER, 1)
+
+	-- Stack Top Bar
+	local stackTitle = Instance.new("TextLabel")
+	stackTitle.Text = "🎛️ COMBINATION STACK"
+	stackTitle.Size = UDim2.new(0, 170, 0, 28)
+	stackTitle.Position = UDim2.new(0, 10, 0, 4)
+	stackTitle.BackgroundTransparency = 1
+	stackTitle.TextColor3 = C_ACCENT
+	stackTitle.Font = Enum.Font.GothamBold
+	stackTitle.TextSize = 12
+	stackTitle.TextXAlignment = Enum.TextXAlignment.Left
+	stackTitle.Parent = stackPanel
+
+	local stackCountBadge = Instance.new("TextLabel")
+	stackCountBadge.Text = "(0 Layers)"
+	stackCountBadge.Size = UDim2.new(0, 70, 0, 28)
+	stackCountBadge.Position = UDim2.new(0, 175, 0, 4)
+	stackCountBadge.BackgroundTransparency = 1
+	stackCountBadge.TextColor3 = C_TEXT_MUTED
+	stackCountBadge.Font = Enum.Font.Gotham
+	stackCountBadge.TextSize = 11
+	stackCountBadge.TextXAlignment = Enum.TextXAlignment.Left
+	stackCountBadge.Parent = stackPanel
+
+	local addEmptyLayerBtn = Instance.new("TextButton")
+	addEmptyLayerBtn.Text = "+ Add Blank"
+	addEmptyLayerBtn.Size = UDim2.new(0, 85, 0, 22)
+	addEmptyLayerBtn.Position = UDim2.new(1, -165, 0, 7)
+	addEmptyLayerBtn.BackgroundColor3 = Color3.fromRGB(36, 75, 115)
+	addEmptyLayerBtn.TextColor3 = Color3.fromRGB(220, 245, 255)
+	addEmptyLayerBtn.Font = Enum.Font.GothamBold
+	addEmptyLayerBtn.TextSize = 10
+	addEmptyLayerBtn.Parent = stackPanel
+	applyCorner(addEmptyLayerBtn, 4)
+
+	local clearStackBtn = Instance.new("TextButton")
+	clearStackBtn.Text = "🗑 Clear"
+	clearStackBtn.Size = UDim2.new(0, 65, 0, 22)
+	clearStackBtn.Position = UDim2.new(1, -74, 0, 7)
+	clearStackBtn.BackgroundColor3 = Color3.fromRGB(70, 32, 36)
+	clearStackBtn.TextColor3 = C_DANGER
+	clearStackBtn.Font = Enum.Font.GothamBold
+	clearStackBtn.TextSize = 10
+	clearStackBtn.Parent = stackPanel
+	applyCorner(clearStackBtn, 4)
+
+	-- Stack Scroll List
+	local stackScroll = Instance.new("ScrollingFrame")
+	stackScroll.Name = "StackScroll"
+	stackScroll.Size = UDim2.new(1, -16, 1, -40)
+	stackScroll.Position = UDim2.new(0, 8, 0, 34)
+	stackScroll.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
+	stackScroll.ScrollBarThickness = 4
+	stackScroll.ClipsDescendants = true
+	stackScroll.Parent = stackPanel
+	applyCorner(stackScroll, 6)
+
+	local stackLayout = Instance.new("UIListLayout")
+	stackLayout.Padding = UDim.new(0, 6)
+	stackLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	stackLayout.Parent = stackScroll
+	stackScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+	local emptyStackNotice = Instance.new("TextLabel")
+	emptyStackNotice.Text = "No animation layers in stack.\nClick '+' on any clip in the Library or use\nDirect ID Inserter to start combining animations!"
+	emptyStackNotice.Size = UDim2.new(1, -20, 0, 90)
+	emptyStackNotice.Position = UDim2.new(0, 10, 0, 20)
+	emptyStackNotice.BackgroundTransparency = 1
+	emptyStackNotice.TextColor3 = C_TEXT_MUTED
+	emptyStackNotice.Font = Enum.Font.Gotham
+	emptyStackNotice.TextSize = 11
+	emptyStackNotice.TextYAlignment = Enum.TextYAlignment.Center
+	emptyStackNotice.Parent = stackScroll
+
+	----------------------------------------------------------------------------
+	-- RIGHT COLUMN: TRANSITION INSPECTOR, PRESETS & EXPORT
+	----------------------------------------------------------------------------
+	local inspPanel = Instance.new("Frame")
+	inspPanel.Name = "InspectorPanel"
+	inspPanel.Size = UDim2.new(1, -714, 1, 0)
+	inspPanel.Position = UDim2.new(0, 714, 0, 0)
+	inspPanel.BackgroundColor3 = C_PANEL
+	inspPanel.ClipsDescendants = true
+	inspPanel.Parent = topArea
+	applyCorner(inspPanel, 8)
+	applyStroke(inspPanel, C_BORDER, 1)
+
+	local inspScroll = Instance.new("ScrollingFrame")
+	inspScroll.Size = UDim2.new(1, -8, 1, -8)
+	inspScroll.Position = UDim2.new(0, 4, 0, 4)
+	inspScroll.BackgroundTransparency = 1
+	inspScroll.ScrollBarThickness = 3
+	inspScroll.CanvasSize = UDim2.new(0, 0, 0, 440)
+	inspScroll.Parent = inspPanel
+
+	-- Section: Transition Inspector
+	local transTitle = Instance.new("TextLabel")
+	transTitle.Text = "⚡ TRANSITION INSPECTOR"
+	transTitle.Size = UDim2.new(1, -12, 0, 20)
+	transTitle.Position = UDim2.new(0, 6, 0, 4)
+	transTitle.BackgroundTransparency = 1
+	transTitle.TextColor3 = C_ACCENT
+	transTitle.Font = Enum.Font.GothamBold
+	transTitle.TextSize = 11
+	transTitle.TextXAlignment = Enum.TextXAlignment.Left
+	transTitle.Parent = inspScroll
+
+	local transSubtitle = Instance.new("TextLabel")
+	transSubtitle.Text = "Inspect blend & handoff between 2 layers"
+	transSubtitle.Size = UDim2.new(1, -12, 0, 14)
+	transSubtitle.Position = UDim2.new(0, 6, 0, 24)
+	transSubtitle.BackgroundTransparency = 1
+	transSubtitle.TextColor3 = C_TEXT_MUTED
+	transSubtitle.Font = Enum.Font.Gotham
+	transSubtitle.TextSize = 9
+	transSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+	transSubtitle.Parent = inspScroll
+
+	local transLayerABtn = Instance.new("TextButton")
+	transLayerABtn.Text = "From: Layer 1"
+	transLayerABtn.Size = UDim2.new(0.48, -2, 0, 24)
+	transLayerABtn.Position = UDim2.new(0, 6, 0, 42)
+	transLayerABtn.BackgroundColor3 = Color3.fromRGB(30, 36, 48)
+	transLayerABtn.TextColor3 = C_TEXT
+	transLayerABtn.Font = Enum.Font.GothamBold
+	transLayerABtn.TextSize = 10
+	transLayerABtn.Parent = inspScroll
+	applyCorner(transLayerABtn, 4)
+	applyStroke(transLayerABtn, C_BORDER, 1)
+
+	local transLayerBBtn = Instance.new("TextButton")
+	transLayerBBtn.Text = "To: Layer 2"
+	transLayerBBtn.Size = UDim2.new(0.48, -2, 0, 24)
+	transLayerBBtn.Position = UDim2.new(0.50, 4, 0, 42)
+	transLayerBBtn.BackgroundColor3 = Color3.fromRGB(30, 36, 48)
+	transLayerBBtn.TextColor3 = C_TEXT
+	transLayerBBtn.Font = Enum.Font.GothamBold
+	transLayerBBtn.TextSize = 10
+	transLayerBBtn.Parent = inspScroll
+	applyCorner(transLayerBBtn, 4)
+	applyStroke(transLayerBBtn, C_BORDER, 1)
+
+	local transBlendLabel = Instance.new("TextLabel")
+	transBlendLabel.Text = string.format("Blend Crossfade: %.2fs (F%d)", transBlendTime, math.floor(transBlendTime * 30))
+	transBlendLabel.Size = UDim2.new(1, -12, 0, 18)
+	transBlendLabel.Position = UDim2.new(0, 6, 0, 70)
+	transBlendLabel.BackgroundTransparency = 1
+	transBlendLabel.TextColor3 = C_TEXT
+	transBlendLabel.Font = Enum.Font.Gotham
+	transBlendLabel.TextSize = 10
+	transBlendLabel.TextXAlignment = Enum.TextXAlignment.Left
+	transBlendLabel.Parent = inspScroll
+
+	local transBlendMinus = Instance.new("TextButton")
+	transBlendMinus.Text = "- 1F"
+	transBlendMinus.Size = UDim2.new(0, 36, 0, 20)
+	transBlendMinus.Position = UDim2.new(0, 6, 0, 90)
+	transBlendMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+	transBlendMinus.TextColor3 = C_TEXT
+	transBlendMinus.Font = Enum.Font.GothamBold
+	transBlendMinus.TextSize = 10
+	transBlendMinus.Parent = inspScroll
+	applyCorner(transBlendMinus, 4)
+
+	local transBlendPlus = Instance.new("TextButton")
+	transBlendPlus.Text = "+ 1F"
+	transBlendPlus.Size = UDim2.new(0, 36, 0, 20)
+	transBlendPlus.Position = UDim2.new(0, 48, 0, 90)
+	transBlendPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
+	transBlendPlus.TextColor3 = C_TEXT
+	transBlendPlus.Font = Enum.Font.GothamBold
+	transBlendPlus.TextSize = 10
+	transBlendPlus.Parent = inspScroll
+	applyCorner(transBlendPlus, 4)
+
+	local playTransitionBtn = Instance.new("TextButton")
+	playTransitionBtn.Text = "⚡ Play Transition Only"
+	playTransitionBtn.Size = UDim2.new(1, -12, 0, 28)
+	playTransitionBtn.Position = UDim2.new(0, 6, 0, 116)
+	playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
+	playTransitionBtn.TextColor3 = Color3.fromRGB(240, 250, 255)
+	playTransitionBtn.Font = Enum.Font.GothamBold
+	playTransitionBtn.TextSize = 11
+	playTransitionBtn.Parent = inspScroll
+	applyCorner(playTransitionBtn, 6)
+
+	-- Section: Presets
+	local presetsDivider = Instance.new("Frame")
+	presetsDivider.Size = UDim2.new(1, -12, 0, 1)
+	presetsDivider.Position = UDim2.new(0, 6, 0, 154)
+	presetsDivider.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
+	presetsDivider.BorderSizePixel = 0
+	presetsDivider.Parent = inspScroll
+
+	local presetsTitle = Instance.new("TextLabel")
+	presetsTitle.Text = "✨ QUICK PRESETS"
+	presetsTitle.Size = UDim2.new(1, -12, 0, 20)
+	presetsTitle.Position = UDim2.new(0, 6, 0, 160)
+	presetsTitle.BackgroundTransparency = 1
+	presetsTitle.TextColor3 = C_TEXT
+	presetsTitle.Font = Enum.Font.GothamBold
+	presetsTitle.TextSize = 11
+	presetsTitle.TextXAlignment = Enum.TextXAlignment.Left
+	presetsTitle.Parent = inspScroll
+
+	local presetList = {
+		{ name = "🏃 Run + 👊 Lead Punch", presetId = "RunPunch" },
+		{ name = "🧘 Idle + ⚔️ Ready Stance", presetId = "IdleStance" },
+		{ name = "⚡ Sprint + 🔄 180 Turn", presetId = "Sprint180" },
+		{ name = "🦸 Superhero Landing", presetId = "SuperheroLanding" },
 	}
 
-	local launchBtn = Instance.new("TextButton")
-	launchBtn.Size = UDim2.new(1, -20, 0, 40)
-	launchBtn.Position = UDim2.new(0, 10, 1, -52)
-	launchBtn.BackgroundColor3 = Color3.fromRGB(160, 110, 255)
-	launchBtn.TextColor3 = Color3.new(0, 0, 0)
-	launchBtn.Font = Enum.Font.GothamBold
-	launchBtn.TextSize = 12
-	launchBtn.Text = "Launch 4 vs 4 ▶"
-	launchBtn.Parent = card
-	applyCorner(launchBtn, 6)
-
-	local pillWidth = 36
-	local pillGap = 3
-	for i, sz in ipairs(sizes) do
+	for pIdx, pData in ipairs(presetList) do
 		local pBtn = Instance.new("TextButton")
-		pBtn.Size = UDim2.new(0, pillWidth, 0, 28)
-		pBtn.Position = UDim2.new(0, (i - 1) * (pillWidth + pillGap), 0, 4)
-		pBtn.BackgroundColor3 = (sz.count == selectedTeamCount) and Color3.fromRGB(160, 110, 255) or Color3.fromRGB(35, 40, 55)
-		pBtn.TextColor3 = (sz.count == selectedTeamCount) and Color3.new(0, 0, 0) or C_TEXT
-		pBtn.Font = Enum.Font.GothamBold
-		pBtn.TextSize = 9
-		pBtn.Text = sz.label
-		pBtn.Parent = pillsFrame
+		pBtn.Text = pData.name
+		pBtn.Size = UDim2.new(1, -12, 0, 24)
+		pBtn.Position = UDim2.new(0, 6, 0, 182 + (pIdx - 1) * 28)
+		pBtn.BackgroundColor3 = Color3.fromRGB(30, 36, 48)
+		pBtn.TextColor3 = C_TEXT
+		pBtn.Font = Enum.Font.Gotham
+		pBtn.TextSize = 10
+		pBtn.Parent = inspScroll
 		applyCorner(pBtn, 4)
-		table.insert(pillBtns, { btn = pBtn, count = sz.count, label = sz.label })
+		applyStroke(pBtn, C_BORDER, 1)
 
 		pBtn.MouseButton1Click:Connect(function()
-			selectedTeamCount = sz.count
-			for _, item in ipairs(pillBtns) do
-				local isSel = (item.count == selectedTeamCount)
-				item.btn.BackgroundColor3 = isSel and Color3.fromRGB(160, 110, 255) or Color3.fromRGB(35, 40, 55)
-				item.btn.TextColor3 = isSel and Color3.new(0, 0, 0) or C_TEXT
+			if pData.presetId == "RunPunch" then
+				combinatorLayers = {
+					{
+						id = "rbxassetid://109090784752055",
+						name = "Movement.Run",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.467,
+						weight = 1.0,
+						speed = 1.0,
+						priority = "Movement",
+						bodyMask = "Lower Body",
+						looped = true,
+					},
+					{
+						id = "rbxassetid://113219639247452",
+						name = "Attacks.Punch1",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.833,
+						weight = 1.0,
+						speed = 1.0,
+						priority = "Action4",
+						bodyMask = "Upper Body",
+						looped = true,
+					}
+				}
+			elseif pData.presetId == "IdleStance" then
+				combinatorLayers = {
+					{
+						id = "rbxassetid://81038616654818",
+						name = "IDLE_DEFAULT",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 4.0,
+						weight = 0.6,
+						speed = 1.0,
+						priority = "Idle",
+						bodyMask = "Full Body",
+						looped = true,
+					},
+					{
+						id = "rbxassetid://123350689285769",
+						name = "IDLEREADY_STANCE",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 1.95,
+						weight = 0.8,
+						speed = 1.0,
+						priority = "Action",
+						bodyMask = "Upper Body",
+						looped = true,
+					}
+				}
+			elseif pData.presetId == "Sprint180" then
+				combinatorLayers = {
+					{
+						id = "rbxassetid://109090784752055",
+						name = "Movement.Run",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.467,
+						weight = 0.5,
+						speed = 1.0,
+						priority = "Movement",
+						bodyMask = "Full Body",
+						looped = true,
+					},
+					{
+						id = "rbxassetid://129355316172688",
+						name = "RunTurn180",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.667,
+						weight = 1.0,
+						speed = 1.0,
+						priority = "Action3",
+						bodyMask = "Full Body",
+						looped = true,
+					}
+				}
+			elseif pData.presetId == "SuperheroLanding" then
+				combinatorLayers = {
+					{
+						id = "rbxassetid://94804914683754",
+						name = "SUPERHERO LANDING",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 0.883,
+						weight = 1.0,
+						speed = 1.0,
+						priority = "Action4",
+						bodyMask = "Full Body",
+						looped = false,
+					},
+					{
+						id = "rbxassetid://95406088712190",
+						name = "GetUpBackFast",
+						enabled = true,
+						muted = false,
+						solo = false,
+						startCut = 0.0,
+						endCut = 1.0,
+						weight = 0.9,
+						speed = 1.0,
+						priority = "Action",
+						bodyMask = "Full Body",
+						looped = false,
+					}
+				}
 			end
-			if selectedTeamCount == 16 then
-				launchBtn.Text = "Launch 16 vs 16 (Arena War) ▶"
-			else
-				launchBtn.Text = "Launch " .. tostring(selectedTeamCount) .. " vs " .. tostring(selectedTeamCount) .. " ▶"
-			end
+			updateGlobalDuration()
+			refreshStackView()
 		end)
 	end
 
-	launchBtn.MouseButton1Click:Connect(function()
-		labEvent:FireServer("SetGameMode", { mode = "team", count = selectedTeamCount })
-		statusToast.Text = string.format("🎮 Launched %d vs %d Team Battle (%d Quins total).", 
-			selectedTeamCount, selectedTeamCount, selectedTeamCount * 2)
-		statusToast.TextColor3 = C_SUCCESS
-	end)
+	-- Section: Export
+	local exportDivider = Instance.new("Frame")
+	exportDivider.Size = UDim2.new(1, -12, 0, 1)
+	exportDivider.Position = UDim2.new(0, 6, 0, 304)
+	exportDivider.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
+	exportDivider.BorderSizePixel = 0
+	exportDivider.Parent = inspScroll
 
-	return card
-end
+	local exportStackBtn = Instance.new("TextButton")
+	exportStackBtn.Text = "📋 Export Stack to Luau"
+	exportStackBtn.Size = UDim2.new(1, -12, 0, 30)
+	exportStackBtn.Position = UDim2.new(0, 6, 0, 314)
+	exportStackBtn.BackgroundColor3 = C_ACCENT
+	exportStackBtn.TextColor3 = Color3.new(0, 0, 0)
+	exportStackBtn.Font = Enum.Font.GothamBold
+	exportStackBtn.TextSize = 11
+	exportStackBtn.Parent = inspScroll
+	applyCorner(exportStackBtn, 6)
 
--- Card 1: 1 vs 1 Sparring Match
-createModeCard(
-	gmGrid, 0, "1 vs 1 Sparring Match", "Standard Sparring",
-	"Two Quins enter the ring facing each other (TeamAlpha vs TeamBeta). Exercises anticipation, standoff circling, combo hitstops, and knockback recovery loops.",
-	C_ACCENT,
-	function(btn)
-		labEvent:FireServer("SetGameMode", { mode = "1v1" })
-		statusToast.Text = "🎮 Launched 1v1 Sparring Match."
-		statusToast.TextColor3 = C_SUCCESS
-	end
-)
-
--- Card 2: Team Skirmish / Arena War (Selectable Sizes)
-createTeamBattleCard(gmGrid, 230)
-
--- Card 3: Mid-Air Clash Duel (Z-Relocating Brawl)
-createModeCard(
-	gmGrid, 460, "Mid-Air Clash Duel", "Z-Relocating Brawl",
-	"Two Quins enter an immediate mid-air clash. Relocates dynamically across aerial coordinates until one is meteor-smashed to earth or both clash-tie!",
-	Color3.fromRGB(0, 220, 255),
-	function(btn)
-		labEvent:FireServer("SetGameMode", { mode = "midair_clash" })
-		statusToast.Text = "⚔️ Launched Mid-Air Clash Duel Mode."
-		statusToast.TextColor3 = C_SUCCESS
-	end
-)
-
--- Card 4: Battle Mode (FFA)
-createModeCard(
-	gmGrid, 690, "Battle Mode (FFA)", "8-Man Free-For-All",
-	"Eight Quins spawned in a perimeter ring. Full free-for-all brawl with dynamic target switching, multi-agent collision, and survival prioritization.",
-	Color3.fromRGB(255, 130, 40),
-	function(btn)
-		labEvent:FireServer("SetGameMode", { mode = "ffa", count = 8 })
-		statusToast.Text = "🎮 Launched 8-Man Free-For-All Battle Mode."
-		statusToast.TextColor3 = C_SUCCESS
-	end
-)
-
--- Card 5: Reset Arena / Clear Quins
-createModeCard(
-	gmGrid, 920, "Reset Arena", "Clear Quins",
-	"Instantly cleans all spawned Quins, resets match state attributes, and flushes physics attachments for a fresh clean slate.",
-	C_DANGER,
-	function(btn)
-		labEvent:FireServer("SetGameMode", { mode = "clean" })
-		statusToast.Text = "🧹 Arena cleared."
-		statusToast.TextColor3 = Color3.fromRGB(250, 180, 50)
-	end
-)
-
-end
-
---------------------------------------------------------------------------------
--- 8. TEST MODES VIEW (SPARRING LAB | INFINITE STRAFE | PROJECTILE JUMP)
---------------------------------------------------------------------------------
-do
-local tmHeader = Instance.new("TextLabel")
-tmHeader.Text = "QUIN STATE & BEHAVIOR TEST SUITE"
-tmHeader.Size = UDim2.new(1, -20, 0, 26)
-tmHeader.Position = UDim2.new(0, 10, 0, 8)
-tmHeader.BackgroundTransparency = 1
-tmHeader.TextColor3 = C_TEXT
-tmHeader.Font = Enum.Font.GothamBold
-tmHeader.TextSize = 14
-tmHeader.TextXAlignment = Enum.TextXAlignment.Left
-tmHeader.Parent = testModesView
-
-local tmSub = Instance.new("TextLabel")
-tmSub.Text = "Dedicated testing environments to calibrate specific AI state machines, trajectory physics, and animation priorities."
-tmSub.Size = UDim2.new(1, -20, 0, 18)
-tmSub.Position = UDim2.new(0, 10, 0, 36)
-tmSub.BackgroundTransparency = 1
-tmSub.TextColor3 = C_TEXT_MUTED
-tmSub.Font = Enum.Font.Gotham
-tmSub.TextSize = 11
-tmSub.TextXAlignment = Enum.TextXAlignment.Left
-tmSub.Parent = testModesView
-
-local function createJumpStyleCard(parent, xPos)
-	local card = Instance.new("Frame")
-	card.Size = UDim2.new(0, 220, 0, 420)
-	card.Position = UDim2.new(0, xPos, 0, 0)
-	card.BackgroundColor3 = C_CARD
-	card.Parent = parent
-	applyCorner(card, 8)
-	applyStroke(card, C_BORDER, 1)
-
-	local cardBadge = Instance.new("TextLabel")
-	cardBadge.Size = UDim2.new(1, -20, 0, 20)
-	cardBadge.Position = UDim2.new(0, 10, 0, 14)
-	cardBadge.BackgroundTransparency = 1
-	cardBadge.TextColor3 = Color3.fromRGB(240, 180, 40)
-	cardBadge.Font = Enum.Font.GothamBold
-	cardBadge.TextSize = 10
-	cardBadge.TextXAlignment = Enum.TextXAlignment.Left
-	cardBadge.Text = "7 TRAJECTORY STYLES"
-	cardBadge.Parent = card
-
-	local cardTitle = Instance.new("TextLabel")
-	cardTitle.Size = UDim2.new(1, -20, 0, 26)
-	cardTitle.Position = UDim2.new(0, 10, 0, 36)
-	cardTitle.BackgroundTransparency = 1
-	cardTitle.TextColor3 = C_TEXT
-	cardTitle.Font = Enum.Font.GothamBold
-	cardTitle.TextSize = 15
-	cardTitle.TextXAlignment = Enum.TextXAlignment.Left
-	cardTitle.Text = "Projectile Jump Lab"
-	cardTitle.Parent = card
-
-	local cardDesc = Instance.new("TextLabel")
-	cardDesc.Size = UDim2.new(1, -20, 0, 110)
-	cardDesc.Position = UDim2.new(0, 10, 0, 68)
-	cardDesc.BackgroundTransparency = 1
-	cardDesc.TextColor3 = C_TEXT_MUTED
-	cardDesc.Font = Enum.Font.Gotham
-	cardDesc.TextSize = 12
-	cardDesc.TextXAlignment = Enum.TextXAlignment.Left
-	cardDesc.TextYAlignment = Enum.TextYAlignment.Top
-	cardDesc.TextWrapped = true
-	cardDesc.Text = "Calibrate predictive jump physics against incoming threats. Select from 7 distinct aerial styles:"
-	cardDesc.Parent = card
-
-	local pillsFrame = Instance.new("Frame")
-	pillsFrame.Size = UDim2.new(1, -20, 0, 36)
-	pillsFrame.Position = UDim2.new(0, 10, 0, 190)
-	pillsFrame.BackgroundTransparency = 1
-	pillsFrame.Parent = card
-
-	local selectedStyle = 1
-	local pillBtns = {}
-	local styles = {
-		{ label = "S1", style = 1, name = "Vertical" },
-		{ label = "S2", style = 2, name = "Lunge" },
-		{ label = "S3", style = 3, name = "Apex" },
-		{ label = "S4", style = 4, name = "Skim" },
-		{ label = "S5", style = 5, name = "Hop" },
-		{ label = "S6", style = 6, name = "Flip" },
-		{ label = "S7", style = 7, name = "Float" },
-	}
-
-	local launchBtn = Instance.new("TextButton")
-	launchBtn.Size = UDim2.new(1, -20, 0, 40)
-	launchBtn.Position = UDim2.new(0, 10, 1, -52)
-	launchBtn.BackgroundColor3 = Color3.fromRGB(240, 180, 40)
-	launchBtn.TextColor3 = Color3.new(0, 0, 0)
-	launchBtn.Font = Enum.Font.GothamBold
-	launchBtn.TextSize = 12
-	launchBtn.Text = "Launch Style 1 (Vertical) ▶"
-	launchBtn.Parent = card
-	applyCorner(launchBtn, 6)
-
-	local pillWidth = 25
-	local pillGap = 3
-	for i, st in ipairs(styles) do
-		local pBtn = Instance.new("TextButton")
-		pBtn.Size = UDim2.new(0, pillWidth, 0, 28)
-		pBtn.Position = UDim2.new(0, (i - 1) * (pillWidth + pillGap), 0, 4)
-		pBtn.BackgroundColor3 = (st.style == selectedStyle) and Color3.fromRGB(240, 180, 40) or Color3.fromRGB(35, 40, 55)
-		pBtn.TextColor3 = (st.style == selectedStyle) and Color3.new(0, 0, 0) or C_TEXT
-		pBtn.Font = Enum.Font.GothamBold
-		pBtn.TextSize = 9
-		pBtn.Text = st.label
-		pBtn.Parent = pillsFrame
-		applyCorner(pBtn, 4)
-		table.insert(pillBtns, { btn = pBtn, style = st.style, name = st.name })
-
-		pBtn.MouseButton1Click:Connect(function()
-			selectedStyle = st.style
-			for _, item in ipairs(pillBtns) do
-				local isSel = (item.style == selectedStyle)
-				item.btn.BackgroundColor3 = isSel and Color3.fromRGB(240, 180, 40) or Color3.fromRGB(35, 40, 55)
-				item.btn.TextColor3 = isSel and Color3.new(0, 0, 0) or C_TEXT
-			end
-			launchBtn.Text = string.format("Launch Style %d (%s) ▶", selectedStyle, st.name)
-		end)
-	end
-
-	launchBtn.MouseButton1Click:Connect(function()
-		labEvent:FireServer("SetTestMode", { mode = "ProjectileJump", style = selectedStyle })
-		statusToast.Text = string.format("🧪 Launched Projectile Jump Style %d (%s).", selectedStyle, styles[selectedStyle].name)
-		statusToast.TextColor3 = C_SUCCESS
-	end)
-
-	return card
-end
-
-local tmGrid = Instance.new("ScrollingFrame")
-tmGrid.Size = UDim2.new(1, -20, 1, -76)
-tmGrid.Position = UDim2.new(0, 10, 0, 64)
-tmGrid.BackgroundTransparency = 1
-tmGrid.BorderSizePixel = 0
-tmGrid.ScrollBarThickness = 6
-tmGrid.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 180)
-tmGrid.CanvasSize = UDim2.new(0, 1720, 0, 0)
-tmGrid.Parent = testModesView
-
--- Card 1: Animation Sparring Lab
-createModeCard(
-	tmGrid, 0, "Animation Sparring", "Stationary Calibration",
-	"Spawns QuinA (Tester) and QuinB (Partner) 5 studs apart, locked in Idle. Perfect for scrubbing frames, dialing playback speeds, and testing combos.",
-	C_ACCENT,
-	function(btn)
-		labEvent:FireServer("SetTestMode", { mode = "AnimationLab" })
-		switchMainTab("Powerhouse")
-	end
-)
-
--- Card 2: Directional Block & Parry Lab
-createModeCard(
-	tmGrid, 240, "Block & Counter Lab", "Parry & Riposte Diagnostics",
-	"Exercises directional blocking! QuinB guards against incoming strikes, rolling BlockFront, BlockLeft, or BlockRight, and immediately fires retaliatory riposte counters on success!",
-	Color3.fromRGB(0, 230, 180),
-	function(btn)
-		labEvent:FireServer("SetTestMode", { mode = "BlockParryLab" })
-		statusToast.Text = "🛡️ Directional Block & Counter Lab ACTIVE!"
-		statusToast.TextColor3 = C_SUCCESS
-	end
-)
-
--- Card 3: 7 Jump Styles Trajectory Lab
-createJumpStyleCard(tmGrid, 480)
-
--- Card 4: Infinite Strafe
-createModeCard(
-	tmGrid, 720, "Infinite Strafe", "Standoff Calibration",
-	"Locks Quins into CirclingState standoff at 25-30 studs. Suppresses tension snaps so you can visually inspect and dial strafe speeds live.",
-	Color3.fromRGB(0, 200, 240),
-	function(btn)
-		isInfiniteStrafeActive = not isInfiniteStrafeActive
-		btn.Text = isInfiniteStrafeActive and "ACTIVE (Continuous) ■" or "Launch Mode ▶"
-		btn.BackgroundColor3 = isInfiniteStrafeActive and C_SUCCESS or Color3.fromRGB(0, 200, 240)
-		labEvent:FireServer("SetTestMode", { mode = "InfiniteStrafe", active = isInfiniteStrafeActive })
-		if isInfiniteStrafeActive and not isNormalCombatActive then
-			isNormalCombatActive = true
-			combatModeBtn.Text = "Combat: ACTIVE"
-			combatModeBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
-			combatModeBtn.TextColor3 = Color3.new(0, 0, 0)
-			labEvent:FireServer("ToggleCombatMode", { enabled = true })
+	exportStackBtn.MouseButton1Click:Connect(function()
+		local lines = {}
+		table.insert(lines, "-- Generated Quin Animation Combinator Configuration")
+		table.insert(lines, "-- Timestamp: " .. os.date("!%Y-%m-%dT%H:%M:%SZ"))
+		table.insert(lines, "local CombinatorStack = {")
+		table.insert(lines, string.format("\tDuration = %.3f,", combinatorGlobalDuration))
+		table.insert(lines, "\tLayers = {")
+		for i, l in ipairs(combinatorLayers) do
+			table.insert(lines, string.format("\t\t[%d] = {", i))
+			table.insert(lines, string.format("\t\t\tname = %q,", l.name))
+			table.insert(lines, string.format("\t\t\tid = %q,", l.id))
+			table.insert(lines, string.format("\t\t\tenabled = %s,", tostring(l.enabled)))
+			table.insert(lines, string.format("\t\t\tstartCut = %.3f, -- Frame %d", l.startCut, math.floor(l.startCut * 30)))
+			table.insert(lines, string.format("\t\t\tendCut = %.3f, -- Frame %d", l.endCut, math.floor(l.endCut * 30)))
+			table.insert(lines, string.format("\t\t\tweight = %.2f,", l.weight))
+			table.insert(lines, string.format("\t\t\tspeed = %.2f,", l.speed))
+			table.insert(lines, string.format("\t\t\tpriority = %q,", l.priority))
+			table.insert(lines, string.format("\t\t\tbodyMask = %q,", l.bodyMask))
+			table.insert(lines, "\t\t},")
 		end
-		statusToast.Text = isInfiniteStrafeActive and "🧪 Infinite Strafe ACTIVE: Quins circle without snapping to fight." or "🧪 Infinite Strafe OFF."
-		statusToast.TextColor3 = isInfiniteStrafeActive and C_SUCCESS or C_TEXT_MUTED
-	end
-)
-
--- Card 5: Smooth Landing AI
-createModeCard(
-	tmGrid, 960, "Smooth Landing AI", "Impact Absorption",
-	"Isolates Quin ground-impact kinetics. Calibrates fall velocity dampening, foot alignment on uneven terrain, and transition into guard stance.",
-	Color3.fromRGB(80, 170, 255),
-	function(btn)
-		labEvent:FireServer("SetTestMode", { mode = "SmoothLanding" })
-		statusToast.Text = "🧪 Launched Smooth Landing AI Test Mode."
-		statusToast.TextColor3 = C_SUCCESS
-	end
-)
-
--- Card 6: Tournament Elimination Bracket
-createModeCard(
-	tmGrid, 1200, "Tournament Bracket", "8-Quin Bracket Cup",
-	"Executes the full automated 8-Quin elimination tournament from GameModeManager. Tracks bracket progress, quarterfinals, semifinals, and crowns the champion!",
-	Color3.fromRGB(255, 200, 50),
-	function(btn)
-		labEvent:FireServer("SetTestMode", { mode = "Tournament" })
-		statusToast.Text = "🏆 8-Quin Tournament Elimination Bracket started!"
-		statusToast.TextColor3 = C_SUCCESS
-	end
-)
-
--- Card 7: Deterministic Scenarios Evaluator
-createModeCard(
-	tmGrid, 1440, "Deterministic Test", "State Verification",
-	"Spawns TypeA and TypeB facing each other with 3-2-1 countdown and forces TestState for deterministic physics and combat evaluation.",
-	Color3.fromRGB(180, 110, 255),
-	function(btn)
-		labEvent:FireServer("SetTestMode", { mode = "DeterministicTest" })
-		statusToast.Text = "🧪 Launched Deterministic Test Mode."
-		statusToast.TextColor3 = C_SUCCESS
-	end
-)
-
-end
-
---------------------------------------------------------------------------------
--- 9. EVENT LISTENERS & PRODUCTION SYNCHRONIZATION
---------------------------------------------------------------------------------
-labEvent.OnClientEvent:Connect(function(cmd, data)
-	data = data or {}
-	if cmd == "OpenLab" then
-		testerName = data.testerName or "QuinA_Tester"
-		partnerName = data.partnerName or "QuinB_SparringPartner"
-		mainFrame.Visible = true
-		togglePill.Visible = false
-	elseif cmd == "ConfigSnapshot" then
-		if data.updates then
-			for path, values in pairs(data.updates) do
-				AnimationConfig.update(path, values)
-			end
-			-- Refresh UI if currently selected
-			if currentEntryPath then
-				local item = { path = currentEntryPath, name = currentEntryData.name or currentEntryPath }
-				selectAnimation(item)
-			end
-		end
-	elseif cmd == "ConfigUpdated" then
-		if data.path and data.newValues then
-			AnimationConfig.update(data.path, data.newValues)
-			statusToast.Text = "✓ Hot-swapped " .. tostring(data.path) .. " live in combat!"
-			statusToast.TextColor3 = C_SUCCESS
-		end
-	elseif cmd == "SaveResult" then
-		if data.success then
-			savePermBtn.Text = "✓ Saved to Production!"
-			savePermBtn.BackgroundColor3 = C_SUCCESS
-			statusToast.Text = "✓ " .. (data.message or "Saved permanently to production.")
-			statusToast.TextColor3 = C_SUCCESS
+		table.insert(lines, "\t}")
+		table.insert(lines, "}")
+		table.insert(lines, "return CombinatorStack")
+		local luauCode = table.concat(lines, "\n")
+		if showLuauExportModal then
+			showLuauExportModal(luauCode, "  EXPORTED COMBINATOR STACK CONFIG (LUAU)")
 		else
-			savePermBtn.Text = "⚠️ Save Warning"
-			savePermBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
-			statusToast.Text = "⚠️ " .. (data.message or "Could not save.")
-			statusToast.TextColor3 = C_DANGER
+			print(luauCode)
 		end
-		task.delay(3, function()
-			savePermBtn.Text = "💾 Save Permanently to Production"
-			savePermBtn.BackgroundColor3 = Color3.fromRGB(35, 95, 160)
+	end)
+
+	----------------------------------------------------------------------------
+	-- BOTTOM PANEL: GLOBAL TIMELINE SCRUBBER & MASTER TRANSPORT CONTROLS
+	----------------------------------------------------------------------------
+	-- Row 1: Readouts
+	local timeReadout = Instance.new("TextLabel")
+	timeReadout.Text = "⏱ Scrub: 0.00s / 2.00s"
+	timeReadout.Size = UDim2.new(0, 180, 0, 18)
+	timeReadout.Position = UDim2.new(0, 10, 0, 4)
+	timeReadout.BackgroundTransparency = 1
+	timeReadout.TextColor3 = C_ACCENT
+	timeReadout.Font = Enum.Font.GothamBold
+	timeReadout.TextSize = 11
+	timeReadout.TextXAlignment = Enum.TextXAlignment.Left
+	timeReadout.Parent = bottomPanel
+
+	local frameReadout = Instance.new("TextLabel")
+	frameReadout.Text = "🎞 Frame: 0 / 60 (@ 30 FPS)"
+	frameReadout.Size = UDim2.new(0, 200, 0, 18)
+	frameReadout.Position = UDim2.new(0, 200, 0, 4)
+	frameReadout.BackgroundTransparency = 1
+	frameReadout.TextColor3 = C_TEXT
+	frameReadout.Font = Enum.Font.Gotham
+	frameReadout.TextSize = 10
+	frameReadout.TextXAlignment = Enum.TextXAlignment.Left
+	frameReadout.Parent = bottomPanel
+
+	local statusReadout = Instance.new("TextLabel")
+	statusReadout.Text = "Stack: Ready (0 Layers Active)"
+	statusReadout.Size = UDim2.new(1, -420, 0, 18)
+	statusReadout.Position = UDim2.new(0, 410, 0, 4)
+	statusReadout.BackgroundTransparency = 1
+	statusReadout.TextColor3 = C_TEXT_MUTED
+	statusReadout.Font = Enum.Font.Gotham
+	statusReadout.TextSize = 10
+	statusReadout.TextXAlignment = Enum.TextXAlignment.Right
+	statusReadout.Parent = bottomPanel
+
+	-- Row 2: Draggable Timeline Scrubber Track
+	local scrubTrack = Instance.new("Frame")
+	scrubTrack.Name = "ScrubTrack"
+	scrubTrack.Size = UDim2.new(1, -20, 0, 14)
+	scrubTrack.Position = UDim2.new(0, 10, 0, 24)
+	scrubTrack.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
+	scrubTrack.Parent = bottomPanel
+	applyCorner(scrubTrack, 7)
+	applyStroke(scrubTrack, Color3.fromRGB(55, 65, 88), 1)
+
+	local scrubFill = Instance.new("Frame")
+	scrubFill.Name = "ScrubFill"
+	scrubFill.Size = UDim2.new(0, 0, 1, 0)
+	scrubFill.BackgroundColor3 = C_ACCENT
+	scrubFill.BorderSizePixel = 0
+	scrubFill.Parent = scrubTrack
+	applyCorner(scrubFill, 7)
+
+	local scrubHead = Instance.new("Frame")
+	scrubHead.Name = "ScrubHead"
+	scrubHead.Size = UDim2.new(0, 16, 0, 16)
+	scrubHead.AnchorPoint = Vector2.new(0.5, 0.5)
+	scrubHead.Position = UDim2.new(0, 0, 0.5, 0)
+	scrubHead.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	scrubHead.Parent = scrubTrack
+	applyCorner(scrubHead, 8)
+	applyStroke(scrubHead, C_ACCENT, 2)
+
+	-- Row 3: Master Transport & Frame Stepping Controls
+	local transportRow = Instance.new("Frame")
+	transportRow.Size = UDim2.new(1, -20, 0, 32)
+	transportRow.Position = UDim2.new(0, 10, 0, 50)
+	transportRow.BackgroundTransparency = 1
+	transportRow.Parent = bottomPanel
+
+	local jumpStartBtn = Instance.new("TextButton")
+	jumpStartBtn.Text = "⏮ Start"
+	jumpStartBtn.Size = UDim2.new(0, 60, 0, 26)
+	jumpStartBtn.Position = UDim2.new(0, 0, 0, 3)
+	jumpStartBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
+	jumpStartBtn.TextColor3 = C_TEXT
+	jumpStartBtn.Font = Enum.Font.GothamBold
+	jumpStartBtn.TextSize = 10
+	jumpStartBtn.Parent = transportRow
+	applyCorner(jumpStartBtn, 4)
+
+	local stepBackBtn = Instance.new("TextButton")
+	stepBackBtn.Text = "◀ 1 Frame"
+	stepBackBtn.Size = UDim2.new(0, 75, 0, 26)
+	stepBackBtn.Position = UDim2.new(0, 66, 0, 3)
+	stepBackBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
+	stepBackBtn.TextColor3 = C_TEXT
+	stepBackBtn.Font = Enum.Font.GothamBold
+	stepBackBtn.TextSize = 10
+	stepBackBtn.Parent = transportRow
+	applyCorner(stepBackBtn, 4)
+
+	local playPauseBtn = Instance.new("TextButton")
+	playPauseBtn.Text = "▶ Play Stack"
+	playPauseBtn.Size = UDim2.new(0, 110, 0, 26)
+	playPauseBtn.Position = UDim2.new(0, 147, 0, 3)
+	playPauseBtn.BackgroundColor3 = C_ACCENT
+	playPauseBtn.TextColor3 = Color3.new(0, 0, 0)
+	playPauseBtn.Font = Enum.Font.GothamBold
+	playPauseBtn.TextSize = 11
+	playPauseBtn.Parent = transportRow
+	applyCorner(playPauseBtn, 4)
+
+	local stepFwdBtn = Instance.new("TextButton")
+	stepFwdBtn.Text = "▶ 1 Frame"
+	stepFwdBtn.Size = UDim2.new(0, 75, 0, 26)
+	stepFwdBtn.Position = UDim2.new(0, 263, 0, 3)
+	stepFwdBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
+	stepFwdBtn.TextColor3 = C_TEXT
+	stepFwdBtn.Font = Enum.Font.GothamBold
+	stepFwdBtn.TextSize = 10
+	stepFwdBtn.Parent = transportRow
+	applyCorner(stepFwdBtn, 4)
+
+	local jumpEndBtn = Instance.new("TextButton")
+	jumpEndBtn.Text = "⏭ End"
+	jumpEndBtn.Size = UDim2.new(0, 60, 0, 26)
+	jumpEndBtn.Position = UDim2.new(0, 344, 0, 3)
+	jumpEndBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
+	jumpEndBtn.TextColor3 = C_TEXT
+	jumpEndBtn.Font = Enum.Font.GothamBold
+	jumpEndBtn.TextSize = 10
+	jumpEndBtn.Parent = transportRow
+	applyCorner(jumpEndBtn, 4)
+
+	local loopBtn = Instance.new("TextButton")
+	loopBtn.Text = "🔄 Loop: ON"
+	loopBtn.Size = UDim2.new(0, 85, 0, 26)
+	loopBtn.Position = UDim2.new(0, 410, 0, 3)
+	loopBtn.BackgroundColor3 = Color3.fromRGB(30, 95, 65)
+	loopBtn.TextColor3 = Color3.fromRGB(220, 255, 230)
+	loopBtn.Font = Enum.Font.GothamBold
+	loopBtn.TextSize = 10
+	loopBtn.Parent = transportRow
+	applyCorner(loopBtn, 4)
+
+	local stopResetBtn = Instance.new("TextButton")
+	stopResetBtn.Text = "■ Reset Idle"
+	stopResetBtn.Size = UDim2.new(0, 85, 0, 26)
+	stopResetBtn.Position = UDim2.new(0, 501, 0, 3)
+	stopResetBtn.BackgroundColor3 = Color3.fromRGB(65, 35, 40)
+	stopResetBtn.TextColor3 = C_DANGER
+	stopResetBtn.Font = Enum.Font.GothamBold
+	stopResetBtn.TextSize = 10
+	stopResetBtn.Parent = transportRow
+	applyCorner(stopResetBtn, 4)
+
+	-- Speed Selector Pills
+	local speedPillsFrame = Instance.new("Frame")
+	speedPillsFrame.Size = UDim2.new(0, 160, 0, 26)
+	speedPillsFrame.Position = UDim2.new(1, -165, 0, 3)
+	speedPillsFrame.BackgroundTransparency = 1
+	speedPillsFrame.Parent = transportRow
+
+	local speedOptions = {
+		{ label = "0.25x", val = 0.25 },
+		{ label = "0.5x",  val = 0.5 },
+		{ label = "1.0x",  val = 1.0 },
+		{ label = "1.5x",  val = 1.5 },
+	}
+	for sIdx, sOpt in ipairs(speedOptions) do
+		local sBtn = Instance.new("TextButton")
+		sBtn.Text = sOpt.label
+		sBtn.Size = UDim2.new(0.24, -2, 1, 0)
+		sBtn.Position = UDim2.new((sIdx - 1) * 0.25, 0, 0, 0)
+		sBtn.BackgroundColor3 = (sOpt.val == combinatorPlaySpeed) and C_ACCENT or Color3.fromRGB(38, 44, 58)
+		sBtn.TextColor3 = (sOpt.val == combinatorPlaySpeed) and Color3.new(0, 0, 0) or C_TEXT
+		sBtn.Font = Enum.Font.GothamBold
+		sBtn.TextSize = 9
+		sBtn.Parent = speedPillsFrame
+		applyCorner(sBtn, 4)
+
+		sBtn.MouseButton1Click:Connect(function()
+			combinatorPlaySpeed = sOpt.val
+			for _, child in ipairs(speedPillsFrame:GetChildren()) do
+				if child:IsA("TextButton") then
+					local isActive = (child.Text == sOpt.label)
+					child.BackgroundColor3 = isActive and C_ACCENT or Color3.fromRGB(38, 44, 58)
+					child.TextColor3 = isActive and Color3.new(0, 0, 0) or C_TEXT
+				end
+			end
 		end)
-	elseif cmd == "CombatModeChanged" then
-		isNormalCombatActive = data.enabled == true
-		combatModeBtn.Text = isNormalCombatActive and "Combat Mode: ACTIVE" or "Combat Mode: OFF"
-		combatModeBtn.BackgroundColor3 = isNormalCombatActive and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(48, 56, 74)
-		combatModeBtn.TextColor3 = isNormalCombatActive and Color3.new(0, 0, 0) or C_TEXT
-		statusToast.Text = isNormalCombatActive and "⚔️ Combat ACTIVE: Quins fighting autonomously. Dials hot-swap mid-combat!" or "🎯 Lab Mode: Quins reset to stationary positions."
-		statusToast.TextColor3 = isNormalCombatActive and Color3.fromRGB(0, 220, 130) or Color3.fromRGB(130, 210, 250)
-	elseif cmd == "TestModeChanged" then
-		if data.mode == "InfiniteStrafe" then
-			isInfiniteStrafeActive = data.active == true
-		end
-	elseif cmd == "TesterRigsReady" then
-		testerName = data.testerName or "QuinA_Tester"
-		partnerName = data.partnerName or "QuinB_SparringPartner"
-		if updateRigStatusBadge then updateRigStatusBadge() end
-		if statusToast then
-			statusToast.Text = "✓ Test Quins spawned and ready in arena!"
-			statusToast.TextColor3 = C_SUCCESS
-		end
-	elseif cmd == "LocomotionConfigUpdated" then
-		if data.key and data.value ~= nil then
-			CombatConfig[data.key] = data.value
-			if data.key == "WalkStrideBase" and walkStrideSlider then walkStrideSlider.setValue(data.value) end
-			if data.key == "RunStrideBase" and runStrideSlider then runStrideSlider.setValue(data.value) end
-			if data.key == "TorsoBankingMaxRoll" and maxRollSlider then maxRollSlider.setValue(data.value) end
-			if data.key == "TorsoBankingResponsiveness" and bankRespSlider then bankRespSlider.setValue(data.value) end
-			if data.key == "FootIK_RayDistance" and rayDistSlider then rayDistSlider.setValue(data.value) end
-			if data.key == "FootIK_HeightOffset" and heightOffsetSlider then heightOffsetSlider.setValue(data.value) end
-			if data.key == "FootIK_MaxStepDown" and maxStepDownSlider then maxStepDownSlider.setValue(data.value) end
-			if data.key == "FootIK_HipsDipScale" and hipsDipSlider then hipsDipSlider.setValue(data.value) end
-			if data.key == "FootIK_AnkleAlignment" and ankleBtn then
-				isAnkleAlign = data.value ~= false
-				ankleBtn.BackgroundColor3 = isAnkleAlign and C_PRIMARY or Color3.fromRGB(48, 56, 74)
-				ankleBtn.Text = isAnkleAlign and "Surface Normal: ON" or "Surface Normal: FLAT"
-			end
-			if data.key == "FootIK_LedgeGrip" and ledgeBtn then
-				isLedgeGrip = data.value ~= false
-				ledgeBtn.BackgroundColor3 = isLedgeGrip and C_ACCENT or Color3.fromRGB(48, 56, 74)
-				ledgeBtn.Text = isLedgeGrip and "Ledge Gripping: ON" or "Ledge Gripping: OFF"
-			end
-			if data.key == "Ragdoll_MuscleStiffness" and muscleStiffSlider then muscleStiffSlider.setValue(data.value) end
-			if data.key == "Ragdoll_Damping" and dampingSlider then dampingSlider.setValue(data.value) end
-			if data.key == "Ragdoll_TumbleScale" and tumbleScaleSlider then tumbleScaleSlider.setValue(data.value) end
-			if data.key == "Ragdoll_GroundFriction" and groundFrictionSlider then groundFrictionSlider.setValue(data.value) end
-			if data.key == "Ragdoll_RecoveryDelay" and recoveryDelaySlider then recoveryDelaySlider.setValue(data.value) end
-			if statusToast then
-				statusToast.Text = string.format("✓ Updated %s = %s", tostring(data.key), tostring(data.value))
-				statusToast.TextColor3 = C_SUCCESS
-			end
-		end
-	elseif cmd == "FootIKToggled" then
-		isFootIKActive = data.enabled == true
-		if ikToggleBtn then
-			ikToggleBtn.Text = isFootIKActive and "Foot IK: ACTIVE (Conforming to Terrain)" or "Foot IK: OFF (Canned Poses Only)"
-			ikToggleBtn.BackgroundColor3 = isFootIKActive and C_SUCCESS or Color3.fromRGB(48, 56, 74)
-			ikToggleBtn.TextColor3 = isFootIKActive and Color3.new(0, 0, 0) or C_TEXT
-		end
-		if statusToast then
-			statusToast.Text = isFootIKActive and "🦶 Foot IK ACTIVE: Feet conforming to terrain." or "🦶 Foot IK OFF."
-			statusToast.TextColor3 = isFootIKActive and C_SUCCESS or C_TEXT_MUTED
-		end
-	elseif cmd == "RagdollModeChanged" then
-		isContinuousRagdoll = data.active == true
-		if toggleContinuousRagBtn then
-			toggleContinuousRagBtn.Text = isContinuousRagdoll and "Continuous Ragdoll: ACTIVE (Loose Limbs)" or "Continuous Ragdoll: OFF"
-			toggleContinuousRagBtn.BackgroundColor3 = isContinuousRagdoll and C_DANGER or Color3.fromRGB(48, 56, 74)
-		end
-		if statusToast then
-			statusToast.Text = isContinuousRagdoll and "💥 Continuous Ragdoll ACTIVE on QuinA_Tester." or "💥 Ragdoll OFF: Rig upright."
-			statusToast.TextColor3 = isContinuousRagdoll and Color3.fromRGB(255, 120, 120) or C_SUCCESS
-		end
-	elseif cmd == "KnockbackTestLaunched" then
-		if statusToast then
-			statusToast.Text = "💥 High Impulse Knockback Launching QuinA_Tester into Ragdoll!"
-			statusToast.TextColor3 = C_ACCENT
-		end
-	elseif cmd == "KnockbackTestCompleted" then
-		if statusToast then
-			statusToast.Text = "✓ Ragdoll Impact Absorbed & Get-Up Recovery Completed!"
-			statusToast.TextColor3 = C_SUCCESS
-		end
-	elseif cmd == "LocomotionTestStarted" then
-		if statusToast then
-			statusToast.Text = string.format("🏃 Maneuver Test '%s' executing...", tostring(data.testType))
-			statusToast.TextColor3 = C_ACCENT
-		end
-	elseif cmd == "LocomotionTestEnded" then
-		if statusToast then
-			statusToast.Text = string.format("✓ Maneuver Test '%s' completed successfully!", tostring(data.testType))
-			statusToast.TextColor3 = C_SUCCESS
-		end
 	end
-end)
 
--- Heartbeat to update rig status badge periodically when in Powerhouse view
-local lastRigCheck = 0
-RunService.Heartbeat:Connect(function()
-	local now = os.clock()
-	if now - lastRigCheck >= 1.0 then
-		lastRigCheck = now
-		if mainFrame and mainFrame.Visible and activeMainTab == "Powerhouse" then
-			if updateRigStatusBadge then updateRigStatusBadge() end
+	----------------------------------------------------------------------------
+	-- CORE LOGIC & SYNC ENGINE
+	----------------------------------------------------------------------------
+	getActiveLayersPayload = function()
+		local hasSolo = false
+		for _, layer in ipairs(combinatorLayers) do
+			if layer.solo then hasSolo = true break end
 		end
+		local list = {}
+		for _, layer in ipairs(combinatorLayers) do
+			local isMuted = layer.muted or (hasSolo and not layer.solo)
+			local effWeight = isMuted and 0 or (layer.weight or 1.0)
+			table.insert(list, {
+				id = layer.id,
+				name = layer.name,
+				enabled = layer.enabled and not isMuted,
+				muted = isMuted,
+				weight = effWeight,
+				speed = layer.speed or 1.0,
+				startCut = layer.startCut or 0.0,
+				endCut = layer.endCut or 2.0,
+				priority = layer.priority or "Action4",
+				bodyMask = layer.bodyMask or "Full Body",
+				looped = layer.looped == true,
+			})
+		end
+		return list
 	end
-end)
 
--- Request latest config overrides from server on startup
-labEvent:FireServer("RequestConfigSnapshot")
+	updateScrubberVisuals = function()
+		local ratio = math.clamp(combinatorCurrentTime / math.max(0.01, combinatorGlobalDuration), 0, 1)
+		scrubFill.Size = UDim2.new(ratio, 0, 1, 0)
+		scrubHead.Position = UDim2.new(ratio, 0, 0.5, 0)
+		timeReadout.Text = string.format("⏱ Scrub: %.2fs / %.2fs", combinatorCurrentTime, combinatorGlobalDuration)
+		local curFrame = math.floor(combinatorCurrentTime * 30)
+		local maxFrame = math.floor(combinatorGlobalDuration * 30)
+		frameReadout.Text = string.format("🎞 Frame: %d / %d (@ 30 FPS)", curFrame, maxFrame)
 
-print("[QuinManager] Unified Controller Ready: Powerhouse + Game Modes + Test Suite.")
+		local activeCount = 0
+		for _, l in ipairs(combinatorLayers) do
+			if l.enabled and not l.muted then activeCount = activeCount + 1 end
+		end
+		statusReadout.Text = string.format("Stack: %s (%d Layers Active)", combinatorIsPlaying and "Playing" or "Ready", activeCount)
+	end
+
+	updateGlobalDuration = function()
+		local maxDur = 0.1
+		for _, layer in ipairs(combinatorLayers) do
+			if layer.enabled and not layer.muted then
+				local d = math.max(0.05, ((layer.endCut or 2.0) - (layer.startCut or 0.0)) / math.max(0.1, layer.speed or 1.0))
+				if d > maxDur then maxDur = d end
+			end
+		end
+		combinatorGlobalDuration = math.max(0.5, maxDur)
+		updateScrubberVisuals()
+	end
+
+	local lastScrubFire = 0
+	syncScrubToServer = function(force)
+		local now = os.clock()
+		if not force and (now - lastScrubFire < 0.033) then return end
+		lastScrubFire = now
+		labEvent:FireServer("Combinator_Scrub", {
+			targetName = testerName,
+			scrubTime = combinatorCurrentTime,
+			layers = getActiveLayersPayload(),
+		})
+	end
+
+	triggerStackPlayback = function()
+		combinatorIsPlaying = true
+		playPauseBtn.Text = "⏸ Pause Stack"
+		playPauseBtn.BackgroundColor3 = Color3.fromRGB(240, 175, 45)
+		labEvent:FireServer("Combinator_PlayStack", {
+			targetName = testerName,
+			layers = getActiveLayersPayload(),
+		})
+		updateScrubberVisuals()
+	end
+
+	stopCombinatorPlayback = function()
+		combinatorIsPlaying = false
+		playPauseBtn.Text = "▶ Play Stack"
+		playPauseBtn.BackgroundColor3 = C_ACCENT
+		combinatorCurrentTime = 0.0
+		if isTransitionTesting and transitionThread then
+			task.cancel(transitionThread)
+			isTransitionTesting = false
+			playTransitionBtn.Text = "⚡ Play Transition Only"
+			playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
+		end
+		updateScrubberVisuals()
+		labEvent:FireServer("Combinator_Stop", { targetName = testerName })
+	end
+
+	-- Scrub track interaction
+	local isScrubDragging = false
+	scrubTrack.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			isScrubDragging = true
+			if combinatorIsPlaying then
+				combinatorIsPlaying = false
+				playPauseBtn.Text = "▶ Play Stack"
+				playPauseBtn.BackgroundColor3 = C_ACCENT
+			end
+			local r = math.clamp((input.Position.X - scrubTrack.AbsolutePosition.X) / math.max(1, scrubTrack.AbsoluteSize.X), 0, 1)
+			combinatorCurrentTime = r * combinatorGlobalDuration
+			updateScrubberVisuals()
+			syncScrubToServer(true)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if isScrubDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local r = math.clamp((input.Position.X - scrubTrack.AbsolutePosition.X) / math.max(1, scrubTrack.AbsoluteSize.X), 0, 1)
+			combinatorCurrentTime = r * combinatorGlobalDuration
+			updateScrubberVisuals()
+			syncScrubToServer(false)
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if isScrubDragging then
+				isScrubDragging = false
+				syncScrubToServer(true)
+			end
+		end
+	end)
+
+	-- Transport Buttons Wireup
+	jumpStartBtn.MouseButton1Click:Connect(function()
+		combinatorCurrentTime = 0.0
+		updateScrubberVisuals()
+		syncScrubToServer(true)
+	end)
+
+	jumpEndBtn.MouseButton1Click:Connect(function()
+		combinatorCurrentTime = combinatorGlobalDuration
+		updateScrubberVisuals()
+		syncScrubToServer(true)
+	end)
+
+	stepBackBtn.MouseButton1Click:Connect(function()
+		combinatorCurrentTime = math.max(0, combinatorCurrentTime - (1 / 30))
+		updateScrubberVisuals()
+		syncScrubToServer(true)
+	end)
+
+	stepFwdBtn.MouseButton1Click:Connect(function()
+		combinatorCurrentTime = math.min(combinatorGlobalDuration, combinatorCurrentTime + (1 / 30))
+		updateScrubberVisuals()
+		syncScrubToServer(true)
+	end)
+
+	playPauseBtn.MouseButton1Click:Connect(function()
+		if combinatorIsPlaying then
+			combinatorIsPlaying = false
+			playPauseBtn.Text = "▶ Play Stack"
+			playPauseBtn.BackgroundColor3 = C_ACCENT
+			syncScrubToServer(true)
+		else
+			if combinatorCurrentTime >= combinatorGlobalDuration then
+				combinatorCurrentTime = 0.0
+			end
+			triggerStackPlayback()
+		end
+	end)
+
+	loopBtn.MouseButton1Click:Connect(function()
+		combinatorLoop = not combinatorLoop
+		loopBtn.Text = combinatorLoop and "🔄 Loop: ON" or "🔄 Loop: OFF"
+		loopBtn.BackgroundColor3 = combinatorLoop and Color3.fromRGB(30, 95, 65) or Color3.fromRGB(48, 54, 66)
+	end)
+
+	stopResetBtn.MouseButton1Click:Connect(function()
+		stopCombinatorPlayback()
+	end)
+
+	-- Heartbeat playback progression loop
+	RunService.Heartbeat:Connect(function(dt)
+		if combinatorIsPlaying and animCombinatorView.Visible then
+			combinatorCurrentTime = combinatorCurrentTime + (dt * combinatorPlaySpeed)
+			if combinatorCurrentTime >= combinatorGlobalDuration then
+				if combinatorLoop then
+					combinatorCurrentTime = 0.0
+					triggerStackPlayback()
+				else
+					combinatorCurrentTime = combinatorGlobalDuration
+					combinatorIsPlaying = false
+					playPauseBtn.Text = "▶ Play Stack"
+					playPauseBtn.BackgroundColor3 = C_ACCENT
+				end
+			end
+			updateScrubberVisuals()
+		end
+	end)
+
+	-- Transition Crossfade Inspector Wireup
+	local function updateTransitionPickers()
+		local count = #combinatorLayers
+		if count == 0 then
+			transLayerABtn.Text = "From: None"
+			transLayerBBtn.Text = "To: None"
+			return
+		end
+		if transLayerAIdx > count then transLayerAIdx = 1 end
+		if transLayerBIdx > count then transLayerBIdx = math.min(2, count) end
+		local lA = combinatorLayers[transLayerAIdx]
+		local lB = combinatorLayers[transLayerBIdx]
+		transLayerABtn.Text = string.format("From: L%d (%s)", transLayerAIdx, lA and lA.name:sub(1, 10) or "?")
+		transLayerBBtn.Text = string.format("To: L%d (%s)", transLayerBIdx, lB and lB.name:sub(1, 10) or "?")
+	end
+
+	transLayerABtn.MouseButton1Click:Connect(function()
+		if #combinatorLayers > 0 then
+			transLayerAIdx = (transLayerAIdx % #combinatorLayers) + 1
+			updateTransitionPickers()
+		end
+	end)
+
+	transLayerBBtn.MouseButton1Click:Connect(function()
+		if #combinatorLayers > 0 then
+			transLayerBIdx = (transLayerBIdx % #combinatorLayers) + 1
+			updateTransitionPickers()
+		end
+	end)
+
+	transBlendMinus.MouseButton1Click:Connect(function()
+		transBlendTime = math.clamp(transBlendTime - (1 / 30), 0.033, 0.60)
+		transBlendLabel.Text = string.format("Blend Crossfade: %.2fs (F%d)", transBlendTime, math.floor(transBlendTime * 30))
+	end)
+
+	transBlendPlus.MouseButton1Click:Connect(function()
+		transBlendTime = math.clamp(transBlendTime + (1 / 30), 0.033, 0.60)
+		transBlendLabel.Text = string.format("Blend Crossfade: %.2fs (F%d)", transBlendTime, math.floor(transBlendTime * 30))
+	end)
+
+	pla... (truncated)

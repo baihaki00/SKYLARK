@@ -20,7 +20,9 @@ if rootPart then
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
 	
-	rootPart:SetNetworkOwner(nil) -- Server owns movement
+	if not Quin:GetAttribute("IsPlayerControlled") then
+		rootPart:SetNetworkOwner(nil) -- Server owns movement
+	end
 end
 
 -- === DATA & CONFIG ===
@@ -89,9 +91,23 @@ Quin:SetAttribute("CurrentState", currentState.name)
 if Quin:GetAttribute("Energy") == nil then
 	Quin:SetAttribute("Energy", CombatConfig.MaxEnergy or 100)
 end
-if currentState.enter then
+if not Quin:GetAttribute("IsPlayerControlled") and currentState.enter then
 	currentState.enter(Quin, humanoid, rootPart)
 end
+
+-- If this Quin becomes possessed by a human player, immediately kill server animation tracks
+Quin:GetAttributeChangedSignal("IsPlayerControlled"):Connect(function()
+	if Quin:GetAttribute("IsPlayerControlled") == true then
+		local animMod = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+		animMod.stopAll(humanoid, 0)
+		local animator = humanoid:FindFirstChildOfClass("Animator")
+		if animator then
+			for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+				t:Stop(0)
+			end
+		end
+	end
+end)
 
 -- === GHOSTMODE: Hide server AI visuals ===
 if GHOSTMODE then
@@ -165,51 +181,7 @@ stateGui.Text = "[ STATE: " .. currentState.name .. " ]"
 stateGui.Visible = false -- Toggled off debug text
 stateGui.Parent = healthGui
 
--- === FOOTSTEP GENERATOR (ANIMATION MARKER DRIVEN) ===
-local FOOTSTEP_BASE_VOLUME = 0.01   -- Adjust to taste
-local FOOTSTEP_MIN_VOLUME = 0.005   -- Adjust to taste
-local FOOTSTEP_MAX_VOLUME = 0.02    -- Adjust to taste
-
--- IDs that should throttle footstep pacing (longer cooldown between steps)
-local SLOW_PACE_IDS = {
-	["rbxassetid://123318024844911"] = true,
-	["rbxassetid://107962284182266"] = true,
-}
-local SLOW_PACE_COOLDOWN = 0.35 -- seconds between footsteps for these IDs
-
-local function setupFootstepEvents(hum)
-	local animator = hum:FindFirstChildOfClass("Animator") or hum:WaitForChild("Animator", 5)
-	if not animator then return end
-
-	local lastFootstepTime = 0
-
-	-- Listen for any animation playing
-	animator.AnimationPlayed:Connect(function(track)
-		-- Listen for the "Footstep" marker on this specific track
-		track:GetMarkerReachedSignal("Footstep"):Connect(function()
-			local animId = track.Animation and track.Animation.AnimationId or ""
-			local now = os.clock()
-
-			-- Throttle pacing for specific IDs
-			if SLOW_PACE_IDS[animId] then
-				if (now - lastFootstepTime) < SLOW_PACE_COOLDOWN then
-					return -- skip, too soon
-				end
-			end
-			lastFootstepTime = now
-
-			local speed = hum.Parent.PrimaryPart.AssemblyLinearVelocity.Magnitude
-			local volume = math.clamp(FOOTSTEP_BASE_VOLUME, FOOTSTEP_MIN_VOLUME, FOOTSTEP_MAX_VOLUME)
-			AudioModule.playFootstep(hum.Parent, volume)
-		end)
-	end)
-end
-
-task.spawn(function()
-	if enableAI and humanoid then
-		setupFootstepEvents(humanoid)
-	end
-end)
+-- Note: Footstep and animation audio markers are handled authoritatively by AnimationModule on track load.
 
 -- === DEBUG ORIENTATION VISUALIZER ===
 local axisLines = {}
@@ -418,6 +390,29 @@ end
 
 task.spawn(function()
 	while enableAI and Quin.Parent and humanoid.Health > 0 do
+		-- === Player-Controlled Bypass ===
+		-- When a human player is piloting this Quin, bypass autonomous AI decisions, FSM movement, and AI arena safety net
+		if Quin:GetAttribute("IsPlayerControlled") == true then
+			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+			task.wait(math.clamp(0.05 / speedMult, 0.015, 0.05))
+			continue
+		end
+
+		-- === Inert Laboratory Rig Bypass ===
+		-- When marked IsInert or IsTester (without explicit combat mode active), keep Quin completely passive
+		local isInert = Quin:GetAttribute("IsInert") == true
+		local isTester = Quin:GetAttribute("IsTester") == true and not _G.CombatBrawlActive
+		if isInert or isTester then
+			humanoid.WalkSpeed = 0
+			humanoid.AutoRotate = false
+			if rootPart then
+				rootPart.AssemblyLinearVelocity = Vector3.zero
+			end
+			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+			task.wait(math.clamp(0.15 / speedMult, 0.05, 0.2))
+			continue
+		end
+
 		-- === Arena Safety Net & Cinematic Re-Entry ===
 		if rootPart then
 			-- === Leader Showdown Authoritative Ring Enforcement ===
@@ -537,14 +532,6 @@ task.spawn(function()
 					end
 				end
 			end
-		end
-
-		-- === Player-Controlled Bypass ===
-		-- When a human player is piloting this Quin, bypass autonomous AI decisions and FSM movement
-		if Quin:GetAttribute("IsPlayerControlled") == true then
-			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-			task.wait(math.clamp(0.05 / speedMult, 0.015, 0.05))
-			continue
 		end
 
 		-- === Tactical Perception & Emergent Decision Layer ===
