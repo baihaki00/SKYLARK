@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 
 local ProceduralCombatReactionController = {}
 ProceduralCombatReactionController.__index = ProceduralCombatReactionController
@@ -241,7 +242,8 @@ function ProceduralCombatReactionController:update(dt)
 	local isAirborne = false
 
 	local serverState = serverModel and serverModel:GetAttribute("CurrentState") or ""
-	if serverState == "Airborne" or serverState == "Knockback" or math.abs(velY) > 18 or speed > 35 then
+	local isGrounded = self.rootPart and SpatialModule.isGrounded(self.rootPart)
+	if serverState == "Airborne" or serverState == "Knockback" or (not isGrounded and (velY < -15 or velY > 20)) then
 		isAirborne = true
 	end
 
@@ -267,16 +269,20 @@ function ProceduralCombatReactionController:update(dt)
 		self.airPitch = self.airPitch + (targetAirPitch - self.airPitch) * (1 - math.exp(-blendSpeed * dt))
 		self.airRoll = self.airRoll + (targetAirRoll - self.airRoll) * (1 - math.exp(-blendSpeed * dt))
 	else
-		-- Just landed: Trigger restrained ground impact compression!
+		-- Just landed: Trigger restrained ground impact compression (only from substantial falls)
 		if self.wasAirborne then
 			self.wasAirborne = false
-			local impactSeverity = math.clamp(math.abs(self.maxFallSpeed) / 60, 0.3, 1.0)
-			self.maxFallSpeed = 0
+			if math.abs(self.maxFallSpeed) > 15 then
+				local impactSeverity = math.clamp(math.abs(self.maxFallSpeed) / 60, 0.3, 1.0)
+				self.maxFallSpeed = 0
 
-			-- Restrained vertical compression: Hips drop slightly, spine compresses forward
-			self.hipsVelocity = self.hipsVelocity - (1.8 * impactSeverity)
-			self.velocityPitch = self.velocityPitch + (math.rad(12) * impactSeverity * self.impulseScale)
-			self.activeReactionType = "GROUND_IMPACT"
+				-- Restrained vertical compression: Hips drop slightly, spine compresses forward
+				self.hipsVelocity = self.hipsVelocity - (1.8 * impactSeverity)
+				self.velocityPitch = self.velocityPitch + (math.rad(12) * impactSeverity * self.impulseScale)
+				self.activeReactionType = "GROUND_IMPACT"
+			else
+				self.maxFallSpeed = 0
+			end
 		end
 
 		-- Settle air offsets back to zero

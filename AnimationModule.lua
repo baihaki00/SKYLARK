@@ -334,25 +334,31 @@ function AnimationModule.ensureBaseIdle(humanoid)
 		AnimationModule.stop(humanoid, otherEntry.id, 0.15)
 	end
 
-	-- Also stop ANY playing Idle priority track that does not match our desired entry.id
+	local track = getTrack(humanoid, entry.id)
+	if not track then return nil end
+
+	-- Stop and prune ANY other playing track (including duplicate tracks of the same ID)
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 	if animator then
 		for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
-			if t.Priority == Enum.AnimationPriority.Idle and t.Animation and t.Animation.AnimationId ~= entry.id and t.IsPlaying then
+			if t ~= track and t.Animation and t.Animation.AnimationId == entry.id then
+				t:Stop(0)
+				pcall(function() t:Destroy() end)
+			elseif t.Priority == Enum.AnimationPriority.Idle and t ~= track and t.IsPlaying then
 				t:Stop(0.15)
 			end
 		end
 	end
 
-	local track = getTrack(humanoid, entry.id)
-	if not track then return nil end
-
 	track.Priority = Enum.AnimationPriority.Idle
-
-	if not track.IsPlaying then
-		track:Play(entry.fadeTime or 0.2, 1, entry.speed or 1.0)
-	end
 	track.Looped = true
+
+	if not track.IsPlaying or track.WeightTarget == 0 then
+		track:Play(entry.fadeTime or 0.2, 1, entry.speed or 1.0)
+	else
+		track:AdjustSpeed(entry.speed or 1.0)
+		track:AdjustWeight(1, entry.fadeTime or 0.2)
+	end
 	return track
 end
 
@@ -603,7 +609,7 @@ function AnimationModule.stopCategory(humanoid, category, fadeOut)
 	end
 end
 
--- Check if a specific animation is playing
+-- Check if a specific animation is playing (actively weighted, not fading out)
 function AnimationModule.isPlaying(humanoid, animIdOrPath)
 	if not humanoid then return false end
 	local animId = animIdOrPath
@@ -612,14 +618,15 @@ function AnimationModule.isPlaying(humanoid, animIdOrPath)
 		local entry = ac and ac.get(animIdOrPath)
 		if entry and entry.id then animId = entry.id end
 	end
-	if animationTracks[humanoid] and animationTracks[humanoid][animId] and animationTracks[humanoid][animId].IsPlaying then
+	local myTrack = animationTracks[humanoid] and animationTracks[humanoid][animId]
+	if myTrack and myTrack.IsPlaying and (myTrack.WeightTarget == nil or myTrack.WeightTarget > 0) then
 		return true
 	end
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 	if animator then
 		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
 			local a = track.Animation
-			if a and a.AnimationId == animId and track.IsPlaying then
+			if a and a.AnimationId == animId and track.IsPlaying and (track.WeightTarget == nil or track.WeightTarget > 0) then
 				return true
 			end
 		end

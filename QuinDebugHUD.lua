@@ -291,25 +291,28 @@ local function getAllAliveQuins()
 
 	for _, model in ipairs(serverFolder:GetChildren()) do
 		if model:IsA("Model") and not model.Name:find("_Visual") and model.Parent then
-			-- Exclude player characters
-			if model ~= player.Character and not Players:GetPlayerFromCharacter(model) then
-				-- Arena Quin verification: Must be an arena combatant
-				local isArenaQuin = model:GetAttribute("QuinId") ~= nil
-					or CollectionService:HasTag(model, "Quin")
-					or CollectionService:HasTag(model, "AI_Fighter")
-					or string.match(model.Name, "^Quin_")
+			-- Arena Quin verification: Must be an arena combatant
+			local isArenaQuin = model:GetAttribute("QuinId") ~= nil
+				or CollectionService:HasTag(model, "Quin")
+				or CollectionService:HasTag(model, "AI_Fighter")
+				or model:GetAttribute("IsPlayerControlled")
+				or string.match(model.Name, "^Quin_")
 
-				if isArenaQuin and model.Name ~= "QuinTest" and model.Name ~= "QuinTypeA" then
-					local hum = model:FindFirstChildOfClass("Humanoid")
-					local hrp = model:FindFirstChild("HumanoidRootPart")
-					if hum and hum.Health > 0 and hrp then
-						table.insert(quins, model)
-					end
+			if isArenaQuin and model.Name ~= "QuinTest" and model.Name ~= "QuinTypeA" then
+				local hum = model:FindFirstChildOfClass("Humanoid")
+				local hrp = model:FindFirstChild("HumanoidRootPart")
+				if hum and hum.Health > 0 and hrp then
+					table.insert(quins, model)
 				end
 			end
 		end
 	end
-	table.sort(quins, function(a, b) return a.Name < b.Name end)
+	table.sort(quins, function(a, b)
+		local aPilot = (a:GetAttribute("IsPlayerControlled") or a == player.Character) and 1 or 0
+		local bPilot = (b:GetAttribute("IsPlayerControlled") or b == player.Character) and 1 or 0
+		if aPilot ~= bPilot then return aPilot > bPilot end
+		return a.Name < b.Name
+	end)
 	return quins
 end
 
@@ -560,9 +563,15 @@ RunService.Heartbeat:Connect(function()
 		local breadcrumb = model:GetAttribute("TraceBreadcrumb") or "Main.lua:72 (Init)"
 		local traceLog = model:GetAttribute("TraceLog") or ""
 
-		local nameHeader = isSpectatingThis 
-			and string.format("<font color='#FFD700'><b>[%s] 📷 SPECTATING</b></font>", model.Name)
-			or string.format("<b>[%s]</b>", model.Name)
+		local isPilot = model:GetAttribute("IsPlayerControlled") == true or model == player.Character
+		local nameHeader
+		if isPilot then
+			nameHeader = string.format("<font color='#00FFCC'><b>[%s] 🎮 YOU (PILOT)</b></font>", model.Name)
+		elseif isSpectatingThis then
+			nameHeader = string.format("<font color='#FFD700'><b>[%s] 📷 SPECTATING</b></font>", model.Name)
+		else
+			nameHeader = string.format("<b>[%s]</b>", model.Name)
+		end
 
 		local hasTrace = (traceLog ~= "")
 		local traceDisplay = ""
@@ -649,10 +658,29 @@ RunService.Heartbeat:Connect(function()
 		outerFrame.Visible = false
 		togglePill.Visible = false
 	else
-		local showHUD = isHudVisible and (count > 0)
+		local showHUD = isHudVisible
 		outerFrame.Visible = showHUD
 		togglePill.Visible = true
 		togglePill.Text = showHUD and "👁️ Close Spectator [H]" or "👁️ Spectator HUD [H]"
+
+		if count == 0 and showHUD then
+			if not cardInstances["__empty_state__"] then
+				local emptyCard = Instance.new("TextLabel")
+				emptyCard.Name = "__empty_state__"
+				emptyCard.Size = UDim2.new(1, 0, 0, 80)
+				emptyCard.BackgroundColor3 = Color3.fromRGB(15, 20, 32)
+				emptyCard.BackgroundTransparency = 0.3
+				emptyCard.TextColor3 = Color3.fromRGB(170, 190, 220)
+				emptyCard.TextSize = 13
+				emptyCard.Font = Enum.Font.GothamMedium
+				emptyCard.Text = "⚡ No Arena Quins Active\nPress [P] to Pilot / Spawn Quin"
+				local c = Instance.new("UICorner", emptyCard)
+				c.CornerRadius = UDim.new(0, 8)
+				emptyCard.Parent = scrollFrame
+				cardInstances["__empty_state__"] = { btn = emptyCard }
+			end
+			activeQuins["__empty_state__"] = true
+		end
 	end
 
 	-- Prune stale cards

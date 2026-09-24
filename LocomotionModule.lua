@@ -94,6 +94,13 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local skidThreshold = CombatConfig.Locomotion_SkidSpeedThreshold or 13.0
 	local now = os.clock()
 
+	-- Reset braking single-shot latch when actively steering
+	data.stopRunTriggered = false
+	if data.stopRunEndTime and now < data.stopRunEndTime then
+		data.stopRunEndTime = nil
+		AnimationModule.stop(humanoid, "Movement.StopRun", 0.08)
+	end
+
 	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 then
 		local curDir = flatVel.Unit
 		local desDir = flatDesired.Unit
@@ -136,10 +143,11 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	local speed = flatVel.Magnitude
 	local now = os.clock()
 
-	-- If the Quin was running/sprinting, play StopRun plant animation and carry follow-through slide
-	if speed > 14.0 and (now - (data.lastStopRunTime or 0)) > 0.75 then
+	-- If the Quin was running/sprinting, play StopRun plant animation ONCE (single-shot latch)
+	if speed > 14.0 and not data.stopRunTriggered then
+		data.stopRunTriggered = true
 		data.lastStopRunTime = now
-		data.stopRunEndTime = now + 0.48
+		data.stopRunEndTime = now + 0.52
 
 		-- Fast fade out running track
 		AnimationModule.stop(humanoid, "Movement.Run", 0.08)
@@ -148,12 +156,8 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 		-- Play StopRun plant animation
 		AnimationModule.playConfig(humanoid, "Movement.StopRun", 1.15, Enum.AnimationPriority.Action2, false)
 
-		-- Kinetic slide follow-through into stop plant
-		local slideDir = flatVel.Unit
-		local slideSpeed = math.min(speed * 0.40, CombatConfig.Melee_SlideSpeed or 10.0)
-		KnockbackModule.applySlide(fighter, slideDir, slideSpeed, 0.18)
-
-		-- VFX: small ground dust puff
+		-- VFX: small ground dust puff along stopping vector (NO physics LinearVelocity slide)
+		local slideDir = flatVel.Magnitude > 0.1 and flatVel.Unit or rootPart.CFrame.LookVector
 		local elem = fighter:GetAttribute("Element") or "Earth"
 		VfxModule.createDust(rootPart.Position, 2, slideDir, elem)
 	end
@@ -164,11 +168,11 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	-- Actively cancel humanoid active MoveTo translation so it doesn't walk in place
 	humanoid:Move(Vector3.zero, false)
 
-	-- When nearly stopped and no stop/skid overlay is active, ensure combat idle / neutral idle
+	-- When no stop/skid overlay is active, ensure combat idle / neutral idle
 	local isOverlayActive = (data.stopRunEndTime and now < data.stopRunEndTime)
 		or (data.skidEndTime and now < data.skidEndTime)
 
-	if speed < 2.5 and not isOverlayActive then
+	if not isOverlayActive then
 		if AnimationModule.isPlaying(humanoid, "Movement.Run") then
 			AnimationModule.stop(humanoid, "Movement.Run", 0.15)
 		end
@@ -310,6 +314,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	Debris:AddItem(att, 0.35)
 
 	local flightTime = math.sqrt((2 * targetHeight) / gravity) * 2
+	local jumpStartTime = os.clock()
 	local landedHandled = false
 	local function onLanded()
 		if landedHandled then return end
@@ -334,8 +339,11 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		AnimationModule.stopConfig(humanoid, jumpAnim)
 		AnimationModule.stopConfig(humanoid, "Movement.Fall")
 
-		-- Audio feedback on landing via QuinCore AudioModule
-		AudioModule.playFallOnGround(rootPart.Position)
+		-- Audio feedback on landing via QuinCore AudioModule (only if genuinely airborne)
+		local airTime = os.clock() - jumpStartTime
+		if airTime >= 0.18 and rootPart and rootPart.Parent then
+			AudioModule.playFallOnGround(rootPart.Position)
+		end
 
 		if isDismount then
 			AnimationModule.playConfig(humanoid, "Parkour.LedgeDropLanding", 1.4, Enum.AnimationPriority.Action3, false)
