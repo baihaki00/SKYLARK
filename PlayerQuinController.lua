@@ -104,6 +104,7 @@ local function startControlSession(quin)
 	activeQuin:SetAttribute("CurrentIdleStance", "Default")
 	activeQuin:SetAttribute("LastActivityTime", os.clock())
 	activeQuin:SetAttribute("IsMoving", false)
+	activeQuin:SetAttribute("IsSprinting", false)
 	AnimationModule.ensureBaseIdle(activeHumanoid)
 
 	-- Update button UI
@@ -173,19 +174,26 @@ local function startControlSession(quin)
 			or (activeHumanoid:GetState() == Enum.HumanoidStateType.Freefall)
 			or (activeHumanoid.FloorMaterial == Enum.Material.Air and not SpatialModule.isGrounded(activeRootPart))
 
+		local wasMoving = activeQuin:GetAttribute("IsMoving") == true
+		local wasSprinting = activeQuin:GetAttribute("IsSprinting") == true
+
 		if moveDir.Magnitude > 0.1 then
 			moveDir = moveDir.Unit
 			lastMoveDir = moveDir
 
 			local targetPosition = activeRootPart.Position + moveDir * 15
 
-			-- If starting to move from idle, trigger START RUN push-off
-			local wasMoving = activeQuin:GetAttribute("IsMoving") == true
-			if not wasMoving and not isAirborne then
-				activeQuin:SetAttribute("IsMoving", true)
-				activeQuin:SetAttribute("LastActivityTime", os.clock())
+			activeQuin:SetAttribute("IsMoving", true)
+			activeQuin:SetAttribute("LastActivityTime", os.clock())
+
+			-- START RUN push-off: ONLY trigger when initiating a run/sprint (Shift + W), NEVER on default walk!
+			if isSprint and not wasSprinting and not isAirborne then
+				activeQuin:SetAttribute("IsSprinting", true)
 				activeQuin:SetAttribute("StartRunEndTime", os.clock() + 0.38)
+				AnimationModule.stop(activeHumanoid, "Movement.WalkConfident", 0.10)
 				AnimationModule.playConfig(activeHumanoid, "Movement.StartRun", 1.15, Enum.AnimationPriority.Action2, false)
+			elseif not isSprint then
+				activeQuin:SetAttribute("IsSprinting", false)
 			end
 
 			-- Authoritative QuinCore steer: modulates speed, checks 180° skids, turns with AutoRotate
@@ -202,7 +210,13 @@ local function startControlSession(quin)
 					or isStartRunActive
 
 				if not isTurnOrStopPlaying then
-					local desiredAnim = "Movement.Run"
+					local desiredAnim = isSprint and "Movement.Run" or "Movement.WalkConfident"
+					local oppositeAnim = isSprint and "Movement.WalkConfident" or "Movement.Run"
+
+					if AnimationModule.isPlaying(activeHumanoid, oppositeAnim) then
+						AnimationModule.stop(activeHumanoid, oppositeAnim, 0.15)
+					end
+
 					if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
 						AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
 						AnimationModule.stop(activeHumanoid, "Idles.ReadyStance", 0.15)
@@ -221,6 +235,7 @@ local function startControlSession(quin)
 				-- Authoritative QuinCore brake: smooth deceleration, slide follow-through, stops run, ensures idle
 				LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, dt)
 			end
+			activeQuin:SetAttribute("IsSprinting", false)
 		end
 	end)
 

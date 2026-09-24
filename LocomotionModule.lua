@@ -101,12 +101,14 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		AnimationModule.stop(humanoid, "Movement.StopRun", 0.08)
 	end
 
-	-- For autonomous AI Quins (when not player controlled), trigger StartRun push-off from standstill
+	-- For autonomous AI Quins (when not player controlled), trigger StartRun push-off from standstill ONLY if sprinting/charging
 	if not fighter:GetAttribute("IsPlayerControlled") then
 		if not data.isMoving and flatDesired.Magnitude > 2.0 then
 			data.isMoving = true
-			data.startRunEndTime = now + 0.45
-			AnimationModule.playConfig(humanoid, "Movement.StartRun", 1.15, Enum.AnimationPriority.Action2, false)
+			if targetSpeed > 25.0 then
+				data.startRunEndTime = now + 0.45
+				AnimationModule.playConfig(humanoid, "Movement.StartRun", 1.15, Enum.AnimationPriority.Action2, false)
+			end
 		end
 	else
 		data.isMoving = true
@@ -155,29 +157,45 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	local speed = flatVel.Magnitude
 	local now = os.clock()
 
-	-- If the Quin was running/sprinting, play StopRun plant animation ONCE (single-shot latch)
-	if speed > 10.0 and not data.stopRunTriggered then
+	local wasSprinting = (fighter:GetAttribute("IsSprinting") == true) or (speed > 24.0)
+
+	-- Single-shot latch for braking transition
+	if not data.stopRunTriggered then
 		data.stopRunTriggered = true
-		data.lastStopRunTime = now
-		data.stopRunEndTime = now + 0.55
 		data.isMoving = false
 
-		-- Fast fade out running track & push-offs
-		AnimationModule.stop(humanoid, "Movement.Run", 0.08)
-		AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.08)
-		AnimationModule.stop(humanoid, "Movement.StartRun", 0.08)
+		-- If the Quin was running/sprinting, play StopRun plant animation (rbxassetid://89237107000987)
+		if wasSprinting and speed > 12.0 then
+			data.lastStopRunTime = now
+			data.stopRunEndTime = now + 0.55
 
-		-- Play StopRun plant animation (rbxassetid://89237107000987)
-		AnimationModule.playConfig(humanoid, "Movement.StopRun", 1.15, Enum.AnimationPriority.Action2, false)
+			-- Fast fade out running track & push-offs
+			AnimationModule.stop(humanoid, "Movement.Run", 0.08)
+			AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.08)
+			AnimationModule.stop(humanoid, "Movement.StartRun", 0.08)
 
-		-- Enter Ready Stance & mark last activity time for 5s inactivity cooldown
-		fighter:SetAttribute("CurrentIdleStance", "Ready")
-		fighter:SetAttribute("LastActivityTime", now)
+			-- Play StopRun plant animation (rbxassetid://89237107000987)
+			AnimationModule.playConfig(humanoid, "Movement.StopRun", 1.15, Enum.AnimationPriority.Action2, false)
 
-		-- VFX: small ground dust puff along stopping vector (NO physics LinearVelocity slide)
-		local slideDir = flatVel.Magnitude > 0.1 and flatVel.Unit or rootPart.CFrame.LookVector
-		local elem = fighter:GetAttribute("Element") or "Earth"
-		VfxModule.createDust(rootPart.Position, 2, slideDir, elem)
+			-- Enter Ready Stance & mark last activity time for 5s inactivity cooldown
+			fighter:SetAttribute("CurrentIdleStance", "Ready")
+			fighter:SetAttribute("LastActivityTime", now)
+
+			-- VFX: small ground dust puff along stopping vector (NO physics LinearVelocity slide)
+			local slideDir = flatVel.Magnitude > 0.1 and flatVel.Unit or rootPart.CFrame.LookVector
+			local elem = fighter:GetAttribute("Element") or "Earth"
+			VfxModule.createDust(rootPart.Position, 2, slideDir, elem)
+		else
+			-- Clean walking halt: fade out walk/run tracks directly into Ready stance without StopRun slide
+			data.stopRunEndTime = nil
+			AnimationModule.stop(humanoid, "Movement.Run", 0.12)
+			AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.12)
+			AnimationModule.stop(humanoid, "Movement.StartRun", 0.08)
+
+			-- Enter Ready Stance & mark last activity time for 5s inactivity cooldown
+			fighter:SetAttribute("CurrentIdleStance", "Ready")
+			fighter:SetAttribute("LastActivityTime", now)
+		end
 	elseif speed <= 2.0 then
 		data.isMoving = false
 	end
