@@ -100,7 +100,10 @@ local function startControlSession(quin)
 		end
 	end
 
-	-- Immediately engage combat idle posture (IdleReady_Stance)
+	-- Immediately engage default idle posture (IDLE_DEFAULT)
+	activeQuin:SetAttribute("CurrentIdleStance", "Default")
+	activeQuin:SetAttribute("LastActivityTime", os.clock())
+	activeQuin:SetAttribute("IsMoving", false)
 	AnimationModule.ensureBaseIdle(activeHumanoid)
 
 	-- Update button UI
@@ -176,20 +179,34 @@ local function startControlSession(quin)
 
 			local targetPosition = activeRootPart.Position + moveDir * 15
 
+			-- If starting to move from idle, trigger START RUN push-off
+			local wasMoving = activeQuin:GetAttribute("IsMoving") == true
+			if not wasMoving and not isAirborne then
+				activeQuin:SetAttribute("IsMoving", true)
+				activeQuin:SetAttribute("LastActivityTime", os.clock())
+				activeQuin:SetAttribute("StartRunEndTime", os.clock() + 0.38)
+				AnimationModule.playConfig(activeHumanoid, "Movement.StartRun", 1.15, Enum.AnimationPriority.Action2, false)
+			end
+
 			-- Authoritative QuinCore steer: modulates speed, checks 180° skids, turns with AutoRotate
 			LocomotionModule.steer(activeQuin, activeHumanoid, activeRootPart, targetPosition, targetSpeed, dt)
 			activeHumanoid:Move(moveDir, false)
 
 			-- Only drive ground locomotion animations when grounded (do not overwrite jump in mid-air)
 			if not isAirborne then
-				-- Protect turn skids and stop plants from being crushed by base locomotion
+				-- Protect turn skids, stop plants, and start push-off from being crushed by base locomotion
+				local startRunEnd = activeQuin:GetAttribute("StartRunEndTime") or 0
+				local isStartRunActive = (os.clock() < startRunEnd) and AnimationModule.isPlaying(activeHumanoid, "Movement.StartRun")
 				local isTurnOrStopPlaying = AnimationModule.isPlaying(activeHumanoid, "Movement.RunTurn180")
 					or AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun")
+					or isStartRunActive
 
 				if not isTurnOrStopPlaying then
 					local desiredAnim = (isSprint or curPilotSpeed > 26.0) and "Movement.Run" or "Movement.WalkConfident"
 					if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
 						AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
+						AnimationModule.stop(activeHumanoid, "Idles.ReadyStance", 0.15)
+						AnimationModule.stop(activeHumanoid, "Idles.FightIdle", 0.15)
 						AnimationModule.stop(activeHumanoid, "Idles.CombatIdle", 0.15)
 						AnimationModule.playConfig(activeHumanoid, desiredAnim)
 					end
@@ -198,6 +215,7 @@ local function startControlSession(quin)
 		else
 			-- Reset pilot speed towards min pacing when keys are released
 			activeQuin:SetAttribute("CurrentPilotSpeed", minPacing)
+			activeQuin:SetAttribute("IsMoving", false)
 
 			if not isAirborne then
 				-- Authoritative QuinCore brake: smooth deceleration, slide follow-through, stops run, ensures idle
@@ -287,6 +305,10 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	-- Controls when actively piloting
 	if not activeQuin or not activeRootPart or not activeHumanoid then return end
 	if activeHumanoid.Health <= 0 then return end
+
+	-- Pilot action touches activity timestamp & keeps Quin alert in Ready stance
+	activeQuin:SetAttribute("LastActivityTime", os.clock())
+	activeQuin:SetAttribute("CurrentIdleStance", "Ready")
 
 	-- Space: Ballistic Jump (Rule 6: single impulse, 88% landing retention)
 	if input.KeyCode == Enum.KeyCode.Space then

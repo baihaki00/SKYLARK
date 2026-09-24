@@ -631,10 +631,16 @@ RunService.Heartbeat:Connect(function()
 			historyLine = historyLine .. string.format(" | Rival: <font color='#FF6666'><b>%s</b></font> (%s)", primaryRival, rivalScore)
 		end
 
+		local idleStance = model:GetAttribute("CurrentIdleStance") or "Default"
+		local lastAct = model:GetAttribute("LastActivityTime") or os.clock()
+		local inactiveSec = math.max(0, 5.0 - (os.clock() - lastAct))
+		local stanceTag = (idleStance == "Ready") and string.format(" <font color='#FFAA00'><b>[READY:%.1fs]</b></font>", inactiveSec)
+			or ((idleStance == "Fight") and " <font color='#FF5555'><b>[FIGHT]</b></font>" or " <font color='#88CCFF'>[DEFAULT]</font>")
+
 		card.label.Text = string.format(
 			"%s  <font color='%s'><b>[%s • %s]</b></font>\n" ..
 			"%s\n" ..
-			"State: <font color='#FFAA50'><b>%s</b></font>%s%s%s | Tact: <font color='#00E5FF'><b>%s</b></font> | Conf: %.2f\n" ..
+			"State: <font color='#FFAA50'><b>%s</b></font>%s%s%s%s | Tact: <font color='#00E5FF'><b>%s</b></font> | Conf: %.2f\n" ..
 			"Role: <font color='#FFD700'><b>%s</b></font> | Quirky: <font color='#E080FF'><b>%s</b></font>\n" ..
 			"Alt: %.1f | Dist: %.1f | Spd: %.1f | Vy: %.1f | Dash: %s\n" ..
 			"<font color='#FFB000'>Aware: %.2f</font> | <font color='#00FFAA'>Zone: %s</font> | <font color='#FF8080'>Pace: %.0f</font>\n" ..
@@ -643,7 +649,7 @@ RunService.Heartbeat:Connect(function()
 			"<font color='#888888'>Id: %s | Time: %s (%s)</font>%s",
 			nameHeader, hexColor, qType, qElem,
 			historyLine,
-			state, specialTag, travTag, chaseTag, tactical, conf,
+			state, stanceTag, specialTag, travTag, chaseTag, tactical, conf,
 			teamRole, quirky,
 			alt, dist, speed, vy, tostring(dashArmed),
 			awareness, threatZone, pacingVel,

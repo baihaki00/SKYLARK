@@ -319,6 +319,8 @@ function FightState.exit(fighter, humanoid, rootPart)
 	fightData[fighter] = nil
 	ComboModule.resetCombo(fighter)
 	fighter:SetAttribute("Attacking", false)
+	fighter:SetAttribute("CurrentIdleStance", "Ready")
+	fighter:SetAttribute("LastActivityTime", os.clock())
 	-- Cleanly stop any attack or hit reaction tracks so they do not linger into subsequent states (e.g. CirclingState)
 	AnimationModule.stopCategory(humanoid, "Attacks", 0.1)
 	AnimationModule.stopCategory(humanoid, "Reactions", 0.1)

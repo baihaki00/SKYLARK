@@ -101,6 +101,14 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		AnimationModule.stop(humanoid, "Movement.StopRun", 0.08)
 	end
 
+	-- If previously stationary and now starting to steer/move forward, trigger StartRun push-off
+	if not data.isMoving and flatDesired.Magnitude > 2.0 then
+		data.isMoving = true
+		data.startRunEndTime = now + 0.40
+		AnimationModule.playConfig(humanoid, "Movement.StartRun", 1.15, Enum.AnimationPriority.Action2, false)
+	end
+	fighter:SetAttribute("LastActivityTime", now)
+
 	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 then
 		local curDir = flatVel.Unit
 		local desDir = flatDesired.Unit
@@ -144,22 +152,30 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	local now = os.clock()
 
 	-- If the Quin was running/sprinting, play StopRun plant animation ONCE (single-shot latch)
-	if speed > 14.0 and not data.stopRunTriggered then
+	if speed > 10.0 and not data.stopRunTriggered then
 		data.stopRunTriggered = true
 		data.lastStopRunTime = now
-		data.stopRunEndTime = now + 0.52
+		data.stopRunEndTime = now + 0.55
+		data.isMoving = false
 
-		-- Fast fade out running track
+		-- Fast fade out running track & push-offs
 		AnimationModule.stop(humanoid, "Movement.Run", 0.08)
 		AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.08)
+		AnimationModule.stop(humanoid, "Movement.StartRun", 0.08)
 
-		-- Play StopRun plant animation
+		-- Play StopRun plant animation (rbxassetid://89237107000987)
 		AnimationModule.playConfig(humanoid, "Movement.StopRun", 1.15, Enum.AnimationPriority.Action2, false)
+
+		-- Enter Ready Stance & mark last activity time for 5s inactivity cooldown
+		fighter:SetAttribute("CurrentIdleStance", "Ready")
+		fighter:SetAttribute("LastActivityTime", now)
 
 		-- VFX: small ground dust puff along stopping vector (NO physics LinearVelocity slide)
 		local slideDir = flatVel.Magnitude > 0.1 and flatVel.Unit or rootPart.CFrame.LookVector
 		local elem = fighter:GetAttribute("Element") or "Earth"
 		VfxModule.createDust(rootPart.Position, 2, slideDir, elem)
+	elseif speed <= 2.0 then
+		data.isMoving = false
 	end
 
 	-- Modulate speed to 0 smoothly instead of snapping in 1 frame
@@ -168,9 +184,10 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	-- Actively cancel humanoid active MoveTo translation so it doesn't walk in place
 	humanoid:Move(Vector3.zero, false)
 
-	-- When no stop/skid overlay is active, ensure combat idle / neutral idle
+	-- When no stop/skid overlay is active, ensure idle (handles Ready -> 5s inactivity -> Default)
 	local isOverlayActive = (data.stopRunEndTime and now < data.stopRunEndTime)
 		or (data.skidEndTime and now < data.skidEndTime)
+		or (data.startRunEndTime and now < data.startRunEndTime)
 
 	if not isOverlayActive then
 		if AnimationModule.isPlaying(humanoid, "Movement.Run") then
@@ -179,6 +196,17 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 		if AnimationModule.isPlaying(humanoid, "Movement.WalkConfident") then
 			AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.15)
 		end
+		if AnimationModule.isPlaying(humanoid, "Movement.StartRun") then
+			AnimationModule.stop(humanoid, "Movement.StartRun", 0.15)
+		end
+
+		-- Check 5-second inactivity timeout: if Ready stance has been inactive for >= 5s, relax to Default
+		local stance = fighter:GetAttribute("CurrentIdleStance")
+		local lastAct = fighter:GetAttribute("LastActivityTime") or now
+		if stance == "Ready" and (now - lastAct) >= 5.0 then
+			fighter:SetAttribute("CurrentIdleStance", "Default")
+		end
+
 		AnimationModule.ensureBaseIdle(humanoid)
 	end
 end

@@ -62,8 +62,13 @@ local KNOWN_TRACK_LENGTHS = {
 	["rbxassetid://95406088712190"]  = 1.000, -- Reactions.GetUpBackFast
 	["rbxassetid://108624065264351"] = 1.200, -- Reactions.GetUpFromCrouch
 	["rbxassetid://98616724907377"]  = 1.000, -- Awareness.LookingBehind
-	["rbxassetid://87288357256775"]  = 0.900, -- Idles.CombatIdle / IdleReady_Stance
-	["rbxassetid://121718461462558"] = 0.600, -- Movement.StopRun
+	["rbxassetid://81038616654818"]  = 8.333, -- IDLE_DEFAULT
+	["rbxassetid://123350689285769"] = 1.950, -- IDLEREADY_STANCE
+	["rbxassetid://109837817595150"] = 3.867, -- IDLEFIGHT_STANCE
+	["rbxassetid://113571639405597"] = 0.800, -- START RUN
+	["rbxassetid://89237107000987"]  = 0.900, -- STOP RUN
+	["rbxassetid://94804914683754"]  = 0.883, -- SUPERHERO LANDING
+	["rbxassetid://129355316172688"] = 0.667, -- 180 TURN
 }
 
 local KNOWN_NAMES = {
@@ -117,8 +122,13 @@ local KNOWN_NAMES = {
 	["rbxassetid://95406088712190"]  = "GetUpBackFast",
 	["rbxassetid://108624065264351"] = "GetUpFromCrouch",
 	["rbxassetid://98616724907377"]  = "LookingBehind",
-	["rbxassetid://87288357256775"]  = "IdleReady_Stance",
-	["rbxassetid://121718461462558"] = "StopRun",
+	["rbxassetid://81038616654818"]  = "IDLE_DEFAULT",
+	["rbxassetid://123350689285769"] = "IDLEREADY_STANCE",
+	["rbxassetid://109837817595150"] = "IDLEFIGHT_STANCE",
+	["rbxassetid://113571639405597"] = "START RUN",
+	["rbxassetid://89237107000987"]  = "STOP RUN",
+	["rbxassetid://94804914683754"]  = "SUPERHERO LANDING",
+	["rbxassetid://129355316172688"] = "180 TURN",
 }
 
 local LOCOMOTION_OVERLAY_IDS = {
@@ -128,10 +138,11 @@ local LOCOMOTION_OVERLAY_IDS = {
 	["rbxassetid://88475997278069"] = true, -- FallAirKnockback
 	["rbxassetid://83869147275692"] = true, -- BrakingStop / Slide
 	["rbxassetid://129355316172688"] = true, -- RunTurn180 / Turn180Pivot
-	["rbxassetid://121718461462558"] = true, -- StopRun / RunStopPlant
+	["rbxassetid://89237107000987"]  = true, -- StopRun (CORRECT)
+	["rbxassetid://113571639405597"] = true, -- StartRun / IdleToRun
+	["rbxassetid://94804914683754"]  = true, -- Superhero Landing
 	["rbxassetid://89227245782124"] = true, -- ArcRun30Rear
 	["rbxassetid://113556439462127"] = true, -- IdleToRun1 / StartSprint
-	["rbxassetid://113571639405597"] = true, -- IdleToRun2
 	["rbxassetid://136234480688142"] = true, -- LandingSoft / LedgeDropLanding
 	["rbxassetid://110436967972328"] = true, -- LandingHard
 	["rbxassetid://140160268770373"] = true, -- LandingSuperHero
@@ -319,19 +330,51 @@ function AnimationModule.ensureBaseIdle(humanoid)
 	if not humanoid or not humanoid.Parent then return nil end
 	local ac = getAnimationConfig()
 	local fighter = humanoid.Parent
-	local inCombat = fighter and (fighter:GetAttribute("IsPlayerControlled") or fighter:GetAttribute("CurrentState") == "Fight" or fighter:GetAttribute("Target") ~= nil)
-	local dotPath = inCombat and "Idles.CombatIdle" or "Movement.Idle"
+	local now = os.clock()
+
+	-- Check if actively fighting/in combat
+	local inCombat = fighter and (
+		fighter:GetAttribute("CurrentState") == "Fight"
+		or fighter:GetAttribute("InCombat") == true
+		or (fighter:GetAttribute("Target") ~= nil and fighter:GetAttribute("Target") ~= "")
+	)
+
+	local dotPath = "Movement.Idle" -- Default is IDLE_DEFAULT (rbxassetid://81038616654818)
+
+	if inCombat then
+		dotPath = "Idles.FightIdle" -- IDLEFIGHT_STANCE (rbxassetid://109837817595150)
+	else
+		local stance = fighter and fighter:GetAttribute("CurrentIdleStance") or "Default"
+		local lastActivity = fighter and fighter:GetAttribute("LastActivityTime") or now
+
+		if stance == "Ready" then
+			if (now - lastActivity) >= 5.0 then
+				-- 5 seconds of inactivity elapsed with no movement/combat: relax back to Default
+				fighter:SetAttribute("CurrentIdleStance", "Default")
+				dotPath = "Movement.Idle" -- IDLE_DEFAULT
+			else
+				dotPath = "Idles.ReadyStance" -- IDLEREADY_STANCE (rbxassetid://123350689285769)
+			end
+		else
+			dotPath = "Movement.Idle" -- IDLE_DEFAULT
+		end
+	end
+
 	local entry = ac and ac.get(dotPath)
 	if not entry or not entry.id or entry.id == "" then
 		entry = ac and ac.get("Movement.Idle")
 	end
 	if not entry or not entry.id or entry.id == "" then return nil end
 
-	-- Stop competing idle if switching between combat and neutral idle
-	local otherPath = inCombat and "Movement.Idle" or "Idles.CombatIdle"
-	local otherEntry = ac and ac.get(otherPath)
-	if otherEntry and otherEntry.id then
-		AnimationModule.stop(humanoid, otherEntry.id, 0.15)
+	-- Stop competing idle tracks
+	local competingPaths = { "Movement.Idle", "Idles.ReadyStance", "Idles.FightIdle", "Idles.CombatIdle", "Idles.DefaultIdle" }
+	for _, path in ipairs(competingPaths) do
+		if path ~= dotPath then
+			local otherEntry = ac and ac.get(path)
+			if otherEntry and otherEntry.id and otherEntry.id ~= entry.id then
+				AnimationModule.stop(humanoid, otherEntry.id, 0.20)
+			end
+		end
 	end
 
 	local track = getTrack(humanoid, entry.id)
@@ -345,7 +388,7 @@ function AnimationModule.ensureBaseIdle(humanoid)
 				t:Stop(0)
 				pcall(function() t:Destroy() end)
 			elseif t.Priority == Enum.AnimationPriority.Idle and t ~= track and t.IsPlaying then
-				t:Stop(0.15)
+				t:Stop(0.20)
 			end
 		end
 	end

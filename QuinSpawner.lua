@@ -129,6 +129,11 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 		clone:SetAttribute("Team", teamTag)
 	end
 
+	-- Initial stance & movement state: BY DEFAULT IDLE_DEFAULT
+	clone:SetAttribute("CurrentIdleStance", "Default")
+	clone:SetAttribute("LastActivityTime", os.clock())
+	clone:SetAttribute("IsMoving", false)
+
 	-- Tags
 	CollectionService:AddTag(clone, "Quin")
 	CollectionService:AddTag(clone, "AI_Fighter")
