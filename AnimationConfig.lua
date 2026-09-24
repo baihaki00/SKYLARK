@@ -59,7 +59,7 @@ AnimationConfig.Registry = {
 		RunTurn180Right = { id = "rbxassetid://129355316172688", speed = 1.35, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Run Turn Right" },
 		StartSprint = { id = "rbxassetid://113556439462127", speed = 1.35, fadeTime = 0.08, priority = "Movement", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Sprint Push-Off" },
 		Slide = { id = "rbxassetid://83869147275692", speed = 1.40, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Athletic Ground Slide" },
-		WalkConfident = { id = "rbxassetid://74552125029304", speed = 1.00, fadeTime = 0.15, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Confident Walk" },
+		WalkConfident = { id = "rbxassetid://117985748552966", speed = 1.00, fadeTime = 0.15, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Confident Walk" },
 		WalkThug = { id = "rbxassetid://117985748552966", speed = 0.90, fadeTime = 0.15, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Aggressive Walk" },
 	},
 	Transition = {

@@ -189,6 +189,76 @@ local function getRuntimeTracer()
 	return _RuntimeTracer
 end
 
+-- Lazy-load AudioModule to directly wire animation markers to authoritative audio
+local _AudioModule = nil
+local function getAudioModule()
+	if not _AudioModule then
+		local qc = ReplicatedStorage:FindFirstChild("QuinCore")
+		if qc and qc:FindFirstChild("Modules") and qc.Modules:FindFirstChild("AudioModule") then
+			local ok, mod = pcall(function() return require(qc.Modules.AudioModule) end)
+			if ok and type(mod) == "table" then
+				_AudioModule = mod
+			end
+		end
+	end
+	return _AudioModule
+end
+
+-- Wire animation marker reached signals to AudioModule exactly once per loaded track instance
+local function wireTrackAudio(humanoid, track, animId)
+	if not humanoid or not track then return end
+	local fighter = humanoid.Parent
+
+	-- Footstep marker (Run, Walk, Strafe, ArcRun, etc.)
+	track:GetMarkerReachedSignal("Footstep"):Connect(function()
+		local audio = getAudioModule()
+		if audio and audio.playFootstep and fighter and fighter.Parent then
+			local hrp = fighter:FindFirstChild("HumanoidRootPart")
+			local speed = hrp and hrp.AssemblyLinearVelocity.Magnitude or 16
+			local vol = speed > 25 and 0.45 or 0.35
+			audio.playFootstep(fighter, vol)
+		end
+	end)
+
+	-- 180 Turn Footstep marker
+	track:GetMarkerReachedSignal("Footstep180"):Connect(function()
+		local audio = getAudioModule()
+		if audio and audio.playFootstep and fighter and fighter.Parent then
+			audio.playFootstep(fighter, 0.40)
+		end
+	end)
+
+	-- Landing impact marker (LandingSoft, LandingHard, LandingSuperHero, etc.)
+	track:GetMarkerReachedSignal("Landing"):Connect(function()
+		local audio = getAudioModule()
+		if audio and audio.playFallOnGround and fighter and fighter.Parent then
+			local hrp = fighter:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				audio.playFallOnGround(hrp.Position)
+			end
+		end
+	end)
+
+	-- Jump launch marker (if present on any jump animation)
+	track:GetMarkerReachedSignal("Jump"):Connect(function()
+		local audio = getAudioModule()
+		if audio and audio.playJump and fighter and fighter.Parent then
+			audio.playJump(fighter, 0.5)
+		end
+	end)
+
+	-- Projectile jump marker
+	track:GetMarkerReachedSignal("ProjectileJump"):Connect(function()
+		local audio = getAudioModule()
+		if audio and audio.playJumpUp and fighter and fighter.Parent then
+			local hrp = fighter:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				audio.playJumpUp(hrp.Position)
+			end
+		end
+	end)
+end
+
 -- Get or create an Animator on the humanoid
 local function ensureAnimator(humanoid)
 	if not humanoid then return nil end
@@ -214,6 +284,9 @@ local function getTrack(humanoid, animId)
 		anim.AnimationId = animId
 		local track = animator and animator:LoadAnimation(anim) or humanoid:LoadAnimation(anim)
 		animationTracks[humanoid][animId] = track
+
+		-- Wire animation audio markers directly to AudioModule ONCE upon track loading!
+		wireTrackAudio(humanoid, track, animId)
 	end
 	
 	return animationTracks[humanoid][animId]

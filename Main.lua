@@ -167,51 +167,7 @@ stateGui.Text = "[ STATE: " .. currentState.name .. " ]"
 stateGui.Visible = false -- Toggled off debug text
 stateGui.Parent = healthGui
 
--- === FOOTSTEP GENERATOR (ANIMATION MARKER DRIVEN) ===
-local FOOTSTEP_BASE_VOLUME = 0.01   -- Adjust to taste
-local FOOTSTEP_MIN_VOLUME = 0.005   -- Adjust to taste
-local FOOTSTEP_MAX_VOLUME = 0.02    -- Adjust to taste
-
--- IDs that should throttle footstep pacing (longer cooldown between steps)
-local SLOW_PACE_IDS = {
-	["rbxassetid://123318024844911"] = true,
-	["rbxassetid://107962284182266"] = true,
-}
-local SLOW_PACE_COOLDOWN = 0.35 -- seconds between footsteps for these IDs
-
-local function setupFootstepEvents(hum)
-	local animator = hum:FindFirstChildOfClass("Animator") or hum:WaitForChild("Animator", 5)
-	if not animator then return end
-
-	local lastFootstepTime = 0
-
-	-- Listen for any animation playing
-	animator.AnimationPlayed:Connect(function(track)
-		-- Listen for the "Footstep" marker on this specific track
-		track:GetMarkerReachedSignal("Footstep"):Connect(function()
-			local animId = track.Animation and track.Animation.AnimationId or ""
-			local now = os.clock()
-
-			-- Throttle pacing for specific IDs
-			if SLOW_PACE_IDS[animId] then
-				if (now - lastFootstepTime) < SLOW_PACE_COOLDOWN then
-					return -- skip, too soon
-				end
-			end
-			lastFootstepTime = now
-
-			local speed = hum.Parent.PrimaryPart.AssemblyLinearVelocity.Magnitude
-			local volume = math.clamp(FOOTSTEP_BASE_VOLUME, FOOTSTEP_MIN_VOLUME, FOOTSTEP_MAX_VOLUME)
-			AudioModule.playFootstep(hum.Parent, volume)
-		end)
-	end)
-end
-
-task.spawn(function()
-	if enableAI and humanoid then
-		setupFootstepEvents(humanoid)
-	end
-end)
+-- Note: Footstep and animation audio markers are handled authoritatively by AnimationModule on track load.
 
 -- === DEBUG ORIENTATION VISUALIZER ===
 local axisLines = {}

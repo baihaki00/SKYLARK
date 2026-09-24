@@ -119,19 +119,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	-- 3. Issue steering command to humanoid with native physics AutoRotate
 	humanoid.AutoRotate = true
 	humanoid:MoveTo(targetPosition)
-
-	-- 4. Footstep Audio Rhythm (Custom QuinCore sound)
-	if currentSpeed > 4.0 then
-		data.distanceTraveled = (data.distanceTraveled or 0) + (currentSpeed * dt)
-		local strideDistance = currentSpeed > 25.0 and 8.0 or 5.0
-		if data.distanceTraveled >= strideDistance then
-			data.distanceTraveled = 0
-			local stepVolume = currentSpeed > 25.0 and 0.65 or 0.40
-			AudioModule.playFootstep(fighter, stepVolume)
-		end
-	else
-		data.distanceTraveled = 0
-	end
+	-- Note: Footstep audio is driven authoritatively by animation keyframe markers via AnimationModule
 end
 
 -- ============================================================================
@@ -245,8 +233,8 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	AnimationModule.stop(humanoid, "Movement.WalkConfident")
 	AnimationModule.playConfig(humanoid, jumpAnim)
 
-	-- Audio feedback via QuinCore AudioModule
-	AudioModule.playJumpUp(rootPart.Position)
+	-- Audio feedback via QuinCore AudioModule (Authentic normal jump sound)
+	AudioModule.playJump(fighter or rootPart, 0.5)
 
 	-- Single vertical ballistic impulse: v_y = sqrt(2 * g * h)
 	local gravity = Workspace.Gravity

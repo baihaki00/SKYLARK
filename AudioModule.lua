@@ -25,6 +25,9 @@ local AudioIds = {
 	Shockwave = "rbxassetid://90318464419858", -- Explosion/Shockwave
 	Dash = "rbxassetid://113019448050553",
 	
+	-- Authentic Normal Jump Sound
+	Jump = "rbxassetid://72520498970750",
+	
 	-- New Projectile Jump Sounds
 	JumpUp = {
 		"rbxassetid://133592422008028", -- JUMP_UP_HIGH_MID_AIR
@@ -134,6 +137,45 @@ function AudioModule.playDash(targetOrPos)
 	end
 end
 
+-- Authentic Normal Jump Audio Method
+function AudioModule.playJump(targetOrPos, volume)
+	local jumpVol = volume or 0.5
+	local jumpPitch = math.random(95, 105) / 100
+
+	if typeof(targetOrPos) == "Instance" then
+		local hrp = targetOrPos:IsA("BasePart") and targetOrPos or targetOrPos:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			local soundObj = nil
+			local qc = ReplicatedStorage:FindFirstChild("QuinCore")
+			local assets = qc and qc:FindFirstChild("Assets")
+			if assets and assets:FindFirstChild("JUMP") then
+				soundObj = assets.JUMP
+			end
+
+			local sound
+			if soundObj and soundObj:IsA("Sound") then
+				sound = soundObj:Clone()
+			else
+				sound = Instance.new("Sound")
+				sound.SoundId = AudioIds.Jump
+			end
+			sound.Name = "QuinJumpSound"
+			sound.Volume = jumpVol
+			sound.PlaybackSpeed = jumpPitch
+			sound.RollOffMinDistance = 15
+			sound.RollOffMaxDistance = 200
+			sound.RollOffMode = Enum.RollOffMode.Linear
+			sound.Parent = hrp
+			sound:Play()
+			Debris:AddItem(sound, 1.0)
+			return
+		end
+	end
+
+	local pos = typeof(targetOrPos) == "Vector3" and targetOrPos or workspace.CurrentCamera.CFrame.Position
+	playSoundAt(AudioIds.Jump, pos, jumpVol, jumpPitch, 0)
+end
+
 -- Projectile Jump Audio Methods
 function AudioModule.playJumpUp(position)
 	playSoundAt(AudioIds.JumpUp, position, 0.6, math.random(90, 110)/100, 5)
@@ -159,7 +201,15 @@ function AudioModule.playFallOnGroundAfterMidAir(position)
 	playSoundAt(AudioIds.FallOnGroundMidAir, position, 0.5, math.random(70, 100)/100, 15)
 end
 
+function AudioModule.playLanding(targetOrPos, volume)
+	local pos = typeof(targetOrPos) == "Vector3" and targetOrPos
+		or (typeof(targetOrPos) == "Instance" and (targetOrPos:IsA("BasePart") and targetOrPos.Position or (targetOrPos:FindFirstChild("HumanoidRootPart") and targetOrPos.HumanoidRootPart.Position)))
+		or workspace.CurrentCamera.CFrame.Position
+	AudioModule.playFallOnGround(pos)
+end
+
 local lastFootstep = {}
+local lastFootstepTimes = {}
 local SoundFootstepsFolder = ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Assets"):WaitForChild("SoundFootsteps")
 local footstepSounds = SoundFootstepsFolder:GetChildren()
 
@@ -167,7 +217,17 @@ function AudioModule.playFootstep(fighter, volume)
 	local hrp = fighter:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 	
-	if #footstepSounds == 0 then return end
+	if #footstepSounds == 0 then
+		footstepSounds = SoundFootstepsFolder:GetChildren()
+		if #footstepSounds == 0 then return end
+	end
+	
+	-- Anti-duplication debounce: enforce minimum 0.15s between footstep triggers per character
+	local now = os.clock()
+	if lastFootstepTimes[fighter] and (now - lastFootstepTimes[fighter]) < 0.15 then
+		return
+	end
+	lastFootstepTimes[fighter] = now
 	
 	-- Pick a random footstep that isn't the last one
 	local chosenIdx = math.random(1, #footstepSounds)
@@ -179,10 +239,10 @@ function AudioModule.playFootstep(fighter, volume)
 	local originalSound = footstepSounds[chosenIdx]
 	if originalSound and originalSound:IsA("Sound") then
 		local clone = originalSound:Clone()
-		clone.Volume = volume or 0.5
-		clone.PlaybackSpeed = math.random(84, 106) / 100
-		clone.RollOffMinDistance = 20
-		clone.RollOffMaxDistance = 300
+		clone.Volume = volume or 0.35
+		clone.PlaybackSpeed = math.random(88, 104) / 100
+		clone.RollOffMinDistance = 15
+		clone.RollOffMaxDistance = 150
 		clone.RollOffMode = Enum.RollOffMode.Linear
 		clone.Parent = hrp
 		clone:Play()
