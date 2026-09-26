@@ -313,7 +313,16 @@ function ProceduralCombatReactionController:update(dt)
 		-- Physical Angular Velocity (continuous physics solver yaw rate; zero finite-difference derivative noise)
 		local physAngY = self.rootPart.AssemblyAngularVelocity.Y
 		self.smoothedTurnRate = (self.smoothedTurnRate or 0) + (physAngY - (self.smoothedTurnRate or 0)) * (1 - math.exp(-14.0 * dt))
-		local effectiveTurnRate = self.smoothedTurnRate
+
+		-- Angular Velocity Deadzone:
+		-- Physics solver contact noise on straight locomotion is typically +-0.5 to 1.2 rad/s.
+		-- Below 1.5 rad/s, there is NO intentional turn! Force effectiveTurnRate to 0.
+		-- Completely eliminates hips mass drop vibration and torso roll wobble during straight-line running!
+		local rawRate = self.smoothedTurnRate or 0
+		local effectiveTurnRate = 0
+		if math.abs(rawRate) > 1.5 then
+			effectiveTurnRate = math.sign(rawRate) * (math.abs(rawRate) - 1.5)
+		end
 
 		local skidTime = serverModel and serverModel:GetAttribute("SkidTurnTime") or 0
 		local skidDur = serverModel and serverModel:GetAttribute("SkidTurnDuration") or 0.32

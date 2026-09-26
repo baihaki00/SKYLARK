@@ -254,13 +254,9 @@ if enableghostmode then
 	end)
 
 	-----------------------------------------------------------
-	-- LOOP: Smooth visual update & procedural look-at (Deterministic Render Priority)
-	-- Runs at Character.Value + 1 to guarantee execution AFTER character physics & input, BEFORE camera
+	-- LOOP: Smooth visual update & procedural look-at (RenderStepped)
 	-----------------------------------------------------------
-	RunService:BindToRenderStep("AIGhostVisualSync", Enum.RenderPriority.Character.Value + 1, function(dt)
-		local renderNow = os.clock()
-		local dtSincePhys = math.clamp(renderNow - lastPhysicsTick, 0, 0.033)
-
+	RunService.RenderStepped:Connect(function(dt)
 		for aiModel, ghost in pairs(ghostMap) do
 			if typeof(ghost) == "Instance" then
 				local root = aiModel:FindFirstChild("HumanoidRootPart")
@@ -269,24 +265,16 @@ if enableghostmode then
 				if root and ghostRoot then
 					local yOffset = CombatConfig.VisualGhostHeightOffset or 0.16
 					local targetCF = root.CFrame * CFrame.new(0, yOffset, 0)
-
-					local isPlayer = (aiModel:GetAttribute("IsPlayerControlled") == true)
-						or (game.Players.LocalPlayer and aiModel:GetAttribute("ControllingPlayer") == game.Players.LocalPlayer.Name)
-						or (shared.PlayerControlledQuin == aiModel)
-
-					if isPlayer then
-						-- Local player character: 1:1 anchor to local physics root (zero phase lag, zero camera mismatch)
-						ghostRoot.CFrame = targetCF
-					else
-						-- Remote server AI: adaptive exponential smoothing to eliminate network replication jitter
-						local linVel = root.AssemblyLinearVelocity
-						local flatSpeed = Vector3.new(linVel.X, 0, linVel.Z).Magnitude
-						local distErr = (ghostRoot.Position - targetCF.Position).Magnitude
-						local lambda = 25.0 + 0.35 * flatSpeed + math.max(0, (distErr - 0.8) * 20.0)
-						local alpha = 1.0 - math.exp(-lambda * dt)
-						alpha = math.clamp(alpha, 0.10, 1.0)
-						ghostRoot.CFrame = ghostRoot.CFrame:Lerp(targetCF, alpha)
-					end
+					
+					-- Adaptive frame-rate independent exponential smoothing
+					local currentVel = root.AssemblyLinearVelocity
+					local flatSpeed = Vector3.new(currentVel.X, 0, currentVel.Z).Magnitude
+					local distErr = (ghostRoot.Position - targetCF.Position).Magnitude
+					local lambda = 25.0 + 0.35 * flatSpeed + math.max(0, (distErr - 0.8) * 20.0)
+					local alpha = 1.0 - math.exp(-lambda * dt)
+					alpha = math.clamp(alpha, 0.10, 1.0)
+					
+					ghostRoot.CFrame = ghostRoot.CFrame:Lerp(targetCF, alpha)
 				end
 
 				local isDead = (aiModel:GetAttribute("CurrentState") == "Death")

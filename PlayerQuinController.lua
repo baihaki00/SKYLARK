@@ -126,10 +126,9 @@ local function startControlSession(quin)
 		toggleQuinControl(false)
 	end)
 
-	-- Frame-by-frame locomotion loop (Deterministic Render Priority)
-	-- Priority: Input.Value + 1 ensures player movement runs BEFORE physics and visual ghost sync
-	pcall(function() RunService:UnbindFromRenderStep("PlayerQuinLocomotion") end)
-	RunService:BindToRenderStep("PlayerQuinLocomotion", Enum.RenderPriority.Input.Value + 1, function(dt)
+	-- Frame-by-frame locomotion loop
+	if renderConn then renderConn:Disconnect() end
+	renderConn = RunService.RenderStepped:Connect(function(dt)
 		if not activeQuin or not activeQuin.Parent or not activeRootPart or not activeHumanoid then
 			toggleQuinControl(false)
 			return
@@ -322,7 +321,6 @@ local function startControlSession(quin)
 end
 
 local function stopControlSession()
-	pcall(function() RunService:UnbindFromRenderStep("PlayerQuinLocomotion") end)
 	if renderConn then
 		renderConn:Disconnect()
 		renderConn = nil
