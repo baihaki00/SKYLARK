@@ -363,31 +363,9 @@ function ProceduralCombatReactionController:update(dt)
 		local maxChange = 2.0 * dt
 		self.turnMassDrop = math.clamp(desiredMassDrop, prevMassDrop - maxChange, prevMassDrop + maxChange)
 
-		-- Dynamic Arm Counter-Balancing & Athletic Flare
-		-- During chatter: ZERO roll flapping! Arms flare outward into stable athletic balance guard.
-		local turnArmRollTarget = 0
-		if not isChattering then
-			turnArmRollTarget = -math.clamp(effectiveTurnRate * speedRatio * math.rad(10.0 * 0.15), -math.rad(8.0), math.rad(8.0))
-		end
-
-		local flareTarget = 0
-		if isChattering then
-			flareTarget = math.rad(12.0) -- Athletic balance posture during rapid WASD cuts
-		elseif isSkidding then
-			local p = math.clamp(skidElapsed / skidDur, 0, 1)
-			flareTarget = math.rad(16.0) * math.sin(p * math.pi)
-		else
-			flareTarget = math.clamp(math.abs(effectiveTurnRate) * 0.015, 0, math.rad(6.0))
-		end
-
-		local armResp = isChattering and 8.0 or 12.0
-		self.currentArmRoll = (self.currentArmRoll or 0) + (turnArmRollTarget - (self.currentArmRoll or 0)) * (1 - math.exp(-armResp * dt))
-		self.currentArmFlare = (self.currentArmFlare or 0) + (flareTarget - (self.currentArmFlare or 0)) * (1 - math.exp(-armResp * dt))
 	else
 		self.currentBankRoll = self.currentBankRoll * math.exp(-10.0 * dt)
 		self.turnMassDrop = (self.turnMassDrop or 0) * math.exp(-8.0 * dt)
-		self.currentArmRoll = (self.currentArmRoll or 0) * math.exp(-10.0 * dt)
-		self.currentArmFlare = (self.currentArmFlare or 0) * math.exp(-10.0 * dt)
 		if self.rootPart then
 			local currentLook = self.rootPart.CFrame.LookVector
 			local flatLook = Vector3.new(currentLook.X, 0, currentLook.Z)
@@ -451,27 +429,6 @@ function ProceduralCombatReactionController:update(dt)
 
 	if self.headBone then
 		self.headBone.Transform = self.headBone.Transform * CFrame.Angles(hPitch, 0, hRoll)
-	end
-
-	-- Dynamic Arm Counter-Balancing & Athletic Flare (stabilization during rapid WASD cuts & 180 skids)
-	local armFlare = self.currentArmFlare or 0
-	local armRoll = self.currentArmRoll or 0
-	if math.abs(armRoll) > 0.001 or math.abs(armFlare) > 0.001 then
-		if self.leftArmBone then
-			-- Left arm: flare outward (-Y), pitch forward (+X), bank roll (+Z)
-			self.leftArmBone.Transform = self.leftArmBone.Transform * CFrame.Angles(armFlare * 0.40, -armFlare, armRoll)
-		end
-		if self.rightArmBone then
-			-- Right arm: flare outward (+Y), pitch forward (+X), bank roll (+Z)
-			self.rightArmBone.Transform = self.rightArmBone.Transform * CFrame.Angles(armFlare * 0.40, armFlare, armRoll)
-		end
-		if self.leftForeArmBone and armFlare > 0.001 then
-			-- Forearm elbow flexion: bends elbow forward for athletic ready posture
-			self.leftForeArmBone.Transform = self.leftForeArmBone.Transform * CFrame.Angles(armFlare * 0.70, 0, 0)
-		end
-		if self.rightForeArmBone and armFlare > 0.001 then
-			self.rightForeArmBone.Transform = self.rightForeArmBone.Transform * CFrame.Angles(armFlare * 0.70, 0, 0)
-		end
 	end
 
 	-- 7. Procedural Foot IK & Ledge Gripping (Step 3: Anatomically Sound Terrain Adaptation)
