@@ -310,19 +310,24 @@ function ProceduralCombatReactionController:update(dt)
 			flatLook = Vector3.new(0, 0, -1)
 		end
 
-		local lastLook = self.lastHeadingLook or flatLook
-		self.lastHeadingLook = flatLook
-
-		local crossY = lastLook:Cross(flatLook).Y
-		local dotLook = math.clamp(lastLook:Dot(flatLook), -1, 1)
-		local cframeTurnRate = (dt > 0.0001) and (math.atan2(crossY, dotLook) / dt) or 0.0
-
-		-- Combine CFrame heading turn rate and physical angular velocity
+		-- Physical Angular Velocity (continuous physics solver yaw rate; zero finite-difference derivative noise)
 		local physAngY = self.rootPart.AssemblyAngularVelocity.Y
-		local effectiveTurnRate = (math.abs(cframeTurnRate) > math.abs(physAngY)) and cframeTurnRate or physAngY
+		self.smoothedTurnRate = (self.smoothedTurnRate or 0) + (physAngY - (self.smoothedTurnRate or 0)) * (1 - math.exp(-14.0 * dt))
+		local effectiveTurnRate = self.smoothedTurnRate
 
-		local maxRollDeg = CombatConfig.TorsoBankingMaxRoll or 15.0
-		local responsiveness = CombatConfig.TorsoBankingResponsiveness or 14.0
+		local skidTime = serverModel and serverModel:GetAttribute("SkidTurnTime") or 0
+		local skidDur = serverModel and serverModel:GetAttribute("SkidTurnDuration") or 0.32
+		local skidElapsed = os.clock() - skidTime
+
+		local isChattering = serverModel and serverModel:GetAttribute("DirectionalChatter") == true
+		local isSkidding = (skidElapsed >= 0 and skidElapsed < skidDur)
+
+		-- Chatter Damping: during rapid WASD mashing / chatter, stabilize torso core upright
+		-- Eliminates resonant 10Hz torso flapping while preserving cinematic banking on smooth arcs
+		local chatterDampen = isChattering and 0.15 or 1.0
+
+		local maxRollDeg = (CombatConfig.TorsoBankingMaxRoll or 15.0) * chatterDampen
+		local responsiveness = isChattering and 6.0 or (CombatConfig.TorsoBankingResponsiveness or 14.0)
 		local strideBase = CombatConfig.RunStrideBase or 50.0
 
 		-- In Roblox right-handed coordinates for spine chain:
@@ -333,13 +338,15 @@ function ProceduralCombatReactionController:update(dt)
 		self.currentBankRoll = self.currentBankRoll + (targetRoll - self.currentBankRoll) * (1 - math.exp(-responsiveness * dt))
 
 		-- Centripetal Knee Flexion / Turn Mass Drop
-		local maxTurnDrop = CombatConfig.TurnMassDropMax or 0.45
-		local turnDrop = -math.clamp(math.abs(effectiveTurnRate) * speedRatio * 0.065, 0, maxTurnDrop)
+		-- During chatter: maintain a stable athletic crouch (-0.12 studs) rather than
+		-- bouncing up and down with alternating angular velocity zero-crossings (10Hz jackhammer!)
+		local maxTurnDrop = (CombatConfig.TurnMassDropMax or 0.45)
+		local turnDrop = 0
+		if not isChattering then
+			turnDrop = -math.clamp(math.abs(effectiveTurnRate) * speedRatio * 0.065, 0, maxTurnDrop)
+		end
 
 		-- Skid Reversal Mass Drop: when 180 skid is active, sink hips firmly into the turf
-		local skidTime = serverModel and serverModel:GetAttribute("SkidTurnTime") or 0
-		local skidDur = serverModel and serverModel:GetAttribute("SkidTurnDuration") or 0.32
-		local skidElapsed = os.clock() - skidTime
 		local skidDrop = 0
 		if skidElapsed >= 0 and skidElapsed < skidDur then
 			local p = skidElapsed / skidDur
@@ -348,33 +355,37 @@ function ProceduralCombatReactionController:update(dt)
 			skidDrop = -skidMaxAmount * curve
 		end
 
-		local isChattering = serverModel and serverModel:GetAttribute("DirectionalChatter") == true
-		local isSkidding = (skidElapsed >= 0 and skidElapsed < skidDur)
-
-		-- Chatter mass drop: slight athletic crouch during rapid directional reversals
-		local chatterDrop = isChattering and -0.20 or 0
+		-- Chatter mass drop: stable athletic crouch during rapid footwork
+		local chatterDrop = isChattering and -0.12 or 0
 
 		local targetTotalMassDrop = turnDrop + skidDrop + chatterDrop
-		self.turnMassDrop = (self.turnMassDrop or 0) + (targetTotalMassDrop - (self.turnMassDrop or 0)) * math.clamp(16.0 * dt, 0, 1)
+		self.turnMassDrop = (self.turnMassDrop or 0) + (targetTotalMassDrop - (self.turnMassDrop or 0)) * (1 - math.exp(-10.0 * dt))
 
 		-- Dynamic Arm Counter-Balancing & Athletic Flare
-		local turnArmRollTarget = -math.clamp(effectiveTurnRate * speedRatio * math.rad(14.0 * 0.15), -math.rad(12.0), math.rad(12.0))
+		-- During chatter: ZERO roll flapping! Arms flare outward into athletic balance guard.
+		local turnArmRollTarget = 0
+		if not isChattering then
+			turnArmRollTarget = -math.clamp(effectiveTurnRate * speedRatio * math.rad(10.0 * 0.15), -math.rad(8.0), math.rad(8.0))
+		end
+
 		local flareTarget = 0
 		if isSkidding then
 			local p = math.clamp(skidElapsed / skidDur, 0, 1)
-			flareTarget = math.rad(16.0) * math.sin(p * math.pi)
+			flareTarget = math.rad(18.0) * math.sin(p * math.pi)
 		elseif isChattering then
-			flareTarget = math.rad(11.0)
+			flareTarget = math.rad(14.0) -- Athletic balance posture during rapid WASD cuts
+		else
+			flareTarget = math.clamp(math.abs(effectiveTurnRate) * 0.02, 0, math.rad(8.0))
 		end
 
-		local armResp = 14.0
+		local armResp = isChattering and 8.0 or 12.0
 		self.currentArmRoll = (self.currentArmRoll or 0) + (turnArmRollTarget - (self.currentArmRoll or 0)) * (1 - math.exp(-armResp * dt))
 		self.currentArmFlare = (self.currentArmFlare or 0) + (flareTarget - (self.currentArmFlare or 0)) * (1 - math.exp(-armResp * dt))
 	else
-		self.currentBankRoll = self.currentBankRoll * math.exp(-14.0 * dt)
-		self.turnMassDrop = (self.turnMassDrop or 0) * math.exp(-14.0 * dt)
-		self.currentArmRoll = (self.currentArmRoll or 0) * math.exp(-14.0 * dt)
-		self.currentArmFlare = (self.currentArmFlare or 0) * math.exp(-14.0 * dt)
+		self.currentBankRoll = self.currentBankRoll * math.exp(-10.0 * dt)
+		self.turnMassDrop = (self.turnMassDrop or 0) * math.exp(-8.0 * dt)
+		self.currentArmRoll = (self.currentArmRoll or 0) * math.exp(-10.0 * dt)
+		self.currentArmFlare = (self.currentArmFlare or 0) * math.exp(-10.0 * dt)
 		if self.rootPart then
 			local currentLook = self.rootPart.CFrame.LookVector
 			local flatLook = Vector3.new(currentLook.X, 0, currentLook.Z)
@@ -391,23 +402,26 @@ function ProceduralCombatReactionController:update(dt)
 	self.hipsVelocity = self.hipsVelocity + forceHips * dt
 	self.hipsOffset = math.clamp(self.hipsOffset + self.hipsVelocity * dt, -0.65, 0.1)
 
-	-- 6. Multiplicative Bone Distribution
 	-- Total torso recoil angles = spring recoil + airborne orientation + centripetal bank roll
 	local totalPitch = self.currentPitch + self.airPitch
-	local totalRoll = self.currentRoll + self.airRoll + self.currentBankRoll
 	local totalYaw = self.currentYaw
+
+	-- Torso bank roll applies strictly to the spine chain (Spine, Spine1, Spine2)
+	-- Neck and head maintain horizon stabilization (VOR) and do NOT whip with torso banking
+	local spineRoll = self.currentRoll + self.airRoll + self.currentBankRoll
+	local headRoll  = self.currentRoll + self.airRoll -- Pure combat recoil/airborne flinch only; 0 bank roll whip!
 
 	-- Hierarchical distribution across spine chain:
 	-- Spine (lower): 30% Pitch, 35% Roll, 25% Yaw
 	-- Spine1 (mid):   35% Pitch, 35% Roll, 35% Yaw
 	-- Spine2 (chest): 35% Pitch, 30% Roll, 40% Yaw
-	-- Neck:           20% secondary pitch/roll
+	-- Neck:           20% secondary pitch/recoil roll
 	-- Head:           15% secondary flinch
-	local s0Pitch, s0Roll, s0Yaw = totalPitch * 0.30, totalRoll * 0.35, totalYaw * 0.25
-	local s1Pitch, s1Roll, s1Yaw = totalPitch * 0.35, totalRoll * 0.35, totalYaw * 0.35
-	local s2Pitch, s2Roll, s2Yaw = totalPitch * 0.35, totalRoll * 0.30, totalYaw * 0.40
-	local nPitch, nRoll          = totalPitch * 0.20, totalRoll * 0.20
-	local hPitch, hRoll          = totalPitch * 0.15, totalRoll * 0.15
+	local s0Pitch, s0Roll, s0Yaw = totalPitch * 0.30, spineRoll * 0.35, totalYaw * 0.25
+	local s1Pitch, s1Roll, s1Yaw = totalPitch * 0.35, spineRoll * 0.35, totalYaw * 0.35
+	local s2Pitch, s2Roll, s2Yaw = totalPitch * 0.35, spineRoll * 0.30, totalYaw * 0.40
+	local nPitch, nRoll          = totalPitch * 0.20, headRoll * 0.20
+	local hPitch, hRoll          = totalPitch * 0.15, headRoll * 0.15
 
 	-- Apply to bones multiplicatively on top of evaluated animation track
 	if self.hipsBone and (math.abs(self.hipsOffset) > 0.001 or math.abs(self.hipsDipOffset or 0) > 0.001 or math.abs(self.turnMassDrop or 0) > 0.001) then
@@ -440,16 +454,19 @@ function ProceduralCombatReactionController:update(dt)
 	local armRoll = self.currentArmRoll or 0
 	if math.abs(armRoll) > 0.001 or math.abs(armFlare) > 0.001 then
 		if self.leftArmBone then
-			self.leftArmBone.Transform = self.leftArmBone.Transform * CFrame.Angles(0, -armFlare * 0.45, armRoll + armFlare)
+			-- Left arm: flare outward (-Y), pitch forward (+X), bank roll (+Z)
+			self.leftArmBone.Transform = self.leftArmBone.Transform * CFrame.Angles(armFlare * 0.40, -armFlare, armRoll)
 		end
 		if self.rightArmBone then
-			self.rightArmBone.Transform = self.rightArmBone.Transform * CFrame.Angles(0, armFlare * 0.45, armRoll - armFlare)
+			-- Right arm: flare outward (+Y), pitch forward (+X), bank roll (+Z)
+			self.rightArmBone.Transform = self.rightArmBone.Transform * CFrame.Angles(armFlare * 0.40, armFlare, armRoll)
 		end
 		if self.leftForeArmBone and armFlare > 0.001 then
-			self.leftForeArmBone.Transform = self.leftForeArmBone.Transform * CFrame.Angles(armFlare * 0.35, 0, 0)
+			-- Forearm elbow flexion: bends elbow forward for athletic ready posture
+			self.leftForeArmBone.Transform = self.leftForeArmBone.Transform * CFrame.Angles(armFlare * 0.70, 0, 0)
 		end
 		if self.rightForeArmBone and armFlare > 0.001 then
-			self.rightForeArmBone.Transform = self.rightForeArmBone.Transform * CFrame.Angles(armFlare * 0.35, 0, 0)
+			self.rightForeArmBone.Transform = self.rightForeArmBone.Transform * CFrame.Angles(armFlare * 0.70, 0, 0)
 		end
 	end
 
@@ -485,15 +502,10 @@ function ProceduralCombatReactionController:update(dt)
 
 		-- 2. Turn / Spin Attenuation: Attenuate IK during high angular velocity or rapid heading changes
 		-- Allows athletic plant cuts, 90 cuts, and 180 direction reversals to play cleanly without IK ankle drag
-		local currentLook = hrpCF.LookVector
-		local lastLook = self.lastLookVector or currentLook
-		self.lastLookVector = currentLook
-		local crossY = lastLook:Cross(currentLook).Y
-		local dotLook = math.clamp(lastLook:Dot(currentLook), -1, 1)
-		local cframeTurnRate = dt > 0 and (math.abs(math.atan2(crossY, dotLook)) / dt) or 0
-
-		local angVelY = math.max(math.abs(self.rootPart.AssemblyAngularVelocity.Y), cframeTurnRate)
-		local turnDampen = math.clamp(1.0 - (angVelY - 1.0) / 2.0, 0.0, 1.0)
+		local angVelY = math.abs(self.smoothedTurnRate or self.rootPart.AssemblyAngularVelocity.Y)
+		local rawTurnDampen = math.clamp(1.0 - (angVelY - 4.0) / 8.0, 0.0, 1.0)
+		self.currentTurnDampen = (self.currentTurnDampen or 1.0) + (rawTurnDampen - (self.currentTurnDampen or 1.0)) * (1 - math.exp(-8.0 * dt))
+		local turnDampen = self.currentTurnDampen
 
 		-- 3. Anatomical Solver: Respects the animated (X, Z) stride and swing phase!
 		local function solveFoot(footBone, isLeft)

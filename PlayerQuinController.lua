@@ -29,6 +29,7 @@ local smoothedMoveDir = Vector3.zero
 local lastRawMoveDir = nil
 local lastRawMoveTime = 0
 local lastChatterTime = 0
+local lastHeadingAngle = nil
 
 -- ============================================================================
 -- 1. HUD BUTTON: [ ▶ Play As Quin ] / [ ⏹ Exit Quin Mode ]
@@ -93,9 +94,10 @@ local function startControlSession(quin)
 		return false
 	end
 
-	-- Notify camera
+	-- Notify camera and ghost systems
 	shared.PlayerControlledQuin = quin
 	_G.PlayerControlledQuin = quin
+	activeQuin:SetAttribute("IsPlayerControlled", true)
 
 	-- Stop any stale tracks so IdleReady_Stance has a clean slate
 	local animator = activeHumanoid:FindFirstChildOfClass("Animator")
@@ -124,9 +126,10 @@ local function startControlSession(quin)
 		toggleQuinControl(false)
 	end)
 
-	-- Frame-by-frame locomotion loop
-	if renderConn then renderConn:Disconnect() end
-	renderConn = RunService.RenderStepped:Connect(function(dt)
+	-- Frame-by-frame locomotion loop (Deterministic Render Priority)
+	-- Priority: Input.Value + 1 ensures player movement runs BEFORE physics and visual ghost sync
+	pcall(function() RunService:UnbindFromRenderStep("PlayerQuinLocomotion") end)
+	RunService:BindToRenderStep("PlayerQuinLocomotion", Enum.RenderPriority.Input.Value + 1, function(dt)
 		if not activeQuin or not activeQuin.Parent or not activeRootPart or not activeHumanoid then
 			toggleQuinControl(false)
 			return
@@ -202,17 +205,28 @@ local function startControlSession(quin)
 			local isChattering = (now - lastChatterTime) < 0.30
 			activeQuin:SetAttribute("DirectionalChatter", isChattering)
 
-			-- Inertial Directional Spring (Option A):
-			-- Smooths out twitchy keyboard square-wave vectors with fast exponential response (lambda = 22)
-			-- Zero perceptible lag (~45ms), but prevents instant yaw-snapping and visual disorientation
-			if smoothedMoveDir.Magnitude < 0.05 then
-				smoothedMoveDir = rawMoveDir
-			else
-				local springAlpha = 1.0 - math.exp(-22.0 * dt)
-				smoothedMoveDir = smoothedMoveDir:Lerp(rawMoveDir, springAlpha)
-				if smoothedMoveDir.Magnitude > 0.01 then
-					smoothedMoveDir = smoothedMoveDir.Unit
+			-- 2D Heading Slerp Directional Spring:
+			-- Interpolates heading angle along the unit circle rather than cutting through (0,0,0)
+			-- Eliminates vector collapse and 1-frame sideways snapping on 180° reversals
+			local targetAngle = math.atan2(rawMoveDir.X, rawMoveDir.Z)
+			if smoothedMoveDir.Magnitude < 0.1 then
+				if lastHeadingAngle and (now - lastRawMoveTime) < 0.25 then
+					local diff = (targetAngle - lastHeadingAngle + math.pi) % (2 * math.pi) - math.pi
+					local springAlpha = 1.0 - math.exp(-22.0 * dt)
+					local newAngle = lastHeadingAngle + diff * springAlpha
+					smoothedMoveDir = Vector3.new(math.sin(newAngle), 0, math.cos(newAngle))
+					lastHeadingAngle = newAngle
+				else
+					smoothedMoveDir = rawMoveDir
+					lastHeadingAngle = targetAngle
 				end
+			else
+				local currentAngle = math.atan2(smoothedMoveDir.X, smoothedMoveDir.Z)
+				local diff = (targetAngle - currentAngle + math.pi) % (2 * math.pi) - math.pi
+				local springAlpha = 1.0 - math.exp(-22.0 * dt)
+				local newAngle = currentAngle + diff * springAlpha
+				smoothedMoveDir = Vector3.new(math.sin(newAngle), 0, math.cos(newAngle))
+				lastHeadingAngle = newAngle
 			end
 
 			local moveDir = smoothedMoveDir
@@ -308,6 +322,7 @@ local function startControlSession(quin)
 end
 
 local function stopControlSession()
+	pcall(function() RunService:UnbindFromRenderStep("PlayerQuinLocomotion") end)
 	if renderConn then
 		renderConn:Disconnect()
 		renderConn = nil
@@ -317,8 +332,11 @@ local function stopControlSession()
 		deathConn = nil
 	end
 
-	if activeQuin and activeHumanoid and activeRootPart then
-		LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, 0.1)
+	if activeQuin then
+		activeQuin:SetAttribute("IsPlayerControlled", false)
+		if activeHumanoid and activeRootPart then
+			LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, 0.1)
+		end
 	end
 
 	shared.PlayerControlledQuin = nil

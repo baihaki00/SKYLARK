@@ -61,6 +61,18 @@ function LookController:resolveTargetPosition()
 	-- 1. Check AI server model for active target
 	local serverModel = self.aiModel
 	if serverModel and serverModel.Parent then
+		local isPlayer = (serverModel:GetAttribute("IsPlayerControlled") == true)
+			or (game.Players.LocalPlayer and serverModel:GetAttribute("ControllingPlayer") == game.Players.LocalPlayer.Name)
+
+		-- For player-controlled Quins: do not wrench head towards background AI while exploring/moving.
+		-- Only engage look tracking if an explicit lock-on target is active.
+		if isPlayer then
+			local lockedTarget = serverModel:GetAttribute("LockedCombatTarget")
+			if not lockedTarget or lockedTarget == "" then
+				return nil, "NONE"
+			end
+		end
+
 		local targetName = serverModel:GetAttribute("TargetQuin") or serverModel:GetAttribute("CurrentTarget")
 		if targetName and targetName ~= "" then
 			local qServer = Workspace:FindFirstChild("QuinServer") or Workspace
@@ -141,10 +153,24 @@ function LookController:update(dt)
 		local rawYaw = math.atan2(-localDir.X, -localDir.Z)
 		local rawPitch = math.asin(math.clamp(localDir.Y, -0.98, 0.98))
 
-		-- Clamp total yaw at ZONE3_MAX (100 degrees) to prevent unnatural owl rotation
+		-- Biomechanical Peripheral Gaze Falloff:
+		-- Eye/head tracking is active within comfortable field of view (|yaw| <= 70 deg).
+		-- Between 70 and 85 deg, tracking smoothly blends to 0 via cubic Hermite curve.
+		-- Beyond 85 deg (behind character), gaze weight is 0: head faces forward naturally.
+		-- Eliminates branch-cut (+-180 deg) flipping, owl snaps, and idle jitter!
 		local absYaw = math.abs(rawYaw)
-		local clampedYaw = (absYaw > ZONE3_MAX) and (math.sign(rawYaw) * ZONE3_MAX) or rawYaw
-		local clampedPitch = math.clamp(rawPitch, PITCH_MIN, PITCH_MAX)
+		local gazeWeight = 1.0
+		if absYaw > math.rad(70) then
+			if absYaw >= math.rad(85) then
+				gazeWeight = 0.0
+			else
+				local p = (absYaw - math.rad(70)) / math.rad(15)
+				gazeWeight = 1.0 - (p * p * (3 - 2 * p))
+			end
+		end
+
+		local clampedYaw = math.clamp(rawYaw, -ZONE2_MAX, ZONE2_MAX) * gazeWeight
+		local clampedPitch = math.clamp(rawPitch, PITCH_MIN, PITCH_MAX) * gazeWeight
 
 		-- Deadzone filter (prevents sub-degree jitter)
 		if math.abs(clampedYaw - self.currentYaw) < math.rad(1.2) then
