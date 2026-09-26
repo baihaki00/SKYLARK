@@ -147,7 +147,9 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 
 	-- 3. Issue steering command to humanoid with native physics AutoRotate
 	humanoid.AutoRotate = true
-	humanoid:MoveTo(targetPosition)
+	if not fighter:GetAttribute("IsPlayerControlled") then
+		humanoid:MoveTo(targetPosition)
+	end
 	-- Note: Footstep audio is driven authoritatively by animation keyframe markers via AnimationModule
 end
 

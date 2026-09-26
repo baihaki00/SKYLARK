@@ -193,16 +193,16 @@ local function startControlSession(quin)
 			if lastRawMoveDir then
 				local dotRaw = lastRawMoveDir:Dot(rawMoveDir)
 				local timeSinceLastRaw = now - lastRawMoveTime
-				-- Sharp angle reversal (< -0.3) within 240ms implies rapid WASD jitter/chatter
-				if dotRaw < -0.3 and timeSinceLastRaw < 0.24 then
+				-- Angle reversal (< 0.5, i.e. > 60° cut) within 350ms implies rapid WASD chatter
+				if dotRaw < 0.5 and timeSinceLastRaw < 0.35 then
 					lastChatterTime = now
 				end
 			end
 			lastRawMoveDir = rawMoveDir
 			lastRawMoveTime = now
 
-			local isChattering = (now - lastChatterTime) < 0.30
-			activeQuin:SetAttribute("DirectionalChatter", isChattering)
+			local isChattering = lastChatterTime and (now - lastChatterTime) < 0.40
+			activeQuin:SetAttribute("DirectionalChatter", isChattering or false)
 
 			-- 2D Heading Slerp Directional Spring:
 			-- Interpolates heading angle along the unit circle rather than cutting through (0,0,0)
@@ -300,8 +300,12 @@ local function startControlSession(quin)
 			end
 		else
 			smoothedMoveDir = Vector3.zero
-			lastRawMoveDir = nil
-			activeQuin:SetAttribute("DirectionalChatter", false)
+			-- Retain lastRawMoveDir across brief key transitions (20-350ms) so WASD multi-taps detect chatter
+			if lastRawMoveTime and (now - lastRawMoveTime) > 0.35 then
+				lastRawMoveDir = nil
+			end
+			local isChattering = lastChatterTime and (now - lastChatterTime) < 0.40
+			activeQuin:SetAttribute("DirectionalChatter", isChattering or false)
 
 			-- Reset pilot speed towards min pacing when keys are released
 			activeQuin:SetAttribute("CurrentPilotSpeed", minPacing)

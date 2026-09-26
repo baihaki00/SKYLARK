@@ -347,44 +347,37 @@ function ProceduralCombatReactionController:update(dt)
 		self.currentBankRoll = self.currentBankRoll + (targetRoll - self.currentBankRoll) * (1 - math.exp(-responsiveness * dt))
 
 		-- Centripetal Knee Flexion / Turn Mass Drop
-		-- During chatter: maintain a stable athletic crouch (-0.12 studs) rather than
-		-- bouncing up and down with alternating angular velocity zero-crossings (10Hz jackhammer!)
-		local maxTurnDrop = (CombatConfig.TurnMassDropMax or 0.45)
-		local turnDrop = 0
-		if not isChattering then
-			turnDrop = -math.clamp(math.abs(effectiveTurnRate) * speedRatio * 0.065, 0, maxTurnDrop)
-		end
-
-		-- Skid Reversal Mass Drop: when 180 skid is active, sink hips firmly into the turf
+		-- Ground locomotion hips motion is authoritatively driven by the artist's run animation.
+		-- Only committed 180° turnaround skids apply a brief turf plant (-0.12 studs).
+		-- Normal turns and WASD chatter apply ZERO procedural hips displacement,
+		-- eliminating 100% of vertical pelvis vibration and preserving pure author run cycle!
 		local skidDrop = 0
-		if skidElapsed >= 0 and skidElapsed < skidDur then
-			local p = skidElapsed / skidDur
-			local curve = math.sin(p * math.pi)
-			local skidMaxAmount = CombatConfig.SkidMassDropAmount or 0.55
-			skidDrop = -skidMaxAmount * curve
+		if isSkidding and not isChattering then
+			local p = math.clamp(skidElapsed / skidDur, 0, 1)
+			skidDrop = -0.12 * math.sin(p * math.pi)
 		end
 
-		-- Chatter mass drop: stable athletic crouch during rapid footwork
-		local chatterDrop = isChattering and -0.12 or 0
-
-		local targetTotalMassDrop = turnDrop + skidDrop + chatterDrop
-		self.turnMassDrop = (self.turnMassDrop or 0) + (targetTotalMassDrop - (self.turnMassDrop or 0)) * (1 - math.exp(-10.0 * dt))
+		local prevMassDrop = self.turnMassDrop or 0
+		local massAlpha = 1.0 - math.exp(-12.0 * dt)
+		local desiredMassDrop = prevMassDrop + (skidDrop - prevMassDrop) * massAlpha
+		local maxChange = 2.0 * dt
+		self.turnMassDrop = math.clamp(desiredMassDrop, prevMassDrop - maxChange, prevMassDrop + maxChange)
 
 		-- Dynamic Arm Counter-Balancing & Athletic Flare
-		-- During chatter: ZERO roll flapping! Arms flare outward into athletic balance guard.
+		-- During chatter: ZERO roll flapping! Arms flare outward into stable athletic balance guard.
 		local turnArmRollTarget = 0
 		if not isChattering then
 			turnArmRollTarget = -math.clamp(effectiveTurnRate * speedRatio * math.rad(10.0 * 0.15), -math.rad(8.0), math.rad(8.0))
 		end
 
 		local flareTarget = 0
-		if isSkidding then
+		if isChattering then
+			flareTarget = math.rad(12.0) -- Athletic balance posture during rapid WASD cuts
+		elseif isSkidding then
 			local p = math.clamp(skidElapsed / skidDur, 0, 1)
-			flareTarget = math.rad(18.0) * math.sin(p * math.pi)
-		elseif isChattering then
-			flareTarget = math.rad(14.0) -- Athletic balance posture during rapid WASD cuts
+			flareTarget = math.rad(16.0) * math.sin(p * math.pi)
 		else
-			flareTarget = math.clamp(math.abs(effectiveTurnRate) * 0.02, 0, math.rad(8.0))
+			flareTarget = math.clamp(math.abs(effectiveTurnRate) * 0.015, 0, math.rad(6.0))
 		end
 
 		local armResp = isChattering and 8.0 or 12.0
@@ -416,21 +409,23 @@ function ProceduralCombatReactionController:update(dt)
 	local totalYaw = self.currentYaw
 
 	-- Torso bank roll applies strictly to the spine chain (Spine, Spine1, Spine2)
-	-- Neck and head maintain horizon stabilization (VOR) and do NOT whip with torso banking
 	local spineRoll = self.currentRoll + self.airRoll + self.currentBankRoll
-	local headRoll  = self.currentRoll + self.airRoll -- Pure combat recoil/airborne flinch only; 0 bank roll whip!
+	local headRoll  = self.currentRoll + self.airRoll
 
 	-- Hierarchical distribution across spine chain:
 	-- Spine (lower): 30% Pitch, 35% Roll, 25% Yaw
 	-- Spine1 (mid):   35% Pitch, 35% Roll, 35% Yaw
 	-- Spine2 (chest): 35% Pitch, 30% Roll, 40% Yaw
-	-- Neck:           20% secondary pitch/recoil roll
-	-- Head:           15% secondary flinch
 	local s0Pitch, s0Roll, s0Yaw = totalPitch * 0.30, spineRoll * 0.35, totalYaw * 0.25
 	local s1Pitch, s1Roll, s1Yaw = totalPitch * 0.35, spineRoll * 0.35, totalYaw * 0.35
 	local s2Pitch, s2Roll, s2Yaw = totalPitch * 0.35, spineRoll * 0.30, totalYaw * 0.40
-	local nPitch, nRoll          = totalPitch * 0.20, headRoll * 0.20
-	local hPitch, hRoll          = totalPitch * 0.15, headRoll * 0.15
+
+	-- VOR (Vestibulo-Ocular Reflex): Horizon stabilization
+	-- Neck and head counter-rotate against the cumulative torso bank roll (-spineRoll)
+	-- perfectly cancelling out lateral spine tilt so the head remains rock-solid level with the world horizon!
+	local vorCounterRoll = -spineRoll
+	local nPitch, nRoll  = totalPitch * 0.20, (headRoll * 0.20) + (vorCounterRoll * 0.50)
+	local hPitch, hRoll  = totalPitch * 0.15, (headRoll * 0.15) + (vorCounterRoll * 0.50)
 
 	-- Apply to bones multiplicatively on top of evaluated animation track
 	if self.hipsBone and (math.abs(self.hipsOffset) > 0.001 or math.abs(self.hipsDipOffset or 0) > 0.001 or math.abs(self.turnMassDrop or 0) > 0.001) then
@@ -542,11 +537,15 @@ function ProceduralCombatReactionController:update(dt)
 				elevDelta = floorY - nominalGroundY
 
 				-- A. Flat Ground Deadzone:
-				-- If surface is nearly flat (Normal.Y >= 0.94) AND at normal floor level (|elevDelta| <= 0.20):
-				-- The artist's locomotion animation is already 100% physically calibrated! Zero IK interference.
-				local isFlatFloor = (hit.Normal.Y >= 0.94 and math.abs(elevDelta) <= 0.20)
+				-- At high speeds, vertical stride bobbing is normal (~0.25 studs).
+				-- Broaden tolerance when moving fast so flat turf never falsely engages IK.
+				local flatTolerance = speed > 15.0 and 0.45 or 0.20
+				local isFlatFloor = (hit.Normal.Y >= 0.94 and math.abs(elevDelta) <= flatTolerance)
 
-				if not isFlatFloor and elevDelta >= -maxStepDown and elevDelta <= maxStepUp then
+				-- High-speed sprint on flat ground: let author-keyed sprint animation play 100% pure!
+				if speed > 22.0 and hit.Normal.Y >= 0.94 and math.abs(elevDelta) <= 0.60 then
+					targetWeight = 0.0
+				elseif not isFlatFloor and elevDelta >= -maxStepDown and elevDelta <= maxStepUp then
 					-- Foot is on uneven terrain, slope, stairs, or platform step!
 					-- Anatomical Stride Phase Rule:
 					-- Only engage IK when the foot is near ground contact (liftAboveSurface <= 0.35 studs).
@@ -609,13 +608,13 @@ function ProceduralCombatReactionController:update(dt)
 		self.rightIK.Enabled = (self.rightIK.Weight > 0.005)
 
 		-- Pelvis Dip Offset (sink hips when stepping down on uneven ground to prevent hyperextension)
-		local hipsDipScale = CombatConfig.FootIK_HipsDipScale or 0.50
+		local hipsDipScale = CombatConfig.FootIK_HipsDipScale or 0.35
 		local lowestDelta = math.min(lDelta or 0, rDelta or 0)
-		if lowestDelta < -0.15 then
-			local targetDip = math.clamp(lowestDelta * hipsDipScale, -1.2, 0.0)
-			self.hipsDipOffset = (self.hipsDipOffset or 0) + (targetDip - (self.hipsDipOffset or 0)) * math.clamp(14.0 * dt, 0, 1)
+		if lowestDelta < -0.30 then
+			local targetDip = math.clamp(lowestDelta * hipsDipScale, -0.15, 0.0)
+			self.hipsDipOffset = (self.hipsDipOffset or 0) + (targetDip - (self.hipsDipOffset or 0)) * math.clamp(8.0 * dt, 0, 1)
 		else
-			self.hipsDipOffset = (self.hipsDipOffset or 0) * math.exp(-12.0 * dt)
+			self.hipsDipOffset = (self.hipsDipOffset or 0) * math.exp(-10.0 * dt)
 		end
 
 		self.leftLedgeGrip = lLedge
