@@ -39,6 +39,12 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	self.rightFootBone = ghostModel:FindFirstChild("mixamorig:RightFoot", true)
 	self.rightToeBone = ghostModel:FindFirstChild("mixamorig:RightToeBase", true)
 
+	-- Arm bone references (Mixamo rig)
+	self.leftArmBone = ghostModel:FindFirstChild("mixamorig:LeftArm", true)
+	self.leftForeArmBone = ghostModel:FindFirstChild("mixamorig:LeftForeArm", true)
+	self.rightArmBone = ghostModel:FindFirstChild("mixamorig:RightArm", true)
+	self.rightForeArmBone = ghostModel:FindFirstChild("mixamorig:RightForeArm", true)
+
 	self.ghostRootPart = ghostModel:FindFirstChild("HumanoidRootPart")
 	self.simRootPart = (aiModel and aiModel:FindFirstChild("HumanoidRootPart")) or self.ghostRootPart
 	self.rootPart = self.simRootPart
@@ -133,6 +139,8 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	self.lastHeadingLook = nil
 	self.leftToeFlex = 0
 	self.rightToeFlex = 0
+	self.currentArmRoll = 0
+	self.currentArmFlare = 0
 
 	-- Damped spring state: Recoil (Pitch, Roll, Yaw)
 	self.currentPitch = 0
@@ -340,11 +348,33 @@ function ProceduralCombatReactionController:update(dt)
 			skidDrop = -skidMaxAmount * curve
 		end
 
-		local targetTotalMassDrop = turnDrop + skidDrop
+		local isChattering = serverModel and serverModel:GetAttribute("DirectionalChatter") == true
+		local isSkidding = (skidElapsed >= 0 and skidElapsed < skidDur)
+
+		-- Chatter mass drop: slight athletic crouch during rapid directional reversals
+		local chatterDrop = isChattering and -0.20 or 0
+
+		local targetTotalMassDrop = turnDrop + skidDrop + chatterDrop
 		self.turnMassDrop = (self.turnMassDrop or 0) + (targetTotalMassDrop - (self.turnMassDrop or 0)) * math.clamp(16.0 * dt, 0, 1)
+
+		-- Dynamic Arm Counter-Balancing & Athletic Flare
+		local turnArmRollTarget = -math.clamp(effectiveTurnRate * speedRatio * math.rad(14.0 * 0.15), -math.rad(12.0), math.rad(12.0))
+		local flareTarget = 0
+		if isSkidding then
+			local p = math.clamp(skidElapsed / skidDur, 0, 1)
+			flareTarget = math.rad(16.0) * math.sin(p * math.pi)
+		elseif isChattering then
+			flareTarget = math.rad(11.0)
+		end
+
+		local armResp = 14.0
+		self.currentArmRoll = (self.currentArmRoll or 0) + (turnArmRollTarget - (self.currentArmRoll or 0)) * (1 - math.exp(-armResp * dt))
+		self.currentArmFlare = (self.currentArmFlare or 0) + (flareTarget - (self.currentArmFlare or 0)) * (1 - math.exp(-armResp * dt))
 	else
 		self.currentBankRoll = self.currentBankRoll * math.exp(-14.0 * dt)
 		self.turnMassDrop = (self.turnMassDrop or 0) * math.exp(-14.0 * dt)
+		self.currentArmRoll = (self.currentArmRoll or 0) * math.exp(-14.0 * dt)
+		self.currentArmFlare = (self.currentArmFlare or 0) * math.exp(-14.0 * dt)
 		if self.rootPart then
 			local currentLook = self.rootPart.CFrame.LookVector
 			local flatLook = Vector3.new(currentLook.X, 0, currentLook.Z)
@@ -403,6 +433,24 @@ function ProceduralCombatReactionController:update(dt)
 
 	if self.headBone then
 		self.headBone.Transform = self.headBone.Transform * CFrame.Angles(hPitch, 0, hRoll)
+	end
+
+	-- Dynamic Arm Counter-Balancing & Athletic Flare (stabilization during rapid WASD cuts & 180 skids)
+	local armFlare = self.currentArmFlare or 0
+	local armRoll = self.currentArmRoll or 0
+	if math.abs(armRoll) > 0.001 or math.abs(armFlare) > 0.001 then
+		if self.leftArmBone then
+			self.leftArmBone.Transform = self.leftArmBone.Transform * CFrame.Angles(0, -armFlare * 0.45, armRoll + armFlare)
+		end
+		if self.rightArmBone then
+			self.rightArmBone.Transform = self.rightArmBone.Transform * CFrame.Angles(0, armFlare * 0.45, armRoll - armFlare)
+		end
+		if self.leftForeArmBone and armFlare > 0.001 then
+			self.leftForeArmBone.Transform = self.leftForeArmBone.Transform * CFrame.Angles(armFlare * 0.35, 0, 0)
+		end
+		if self.rightForeArmBone and armFlare > 0.001 then
+			self.rightForeArmBone.Transform = self.rightForeArmBone.Transform * CFrame.Angles(armFlare * 0.35, 0, 0)
+		end
 	end
 
 	-- 7. Procedural Foot IK & Ledge Gripping (Step 3: Anatomically Sound Terrain Adaptation)

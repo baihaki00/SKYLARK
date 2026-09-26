@@ -100,12 +100,7 @@ function LookController:resolveTargetPosition()
 		end
 	end
 
-	-- 3. No active combat target: Ambient glance or forward gaze
-	if self.rootPart then
-		local forwardPoint = self.rootPart.Position + (self.rootPart.CFrame.LookVector * 25) + Vector3.new(0, 1.5, 0)
-		return forwardPoint + self.ambientOffset, "IDLE_GLANCE"
-	end
-
+	-- 3. No active combat target: Return nil so the natural author animation breathes with 100% purity
 	return nil, "NONE"
 end
 
@@ -114,54 +109,56 @@ function LookController:update(dt)
 	if not self.enabled or not self.headBone or not self.rootPart then return end
 	if self.aiModel and self.aiModel:GetAttribute("CurrentState") == "Death" then return end
 
-	-- Update ambient glance timer
-	self.glanceTimer = self.glanceTimer + dt
-	if self.glanceTimer >= self.glanceInterval then
-		self.glanceTimer = 0
-		self.glanceInterval = 2.5 + math.random() * 2.0
-		-- Random natural small glance offset
-		local rx = (math.random() - 0.5) * 6.0
-		local ry = (math.random() - 0.5) * 2.5
-		self.ambientOffset = (self.rootPart.CFrame.RightVector * rx) + Vector3.new(0, ry, 0)
-	end
-
 	local targetPos, mode = self:resolveTargetPosition()
 	self.gazeMode = mode
 
-	if not targetPos then return end
+	if not targetPos then
+		-- No combat target: smoothly decay gaze offsets back to zero (identity)
+		-- Eliminates head vibration on idle and prevents head whipping during rapid WASD exploration
+		local decayAlpha = 1.0 - math.exp(-12.0 * dt)
+		self.currentYaw = self.currentYaw * (1.0 - decayAlpha)
+		self.currentPitch = self.currentPitch * (1.0 - decayAlpha)
+		if math.abs(self.currentYaw) < 0.001 and math.abs(self.currentPitch) < 0.001 then
+			self.currentYaw = 0
+			self.currentPitch = 0
+			return -- Early return: leaves author-keyed head/neck bone transforms 100% untouched
+		end
+	else
+		-- Active combat target tracking
+		local headWorldPos = self.headBone.WorldCFrame.Position
+		local toTarget = targetPos - headWorldPos
+		local dist = toTarget.Magnitude
 
-	local headWorldPos = self.headBone.WorldCFrame.Position
-	local toTarget = targetPos - headWorldPos
-	local dist = toTarget.Magnitude
+		if dist < 0.3 then return end
 
-	if dist < 0.3 then return end
+		local dir = toTarget / dist
 
-	local dir = toTarget / dist
+		-- Transform direction vector into local character root space
+		-- In Roblox: -Z is forward, +X is right, +Y is up
+		local localDir = self.rootPart.CFrame:VectorToObjectSpace(dir)
 
-	-- Transform direction vector into local character root space
-	-- In Roblox: -Z is forward, +X is right, +Y is up
-	local localDir = self.rootPart.CFrame:VectorToObjectSpace(dir)
+		-- Raw desired yaw and pitch
+		local rawYaw = math.atan2(-localDir.X, -localDir.Z)
+		local rawPitch = math.asin(math.clamp(localDir.Y, -0.98, 0.98))
 
-	-- Raw desired yaw and pitch
-	-- When localDir.X < 0 (left): -localDir.X > 0 => atan2 > 0 => positive Y rotates LEFT
-	-- When localDir.X > 0 (right): -localDir.X < 0 => atan2 < 0 => negative Y rotates RIGHT
-	local rawYaw = math.atan2(-localDir.X, -localDir.Z)
-	local rawPitch = math.asin(math.clamp(localDir.Y, -0.98, 0.98))
+		-- Clamp total yaw at ZONE3_MAX (100 degrees) to prevent unnatural owl rotation
+		local absYaw = math.abs(rawYaw)
+		local clampedYaw = (absYaw > ZONE3_MAX) and (math.sign(rawYaw) * ZONE3_MAX) or rawYaw
+		local clampedPitch = math.clamp(rawPitch, PITCH_MIN, PITCH_MAX)
 
-	-- Clamp total yaw at ZONE3_MAX (100 degrees) to prevent unnatural owl rotation
-	local absYaw = math.abs(rawYaw)
-	local clampedYaw = rawYaw
-	if absYaw > ZONE3_MAX then
-		clampedYaw = math.sign(rawYaw) * ZONE3_MAX
+		-- Deadzone filter (prevents sub-degree jitter)
+		if math.abs(clampedYaw - self.currentYaw) < math.rad(1.2) then
+			clampedYaw = self.currentYaw
+		end
+		if math.abs(clampedPitch - self.currentPitch) < math.rad(1.0) then
+			clampedPitch = self.currentPitch
+		end
+
+		-- Smooth rotation over time (exponential decay lerp)
+		local alpha = 1.0 - math.exp(-self.smoothSpeed * dt)
+		self.currentYaw = self.currentYaw + (clampedYaw - self.currentYaw) * alpha
+		self.currentPitch = self.currentPitch + (clampedPitch - self.currentPitch) * alpha
 	end
-
-	-- Clamp pitch
-	local clampedPitch = math.clamp(rawPitch, PITCH_MIN, PITCH_MAX)
-
-	-- Smooth rotation over time (exponential decay lerp)
-	local alpha = 1 - math.exp(-self.smoothSpeed * dt)
-	self.currentYaw = self.currentYaw + (clampedYaw - self.currentYaw) * alpha
-	self.currentPitch = self.currentPitch + (clampedPitch - self.currentPitch) * alpha
 
 	-- Graduated biomechanical distribution
 	local headYaw, neckYaw, spineYaw = 0, 0, 0
