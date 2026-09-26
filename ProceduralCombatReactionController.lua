@@ -352,7 +352,7 @@ function ProceduralCombatReactionController:update(dt)
 		-- Normal turns and WASD chatter apply ZERO procedural hips displacement,
 		-- eliminating 100% of vertical pelvis vibration and preserving pure author run cycle!
 		local skidDrop = 0
-		if isSkidding and not isChattering then
+		if isSkidding then
 			local p = math.clamp(skidElapsed / skidDur, 0, 1)
 			skidDrop = -0.12 * math.sin(p * math.pi)
 		end
@@ -363,9 +363,38 @@ function ProceduralCombatReactionController:update(dt)
 		local maxChange = 2.0 * dt
 		self.turnMassDrop = math.clamp(desiredMassDrop, prevMassDrop - maxChange, prevMassDrop + maxChange)
 
+		-- Centripetal Center-of-Mass Inward Lean:
+		-- Shifts the hips laterally inward toward the center of the arc (-X for left turn, +X for right turn)
+		-- Emulates athletic motorcycle / speed-skater inward carve (0.15 - 0.25 studs)
+		local targetInwardLean = 0
+		if math.abs(effectiveTurnRate) > 0.05 then
+			targetInwardLean = -math.clamp(effectiveTurnRate * speedRatio * 0.035, -0.25, 0.25)
+		end
+		self.turnInwardLean = (self.turnInwardLean or 0) + (targetInwardLean - (self.turnInwardLean or 0)) * (1 - math.exp(-responsiveness * dt))
+
+		-- Forward Acceleration & Braking Plant Pitch:
+		-- Derives linear forward acceleration along look vector.
+		-- Forward drive leans spine forward (-6° to -7.5°), braking/skidding leans spine into heels (+8° to +10°).
+		local currentVel = self.rootPart.AssemblyLinearVelocity
+		local flatVel = Vector3.new(currentVel.X, 0, currentVel.Z)
+		local curFwdSpeed = flatVel:Dot(flatLook)
+		local rawAccel = (curFwdSpeed - (self.lastFwdSpeed or curFwdSpeed)) / math.max(dt, 0.001)
+		self.lastFwdSpeed = curFwdSpeed
+		self.smoothedAccel = (self.smoothedAccel or 0) + (rawAccel - (self.smoothedAccel or 0)) * (1 - math.exp(-10.0 * dt))
+
+		local targetPitch = 0
+		if isSkidding then
+			targetPitch = math.rad(9.5)
+		elseif math.abs(self.smoothedAccel) > 5.0 then
+			targetPitch = math.clamp(-self.smoothedAccel * 0.003, math.rad(-7.5), math.rad(9.0))
+		end
+		self.locomotionPitch = (self.locomotionPitch or 0) + (targetPitch - (self.locomotionPitch or 0)) * (1 - math.exp(-12.0 * dt))
+
 	else
 		self.currentBankRoll = self.currentBankRoll * math.exp(-10.0 * dt)
 		self.turnMassDrop = (self.turnMassDrop or 0) * math.exp(-8.0 * dt)
+		self.turnInwardLean = (self.turnInwardLean or 0) * math.exp(-10.0 * dt)
+		self.locomotionPitch = (self.locomotionPitch or 0) * math.exp(-10.0 * dt)
 		if self.rootPart then
 			local currentLook = self.rootPart.CFrame.LookVector
 			local flatLook = Vector3.new(currentLook.X, 0, currentLook.Z)
@@ -382,8 +411,8 @@ function ProceduralCombatReactionController:update(dt)
 	self.hipsVelocity = self.hipsVelocity + forceHips * dt
 	self.hipsOffset = math.clamp(self.hipsOffset + self.hipsVelocity * dt, -0.65, 0.1)
 
-	-- Total torso recoil angles = spring recoil + airborne orientation + centripetal bank roll
-	local totalPitch = self.currentPitch + self.airPitch
+	-- Total torso recoil angles = spring recoil + airborne orientation + centripetal bank roll + locomotion pitch
+	local totalPitch = self.currentPitch + self.airPitch + (self.locomotionPitch or 0)
 	local totalYaw = self.currentYaw
 
 	-- Torso bank roll applies strictly to the spine chain (Spine, Spine1, Spine2)
@@ -406,9 +435,13 @@ function ProceduralCombatReactionController:update(dt)
 	local hPitch, hRoll  = totalPitch * 0.15, (headRoll * 0.15) + (vorCounterRoll * 0.50)
 
 	-- Apply to bones multiplicatively on top of evaluated animation track
-	if self.hipsBone and (math.abs(self.hipsOffset) > 0.001 or math.abs(self.hipsDipOffset or 0) > 0.001 or math.abs(self.turnMassDrop or 0) > 0.001) then
+	local hasHipsOffset = math.abs(self.hipsOffset) > 0.001 or math.abs(self.hipsDipOffset or 0) > 0.001
+		or math.abs(self.turnMassDrop or 0) > 0.001 or math.abs(self.turnInwardLean or 0) > 0.001
+
+	if self.hipsBone and hasHipsOffset then
 		local totalHipsY = self.hipsOffset + (self.hipsDipOffset or 0) + (self.turnMassDrop or 0)
-		self.hipsBone.Transform = self.hipsBone.Transform * CFrame.new(0, totalHipsY, 0)
+		local totalHipsX = self.turnInwardLean or 0
+		self.hipsBone.Transform = self.hipsBone.Transform * CFrame.new(totalHipsX, totalHipsY, 0)
 	end
 
 	if self.spineBone then

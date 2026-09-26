@@ -1043,7 +1043,7 @@ local function handleLabAction(player, action, data)
 
 				local turnData = AnimationConfig.get("Movement.RunTurn180")
 				if turnData then
-					playTrack(tester, turnData.id, turnData.speed or 1.35, 0.04, "Action3", false)
+					playTrack(tester, turnData.id, turnData.speed or 1.00, 0.08, "Action3", false)
 				end
 				for i = 1, 10 do
 					hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(18), 0)

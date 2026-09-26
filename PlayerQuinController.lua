@@ -15,6 +15,7 @@ local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
 
 local controlFunction = ReplicatedStorage:WaitForChild("PlayerQuinControlFunction", 10)
 
@@ -30,6 +31,7 @@ local lastRawMoveDir = nil
 local lastRawMoveTime = 0
 local lastChatterTime = 0
 local lastHeadingAngle = nil
+local lastFootstepSmokeTime = 0
 
 -- ============================================================================
 -- 1. HUD BUTTON: [ ▶ Play As Quin ] / [ ⏹ Exit Quin Mode ]
@@ -152,6 +154,12 @@ local function startControlSession(quin)
 		if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left) then moveX = moveX - 1 end
 		if UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then moveX = moveX + 1 end
 
+		-- Virtual Input support for diagnostics and automated testing suites
+		local virtZ = activeQuin:GetAttribute("VirtualMoveZ")
+		local virtX = activeQuin:GetAttribute("VirtualMoveX")
+		if virtZ ~= nil then moveZ = virtZ end
+		if virtX ~= nil then moveX = virtX end
+
 		local camCF = workspace.CurrentCamera.CFrame
 		local fwd = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z)
 		local right = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z)
@@ -161,8 +169,10 @@ local function startControlSession(quin)
 		local rawMoveDir = (fwd * (-moveZ) + right * moveX)
 		local now = os.clock()
 
-		-- Sprint toggle (LeftShift or RightShift)
-		local isSprint = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+		-- Sprint toggle (LeftShift, RightShift, or VirtualSprint)
+		local isSprint = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+			or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+			or (activeQuin:GetAttribute("VirtualSprint") == true)
 		local maxPacing = CombatConfig.Locomotion_PacingSpeedMax or 50.0
 		local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
 		local goalSpeed = isSprint and maxPacing or minPacing
@@ -194,7 +204,8 @@ local function startControlSession(quin)
 				local dotRaw = lastRawMoveDir:Dot(rawMoveDir)
 				local timeSinceLastRaw = now - lastRawMoveTime
 				-- Angle reversal (< 0.5, i.e. > 60° cut) within 350ms implies rapid WASD chatter
-				if dotRaw < 0.5 and timeSinceLastRaw < 0.35 then
+				-- Exclude sharp reversals (dotRaw < -0.42) so intentional 180° turnarounds execute cleanly
+				if dotRaw < 0.5 and dotRaw >= -0.42 and timeSinceLastRaw < 0.35 then
 					lastChatterTime = now
 				end
 			end
@@ -246,9 +257,42 @@ local function startControlSession(quin)
 				activeQuin:SetAttribute("SprintStartTime", nil)
 			end
 
-			-- Authoritative QuinCore steer: modulates speed, checks 180° skids, turns with smoothed direction
-			LocomotionModule.steer(activeQuin, activeHumanoid, activeRootPart, targetPosition, targetSpeed, dt)
-			activeHumanoid:Move(moveDir, false)
+			-- Dynamic Apex Deceleration Dip & Physical Weight:
+			-- When carving a sharp cut or tight circle at high speed, momentarily dip speed by 15-25%
+			-- to emulate planting mass/friction into the turf, then burst forward with momentum!
+			local currentVel = activeRootPart.AssemblyLinearVelocity
+			local flatVel = Vector3.new(currentVel.X, 0, currentVel.Z)
+			local curSpeed = flatVel.Magnitude
+			if curSpeed > 20.0 and flatVel.Magnitude > 0.1 then
+				local alignment = flatVel.Unit:Dot(smoothedMoveDir)
+				if alignment < 0.85 then
+					local apexFactor = math.clamp(0.75 + 0.25 * math.max(0, alignment), 0.75, 1.0)
+					targetSpeed = targetSpeed * apexFactor
+				end
+			end
+
+			-- Stylized Grey Foot Smoke: Cadence-synced puffs during sprint strides
+			if isSprint and curSpeed > 25.0 and not isAirborne then
+				local smokeCadence = 0.28 -- matches sprint stride frequency
+				if (now - lastFootstepSmokeTime) >= smokeCadence then
+					lastFootstepSmokeTime = now
+					local footOffset = Vector3.new(0, -activeRootPart.Size.Y * 0.5, 0)
+					VfxModule.emitFootstepSmoke(activeQuin, activeRootPart.Position + footOffset)
+				end
+			end
+
+			-- Authoritative QuinCore steer: checks 180° skids against RAW player intent vector, modulates speed
+			local rawTargetPosition = activeRootPart.Position + rawMoveDir * 15
+			LocomotionModule.steer(activeQuin, activeHumanoid, activeRootPart, rawTargetPosition, targetSpeed, dt)
+
+			-- If a 180° turnaround was triggered, immediately align the heading spring to the new reversal direction
+			local skidTime = activeQuin:GetAttribute("SkidTurnTime") or 0
+			if (now - skidTime) < 0.10 then
+				smoothedMoveDir = rawMoveDir
+				lastHeadingAngle = targetAngle
+			end
+
+			activeHumanoid:Move(smoothedMoveDir, false)
 
 			-- Only drive ground locomotion animations when grounded (do not overwrite jump in mid-air)
 			if not isAirborne then

@@ -299,6 +299,9 @@ if enableghostmode then
 					ghost:SetAttribute("ReactionPitch", math.round(math.deg(reactionCtrl.currentPitch) * 10) / 10)
 					ghost:SetAttribute("ReactionRoll", math.round(math.deg(reactionCtrl.currentRoll) * 10) / 10)
 					ghost:SetAttribute("ReactionHips", math.round(reactionCtrl.hipsOffset * 100) / 100)
+					ghost:SetAttribute("BankRoll", math.round(math.deg(reactionCtrl.currentBankRoll or 0) * 10) / 10)
+					ghost:SetAttribute("InwardLean", math.round((reactionCtrl.turnInwardLean or 0) * 100) / 100)
+					ghost:SetAttribute("LocoPitch", math.round(math.deg(reactionCtrl.locomotionPitch or 0) * 10) / 10)
 				end
 
 				-- 2. Procedural look controller (head, neck, spine2)

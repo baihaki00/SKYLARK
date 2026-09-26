@@ -118,12 +118,13 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local skidCooldown = CombatConfig.Locomotion_SkidCooldown or 0.38
 	local skidLockout = CombatConfig.Locomotion_SkidLockout or 0.32
 
-	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 and not isChattering then
+	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 then
 		local curDir = flatVel.Unit
 		local desDir = flatDesired.Unit
 		local cosTheta = curDir:Dot(desDir)
 
 		-- Sharp reversal: >= 115 degrees cut (cos theta < -0.42)
+		-- Unblocked from isChattering: a 180° reversal is an intentional turnaround, NOT lateral chatter!
 		if cosTheta < -0.42 and (now - (data.lastSkidTime or 0)) >= skidCooldown then
 			data.lastSkidTime = now
 			data.skidEndTime = now + skidLockout -- Lockout window so turn plant completes cleanly
@@ -132,16 +133,15 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 			fighter:SetAttribute("SkidTurnTime", now)
 			fighter:SetAttribute("SkidTurnDuration", skidLockout)
 
-			-- Visual: Play 180 Turn animation (runtimeMultiplier 1.25, clean fade for responsive blend)
-			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.25, Enum.AnimationPriority.Action3, false)
+			-- Visual: Play 180 Turn animation (runtimeMultiplier 1.00 for full fluid athletic readability)
+			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.00, Enum.AnimationPriority.Action3, false)
 
 			-- Kinetic plant friction: drop speed dynamically for athletic weight, NO contradictory slide impulse
-			humanoid.WalkSpeed = math.max(10.0, currentSpeed * 0.40)
+			humanoid.WalkSpeed = math.max(12.0, currentSpeed * 0.45)
 			data.currentSpeed = humanoid.WalkSpeed
 
-			-- VFX: Kick up dust along skid vector
-			local elem = fighter:GetAttribute("Element") or "Fire"
-			VfxModule.createDust(rootPart.Position, 3, curDir, elem)
+			-- VFX: Stylized grey foot smoke burst along turf scrape vector (zero physics parts)
+			VfxModule.createArcaneFootBurst(fighter, rootPart.Position, curDir)
 		end
 	end
 

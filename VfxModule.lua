@@ -867,4 +867,87 @@ function VfxModule.createFinisherImpact(position, element)
 	Debris:AddItem(attPart, 0.6)
 end
 
+-- ============================================================
+-- STYLIZED GREY FOOT SMOKE (Turn plants, hard cuts, footwork)
+-- ============================================================
+function VfxModule.createArcaneFootBurst(fighter, position, direction)
+	position = resolvePosition(position)
+	direction = direction or Vector3.new(0, 0, -1)
+
+	local attPart = Instance.new("Part")
+	attPart.Size = Vector3.new(0.1, 0.1, 0.1)
+	attPart.Anchored = true
+	attPart.CanCollide = false
+	attPart.Transparency = 1
+	attPart.CFrame = CFrame.lookAt(position - Vector3.new(0, 0.2, 0), position - Vector3.new(0, 0.2, 0) + direction)
+	attPart.Parent = workspace
+
+	local att = Instance.new("Attachment")
+	att.Parent = attPart
+
+	local smoke = Instance.new("ParticleEmitter")
+	smoke.Texture = "rbxassetid://6508826458"
+	smoke.LightEmission = 0.1
+	smoke.LightInfluence = 0.8
+	smoke.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.4),
+		NumberSequenceKeypoint.new(0.4, 0.9),
+		NumberSequenceKeypoint.new(1, 0.2),
+	})
+	smoke.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.35),
+		NumberSequenceKeypoint.new(0.6, 0.7),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	smoke.Lifetime = NumberRange.new(0.25, 0.40)
+	smoke.Speed = NumberRange.new(3, 8)
+	smoke.SpreadAngle = Vector2.new(30, 30)
+	smoke.EmissionDirection = Enum.NormalId.Back
+	smoke.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 225, 230)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(180, 185, 190)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(130, 135, 140)),
+	})
+	smoke.Parent = att
+	smoke:Emit(5)
+
+	Debris:AddItem(attPart, 0.50)
+end
+
+function VfxModule.emitFootstepSmoke(fighter, footPosition)
+	local pos = resolvePosition(footPosition)
+
+	local attPart = Instance.new("Part")
+	attPart.Size = Vector3.new(0.1, 0.1, 0.1)
+	attPart.Anchored = true
+	attPart.CanCollide = false
+	attPart.Transparency = 1
+	attPart.Position = pos - Vector3.new(0, 0.1, 0)
+	attPart.Parent = workspace
+
+	local att = Instance.new("Attachment")
+	att.Parent = attPart
+
+	local puff = Instance.new("ParticleEmitter")
+	puff.Texture = "rbxassetid://6508826458"
+	puff.LightEmission = 0.1
+	puff.LightInfluence = 0.8
+	puff.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.25),
+		NumberSequenceKeypoint.new(1, 0.55),
+	})
+	puff.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.45),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	puff.Lifetime = NumberRange.new(0.15, 0.25)
+	puff.Speed = NumberRange.new(1, 3)
+	puff.SpreadAngle = Vector2.new(180, 0)
+	puff.Color = ColorSequence.new(Color3.fromRGB(190, 195, 200))
+	puff.Parent = att
+	puff:Emit(2)
+
+	Debris:AddItem(attPart, 0.30)
+end
+
 return VfxModule
