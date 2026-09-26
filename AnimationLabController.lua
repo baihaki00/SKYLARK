@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -91,9 +92,37 @@ local function applyStroke(inst, color, thick)
 	return s
 end
 
---------------------------------------------------------------------------------
+local function makeBtn(parent, text, size, pos, bg, fg, textSize, corner)
+	local b = Instance.new("TextButton")
+	b.Text = text
+	b.Size = size or UDim2.new(1, 0, 1, 0)
+	if pos then b.Position = pos end
+	b.BackgroundColor3 = bg or Color3.fromRGB(36, 42, 56)
+	b.TextColor3 = fg or C_TEXT
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = textSize or 10
+	b.Parent = parent
+	if corner then applyCorner(b, corner) end
+	return b
+end
+
+local function makeLbl(parent, text, size, pos, fg, textSize, alignX)
+	local l = Instance.new("TextLabel")
+	l.Text = text
+	l.Size = size or UDim2.new(1, 0, 1, 0)
+	if pos then l.Position = pos end
+	l.BackgroundTransparency = 1
+	l.TextColor3 = fg or C_TEXT
+	l.Font = Enum.Font.Gotham
+	l.TextSize = textSize or 10
+	if alignX then l.TextXAlignment = alignX end
+	l.Parent = parent
+	return l
+end
+
+----------------
 -- 1. BLENDER-STYLE FREECAM SYSTEM (CANONICAL CAS CONTROLLER & SEAMLESS FLYING)
---------------------------------------------------------------------------------
+----------------
 local startFreecam, stopFreecam, toggleFreelookLock
 do
 	local CAS = game:GetService("ContextActionService")
@@ -333,9 +362,9 @@ end)
 	end)
 end
 
---------------------------------------------------------------------------------
+----------------
 -- 2. MAIN WINDOW CONTAINER
---------------------------------------------------------------------------------
+----------------
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.new(0, 960, 0, 620)
@@ -358,7 +387,7 @@ togglePill.BackgroundTransparency = 0.15
 togglePill.TextColor3 = Color3.fromRGB(240, 245, 255)
 togglePill.Font = Enum.Font.GothamBold
 togglePill.TextSize = 12
-togglePill.Text = "⚔️ Quin Manager [M]"
+togglePill.Text = "âš”ï¸ Quin Manager [M]"
 togglePill.Visible = true
 togglePill.Parent = screenGui
 applyCorner(togglePill, 18)
@@ -383,16 +412,16 @@ updateRigStatusBadge = function()
 	if tester and tester.Parent then
 		local hum = tester:FindFirstChildOfClass("Humanoid")
 		if hum and hum.Health > 0 then
-			rigStatusBadge.Text = "● Rig: Ready"
+			rigStatusBadge.Text = "â— Rig: Ready"
 			rigStatusBadge.TextColor3 = C_SUCCESS
-			respawnRigsBtn.Text = "🔄 Reset Rig"
+			respawnRigsBtn.Text = "ðŸ”„ Reset Rig"
 			respawnRigsBtn.BackgroundColor3 = Color3.fromRGB(35, 75, 110)
 			return true
 		end
 	end
-	rigStatusBadge.Text = "● Rig: Missing"
+	rigStatusBadge.Text = "â— Rig: Missing"
 	rigStatusBadge.TextColor3 = Color3.fromRGB(255, 170, 40)
-	respawnRigsBtn.Text = "⚡ Spawn Rig"
+	respawnRigsBtn.Text = "âš¡ Spawn Rig"
 	respawnRigsBtn.BackgroundColor3 = Color3.fromRGB(180, 100, 30)
 	return false
 end
@@ -401,19 +430,35 @@ checkAndSpawnTesters = function(force)
 	local isReady = updateRigStatusBadge and updateRigStatusBadge() or false
 	if force or not isReady then
 		if respawnRigsBtn then
-			respawnRigsBtn.Text = "⏳ Spawning..."
+			respawnRigsBtn.Text = "â³ Spawning..."
 			respawnRigsBtn.BackgroundColor3 = Color3.fromRGB(50, 60, 80)
 		end
 		labEvent:FireServer("EnsureTesterRigs", { force = force == true })
 	end
 end
 
+local currentWindowPosition = UDim2.new(0.5, -480, 0.5, -310)
+local isDockedRight = false
+local isGhostMode = false
+local isMiniStrip = false
+local combinatorTopAreaRef = nil
+local combinatorBottomPanelRef = nil
+local combinatorViewRef = nil
+local combinatorLibPanelRef = nil
+local combinatorStackPanelRef = nil
+local combinatorInspPanelRef = nil
+
 local function toggleMenuVisibility()
 	mainFrame.Visible = not mainFrame.Visible
 	togglePill.Visible = not mainFrame.Visible
-	if mainFrame.Visible and activeMainTab == "Powerhouse" then
-		checkAndSpawnTesters(false)
-		updateRigStatusBadge()
+	if mainFrame.Visible then
+		if not isDockedRight and not isMiniStrip and currentWindowPosition then
+			mainFrame.Position = currentWindowPosition
+		end
+		if activeMainTab == "Powerhouse" then
+			checkAndSpawnTesters(false)
+			updateRigStatusBadge()
+		end
 	end
 end
 
@@ -438,7 +483,7 @@ applyCorner(titleBar, 10)
 
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Text = " ⚔️ QUIN MANAGER"
-titleLabel.Size = UDim2.new(0, 150, 1, 0)
+titleLabel.Size = UDim2.new(0, 140, 1, 0)
 titleLabel.BackgroundTransparency = 1
 titleLabel.TextColor3 = C_TEXT
 titleLabel.Font = Enum.Font.GothamBold
@@ -448,12 +493,12 @@ titleLabel.Parent = titleBar
 
 -- Freecam Toggle Button on Title Bar
 local camToggleBtn = Instance.new("TextButton")
-camToggleBtn.Size = UDim2.new(0, 115, 0, 28)
-camToggleBtn.Position = UDim2.new(0, 155, 0, 8)
+camToggleBtn.Size = UDim2.new(0, 100, 0, 28)
+camToggleBtn.Position = UDim2.new(0, 145, 0, 8)
 camToggleBtn.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
 camToggleBtn.TextColor3 = C_TEXT
 camToggleBtn.Font = Enum.Font.GothamBold
-camToggleBtn.TextSize = 11
+camToggleBtn.TextSize = 10
 camToggleBtn.Text = "Cam: Char [F]"
 camToggleBtn.Parent = titleBar
 applyCorner(camToggleBtn, 6)
@@ -486,12 +531,12 @@ camToggleBtn.MouseButton1Click:Connect(toggleCamMode)
 
 -- Normal Combat Mode Toggle Button on Title Bar
 local combatModeBtn = Instance.new("TextButton")
-combatModeBtn.Size = UDim2.new(0, 115, 0, 28)
-combatModeBtn.Position = UDim2.new(0, 276, 0, 8)
+combatModeBtn.Size = UDim2.new(0, 100, 0, 28)
+combatModeBtn.Position = UDim2.new(0, 250, 0, 8)
 combatModeBtn.BackgroundColor3 = Color3.fromRGB(48, 56, 74)
 combatModeBtn.TextColor3 = C_TEXT
 combatModeBtn.Font = Enum.Font.GothamBold
-combatModeBtn.TextSize = 11
+combatModeBtn.TextSize = 10
 combatModeBtn.Text = "Combat: OFF"
 combatModeBtn.Parent = titleBar
 applyCorner(combatModeBtn, 6)
@@ -509,99 +554,229 @@ end)
 -- ============================================================
 do
 	local speedEvent = ReplicatedStorage:FindFirstChild("GameSpeedEvent")
-if not speedEvent then
-	speedEvent = Instance.new("RemoteEvent")
-	speedEvent.Name = "GameSpeedEvent"
-	speedEvent.Parent = ReplicatedStorage
-end
+	if not speedEvent then
+		speedEvent = Instance.new("RemoteEvent")
+		speedEvent.Name = "GameSpeedEvent"
+		speedEvent.Parent = ReplicatedStorage
+	end
 
-local speedContainer = Instance.new("Frame")
-speedContainer.Name = "SpeedControllerContainer"
-speedContainer.Size = UDim2.new(0, 420, 0, 28)
-speedContainer.Position = UDim2.new(0, 398, 0, 8)
-speedContainer.BackgroundColor3 = Color3.fromRGB(15, 20, 28)
-speedContainer.BorderSizePixel = 0
-speedContainer.Parent = titleBar
-applyCorner(speedContainer, 6)
-applyStroke(speedContainer, Color3.fromRGB(45, 60, 85), 1)
+	local speedContainer = Instance.new("Frame")
+	speedContainer.Name = "SpeedControllerContainer"
+	speedContainer.Size = UDim2.new(0, 310, 0, 28)
+	speedContainer.Position = UDim2.new(0, 355, 0, 8)
+	speedContainer.BackgroundColor3 = Color3.fromRGB(15, 20, 28)
+	speedContainer.BorderSizePixel = 0
+	speedContainer.Parent = titleBar
+	applyCorner(speedContainer, 6)
+	applyStroke(speedContainer, Color3.fromRGB(45, 60, 85), 1)
 
-local speedBtnLayout = Instance.new("UIListLayout")
-speedBtnLayout.FillDirection = Enum.FillDirection.Horizontal
-speedBtnLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-speedBtnLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-speedBtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
-speedBtnLayout.Padding = UDim.new(0, 4)
-speedBtnLayout.Parent = speedContainer
+	local speedBtnLayout = Instance.new("UIListLayout")
+	speedBtnLayout.FillDirection = Enum.FillDirection.Horizontal
+	speedBtnLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	speedBtnLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	speedBtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	speedBtnLayout.Padding = UDim.new(0, 3)
+	speedBtnLayout.Parent = speedContainer
 
-local speedLabel = Instance.new("TextLabel")
-speedLabel.Size = UDim2.new(0, 60, 1, 0)
-speedLabel.LayoutOrder = 1
-speedLabel.BackgroundTransparency = 1
-speedLabel.Font = Enum.Font.GothamBold
-speedLabel.TextSize = 10
-speedLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-speedLabel.TextXAlignment = Enum.TextXAlignment.Center
-speedLabel.Text = "⚡ Speed:"
-speedLabel.Parent = speedContainer
+	local speedLabel = Instance.new("TextLabel")
+	speedLabel.Size = UDim2.new(0, 48, 1, 0)
+	speedLabel.LayoutOrder = 1
+	speedLabel.BackgroundTransparency = 1
+	speedLabel.Font = Enum.Font.GothamBold
+	speedLabel.TextSize = 9
+	speedLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+	speedLabel.TextXAlignment = Enum.TextXAlignment.Center
+	speedLabel.Text = "⚡ Spd:"
+	speedLabel.Parent = speedContainer
 
-local SPEED_OPTIONS = { 1, 2, 4, 5, 6, 8, 10 }
-local DEFAULT_SPEED = 1.0
-local speedButtons = {}
+	local SPEED_OPTIONS = { 1, 2, 4, 5, 6, 8, 10 }
+	local DEFAULT_SPEED = 1.0
+	local speedButtons = {}
 
-local function updateSpeedUI(activeSpeed)
-	for speedVal, btn in pairs(speedButtons) do
-		local isActive = (math.abs(speedVal - activeSpeed) < 0.05)
-		if isActive then
-			btn.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
-			btn.TextColor3 = Color3.fromRGB(10, 15, 25)
-			btn.Font = Enum.Font.GothamBlack
-		else
-			btn.BackgroundColor3 = Color3.fromRGB(28, 35, 48)
-			btn.TextColor3 = Color3.fromRGB(200, 215, 235)
-			btn.Font = Enum.Font.GothamBold
+	local function updateSpeedUI(activeSpeed)
+		for speedVal, btn in pairs(speedButtons) do
+			local isActive = (math.abs(speedVal - activeSpeed) < 0.05)
+			if isActive then
+				btn.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+				btn.TextColor3 = Color3.fromRGB(10, 15, 25)
+				btn.Font = Enum.Font.GothamBlack
+			else
+				btn.BackgroundColor3 = Color3.fromRGB(28, 35, 48)
+				btn.TextColor3 = Color3.fromRGB(200, 215, 235)
+				btn.Font = Enum.Font.GothamBold
+			end
 		end
 	end
-end
 
-local function setBattleSpeed(speedVal)
-	local clamped = math.clamp(speedVal, 1.0, 10.0)
-	Workspace:SetAttribute("GameSpeedMultiplier", clamped)
-	speedEvent:FireServer(clamped)
-	updateSpeedUI(clamped)
-	print(string.format("[QuinManager] Simulation speed set to %.1fx", clamped))
-end
+	local function setBattleSpeed(speedVal)
+		local clamped = math.clamp(speedVal, 1.0, 10.0)
+		Workspace:SetAttribute("GameSpeedMultiplier", clamped)
+		speedEvent:FireServer(clamped)
+		updateSpeedUI(clamped)
+		print(string.format("[QuinManager] Simulation speed set to %.1fx", clamped))
+	end
 
-for idx, speedVal in ipairs(SPEED_OPTIONS) do
-	local sBtn = Instance.new("TextButton")
-	sBtn.Name = "SpeedBtn_" .. tostring(speedVal) .. "x"
-	sBtn.LayoutOrder = idx + 1
-	sBtn.Size = UDim2.new(0, 44, 0, 22)
-	sBtn.BackgroundColor3 = (speedVal == 1) and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(28, 35, 48)
-	sBtn.TextColor3 = (speedVal == 1) and Color3.fromRGB(10, 15, 25) or Color3.fromRGB(200, 215, 235)
-	sBtn.Font = (speedVal == 1) and Enum.Font.GothamBlack or Enum.Font.GothamBold
-	sBtn.TextSize = 10
-	sBtn.Text = tostring(speedVal) .. "x"
-	sBtn.Parent = speedContainer
-	applyCorner(sBtn, 4)
+	for idx, speedVal in ipairs(SPEED_OPTIONS) do
+		local sBtn = Instance.new("TextButton")
+		sBtn.Name = "SpeedBtn_" .. tostring(speedVal) .. "x"
+		sBtn.LayoutOrder = idx + 1
+		sBtn.Size = UDim2.new(0, 33, 0, 22)
+		sBtn.BackgroundColor3 = (speedVal == 1) and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(28, 35, 48)
+		sBtn.TextColor3 = (speedVal == 1) and Color3.fromRGB(10, 15, 25) or Color3.fromRGB(200, 215, 235)
+		sBtn.Font = (speedVal == 1) and Enum.Font.GothamBlack or Enum.Font.GothamBold
+		sBtn.TextSize = 9
+		sBtn.Text = tostring(speedVal) .. "x"
+		sBtn.Parent = speedContainer
+		applyCorner(sBtn, 4)
 
-	speedButtons[speedVal] = sBtn
+		speedButtons[speedVal] = sBtn
 
-	sBtn.MouseButton1Click:Connect(function()
-		setBattleSpeed(speedVal)
+		sBtn.MouseButton1Click:Connect(function()
+			setBattleSpeed(speedVal)
+		end)
+	end
+
+	Workspace:GetAttributeChangedSignal("GameSpeedMultiplier"):Connect(function()
+		local cur = Workspace:GetAttribute("GameSpeedMultiplier") or DEFAULT_SPEED
+		updateSpeedUI(cur)
 	end)
 end
 
-Workspace:GetAttributeChangedSignal("GameSpeedMultiplier"):Connect(function()
-	local cur = Workspace:GetAttribute("GameSpeedMultiplier") or DEFAULT_SPEED
-	updateSpeedUI(cur)
-	end)
-end
+-- ============================================================
+-- NON-INTERRUPTING WORKSTATION CONTROLS (DOCK, GHOST, MINI)
+-- ============================================================
+local mainNav -- forward ref
 
--- Minimize Button
+-- Dock Right / Float Center Toggle
+local dockBtn = Instance.new("TextButton")
+dockBtn.Name = "DockBtn"
+dockBtn.Text = "📌 Dock"
+dockBtn.Size = UDim2.new(0, 68, 0, 26)
+dockBtn.Position = UDim2.new(1, -252, 0, 9)
+dockBtn.BackgroundColor3 = Color3.fromRGB(38, 48, 68)
+dockBtn.TextColor3 = C_TEXT
+dockBtn.Font = Enum.Font.GothamBold
+dockBtn.TextSize = 10
+dockBtn.Parent = titleBar
+applyCorner(dockBtn, 4)
+
+dockBtn.MouseButton1Click:Connect(function()
+	isDockedRight = not isDockedRight
+	if isDockedRight then
+		isMiniStrip = false
+		dockBtn.Text = "📌 Float"
+		dockBtn.BackgroundColor3 = C_ACCENT
+		dockBtn.TextColor3 = Color3.new(0, 0, 0)
+		if mainNav then mainNav.Visible = true end
+		if combinatorTopAreaRef then combinatorTopAreaRef.Visible = true end
+		mainFrame.Size = UDim2.new(0, 530, 1, -72)
+		mainFrame.Position = UDim2.new(1, -540, 0, 36)
+		if combinatorLibPanelRef then combinatorLibPanelRef.Visible = false end
+		if combinatorStackPanelRef then
+			combinatorStackPanelRef.Position = UDim2.new(0, 8, 0, 0)
+			combinatorStackPanelRef.Size = UDim2.new(0, 300, 1, 0)
+		end
+		if combinatorInspPanelRef then
+			combinatorInspPanelRef.Position = UDim2.new(0, 314, 0, 0)
+			combinatorInspPanelRef.Size = UDim2.new(1, -322, 1, 0)
+		end
+	else
+		dockBtn.Text = "📌 Dock"
+		dockBtn.BackgroundColor3 = Color3.fromRGB(38, 48, 68)
+		dockBtn.TextColor3 = C_TEXT
+		mainFrame.Size = UDim2.new(0, 960, 0, 620)
+		mainFrame.Position = currentWindowPosition or UDim2.new(0.5, -480, 0.5, -310)
+		if combinatorLibPanelRef then combinatorLibPanelRef.Visible = true end
+		if combinatorStackPanelRef then
+			combinatorStackPanelRef.Position = UDim2.new(0, 286, 0, 0)
+			combinatorStackPanelRef.Size = UDim2.new(0, 420, 1, 0)
+		end
+		if combinatorInspPanelRef then
+			combinatorInspPanelRef.Position = UDim2.new(0, 714, 0, 0)
+			combinatorInspPanelRef.Size = UDim2.new(1, -714, 1, 0)
+		end
+	end
+end)
+
+-- Ghost Mode Toggle (Translucent Glass Mode)
+local ghostBtn = Instance.new("TextButton")
+ghostBtn.Name = "GhostBtn"
+ghostBtn.Text = "👻 Ghost"
+ghostBtn.Size = UDim2.new(0, 68, 0, 26)
+ghostBtn.Position = UDim2.new(1, -178, 0, 9)
+ghostBtn.BackgroundColor3 = Color3.fromRGB(38, 48, 68)
+ghostBtn.TextColor3 = C_TEXT
+ghostBtn.Font = Enum.Font.GothamBold
+ghostBtn.TextSize = 10
+ghostBtn.Parent = titleBar
+applyCorner(ghostBtn, 4)
+
+ghostBtn.MouseButton1Click:Connect(function()
+	isGhostMode = not isGhostMode
+	ghostBtn.Text = isGhostMode and "👻 Glass" or "👻 Ghost"
+	ghostBtn.BackgroundColor3 = isGhostMode and Color3.fromRGB(75, 35, 115) or Color3.fromRGB(38, 48, 68)
+	ghostBtn.TextColor3 = isGhostMode and Color3.fromRGB(240, 210, 255) or C_TEXT
+	mainFrame.BackgroundTransparency = isGhostMode and 0.65 or 0
+	titleBar.BackgroundTransparency = isGhostMode and 0.50 or 0
+	if combinatorViewRef then
+		for _, desc in ipairs(combinatorViewRef:GetChildren()) do
+			if desc:IsA("Frame") and desc.Name ~= "TitleBar" then
+				desc.BackgroundTransparency = isGhostMode and 0.60 or 0
+			end
+		end
+	end
+end)
+
+-- Mini Strip Toggle (Collapses to Bottom Timeline Dock)
+local miniStripBtn = Instance.new("TextButton")
+miniStripBtn.Name = "MiniStripBtn"
+miniStripBtn.Text = "🗕 Mini"
+miniStripBtn.Size = UDim2.new(0, 62, 0, 26)
+miniStripBtn.Position = UDim2.new(1, -104, 0, 9)
+miniStripBtn.BackgroundColor3 = Color3.fromRGB(38, 48, 68)
+miniStripBtn.TextColor3 = C_TEXT
+miniStripBtn.Font = Enum.Font.GothamBold
+miniStripBtn.TextSize = 10
+miniStripBtn.Parent = titleBar
+applyCorner(miniStripBtn, 4)
+
+miniStripBtn.MouseButton1Click:Connect(function()
+	isMiniStrip = not isMiniStrip
+	if isMiniStrip then
+		miniStripBtn.Text = "🗖 Full"
+		miniStripBtn.BackgroundColor3 = Color3.fromRGB(210, 150, 30)
+		miniStripBtn.TextColor3 = Color3.new(0, 0, 0)
+		if mainNav then mainNav.Visible = false end
+		if combinatorTopAreaRef then combinatorTopAreaRef.Visible = false end
+		mainFrame.Size = UDim2.new(0, 960, 0, 154)
+		mainFrame.Position = UDim2.new(0.5, -480, 1, -164)
+		if combinatorBottomPanelRef then
+			combinatorBottomPanelRef.Position = UDim2.new(0, 8, 0, 44)
+		end
+	else
+		miniStripBtn.Text = "🗕 Mini"
+		miniStripBtn.BackgroundColor3 = Color3.fromRGB(38, 48, 68)
+		miniStripBtn.TextColor3 = C_TEXT
+		if mainNav then mainNav.Visible = true end
+		if combinatorTopAreaRef then combinatorTopAreaRef.Visible = true end
+		if isDockedRight then
+			mainFrame.Size = UDim2.new(0, 480, 1, -72)
+			mainFrame.Position = UDim2.new(1, -490, 0, 36)
+		else
+			mainFrame.Size = UDim2.new(0, 960, 0, 620)
+			mainFrame.Position = currentWindowPosition or UDim2.new(0.5, -480, 0.5, -310)
+		end
+		if combinatorBottomPanelRef then
+			combinatorBottomPanelRef.Position = UDim2.new(0, 8, 1, -106)
+		end
+	end
+end)
+
+-- Minimize Button (Close to pill)
 local minBtn = Instance.new("TextButton")
 minBtn.Text = "-"
-minBtn.Size = UDim2.new(0, 28, 0, 28)
-minBtn.Position = UDim2.new(1, -34, 0, 8)
+minBtn.Size = UDim2.new(0, 28, 0, 26)
+minBtn.Position = UDim2.new(1, -36, 0, 9)
 minBtn.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
 minBtn.TextColor3 = C_TEXT
 minBtn.Font = Enum.Font.GothamBold
@@ -614,45 +789,50 @@ minBtn.MouseButton1Click:Connect(function()
 	togglePill.Visible = true
 end)
 
--- Window Dragging Logic
+-- Window Dragging Logic with Position Memory
 do
 	local isDragging = false
-local dragStart = Vector3.zero
-local startPos = UDim2.new()
+	local dragStart = Vector3.zero
+	local startPos = UDim2.new()
 
-local function handleDragStart(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		isDragging = true
-		dragStart = input.Position
-		startPos = mainFrame.Position
+	local function handleDragStart(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			isDragging = true
+			dragStart = input.Position
+			startPos = mainFrame.Position
+		end
 	end
-end
 
-titleBar.InputBegan:Connect(handleDragStart)
-titleLabel.InputBegan:Connect(handleDragStart)
+	titleBar.InputBegan:Connect(handleDragStart)
+	titleLabel.InputBegan:Connect(handleDragStart)
 
-UserInputService.InputChanged:Connect(function(input)
-	if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-		local delta = input.Position - dragStart
-		mainFrame.Position = UDim2.new(
-			startPos.X.Scale,
-			startPos.X.Offset + delta.X,
-			startPos.Y.Scale,
-			startPos.Y.Offset + delta.Y
-		)
-	end
-end)
+	UserInputService.InputChanged:Connect(function(input)
+		if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = input.Position - dragStart
+			mainFrame.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
 
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		isDragging = false
-	end
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if isDragging then
+				isDragging = false
+				if not isDockedRight and not isMiniStrip then
+					currentWindowPosition = mainFrame.Position
+				end
+			end
+		end
 	end)
 end
 
---------------------------------------------------------------------------------
+----------------
 -- 3. TOP NAVIGATION BAR (GAME MODES | TEST MODES | ANIMATION POWERHOUSE)
---------------------------------------------------------------------------------
+----------------
 local mainNav = Instance.new("Frame")
 mainNav.Size = UDim2.new(1, -20, 0, 34)
 mainNav.Position = UDim2.new(0, 10, 0, 48)
@@ -665,9 +845,9 @@ mainNavLayout.Padding = UDim.new(0, 10)
 mainNavLayout.Parent = mainNav
 
 local mainTabs = {
-	{ id = "Powerhouse", label = "⚡ Animation Powerhouse" },
-	{ id = "GameModes", label = "🎮 Game Modes" },
-	{ id = "TestModes", label = "🧪 Test Modes" },
+	{ id = "Powerhouse", label = "âš¡ Animation Powerhouse" },
+	{ id = "GameModes", label = "ðŸŽ® Game Modes" },
+	{ id = "TestModes", label = "ðŸ§ª Test Modes" },
 }
 
 -- Views
@@ -739,9 +919,9 @@ for _, tab in ipairs(mainTabs) do
 	end)
 end
 
---------------------------------------------------------------------------------
+----------------
 -- 4. POWERHOUSE VIEW: SUB-NAVIGATION & 4 DEDICATED LABORATORIES
---------------------------------------------------------------------------------
+----------------
 local activePowerhouseSubTab = "AnimStudio"
 
 -- Sub-Navigation Bar
@@ -757,11 +937,11 @@ subNavLayout.Padding = UDim.new(0, 6)
 subNavLayout.Parent = subNavFrame
 
 local subTabs = {
-	{ id = "AnimStudio", label = "🎬 Animation Studio" },
-	{ id = "AnimCombinator", label = "🎛️ Animation Combinator" },
-	{ id = "LocoIK", label = "🏃 Locomotion & IK" },
-	{ id = "RagdollLab", label = "💥 Ragdoll Lab" },
-	{ id = "Maneuvers", label = "🎮 Maneuvers" },
+	{ id = "AnimStudio", label = "ðŸŽ¬ Animation Studio" },
+	{ id = "AnimCombinator", label = "ðŸŽ›ï¸ Animation Combinator" },
+	{ id = "LocoIK", label = "ðŸƒ Locomotion & IK" },
+	{ id = "RagdollLab", label = "ðŸ’¥ Ragdoll Lab" },
+	{ id = "Maneuvers", label = "ðŸŽ® Maneuvers" },
 }
 
 -- 5 Sub-View Containers inside powerhouseView:
@@ -819,6 +999,10 @@ local function switchPowerhouseSubTab(subId)
 			b.TextColor3 = isActive and Color3.new(1, 1, 1) or C_TEXT_MUTED
 		end
 	end
+
+	if subId == "AnimCombinator" and _G.CombinatorOnTabActivated then
+		_G.CombinatorOnTabActivated()
+	end
 end
 
 for _, tab in ipairs(subTabs) do
@@ -861,7 +1045,7 @@ rigStatusBadge.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
 rigStatusBadge.TextColor3 = Color3.fromRGB(255, 170, 40)
 rigStatusBadge.Font = Enum.Font.GothamBold
 rigStatusBadge.TextSize = 10
-rigStatusBadge.Text = "● Rig: Checking..."
+rigStatusBadge.Text = "â— Rig: Checking..."
 rigStatusBadge.Parent = rigControls
 applyCorner(rigStatusBadge, 6)
 applyStroke(rigStatusBadge, C_BORDER, 1)
@@ -873,12 +1057,15 @@ respawnRigsBtn.BackgroundColor3 = Color3.fromRGB(35, 75, 110)
 respawnRigsBtn.TextColor3 = C_ACCENT
 respawnRigsBtn.Font = Enum.Font.GothamBold
 respawnRigsBtn.TextSize = 10
-respawnRigsBtn.Text = "🔄 Reset Rig"
+respawnRigsBtn.Text = "ðŸ”„ Reset Rig"
 respawnRigsBtn.Parent = rigControls
 applyCorner(respawnRigsBtn, 6)
 applyStroke(respawnRigsBtn, C_BORDER, 1)
 
 respawnRigsBtn.MouseButton1Click:Connect(function()
+	if _G.CombinatorResetPreviewRig then
+		_G.CombinatorResetPreviewRig()
+	end
 	if checkAndSpawnTesters then
 		checkAndSpawnTesters(true)
 	end
@@ -1010,9 +1197,9 @@ end
 
 local savePermBtn, statusToast, selectAnimation
 
---------------------------------------------------------------------------------
+----------------
 -- 4A. SUB-TAB 1: ANIMATION STUDIO (BROWSER, PRECISION KNOBS, COMBO)
---------------------------------------------------------------------------------
+----------------
 do
 local catTabBar = Instance.new("ScrollingFrame")
 catTabBar.Size = UDim2.new(1, -20, 0, 26)
@@ -1048,7 +1235,7 @@ searchBox.Size = UDim2.new(1, -30, 1, 0)
 searchBox.Position = UDim2.new(0, 8, 0, 0)
 searchBox.BackgroundTransparency = 1
 searchBox.TextColor3 = C_TEXT
-searchBox.PlaceholderText = "🔍 Search (e.g. idle, kick, block)..."
+searchBox.PlaceholderText = "ðŸ” Search (e.g. idle, kick, block)..."
 searchBox.PlaceholderColor3 = C_TEXT_MUTED
 searchBox.Font = Enum.Font.Gotham
 searchBox.TextSize = 10
@@ -1064,7 +1251,7 @@ clearSearchBtn.BackgroundColor3 = Color3.fromRGB(42, 50, 68)
 clearSearchBtn.TextColor3 = C_TEXT_MUTED
 clearSearchBtn.Font = Enum.Font.GothamBold
 clearSearchBtn.TextSize = 10
-clearSearchBtn.Text = "✕"
+clearSearchBtn.Text = "âœ•"
 clearSearchBtn.Visible = false
 clearSearchBtn.Parent = searchContainer
 applyCorner(clearSearchBtn, 4)
@@ -1227,7 +1414,7 @@ playBtn.BackgroundColor3 = C_ACCENT
 playBtn.TextColor3 = Color3.new(0, 0, 0)
 playBtn.Font = Enum.Font.GothamBold
 playBtn.TextSize = 11
-playBtn.Text = "▶ Play Test"
+playBtn.Text = "â–¶ Play Test"
 playBtn.Parent = centerPanel
 applyCorner(playBtn, 6)
 
@@ -1238,7 +1425,7 @@ stopBtn.BackgroundColor3 = Color3.fromRGB(48, 56, 74)
 stopBtn.TextColor3 = C_TEXT
 stopBtn.Font = Enum.Font.GothamBold
 stopBtn.TextSize = 11
-stopBtn.Text = "■ Stop"
+stopBtn.Text = "â–  Stop"
 stopBtn.Parent = centerPanel
 applyCorner(stopBtn, 6)
 
@@ -1249,7 +1436,7 @@ hotSwapBtn.BackgroundColor3 = Color3.fromRGB(30, 140, 85)
 hotSwapBtn.TextColor3 = C_TEXT
 hotSwapBtn.Font = Enum.Font.GothamBold
 hotSwapBtn.TextSize = 11
-hotSwapBtn.Text = "⚡ Hot-Swap Live"
+hotSwapBtn.Text = "âš¡ Hot-Swap Live"
 hotSwapBtn.Parent = centerPanel
 applyCorner(hotSwapBtn, 6)
 
@@ -1261,7 +1448,7 @@ savePermBtn.BackgroundColor3 = Color3.fromRGB(35, 95, 160)
 savePermBtn.TextColor3 = Color3.fromRGB(240, 248, 255)
 savePermBtn.Font = Enum.Font.GothamBold
 savePermBtn.TextSize = 11
-savePermBtn.Text = "💾 Save Permanently to Production"
+savePermBtn.Text = "ðŸ’¾ Save Permanently to Production"
 savePermBtn.Parent = centerPanel
 applyCorner(savePermBtn, 6)
 
@@ -1327,10 +1514,10 @@ end)
 
 hotSwapBtn.MouseButton1Click:Connect(function()
 	triggerAutoHotSwap()
-	hotSwapBtn.Text = "✓ Hot-Swapped!"
+	hotSwapBtn.Text = "âœ“ Hot-Swapped!"
 	hotSwapBtn.BackgroundColor3 = C_SUCCESS
 	task.delay(1.5, function()
-		hotSwapBtn.Text = "⚡ Hot-Swap Live"
+		hotSwapBtn.Text = "âš¡ Hot-Swap Live"
 		hotSwapBtn.BackgroundColor3 = Color3.fromRGB(30, 140, 85)
 	end)
 end)
@@ -1506,7 +1693,7 @@ playComboBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
 playComboBtn.TextColor3 = Color3.new(0, 0, 0)
 playComboBtn.Font = Enum.Font.GothamBold
 playComboBtn.TextSize = 12
-playComboBtn.Text = "▶ Play Full Combo"
+playComboBtn.Text = "â–¶ Play Full Combo"
 playComboBtn.Parent = rightPanel
 applyCorner(playComboBtn, 6)
 
@@ -1547,9 +1734,9 @@ exportBtn.Text = "[#] View / Export Luau Config"
 exportBtn.Parent = rightPanel
 applyCorner(exportBtn, 6)
 
---------------------------------------------------------------------------------
+----------------
 -- 5. POPUP MODAL FOR EXPORTED CODE
---------------------------------------------------------------------------------
+----------------
 local showLuauExportModal
 do
 	local modalBackdrop = Instance.new("Frame")
@@ -1651,14 +1838,14 @@ copyNotifyBtn.MouseButton1Click:Connect(function()
 	print(luauCode)
 	print("========================================")
 	modalTextBox:CaptureFocus()
-	copyNotifyBtn.Text = "✓ Printed to Console Output!"
+	copyNotifyBtn.Text = "âœ“ Printed to Console Output!"
 	task.delay(1.5, function() copyNotifyBtn.Text = "Print to Studio Output & Select All" end)
 end)
 end
 
---------------------------------------------------------------------------------
+----------------
 -- 6. DYNAMIC CATEGORY & ANIMATION ITEM LOADER
---------------------------------------------------------------------------------
+----------------
 selectAnimation = function(item)
 	currentEntryPath = item.path
 	currentEntryData = item.entry or AnimationConfig.get(item.path) or {}
@@ -1848,9 +2035,9 @@ end)
 
 end
 
---------------------------------------------------------------------------------
+----------------
 -- 4A2. SUB-TAB: ANIMATION COMBINATOR (LABORATORY, STACK, SCRUBBER, TRANSITIONS)
---------------------------------------------------------------------------------
+----------------
 do
 	-- State for Combinator
 	local combinatorLayers = {}
@@ -1875,6 +2062,200 @@ do
 	local triggerStackPlayback
 	local stopCombinatorPlayback
 	local getActiveLayersPayload
+	local cardUpdatePlayheadFuncs = {}
+
+	-- In-Menu 3D ViewportFrame Preview State & Helpers
+	local previewViewport = nil
+	local previewWorldModel = nil
+	local previewCam = nil
+	local previewRig = nil
+	local previewAnimator = nil
+	local localViewportTracks = {}
+	local previewPitch = 10
+	local previewYaw = 0
+	local previewZoom = 6.5
+	local updatePreviewCamera
+	local ensurePreviewRig
+	local syncLocalViewportTracks
+	local syncLocalViewportScrub
+
+	ensurePreviewRig = function()
+		if previewRig and previewRig.Parent == previewWorldModel and previewAnimator then
+			return previewRig, previewAnimator
+		end
+
+		if previewRig then
+			pcall(function() previewRig:Destroy() end)
+			previewRig = nil
+			previewAnimator = nil
+			localViewportTracks = {}
+		end
+
+		if not previewWorldModel then return nil, nil end
+
+		local quinServer = Workspace:FindFirstChild("QuinServer")
+		local sourceRig = (quinServer and quinServer:FindFirstChild(testerName))
+			or Workspace:FindFirstChild(testerName)
+			or (player and player.Character)
+
+		if not sourceRig then
+			for _, m in ipairs(Workspace:GetChildren()) do
+				if m:IsA("Model") and (string.find(m.Name, "Quin") or m:FindFirstChildOfClass("Humanoid")) then
+					sourceRig = m
+					break
+				end
+			end
+		end
+
+		if not sourceRig then return nil, nil end
+
+		local prevArchivable = sourceRig.Archivable
+		sourceRig.Archivable = true
+		local clone = sourceRig:Clone()
+		sourceRig.Archivable = prevArchivable
+		if not clone then return nil, nil end
+
+		for _, desc in ipairs(clone:GetDescendants()) do
+			if desc:IsA("Script") or desc:IsA("LocalScript") or desc:IsA("Sound") or desc:IsA("Constraint") then
+				desc:Destroy()
+			elseif desc:IsA("BasePart") then
+				desc.CanCollide = false
+				desc.CanTouch = false
+				desc.CanQuery = false
+				desc.Anchored = true
+				if desc:IsA("MeshPart") or desc.Name == "Alpha_Surface" then
+					desc.Transparency = 0
+				end
+			end
+		end
+
+		local hrp = clone:FindFirstChild("HumanoidRootPart") or clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart")
+		if hrp then
+			clone.PrimaryPart = hrp
+			clone:PivotTo(CFrame.new(0, 0, 0))
+		end
+
+		local hum = clone:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+			hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+		end
+
+		local anim = clone:FindFirstChildOfClass("Animator") or (hum and hum:FindFirstChildOfClass("Animator"))
+		if not anim and hum then
+			anim = Instance.new("Animator")
+			anim.Parent = hum
+		end
+
+		clone.Parent = previewWorldModel
+		previewRig = clone
+		previewAnimator = anim
+		return previewRig, previewAnimator
+	end
+
+	updatePreviewCamera = function()
+		if not previewCam then return end
+		local targetPos = Vector3.new(0, 1.2, 0)
+		if previewRig then
+			local hrp = previewRig:FindFirstChild("HumanoidRootPart") or previewRig.PrimaryPart
+			if hrp then
+				targetPos = hrp.Position + Vector3.new(0, 1.2, 0)
+			end
+		end
+		local radPitch = math.rad(math.clamp(previewPitch, -65, 65))
+		local radYaw = math.rad(previewYaw)
+		local camOffset = CFrame.Angles(0, radYaw, 0) * CFrame.Angles(-radPitch, 0, 0) * Vector3.new(0, 0, previewZoom)
+		previewCam.CFrame = CFrame.new(targetPos + camOffset, targetPos)
+	end
+
+	syncLocalViewportTracks = function(isPlaying)
+		local rig, anim = ensurePreviewRig()
+		if not rig or not anim then return end
+
+		local activeIds = {}
+		for _, layer in ipairs(combinatorLayers) do
+			if layer.enabled and not layer.muted and layer.id and #layer.id > 0 then
+				activeIds[layer.id] = true
+				local track = localViewportTracks[layer.id]
+				if not track or not track.Animation then
+					local animObj = Instance.new("Animation")
+					animObj.AnimationId = string.find(layer.id, "://") and layer.id or ("rbxassetid://" .. layer.id)
+					local success, loadedTrack = pcall(function()
+						return anim:LoadAnimation(animObj)
+					end)
+					if success and loadedTrack then
+						track = loadedTrack
+						localViewportTracks[layer.id] = track
+					end
+				end
+
+				if track then
+					local prio = Enum.AnimationPriority[layer.priority or "Action4"] or Enum.AnimationPriority.Action4
+					track.Priority = prio
+					local w = layer.weight or 1.0
+					track:AdjustWeight(math.clamp(w, 0.001, 1.0), 0.05)
+
+					if isPlaying then
+						track.Looped = (layer.looped == true)
+						if not track.IsPlaying then
+							track:Play(0.05, math.clamp(w, 0.001, 1.0), (layer.speed or 1.0) * combinatorPlaySpeed)
+						else
+							track:AdjustSpeed((layer.speed or 1.0) * combinatorPlaySpeed)
+						end
+					else
+						if not track.IsPlaying then
+							track:Play(0, math.clamp(w, 0.001, 1.0), 0)
+						end
+						track:AdjustSpeed(0)
+						local trackLen = track.Length > 0 and track.Length or (layer.endCut or 2.0)
+						local localT = math.clamp((layer.startCut or 0) + combinatorCurrentTime * (layer.speed or 1.0), layer.startCut or 0, layer.endCut or trackLen)
+						track.TimePosition = localT
+					end
+				end
+			end
+		end
+
+		for id, track in pairs(localViewportTracks) do
+			if not activeIds[id] then
+				pcall(function()
+					track:Stop(0.05)
+				end)
+			end
+		end
+	end
+
+	syncLocalViewportScrub = function(time)
+		local rig, anim = ensurePreviewRig()
+		if not rig or not anim then return end
+
+		for _, layer in ipairs(combinatorLayers) do
+			if layer.enabled and not layer.muted and layer.id and #layer.id > 0 then
+				local track = localViewportTracks[layer.id]
+				if not track then
+					local animObj = Instance.new("Animation")
+					animObj.AnimationId = string.find(layer.id, "://") and layer.id or ("rbxassetid://" .. layer.id)
+					local success, loadedTrack = pcall(function()
+						return anim:LoadAnimation(animObj)
+					end)
+					if success and loadedTrack then
+						track = loadedTrack
+						localViewportTracks[layer.id] = track
+					end
+				end
+				if track then
+					if not track.IsPlaying then
+						track:Play(0, math.clamp(layer.weight or 1.0, 0.001, 1.0), 0)
+					end
+					track:AdjustSpeed(0)
+					local trackLen = track.Length > 0 and track.Length or (layer.endCut or 2.0)
+					local startC = layer.startCut or 0.0
+					local endC = layer.endCut or trackLen
+					local localT = math.clamp(startC + time * (layer.speed or 1.0), startC, endC)
+					track.TimePosition = localT
+				end
+			end
+		end
+	end
 
 	-- Master Top Container (3 Columns)
 	local topArea = Instance.new("Frame")
@@ -1895,9 +2276,9 @@ do
 	applyCorner(bottomPanel, 8)
 	applyStroke(bottomPanel, C_BORDER, 1)
 
-	----------------------------------------------------------------------------
+	----------------
 	-- LEFT COLUMN: DIRECT ID INSERTER & PRE-REGISTERED LIBRARY
-	----------------------------------------------------------------------------
+	----------------
 	local libPanel = Instance.new("Frame")
 	libPanel.Name = "LibraryPanel"
 	libPanel.Size = UDim2.new(0, 270, 1, 0)
@@ -1907,10 +2288,11 @@ do
 	libPanel.Parent = topArea
 	applyCorner(libPanel, 8)
 	applyStroke(libPanel, C_BORDER, 1)
+	combinatorLibPanelRef = libPanel
 
 	-- Direct ID Inserter Header
 	local directIdHeader = Instance.new("TextLabel")
-	directIdHeader.Text = "⚡ DIRECT ID INSERTER"
+	directIdHeader.Text = "âš¡ DIRECT ID INSERTER"
 	directIdHeader.Size = UDim2.new(1, -16, 0, 20)
 	directIdHeader.Position = UDim2.new(0, 8, 0, 6)
 	directIdHeader.BackgroundTransparency = 1
@@ -1944,7 +2326,7 @@ do
 	directBtnsFrame.Parent = libPanel
 
 	local previewIdBtn = Instance.new("TextButton")
-	previewIdBtn.Text = "▶ Audition"
+	previewIdBtn.Text = "â–¶ Audition"
 	previewIdBtn.Size = UDim2.new(0.48, -2, 1, 0)
 	previewIdBtn.Position = UDim2.new(0, 0, 0, 0)
 	previewIdBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 120)
@@ -1975,7 +2357,7 @@ do
 
 	-- Pre-Registered Library Header
 	local libHeader = Instance.new("TextLabel")
-	libHeader.Text = "📚 PRE-REGISTERED LIBRARY"
+	libHeader.Text = "ðŸ“š PRE-REGISTERED LIBRARY"
 	libHeader.Size = UDim2.new(1, -16, 0, 20)
 	libHeader.Position = UDim2.new(0, 8, 0, 96)
 	libHeader.BackgroundTransparency = 1
@@ -2005,7 +2387,7 @@ do
 	combSearchBox.Position = UDim2.new(0, 8, 0, 146)
 	combSearchBox.BackgroundColor3 = Color3.fromRGB(28, 34, 46)
 	combSearchBox.TextColor3 = C_TEXT
-	combSearchBox.PlaceholderText = "🔍 Search library (e.g. idle, punch)..."
+	combSearchBox.PlaceholderText = "ðŸ” Search library (e.g. idle, punch)..."
 	combSearchBox.PlaceholderColor3 = C_TEXT_MUTED
 	combSearchBox.Font = Enum.Font.Gotham
 	combSearchBox.TextSize = 10
@@ -2032,9 +2414,9 @@ do
 	libLayout.Parent = libScroll
 	libScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
-	----------------------------------------------------------------------------
+	----------------
 	-- CENTER COLUMN: COMBINATION STACK & LAYER INSPECTOR
-	----------------------------------------------------------------------------
+	----------------
 	local stackPanel = Instance.new("Frame")
 	stackPanel.Name = "StackPanel"
 	stackPanel.Size = UDim2.new(0, 420, 1, 0)
@@ -2044,10 +2426,11 @@ do
 	stackPanel.Parent = topArea
 	applyCorner(stackPanel, 8)
 	applyStroke(stackPanel, C_BORDER, 1)
+	combinatorStackPanelRef = stackPanel
 
 	-- Stack Top Bar
 	local stackTitle = Instance.new("TextLabel")
-	stackTitle.Text = "🎛️ COMBINATION STACK"
+	stackTitle.Text = "ðŸŽ›ï¸ COMBINATION STACK"
 	stackTitle.Size = UDim2.new(0, 170, 0, 28)
 	stackTitle.Position = UDim2.new(0, 10, 0, 4)
 	stackTitle.BackgroundTransparency = 1
@@ -2080,7 +2463,7 @@ do
 	applyCorner(addEmptyLayerBtn, 4)
 
 	local clearStackBtn = Instance.new("TextButton")
-	clearStackBtn.Text = "🗑 Clear"
+	clearStackBtn.Text = "ðŸ—‘ Clear"
 	clearStackBtn.Size = UDim2.new(0, 65, 0, 22)
 	clearStackBtn.Position = UDim2.new(1, -74, 0, 7)
 	clearStackBtn.BackgroundColor3 = Color3.fromRGB(70, 32, 36)
@@ -2118,9 +2501,9 @@ do
 	emptyStackNotice.TextYAlignment = Enum.TextYAlignment.Center
 	emptyStackNotice.Parent = stackScroll
 
-	----------------------------------------------------------------------------
-	-- RIGHT COLUMN: TRANSITION INSPECTOR, PRESETS & EXPORT
-	----------------------------------------------------------------------------
+	----------------
+	-- RIGHT COLUMN: 3D PREVIEW, TRANSITION INSPECTOR, PRESETS & EXPORT
+	----------------
 	local inspPanel = Instance.new("Frame")
 	inspPanel.Name = "InspectorPanel"
 	inspPanel.Size = UDim2.new(1, -714, 1, 0)
@@ -2130,10 +2513,108 @@ do
 	inspPanel.Parent = topArea
 	applyCorner(inspPanel, 8)
 	applyStroke(inspPanel, C_BORDER, 1)
+	combinatorInspPanelRef = inspPanel
+
+	-- In-Menu 3D ViewportFrame Preview Pane
+	local previewContainer = Instance.new("Frame")
+	previewContainer.Name = "Preview3DContainer"
+	previewContainer.Size = UDim2.new(1, -8, 0, 196)
+	previewContainer.Position = UDim2.new(0, 4, 0, 4)
+	previewContainer.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
+	previewContainer.ClipsDescendants = true
+	previewContainer.Parent = inspPanel
+	applyCorner(previewContainer, 6)
+	applyStroke(previewContainer, C_BORDER, 1)
+
+	local previewHeader = Instance.new("Frame")
+	previewHeader.Size = UDim2.new(1, 0, 0, 22)
+	previewHeader.BackgroundColor3 = Color3.fromRGB(22, 28, 40)
+	previewHeader.BorderSizePixel = 0
+	previewHeader.Parent = previewContainer
+
+	local previewTitle = Instance.new("TextLabel")
+	previewTitle.Text = "🎥 3D PREVIEW"
+	previewTitle.Size = UDim2.new(1, -60, 1, 0)
+	previewTitle.Position = UDim2.new(0, 8, 0, 0)
+	previewTitle.BackgroundTransparency = 1
+	previewTitle.TextColor3 = C_ACCENT
+	previewTitle.Font = Enum.Font.GothamBold
+	previewTitle.TextSize = 10
+	previewTitle.TextXAlignment = Enum.TextXAlignment.Left
+	previewTitle.Parent = previewHeader
+
+	local resetCamBtn = Instance.new("TextButton")
+	resetCamBtn.Text = "🔄 Cam"
+	resetCamBtn.Size = UDim2.new(0, 48, 0, 16)
+	resetCamBtn.Position = UDim2.new(1, -52, 0, 3)
+	resetCamBtn.BackgroundColor3 = Color3.fromRGB(36, 46, 64)
+	resetCamBtn.TextColor3 = C_TEXT
+	resetCamBtn.Font = Enum.Font.GothamBold
+	resetCamBtn.TextSize = 9
+	resetCamBtn.Parent = previewHeader
+	applyCorner(resetCamBtn, 3)
+
+	previewViewport = Instance.new("ViewportFrame")
+	previewViewport.Name = "CombinatorViewport"
+	previewViewport.Size = UDim2.new(1, 0, 1, -22)
+	previewViewport.Position = UDim2.new(0, 0, 0, 22)
+	previewViewport.BackgroundTransparency = 1
+	previewViewport.LightColor = Color3.fromRGB(240, 240, 255)
+	previewViewport.LightDirection = Vector3.new(-1, -2, -1).Unit
+	previewViewport.Ambient = Color3.fromRGB(130, 135, 150)
+	previewViewport.Parent = previewContainer
+
+	previewWorldModel = Instance.new("WorldModel")
+	previewWorldModel.Parent = previewViewport
+
+	previewCam = Instance.new("Camera")
+	previewCam.FieldOfView = 50
+	previewCam.Parent = previewViewport
+	previewViewport.CurrentCamera = previewCam
+
+	updatePreviewCamera()
+
+	resetCamBtn.MouseButton1Click:Connect(function()
+		previewPitch = 10
+		previewYaw = 0
+		previewZoom = 6.5
+		updatePreviewCamera()
+	end)
+
+	local isOrbitDragging = false
+	local lastMousePos = Vector2.zero
+
+	previewViewport.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
+			isOrbitDragging = true
+			lastMousePos = Vector2.new(input.Position.X, input.Position.Y)
+		elseif input.UserInputType == Enum.UserInputType.MouseWheel then
+			local delta = input.Position.Z
+			previewZoom = math.clamp(previewZoom - delta * 0.8, 3.0, 18.0)
+			updatePreviewCamera()
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if isOrbitDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local currentPos = Vector2.new(input.Position.X, input.Position.Y)
+			local delta = currentPos - lastMousePos
+			lastMousePos = currentPos
+			previewYaw = previewYaw - delta.X * 0.8
+			previewPitch = math.clamp(previewPitch + delta.Y * 0.8, -65, 65)
+			updatePreviewCamera()
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
+			isOrbitDragging = false
+		end
+	end)
 
 	local inspScroll = Instance.new("ScrollingFrame")
-	inspScroll.Size = UDim2.new(1, -8, 1, -8)
-	inspScroll.Position = UDim2.new(0, 4, 0, 4)
+	inspScroll.Size = UDim2.new(1, -8, 1, -208)
+	inspScroll.Position = UDim2.new(0, 4, 0, 204)
 	inspScroll.BackgroundTransparency = 1
 	inspScroll.ScrollBarThickness = 3
 	inspScroll.CanvasSize = UDim2.new(0, 0, 0, 440)
@@ -2141,7 +2622,7 @@ do
 
 	-- Section: Transition Inspector
 	local transTitle = Instance.new("TextLabel")
-	transTitle.Text = "⚡ TRANSITION INSPECTOR"
+	transTitle.Text = "âš¡ TRANSITION INSPECTOR"
 	transTitle.Size = UDim2.new(1, -12, 0, 20)
 	transTitle.Position = UDim2.new(0, 6, 0, 4)
 	transTitle.BackgroundTransparency = 1
@@ -2220,7 +2701,7 @@ do
 	applyCorner(transBlendPlus, 4)
 
 	local playTransitionBtn = Instance.new("TextButton")
-	playTransitionBtn.Text = "⚡ Play Transition Only"
+	playTransitionBtn.Text = "âš¡ Play Transition Only"
 	playTransitionBtn.Size = UDim2.new(1, -12, 0, 28)
 	playTransitionBtn.Position = UDim2.new(0, 6, 0, 116)
 	playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
@@ -2239,7 +2720,7 @@ do
 	presetsDivider.Parent = inspScroll
 
 	local presetsTitle = Instance.new("TextLabel")
-	presetsTitle.Text = "✨ QUICK PRESETS"
+	presetsTitle.Text = "âœ¨ QUICK PRESETS"
 	presetsTitle.Size = UDim2.new(1, -12, 0, 20)
 	presetsTitle.Position = UDim2.new(0, 6, 0, 160)
 	presetsTitle.BackgroundTransparency = 1
@@ -2250,10 +2731,10 @@ do
 	presetsTitle.Parent = inspScroll
 
 	local presetList = {
-		{ name = "🏃 Run + 👊 Lead Punch", presetId = "RunPunch" },
-		{ name = "🧘 Idle + ⚔️ Ready Stance", presetId = "IdleStance" },
-		{ name = "⚡ Sprint + 🔄 180 Turn", presetId = "Sprint180" },
-		{ name = "🦸 Superhero Landing", presetId = "SuperheroLanding" },
+		{ name = "ðŸƒ Run + ðŸ‘Š Lead Punch", presetId = "RunPunch" },
+		{ name = "ðŸ§˜ Idle + âš”ï¸ Ready Stance", presetId = "IdleStance" },
+		{ name = "âš¡ Sprint + ðŸ”„ 180 Turn", presetId = "Sprint180" },
+		{ name = "ðŸ¦¸ Superhero Landing", presetId = "SuperheroLanding" },
 	}
 
 	for pIdx, pData in ipairs(presetList) do
@@ -2269,130 +2750,30 @@ do
 		applyCorner(pBtn, 4)
 		applyStroke(pBtn, C_BORDER, 1)
 
+		local function mkLayer(id, name, sCut, eCut, w, spd, prio, mask, looped)
+			return { id = id, name = name, enabled = true, muted = false, solo = false, startCut = sCut, endCut = eCut, weight = w or 1.0, speed = spd or 1.0, priority = prio or "Action4", bodyMask = mask or "Full Body", looped = (looped ~= false) }
+		end
+
 		pBtn.MouseButton1Click:Connect(function()
 			if pData.presetId == "RunPunch" then
 				combinatorLayers = {
-					{
-						id = "rbxassetid://109090784752055",
-						name = "Movement.Run",
-						enabled = true,
-						muted = false,
-						solo = false,
-						startCut = 0.0,
-						endCut = 0.467,
-						weight = 1.0,
-						speed = 1.0,
-						priority = "Movement",
-						bodyMask = "Lower Body",
-						looped = true,
-					},
-					{
-						id = "rbxassetid://113219639247452",
-						name = "Attacks.Punch1",
-						enabled = true,
-						muted = false,
-						solo = false,
-						startCut = 0.0,
-						endCut = 0.833,
-						weight = 1.0,
-						speed = 1.0,
-						priority = "Action4",
-						bodyMask = "Upper Body",
-						looped = true,
-					}
+					mkLayer("rbxassetid://109090784752055", "Movement.Run", 0.0, 0.467, 1.0, 1.0, "Movement", "Lower Body", true),
+					mkLayer("rbxassetid://113219639247452", "Attacks.Punch1", 0.0, 0.833, 1.0, 1.0, "Action4", "Upper Body", true),
 				}
 			elseif pData.presetId == "IdleStance" then
 				combinatorLayers = {
-					{
-						id = "rbxassetid://81038616654818",
-						name = "IDLE_DEFAULT",
-						enabled = true,
-						muted = false,
-						solo = false,
-						startCut = 0.0,
-						endCut = 4.0,
-						weight = 0.6,
-						speed = 1.0,
-						priority = "Idle",
-						bodyMask = "Full Body",
-						looped = true,
-					},
-					{
-						id = "rbxassetid://123350689285769",
-						name = "IDLEREADY_STANCE",
-						enabled = true,
-						muted = false,
-						solo = false,
-						startCut = 0.0,
-						endCut = 1.95,
-						weight = 0.8,
-						speed = 1.0,
-						priority = "Action",
-						bodyMask = "Upper Body",
-						looped = true,
-					}
+					mkLayer("rbxassetid://81038616654818", "IDLE_DEFAULT", 0.0, 4.0, 0.6, 1.0, "Idle", "Full Body", true),
+					mkLayer("rbxassetid://123350689285769", "IDLEREADY_STANCE", 0.0, 1.95, 0.8, 1.0, "Action", "Upper Body", true),
 				}
 			elseif pData.presetId == "Sprint180" then
 				combinatorLayers = {
-					{
-						id = "rbxassetid://109090784752055",
-						name = "Movement.Run",
-						enabled = true,
-						muted = false,
-						solo = false,
-						startCut = 0.0,
-						endCut = 0.467,
-						weight = 0.5,
-						speed = 1.0,
-						priority = "Movement",
-						bodyMask = "Full Body",
-						looped = true,
-					},
-					{
-						id = "rbxassetid://129355316172688",
-						name = "RunTurn180",
-						enabled = true,
-						muted = false,
-						solo = false,
-						startCut = 0.0,
-						endCut = 0.667,
-						weight = 1.0,
-						speed = 1.0,
-						priority = "Action3",
-						bodyMask = "Full Body",
-						looped = true,
-					}
+					mkLayer("rbxassetid://109090784752055", "Movement.Run", 0.0, 0.467, 0.5, 1.0, "Movement", "Full Body", true),
+					mkLayer("rbxassetid://129355316172688", "RunTurn180", 0.0, 0.667, 1.0, 1.0, "Action3", "Full Body", true),
 				}
 			elseif pData.presetId == "SuperheroLanding" then
 				combinatorLayers = {
-					{
-						id = "rbxassetid://94804914683754",
-						name = "SUPERHERO LANDING",
-						enabled = true,
-						muted = false,
-						solo = false,
-						startCut = 0.0,
-						endCut = 0.883,
-						weight = 1.0,
-						speed = 1.0,
-						priority = "Action4",
-						bodyMask = "Full Body",
-						looped = false,
-					},
-					{
-						id = "rbxassetid://95406088712190",
-						name = "GetUpBackFast",
-						enabled = true,
-						muted = false,
-						solo = false,
-						startCut = 0.0,
-						endCut = 1.0,
-						weight = 0.9,
-						speed = 1.0,
-						priority = "Action",
-						bodyMask = "Full Body",
-						looped = false,
-					}
+					mkLayer("rbxassetid://94804914683754", "SUPERHERO LANDING", 0.0, 0.883, 1.0, 1.0, "Action4", "Full Body", false),
+					mkLayer("rbxassetid://95406088712190", "GetUpBackFast", 0.0, 1.0, 0.9, 1.0, "Action", "Full Body", false),
 				}
 			end
 			updateGlobalDuration()
@@ -2409,7 +2790,7 @@ do
 	exportDivider.Parent = inspScroll
 
 	local exportStackBtn = Instance.new("TextButton")
-	exportStackBtn.Text = "📋 Export Stack to Luau"
+	exportStackBtn.Text = "ðŸ“‹ Export Stack to Luau"
 	exportStackBtn.Size = UDim2.new(1, -12, 0, 30)
 	exportStackBtn.Position = UDim2.new(0, 6, 0, 314)
 	exportStackBtn.BackgroundColor3 = C_ACCENT
@@ -2450,12 +2831,12 @@ do
 		end
 	end)
 
-	----------------------------------------------------------------------------
+	----------------
 	-- BOTTOM PANEL: GLOBAL TIMELINE SCRUBBER & MASTER TRANSPORT CONTROLS
-	----------------------------------------------------------------------------
+	----------------
 	-- Row 1: Readouts
 	local timeReadout = Instance.new("TextLabel")
-	timeReadout.Text = "⏱ Scrub: 0.00s / 2.00s"
+	timeReadout.Text = "â± Scrub: 0.00s / 2.00s"
 	timeReadout.Size = UDim2.new(0, 180, 0, 18)
 	timeReadout.Position = UDim2.new(0, 10, 0, 4)
 	timeReadout.BackgroundTransparency = 1
@@ -2466,7 +2847,7 @@ do
 	timeReadout.Parent = bottomPanel
 
 	local frameReadout = Instance.new("TextLabel")
-	frameReadout.Text = "🎞 Frame: 0 / 60 (@ 30 FPS)"
+	frameReadout.Text = "ðŸŽž Frame: 0 / 60 (@ 30 FPS)"
 	frameReadout.Size = UDim2.new(0, 200, 0, 18)
 	frameReadout.Position = UDim2.new(0, 200, 0, 4)
 	frameReadout.BackgroundTransparency = 1
@@ -2523,7 +2904,7 @@ do
 	transportRow.Parent = bottomPanel
 
 	local jumpStartBtn = Instance.new("TextButton")
-	jumpStartBtn.Text = "⏮ Start"
+	jumpStartBtn.Text = "â® Start"
 	jumpStartBtn.Size = UDim2.new(0, 60, 0, 26)
 	jumpStartBtn.Position = UDim2.new(0, 0, 0, 3)
 	jumpStartBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
@@ -2534,7 +2915,7 @@ do
 	applyCorner(jumpStartBtn, 4)
 
 	local stepBackBtn = Instance.new("TextButton")
-	stepBackBtn.Text = "◀ 1 Frame"
+	stepBackBtn.Text = "â—€ 1 Frame"
 	stepBackBtn.Size = UDim2.new(0, 75, 0, 26)
 	stepBackBtn.Position = UDim2.new(0, 66, 0, 3)
 	stepBackBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
@@ -2545,7 +2926,7 @@ do
 	applyCorner(stepBackBtn, 4)
 
 	local playPauseBtn = Instance.new("TextButton")
-	playPauseBtn.Text = "▶ Play Stack"
+	playPauseBtn.Text = "â–¶ Play Stack"
 	playPauseBtn.Size = UDim2.new(0, 110, 0, 26)
 	playPauseBtn.Position = UDim2.new(0, 147, 0, 3)
 	playPauseBtn.BackgroundColor3 = C_ACCENT
@@ -2556,7 +2937,7 @@ do
 	applyCorner(playPauseBtn, 4)
 
 	local stepFwdBtn = Instance.new("TextButton")
-	stepFwdBtn.Text = "▶ 1 Frame"
+	stepFwdBtn.Text = "â–¶ 1 Frame"
 	stepFwdBtn.Size = UDim2.new(0, 75, 0, 26)
 	stepFwdBtn.Position = UDim2.new(0, 263, 0, 3)
 	stepFwdBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
@@ -2567,7 +2948,7 @@ do
 	applyCorner(stepFwdBtn, 4)
 
 	local jumpEndBtn = Instance.new("TextButton")
-	jumpEndBtn.Text = "⏭ End"
+	jumpEndBtn.Text = "â­ End"
 	jumpEndBtn.Size = UDim2.new(0, 60, 0, 26)
 	jumpEndBtn.Position = UDim2.new(0, 344, 0, 3)
 	jumpEndBtn.BackgroundColor3 = Color3.fromRGB(38, 45, 60)
@@ -2578,7 +2959,7 @@ do
 	applyCorner(jumpEndBtn, 4)
 
 	local loopBtn = Instance.new("TextButton")
-	loopBtn.Text = "🔄 Loop: ON"
+	loopBtn.Text = "ðŸ”„ Loop: ON"
 	loopBtn.Size = UDim2.new(0, 85, 0, 26)
 	loopBtn.Position = UDim2.new(0, 410, 0, 3)
 	loopBtn.BackgroundColor3 = Color3.fromRGB(30, 95, 65)
@@ -2589,7 +2970,7 @@ do
 	applyCorner(loopBtn, 4)
 
 	local stopResetBtn = Instance.new("TextButton")
-	stopResetBtn.Text = "■ Reset Idle"
+	stopResetBtn.Text = "â–  Reset Idle"
 	stopResetBtn.Size = UDim2.new(0, 85, 0, 26)
 	stopResetBtn.Position = UDim2.new(0, 501, 0, 3)
 	stopResetBtn.BackgroundColor3 = Color3.fromRGB(65, 35, 40)
@@ -2636,9 +3017,9 @@ do
 		end)
 	end
 
-	----------------------------------------------------------------------------
+	----------------
 	-- CORE LOGIC & SYNC ENGINE
-	----------------------------------------------------------------------------
+	----------------
 	getActiveLayersPayload = function()
 		local hasSolo = false
 		for _, layer in ipairs(combinatorLayers) do
@@ -2679,6 +3060,16 @@ do
 			if l.enabled and not l.muted then activeCount = activeCount + 1 end
 		end
 		statusReadout.Text = string.format("Stack: %s (%d Layers Active)", combinatorIsPlaying and "Playing" or "Ready", activeCount)
+
+		if cardUpdatePlayheadFuncs then
+			for _, fn in ipairs(cardUpdatePlayheadFuncs) do
+				fn()
+			end
+		end
+
+		if not combinatorIsPlaying and syncLocalViewportScrub then
+			syncLocalViewportScrub(combinatorCurrentTime)
+		end
 	end
 
 	updateGlobalDuration = function()
@@ -2696,6 +3087,9 @@ do
 	local lastScrubFire = 0
 	syncScrubToServer = function(force)
 		local now = os.clock()
+		if syncLocalViewportScrub then
+			syncLocalViewportScrub(combinatorCurrentTime)
+		end
 		if not force and (now - lastScrubFire < 0.033) then return end
 		lastScrubFire = now
 		labEvent:FireServer("Combinator_Scrub", {
@@ -2709,6 +3103,9 @@ do
 		combinatorIsPlaying = true
 		playPauseBtn.Text = "⏸ Pause Stack"
 		playPauseBtn.BackgroundColor3 = Color3.fromRGB(240, 175, 45)
+		if syncLocalViewportTracks then
+			syncLocalViewportTracks(true)
+		end
 		labEvent:FireServer("Combinator_PlayStack", {
 			targetName = testerName,
 			layers = getActiveLayersPayload(),
@@ -2728,6 +3125,9 @@ do
 			playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
 		end
 		updateScrubberVisuals()
+		if syncLocalViewportTracks then
+			syncLocalViewportTracks(false)
+		end
 		labEvent:FireServer("Combinator_Stop", { targetName = testerName })
 	end
 
@@ -2738,7 +3138,7 @@ do
 			isScrubDragging = true
 			if combinatorIsPlaying then
 				combinatorIsPlaying = false
-				playPauseBtn.Text = "▶ Play Stack"
+				playPauseBtn.Text = "â–¶ Play Stack"
 				playPauseBtn.BackgroundColor3 = C_ACCENT
 			end
 			local r = math.clamp((input.Position.X - scrubTrack.AbsolutePosition.X) / math.max(1, scrubTrack.AbsoluteSize.X), 0, 1)
@@ -2794,7 +3194,7 @@ do
 	playPauseBtn.MouseButton1Click:Connect(function()
 		if combinatorIsPlaying then
 			combinatorIsPlaying = false
-			playPauseBtn.Text = "▶ Play Stack"
+			playPauseBtn.Text = "â–¶ Play Stack"
 			playPauseBtn.BackgroundColor3 = C_ACCENT
 			syncScrubToServer(true)
 		else
@@ -2807,7 +3207,7 @@ do
 
 	loopBtn.MouseButton1Click:Connect(function()
 		combinatorLoop = not combinatorLoop
-		loopBtn.Text = combinatorLoop and "🔄 Loop: ON" or "🔄 Loop: OFF"
+		loopBtn.Text = combinatorLoop and "ðŸ”„ Loop: ON" or "ðŸ”„ Loop: OFF"
 		loopBtn.BackgroundColor3 = combinatorLoop and Color3.fromRGB(30, 95, 65) or Color3.fromRGB(48, 54, 66)
 	end)
 
@@ -2826,7 +3226,7 @@ do
 				else
 					combinatorCurrentTime = combinatorGlobalDuration
 					combinatorIsPlaying = false
-					playPauseBtn.Text = "▶ Play Stack"
+					playPauseBtn.Text = "â–¶ Play Stack"
 					playPauseBtn.BackgroundColor3 = C_ACCENT
 				end
 			end
@@ -2878,20 +3278,20 @@ do
 		if isTransitionTesting then
 			if transitionThread then task.cancel(transitionThread) end
 			isTransitionTesting = false
-			playTransitionBtn.Text = "⚡ Play Transition Only"
+			playTransitionBtn.Text = "âš¡ Play Transition Only"
 			playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
 			labEvent:FireServer("Combinator_Stop", { targetName = testerName })
 			return
 		end
 
 		if #combinatorLayers < 2 then
-			playTransitionBtn.Text = "⚠️ Need 2 Layers!"
-			task.delay(1.2, function() playTransitionBtn.Text = "⚡ Play Transition Only" end)
+			playTransitionBtn.Text = "âš ï¸ Need 2 Layers!"
+			task.delay(1.2, function() playTransitionBtn.Text = "âš¡ Play Transition Only" end)
 			return
 		end
 
 		isTransitionTesting = true
-		playTransitionBtn.Text = "⏹ Stop Transition"
+		playTransitionBtn.Text = "â¹ Stop Transition"
 		playTransitionBtn.BackgroundColor3 = C_DANGER
 
 		transitionThread = task.spawn(function()
@@ -2931,20 +3331,21 @@ do
 				task.wait(durB + 0.3)
 			end
 			isTransitionTesting = false
-			playTransitionBtn.Text = "⚡ Play Transition Only"
+			playTransitionBtn.Text = "âš¡ Play Transition Only"
 			playTransitionBtn.BackgroundColor3 = Color3.fromRGB(35, 100, 150)
 		end)
 	end)
 
-	----------------------------------------------------------------------------
+	----------------
 	-- STACK VIEW RENDERING
-	----------------------------------------------------------------------------
+	----------------
 	refreshStackView = function()
 		for _, child in ipairs(stackScroll:GetChildren()) do
 			if child:IsA("Frame") and child ~= emptyStackNotice then
 				child:Destroy()
 			end
 		end
+		cardUpdatePlayheadFuncs = {}
 
 		local count = #combinatorLayers
 		stackCountBadge.Text = string.format("(%d Layers)", count)
@@ -2957,7 +3358,7 @@ do
 		for idx, layer in ipairs(combinatorLayers) do
 			local card = Instance.new("Frame")
 			card.Name = "LayerCard_" .. tostring(idx)
-			card.Size = UDim2.new(1, -8, 0, 134)
+			card.Size = UDim2.new(1, -8, 0, 150)
 			card.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
 			card.ClipsDescendants = true
 			card.Parent = stackScroll
@@ -2971,29 +3372,10 @@ do
 			header.BackgroundTransparency = 1
 			header.Parent = card
 
-			local title = Instance.new("TextLabel")
-			title.Text = string.format("L%d: %s", idx, layer.name)
-			title.Size = UDim2.new(1, -160, 1, 0)
-			title.Position = UDim2.new(0, 0, 0, 0)
-			title.BackgroundTransparency = 1
-			title.TextColor3 = layer.enabled and C_ACCENT or C_TEXT_MUTED
+			local title = makeLbl(header, string.format("L%d: %s", idx, layer.name), UDim2.new(1, -160, 1, 0), UDim2.new(0, 0, 0, 0), layer.enabled and C_ACCENT or C_TEXT_MUTED, 11, Enum.TextXAlignment.Left)
 			title.Font = Enum.Font.GothamBold
-			title.TextSize = 11
-			title.TextXAlignment = Enum.TextXAlignment.Left
-			title.Parent = header
 
-			-- Active Toggle [👁]
-			local eyeBtn = Instance.new("TextButton")
-			eyeBtn.Text = layer.enabled and "👁" or "⊘"
-			eyeBtn.Size = UDim2.new(0, 22, 0, 20)
-			eyeBtn.Position = UDim2.new(1, -154, 0, 1)
-			eyeBtn.BackgroundColor3 = layer.enabled and Color3.fromRGB(30, 80, 50) or Color3.fromRGB(45, 45, 55)
-			eyeBtn.TextColor3 = layer.enabled and C_SUCCESS or C_TEXT_MUTED
-			eyeBtn.Font = Enum.Font.GothamBold
-			eyeBtn.TextSize = 10
-			eyeBtn.Parent = header
-			applyCorner(eyeBtn, 3)
-
+			local eyeBtn = makeBtn(header, layer.enabled and "👁" or "⊘", UDim2.new(0, 22, 0, 20), UDim2.new(1, -154, 0, 1), layer.enabled and Color3.fromRGB(30, 80, 50) or Color3.fromRGB(45, 45, 55), layer.enabled and C_SUCCESS or C_TEXT_MUTED, 10, 3)
 			eyeBtn.MouseButton1Click:Connect(function()
 				layer.enabled = not layer.enabled
 				updateGlobalDuration()
@@ -3001,18 +3383,7 @@ do
 				if combinatorIsPlaying then triggerStackPlayback() end
 			end)
 
-			-- Mute Toggle [🔇]
-			local muteBtn = Instance.new("TextButton")
-			muteBtn.Text = layer.muted and "🔇" or "🔊"
-			muteBtn.Size = UDim2.new(0, 22, 0, 20)
-			muteBtn.Position = UDim2.new(1, -128, 0, 1)
-			muteBtn.BackgroundColor3 = layer.muted and Color3.fromRGB(80, 35, 40) or Color3.fromRGB(36, 42, 56)
-			muteBtn.TextColor3 = layer.muted and C_DANGER or C_TEXT
-			muteBtn.Font = Enum.Font.GothamBold
-			muteBtn.TextSize = 10
-			muteBtn.Parent = header
-			applyCorner(muteBtn, 3)
-
+			local muteBtn = makeBtn(header, layer.muted and "🔇" or "🔊", UDim2.new(0, 22, 0, 20), UDim2.new(1, -128, 0, 1), layer.muted and Color3.fromRGB(80, 35, 40) or Color3.fromRGB(36, 42, 56), layer.muted and C_DANGER or C_TEXT, 10, 3)
 			muteBtn.MouseButton1Click:Connect(function()
 				layer.muted = not layer.muted
 				updateGlobalDuration()
@@ -3020,36 +3391,14 @@ do
 				if combinatorIsPlaying then triggerStackPlayback() end
 			end)
 
-			-- Solo Toggle [S]
-			local soloBtn = Instance.new("TextButton")
-			soloBtn.Text = "S"
-			soloBtn.Size = UDim2.new(0, 22, 0, 20)
-			soloBtn.Position = UDim2.new(1, -102, 0, 1)
-			soloBtn.BackgroundColor3 = layer.solo and Color3.fromRGB(180, 140, 20) or Color3.fromRGB(36, 42, 56)
-			soloBtn.TextColor3 = layer.solo and Color3.new(0, 0, 0) or C_TEXT_MUTED
-			soloBtn.Font = Enum.Font.GothamBold
-			soloBtn.TextSize = 10
-			soloBtn.Parent = header
-			applyCorner(soloBtn, 3)
-
+			local soloBtn = makeBtn(header, "S", UDim2.new(0, 22, 0, 20), UDim2.new(1, -102, 0, 1), layer.solo and Color3.fromRGB(180, 140, 20) or Color3.fromRGB(36, 42, 56), layer.solo and Color3.new(0, 0, 0) or C_TEXT_MUTED, 10, 3)
 			soloBtn.MouseButton1Click:Connect(function()
 				layer.solo = not layer.solo
 				refreshStackView()
 				if combinatorIsPlaying then triggerStackPlayback() end
 			end)
 
-			-- Move Up [▲]
-			local upBtn = Instance.new("TextButton")
-			upBtn.Text = "▲"
-			upBtn.Size = UDim2.new(0, 20, 0, 20)
-			upBtn.Position = UDim2.new(1, -76, 0, 1)
-			upBtn.BackgroundColor3 = Color3.fromRGB(36, 42, 56)
-			upBtn.TextColor3 = C_TEXT
-			upBtn.Font = Enum.Font.GothamBold
-			upBtn.TextSize = 9
-			upBtn.Parent = header
-			applyCorner(upBtn, 3)
-
+			local upBtn = makeBtn(header, "▲", UDim2.new(0, 20, 0, 20), UDim2.new(1, -76, 0, 1), Color3.fromRGB(36, 42, 56), C_TEXT, 9, 3)
 			upBtn.MouseButton1Click:Connect(function()
 				if idx > 1 then
 					local temp = combinatorLayers[idx]
@@ -3059,18 +3408,7 @@ do
 				end
 			end)
 
-			-- Move Down [▼]
-			local downBtn = Instance.new("TextButton")
-			downBtn.Text = "▼"
-			downBtn.Size = UDim2.new(0, 20, 0, 20)
-			downBtn.Position = UDim2.new(1, -52, 0, 1)
-			downBtn.BackgroundColor3 = Color3.fromRGB(36, 42, 56)
-			downBtn.TextColor3 = C_TEXT
-			downBtn.Font = Enum.Font.GothamBold
-			downBtn.TextSize = 9
-			downBtn.Parent = header
-			applyCorner(downBtn, 3)
-
+			local downBtn = makeBtn(header, "▼", UDim2.new(0, 20, 0, 20), UDim2.new(1, -52, 0, 1), Color3.fromRGB(36, 42, 56), C_TEXT, 9, 3)
 			downBtn.MouseButton1Click:Connect(function()
 				if idx < #combinatorLayers then
 					local temp = combinatorLayers[idx]
@@ -3080,17 +3418,7 @@ do
 				end
 			end)
 
-			-- Delete [✕]
-			local delBtn = Instance.new("TextButton")
-			delBtn.Text = "✕"
-			delBtn.Size = UDim2.new(0, 24, 0, 20)
-			delBtn.Position = UDim2.new(1, -28, 0, 1)
-			delBtn.BackgroundColor3 = Color3.fromRGB(70, 30, 35)
-			delBtn.TextColor3 = C_DANGER
-			delBtn.Font = Enum.Font.GothamBold
-			delBtn.TextSize = 10
-			delBtn.Parent = header
-			applyCorner(delBtn, 3)
+			local delBtn = makeBtn(header, "✕", UDim2.new(0, 24, 0, 20), UDim2.new(1, -28, 0, 1), Color3.fromRGB(70, 30, 35), C_DANGER, 10, 3)
 
 			delBtn.MouseButton1Click:Connect(function()
 				table.remove(combinatorLayers, idx)
@@ -3132,142 +3460,222 @@ do
 				layer.id = cardIdBox.Text
 			end)
 
-			-- Row 3: Trimming Sliders (Start Cut & End Cut)
-			local trimRow = Instance.new("Frame")
-			trimRow.Size = UDim2.new(1, -12, 0, 24)
-			trimRow.Position = UDim2.new(0, 6, 0, 52)
-			trimRow.BackgroundTransparency = 1
-			trimRow.Parent = card
+			-- Row 3 & 3B: Dual-Handle Range Scrubber Track & Real-Time Trim Controls
+			local layerMaxTime = 3.0
+			if localViewportTracks and localViewportTracks[layer.id] and localViewportTracks[layer.id].Length > 0 then
+				layerMaxTime = math.max(layer.endCut or 2.0, localViewportTracks[layer.id].Length)
+			else
+				layerMaxTime = math.max(3.0, (layer.endCut or 2.0) + 0.5)
+			end
 
-			-- Start Cut
-			local startCutLabel = Instance.new("TextLabel")
-			startCutLabel.Text = string.format("Start: %.2fs (F%d)", layer.startCut or 0.0, math.floor((layer.startCut or 0.0) * 30))
-			startCutLabel.Size = UDim2.new(0.35, 0, 1, 0)
-			startCutLabel.Position = UDim2.new(0, 0, 0, 0)
-			startCutLabel.BackgroundTransparency = 1
-			startCutLabel.TextColor3 = C_TEXT
-			startCutLabel.Font = Enum.Font.Gotham
-			startCutLabel.TextSize = 9
-			startCutLabel.TextXAlignment = Enum.TextXAlignment.Left
-			startCutLabel.Parent = trimRow
+			-- Row 3: Scrubber Track
+			local rangeTrackContainer = Instance.new("Frame")
+			rangeTrackContainer.Size = UDim2.new(1, -12, 0, 16)
+			rangeTrackContainer.Position = UDim2.new(0, 6, 0, 52)
+			rangeTrackContainer.BackgroundTransparency = 1
+			rangeTrackContainer.Parent = card
 
-			local startMinus = Instance.new("TextButton")
-			startMinus.Text = "-"
-			startMinus.Size = UDim2.new(0, 18, 0, 18)
-			startMinus.Position = UDim2.new(0.35, 2, 0, 3)
-			startMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
-			startMinus.TextColor3 = C_TEXT
-			startMinus.Font = Enum.Font.GothamBold
-			startMinus.TextSize = 10
-			startMinus.Parent = trimRow
-			applyCorner(startMinus, 3)
+			local rangeTrack = Instance.new("Frame")
+			rangeTrack.Size = UDim2.new(1, 0, 0, 12)
+			rangeTrack.Position = UDim2.new(0, 0, 0, 2)
+			rangeTrack.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
+			rangeTrack.ClipsDescendants = false
+			rangeTrack.Parent = rangeTrackContainer
+			applyCorner(rangeTrack, 4)
 
-			local startPlus = Instance.new("TextButton")
-			startPlus.Text = "+"
-			startPlus.Size = UDim2.new(0, 18, 0, 18)
-			startPlus.Position = UDim2.new(0.35, 22, 0, 3)
-			startPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
-			startPlus.TextColor3 = C_TEXT
-			startPlus.Font = Enum.Font.GothamBold
-			startPlus.TextSize = 10
-			startPlus.Parent = trimRow
-			applyCorner(startPlus, 3)
+			local rangeFill = Instance.new("Frame")
+			rangeFill.BackgroundColor3 = Color3.fromRGB(0, 185, 245)
+			rangeFill.BackgroundTransparency = 0.45
+			rangeFill.BorderSizePixel = 0
+			rangeFill.Parent = rangeTrack
+			applyCorner(rangeFill, 3)
+
+			local startHandle = makeBtn(rangeTrack, "◀", UDim2.new(0, 14, 0, 18), nil, Color3.fromRGB(0, 220, 255), Color3.new(0, 0, 0), 8, 3)
+			startHandle.ZIndex = 6
+			local endHandle = makeBtn(rangeTrack, "▶", UDim2.new(0, 14, 0, 18), nil, Color3.fromRGB(255, 180, 50), Color3.new(0, 0, 0), 8, 3)
+			endHandle.ZIndex = 6
+
+			local playheadMarker = Instance.new("Frame")
+			playheadMarker.Size = UDim2.new(0, 2, 1, 4)
+			playheadMarker.Position = UDim2.new(0, 0, 0, -2)
+			playheadMarker.BackgroundColor3 = Color3.new(1, 1, 1)
+			playheadMarker.BorderSizePixel = 0
+			playheadMarker.ZIndex = 7
+			playheadMarker.Parent = rangeTrack
+
+			-- Row 3B: Dual Range Readout & Micro-Nudge Buttons
+			local trimMetaRow = Instance.new("Frame")
+			trimMetaRow.Size = UDim2.new(1, -12, 0, 18)
+			trimMetaRow.Position = UDim2.new(0, 6, 0, 70)
+			trimMetaRow.BackgroundTransparency = 1
+			trimMetaRow.Parent = card
+
+			local startCutLabel = makeLbl(trimMetaRow, "", UDim2.new(0, 82, 1, 0), UDim2.new(0, 0, 0, 0), Color3.fromRGB(160, 225, 255), 9, Enum.TextXAlignment.Left)
+			local startMinus = makeBtn(trimMetaRow, "◀", UDim2.new(0, 18, 0, 16), UDim2.new(0, 84, 0, 1), Color3.fromRGB(40, 48, 64), C_TEXT, 8, 3)
+			local startPlus = makeBtn(trimMetaRow, "▶", UDim2.new(0, 18, 0, 16), UDim2.new(0, 104, 0, 1), Color3.fromRGB(40, 48, 64), C_TEXT, 8, 3)
+
+			local durLabel = makeLbl(trimMetaRow, "", UDim2.new(0, 80, 1, 0), UDim2.new(0.5, -40, 0, 0), C_ACCENT, 9, Enum.TextXAlignment.Center)
+			durLabel.Font = Enum.Font.GothamBold
+
+			local endCutLabel = makeLbl(trimMetaRow, "", UDim2.new(0, 80, 1, 0), UDim2.new(1, -122, 0, 0), Color3.fromRGB(255, 210, 140), 9, Enum.TextXAlignment.Right)
+			local endMinus = makeBtn(trimMetaRow, "◀", UDim2.new(0, 18, 0, 16), UDim2.new(1, -38, 0, 1), Color3.fromRGB(40, 48, 64), C_TEXT, 8, 3)
+			local endPlus = makeBtn(trimMetaRow, "▶", UDim2.new(0, 18, 0, 16), UDim2.new(1, -18, 0, 1), Color3.fromRGB(40, 48, 64), C_TEXT, 8, 3)
+
+			local function updateScrubberTrackUI()
+				local sCut = layer.startCut or 0.0
+				local eCut = layer.endCut or 2.0
+				local sRat = math.clamp(sCut / layerMaxTime, 0, 0.98)
+				local eRat = math.clamp(eCut / layerMaxTime, sRat + 0.02, 1.0)
+
+				startHandle.Position = UDim2.new(sRat, -7, 0.5, -9)
+				endHandle.Position = UDim2.new(eRat, -7, 0.5, -9)
+				rangeFill.Position = UDim2.new(sRat, 0, 0, 0)
+				rangeFill.Size = UDim2.new(math.max(0.01, eRat - sRat), 0, 1, 0)
+
+				startCutLabel.Text = string.format("Start: %.2fs (F%d)", sCut, math.floor(sCut * 30))
+				endCutLabel.Text = string.format("End: %.2fs (F%d)", eCut, math.floor(eCut * 30))
+				local dur = math.max(0, eCut - sCut)
+				durLabel.Text = string.format("Dur: %.2fs (%dF)", dur, math.floor(dur * 30))
+
+				local currentHeadTime = math.clamp((layer.startCut or 0) + combinatorCurrentTime * (layer.speed or 1.0), sCut, eCut)
+				local headRat = math.clamp(currentHeadTime / layerMaxTime, 0, 1)
+				playheadMarker.Position = UDim2.new(headRat, -1, 0, -2)
+			end
+
+			local isStartDragging = false
+			local isEndDragging = false
+			local isFillDragging = false
+			local fillDragStartX = 0
+			local initStartCut = 0
+			local initEndCut = 0
+
+			startHandle.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					isStartDragging = true
+				end
+			end)
+
+			endHandle.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					isEndDragging = true
+				end
+			end)
+
+			rangeFill.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					isFillDragging = true
+					fillDragStartX = input.Position.X
+					initStartCut = layer.startCut or 0.0
+					initEndCut = layer.endCut or 2.0
+				end
+			end)
+
+			rangeTrack.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					if not isStartDragging and not isEndDragging and not isFillDragging then
+						local relX = math.clamp((input.Position.X - rangeTrack.AbsolutePosition.X) / math.max(1, rangeTrack.AbsoluteSize.X), 0, 1)
+						local clickTime = relX * layerMaxTime
+						local distToStart = math.abs(clickTime - (layer.startCut or 0.0))
+						local distToEnd = math.abs(clickTime - (layer.endCut or 2.0))
+						if distToStart < distToEnd then
+							layer.startCut = math.clamp(math.floor(clickTime * 30 + 0.5) / 30, 0, (layer.endCut or 2.0) - (1 / 30))
+						else
+							layer.endCut = math.clamp(math.floor(clickTime * 30 + 0.5) / 30, (layer.startCut or 0.0) + (1 / 30), layerMaxTime)
+						end
+						updateScrubberTrackUI()
+						updateGlobalDuration()
+						if syncLocalViewportScrub then syncLocalViewportScrub(layer.startCut or 0) end
+						if syncScrubToServer then syncScrubToServer(true) end
+					end
+				end
+			end)
+
+			UserInputService.InputChanged:Connect(function(input)
+				if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+					if isStartDragging then
+						local relX = math.clamp((input.Position.X - rangeTrack.AbsolutePosition.X) / math.max(1, rangeTrack.AbsoluteSize.X), 0, 1)
+						local newStart = math.clamp(math.floor(relX * layerMaxTime * 30 + 0.5) / 30, 0, (layer.endCut or 2.0) - (1 / 30))
+						layer.startCut = newStart
+						updateScrubberTrackUI()
+						updateGlobalDuration()
+						if syncLocalViewportScrub then syncLocalViewportScrub(newStart) end
+					elseif isEndDragging then
+						local relX = math.clamp((input.Position.X - rangeTrack.AbsolutePosition.X) / math.max(1, rangeTrack.AbsoluteSize.X), 0, 1)
+						local newEnd = math.clamp(math.floor(relX * layerMaxTime * 30 + 0.5) / 30, (layer.startCut or 0.0) + (1 / 30), layerMaxTime)
+						layer.endCut = newEnd
+						updateScrubberTrackUI()
+						updateGlobalDuration()
+						if syncLocalViewportScrub then syncLocalViewportScrub(newEnd) end
+					elseif isFillDragging then
+						local deltaPixels = input.Position.X - fillDragStartX
+						local deltaSec = (deltaPixels / math.max(1, rangeTrack.AbsoluteSize.X)) * layerMaxTime
+						local dur = initEndCut - initStartCut
+						local newStart = math.clamp(initStartCut + deltaSec, 0, math.max(0, layerMaxTime - dur))
+						newStart = math.floor(newStart * 30 + 0.5) / 30
+						layer.startCut = newStart
+						layer.endCut = newStart + dur
+						updateScrubberTrackUI()
+						updateGlobalDuration()
+						if syncLocalViewportScrub then syncLocalViewportScrub(newStart) end
+					end
+				end
+			end)
+
+			UserInputService.InputEnded:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					if isStartDragging or isEndDragging or isFillDragging then
+						isStartDragging = false
+						isEndDragging = false
+						isFillDragging = false
+						updateGlobalDuration()
+						if syncScrubToServer then syncScrubToServer(true) end
+					end
+				end
+			end)
 
 			startMinus.MouseButton1Click:Connect(function()
 				layer.startCut = math.max(0, (layer.startCut or 0.0) - (1 / 30))
-				startCutLabel.Text = string.format("Start: %.2fs (F%d)", layer.startCut, math.floor(layer.startCut * 30))
+				updateScrubberTrackUI()
 				updateGlobalDuration()
+				if syncLocalViewportScrub then syncLocalViewportScrub(layer.startCut) end
+				if syncScrubToServer then syncScrubToServer(true) end
 			end)
 			startPlus.MouseButton1Click:Connect(function()
-				layer.startCut = math.min((layer.endCut or 2.0) - 0.033, (layer.startCut or 0.0) + (1 / 30))
-				startCutLabel.Text = string.format("Start: %.2fs (F%d)", layer.startCut, math.floor(layer.startCut * 30))
+				layer.startCut = math.min((layer.endCut or 2.0) - (1 / 30), (layer.startCut or 0.0) + (1 / 30))
+				updateScrubberTrackUI()
 				updateGlobalDuration()
+				if syncLocalViewportScrub then syncLocalViewportScrub(layer.startCut) end
+				if syncScrubToServer then syncScrubToServer(true) end
 			end)
 
-			-- End Cut
-			local endCutLabel = Instance.new("TextLabel")
-			endCutLabel.Text = string.format("End: %.2fs (F%d)", layer.endCut or 2.0, math.floor((layer.endCut or 2.0) * 30))
-			endCutLabel.Size = UDim2.new(0.35, 0, 1, 0)
-			endCutLabel.Position = UDim2.new(0.52, 0, 0, 0)
-			endCutLabel.BackgroundTransparency = 1
-			endCutLabel.TextColor3 = C_TEXT
-			endCutLabel.Font = Enum.Font.Gotham
-			endCutLabel.TextSize = 9
-			endCutLabel.TextXAlignment = Enum.TextXAlignment.Left
-			endCutLabel.Parent = trimRow
-
-			local endMinus = Instance.new("TextButton")
-			endMinus.Text = "-"
-			endMinus.Size = UDim2.new(0, 18, 0, 18)
-			endMinus.Position = UDim2.new(0.87, 0, 0, 3)
-			endMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
-			endMinus.TextColor3 = C_TEXT
-			endMinus.Font = Enum.Font.GothamBold
-			endMinus.TextSize = 10
-			endMinus.Parent = trimRow
-			applyCorner(endMinus, 3)
-
-			local endPlus = Instance.new("TextButton")
-			endPlus.Text = "+"
-			endPlus.Size = UDim2.new(0, 18, 0, 18)
-			endPlus.Position = UDim2.new(0.87, 20, 0, 3)
-			endPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
-			endPlus.TextColor3 = C_TEXT
-			endPlus.Font = Enum.Font.GothamBold
-			endPlus.TextSize = 10
-			endPlus.Parent = trimRow
-			applyCorner(endPlus, 3)
-
 			endMinus.MouseButton1Click:Connect(function()
-				layer.endCut = math.max((layer.startCut or 0.0) + 0.033, (layer.endCut or 2.0) - (1 / 30))
-				endCutLabel.Text = string.format("End: %.2fs (F%d)", layer.endCut, math.floor(layer.endCut * 30))
+				layer.endCut = math.max((layer.startCut or 0.0) + (1 / 30), (layer.endCut or 2.0) - (1 / 30))
+				updateScrubberTrackUI()
 				updateGlobalDuration()
+				if syncLocalViewportScrub then syncLocalViewportScrub(layer.endCut) end
+				if syncScrubToServer then syncScrubToServer(true) end
 			end)
 			endPlus.MouseButton1Click:Connect(function()
 				layer.endCut = (layer.endCut or 2.0) + (1 / 30)
-				endCutLabel.Text = string.format("End: %.2fs (F%d)", layer.endCut, math.floor(layer.endCut * 30))
+				updateScrubberTrackUI()
 				updateGlobalDuration()
+				if syncLocalViewportScrub then syncLocalViewportScrub(layer.endCut) end
+				if syncScrubToServer then syncScrubToServer(true) end
 			end)
+
+			updateScrubberTrackUI()
+			table.insert(cardUpdatePlayheadFuncs, updateScrubberTrackUI)
 
 			-- Row 4: Weight & Speed
 			local wsRow = Instance.new("Frame")
 			wsRow.Size = UDim2.new(1, -12, 0, 22)
-			wsRow.Position = UDim2.new(0, 6, 0, 80)
+			wsRow.Position = UDim2.new(0, 6, 0, 94)
 			wsRow.BackgroundTransparency = 1
 			wsRow.Parent = card
 
-			local wLabel = Instance.new("TextLabel")
-			wLabel.Text = string.format("Weight: %.2f", layer.weight or 1.0)
-			wLabel.Size = UDim2.new(0.35, 0, 1, 0)
-			wLabel.Position = UDim2.new(0, 0, 0, 0)
-			wLabel.BackgroundTransparency = 1
-			wLabel.TextColor3 = C_TEXT_MUTED
-			wLabel.Font = Enum.Font.Gotham
-			wLabel.TextSize = 9
-			wLabel.TextXAlignment = Enum.TextXAlignment.Left
-			wLabel.Parent = wsRow
-
-			local wMinus = Instance.new("TextButton")
-			wMinus.Text = "-"
-			wMinus.Size = UDim2.new(0, 18, 0, 18)
-			wMinus.Position = UDim2.new(0.35, 2, 0, 2)
-			wMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
-			wMinus.TextColor3 = C_TEXT
-			wMinus.Font = Enum.Font.GothamBold
-			wMinus.TextSize = 10
-			wMinus.Parent = wsRow
-			applyCorner(wMinus, 3)
-
-			local wPlus = Instance.new("TextButton")
-			wPlus.Text = "+"
-			wPlus.Size = UDim2.new(0, 18, 0, 18)
-			wPlus.Position = UDim2.new(0.35, 22, 0, 2)
-			wPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
-			wPlus.TextColor3 = C_TEXT
-			wPlus.Font = Enum.Font.GothamBold
-			wPlus.TextSize = 10
-			wPlus.Parent = wsRow
-			applyCorner(wPlus, 3)
+			local wLabel = makeLbl(wsRow, string.format("Weight: %.2f", layer.weight or 1.0), UDim2.new(0.35, 0, 1, 0), UDim2.new(0, 0, 0, 0), C_TEXT_MUTED, 9, Enum.TextXAlignment.Left)
+			local wMinus = makeBtn(wsRow, "-", UDim2.new(0, 18, 0, 18), UDim2.new(0.35, 2, 0, 2), Color3.fromRGB(40, 48, 64), C_TEXT, 10, 3)
+			local wPlus = makeBtn(wsRow, "+", UDim2.new(0, 18, 0, 18), UDim2.new(0.35, 22, 0, 2), Color3.fromRGB(40, 48, 64), C_TEXT, 10, 3)
 
 			wMinus.MouseButton1Click:Connect(function()
 				layer.weight = math.clamp((layer.weight or 1.0) - 0.1, 0.0, 1.0)
@@ -3278,38 +3686,9 @@ do
 				wLabel.Text = string.format("Weight: %.2f", layer.weight)
 			end)
 
-			local sLabel = Instance.new("TextLabel")
-			sLabel.Text = string.format("Speed: %.2fx", layer.speed or 1.0)
-			sLabel.Size = UDim2.new(0.35, 0, 1, 0)
-			sLabel.Position = UDim2.new(0.52, 0, 0, 0)
-			sLabel.BackgroundTransparency = 1
-			sLabel.TextColor3 = C_TEXT_MUTED
-			sLabel.Font = Enum.Font.Gotham
-			sLabel.TextSize = 9
-			sLabel.TextXAlignment = Enum.TextXAlignment.Left
-			sLabel.Parent = wsRow
-
-			local sMinus = Instance.new("TextButton")
-			sMinus.Text = "-"
-			sMinus.Size = UDim2.new(0, 18, 0, 18)
-			sMinus.Position = UDim2.new(0.87, 0, 0, 2)
-			sMinus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
-			sMinus.TextColor3 = C_TEXT
-			sMinus.Font = Enum.Font.GothamBold
-			sMinus.TextSize = 10
-			sMinus.Parent = wsRow
-			applyCorner(sMinus, 3)
-
-			local sPlus = Instance.new("TextButton")
-			sPlus.Text = "+"
-			sPlus.Size = UDim2.new(0, 18, 0, 18)
-			sPlus.Position = UDim2.new(0.87, 20, 0, 2)
-			sPlus.BackgroundColor3 = Color3.fromRGB(40, 48, 64)
-			sPlus.TextColor3 = C_TEXT
-			sPlus.Font = Enum.Font.GothamBold
-			sPlus.TextSize = 10
-			sPlus.Parent = wsRow
-			applyCorner(sPlus, 3)
+			local sLabel = makeLbl(wsRow, string.format("Speed: %.2fx", layer.speed or 1.0), UDim2.new(0.35, 0, 1, 0), UDim2.new(0.52, 0, 0, 0), C_TEXT_MUTED, 9, Enum.TextXAlignment.Left)
+			local sMinus = makeBtn(wsRow, "-", UDim2.new(0, 18, 0, 18), UDim2.new(0.87, 0, 0, 2), Color3.fromRGB(40, 48, 64), C_TEXT, 10, 3)
+			local sPlus = makeBtn(wsRow, "+", UDim2.new(0, 18, 0, 18), UDim2.new(0.87, 20, 0, 2), Color3.fromRGB(40, 48, 64), C_TEXT, 10, 3)
 
 			sMinus.MouseButton1Click:Connect(function()
 				layer.speed = math.clamp((layer.speed or 1.0) - 0.1, 0.1, 3.0)
@@ -3325,21 +3704,11 @@ do
 			-- Row 5: Priority & Body Mask Selectors
 			local metaRow = Instance.new("Frame")
 			metaRow.Size = UDim2.new(1, -12, 0, 22)
-			metaRow.Position = UDim2.new(0, 6, 0, 106)
+			metaRow.Position = UDim2.new(0, 6, 0, 120)
 			metaRow.BackgroundTransparency = 1
 			metaRow.Parent = card
 
-			local pBtn = Instance.new("TextButton")
-			pBtn.Text = "Prio: " .. (layer.priority or "Action4")
-			pBtn.Size = UDim2.new(0.48, -2, 1, 0)
-			pBtn.Position = UDim2.new(0, 0, 0, 0)
-			pBtn.BackgroundColor3 = Color3.fromRGB(36, 42, 58)
-			pBtn.TextColor3 = Color3.fromRGB(200, 230, 255)
-			pBtn.Font = Enum.Font.GothamBold
-			pBtn.TextSize = 9
-			pBtn.Parent = metaRow
-			applyCorner(pBtn, 3)
-
+			local pBtn = makeBtn(metaRow, "Prio: " .. (layer.priority or "Action4"), UDim2.new(0.48, -2, 1, 0), UDim2.new(0, 0, 0, 0), Color3.fromRGB(36, 42, 58), Color3.fromRGB(200, 230, 255), 9, 3)
 			pBtn.MouseButton1Click:Connect(function()
 				local cur = layer.priority or "Action4"
 				local nextIdx = 1
@@ -3350,16 +3719,16 @@ do
 				pBtn.Text = "Prio: " .. layer.priority
 			end)
 
-			local mBtn = Instance.new("TextButton")
-			mBtn.Text = "Mask: " .. (layer.bodyMask or "Full Body")
-			mBtn.Size = UDim2.new(0.48, -2, 1, 0)
-			mBtn.Position = UDim2.new(0.50, 4, 0, 0)
-			mBtn.BackgroundColor3 = Color3.fromRGB(36, 42, 58)
-			mBtn.TextColor3 = Color3.fromRGB(240, 220, 170)
-			mBtn.Font = Enum.Font.GothamBold
-			mBtn.TextSize = 9
-			mBtn.Parent = metaRow
-			applyCorner(mBtn, 3)
+			local mBtn = makeBtn(metaRow, "Mask: " .. (layer.bodyMask or "Full Body"), UDim2.new(0.48, -2, 1, 0), UDim2.new(0.50, 4, 0, 0), Color3.fromRGB(36, 42, 58), Color3.fromRGB(240, 220, 170), 9, 3)
+			mBtn.MouseButton1Click:Connect(function()
+				local cur = layer.bodyMask or "Full Body"
+				local nextIdx = 1
+				for mI, mVal in ipairs(bodyMasks) do
+					if mVal == cur then nextIdx = (mI % #bodyMasks) + 1 break end
+				end
+				layer.bodyMask = bodyMasks[nextIdx]
+				mBtn.Text = "Mask: " .. layer.bodyMask
+			end)
 
 			mBtn.MouseButton1Click:Connect(function()
 				local cur = layer.bodyMask or "Full Body"
@@ -3401,9 +3770,9 @@ do
 		refreshStackView()
 	end)
 
-	----------------------------------------------------------------------------
+	----------------
 	-- DIRECT ID INSERTER & LIBRARY ACTIONS
-	----------------------------------------------------------------------------
+	----------------
 	previewIdBtn.MouseButton1Click:Connect(function()
 		local rawDigits = string.match(directIdBox.Text, "%d+")
 		if rawDigits then
@@ -3417,7 +3786,7 @@ do
 				looped = true,
 			})
 		else
-			directIdBox.PlaceholderText = "⚠️ Please paste a valid numeric ID!"
+			directIdBox.PlaceholderText = "âš ï¸ Please paste a valid numeric ID!"
 		end
 	end)
 
@@ -3444,7 +3813,7 @@ do
 			updateGlobalDuration()
 			refreshStackView()
 		else
-			directIdBox.PlaceholderText = "⚠️ Enter ID first!"
+			directIdBox.PlaceholderText = "âš ï¸ Enter ID first!"
 		end
 	end)
 
@@ -3497,9 +3866,8 @@ do
 				label.TextSize = 10
 				label.TextXAlignment = Enum.TextXAlignment.Left
 				label.Parent = row
-
 				local auditionBtn = Instance.new("TextButton")
-				auditionBtn.Text = "▶"
+				auditionBtn.Text = "â–¶"
 				auditionBtn.Size = UDim2.new(0, 24, 0, 20)
 				auditionBtn.Position = UDim2.new(1, -54, 0, 3)
 				auditionBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 120)
@@ -3607,6 +3975,27 @@ do
 	populateLibraryList("All", "")
 	refreshStackView()
 	updateGlobalDuration()
+
+	local function onCombinatorActivated()
+		ensurePreviewRig()
+		updatePreviewCamera()
+		syncLocalViewportTracks(combinatorIsPlaying)
+	end
+	_G.CombinatorOnTabActivated = onCombinatorActivated
+	_G.CombinatorResetPreviewRig = function()
+		if previewRig then
+			pcall(function() previewRig:Destroy() end)
+			previewRig = nil
+			previewAnimator = nil
+			localViewportTracks = {}
+		end
+	end
+
+	animCombinatorView:GetPropertyChangedSignal("Visible"):Connect(function()
+		if animCombinatorView.Visible then
+			onCombinatorActivated()
+		end
+	end)
 end
 
 -- Forward declarations for controls referenced across tabs & Section 9 event listeners
@@ -3623,9 +4012,9 @@ isContinuousRagdoll = false
 local toggleContinuousRagBtn
 local createModeCard
 
---------------------------------------------------------------------------------
+----------------
 -- 4B. SUB-TAB 2: CONTINUOUS LOCOMOTION & PROCEDURAL FOOT IK
---------------------------------------------------------------------------------
+----------------
 do
 -- Left Card: Continuous Locomotion Tuning
 local locoCard = Instance.new("ScrollingFrame")
@@ -3640,7 +4029,7 @@ applyCorner(locoCard, 8)
 applyStroke(locoCard, C_BORDER, 1)
 
 local locoTitle = Instance.new("TextLabel")
-locoTitle.Text = "🏃 CONTINUOUS LOCOMOTION TUNING"
+locoTitle.Text = "ðŸƒ CONTINUOUS LOCOMOTION TUNING"
 locoTitle.Size = UDim2.new(1, -20, 0, 22)
 locoTitle.Position = UDim2.new(0, 10, 0, 8)
 locoTitle.BackgroundTransparency = 1
@@ -3671,7 +4060,7 @@ runStrideSlider = createPrecisionSlider(locoCard, 96, "Run Stride Base (Studs/s)
 	labEvent:FireServer("UpdateLocomotionConfig", { key = "RunStrideBase", value = v })
 end)
 
-maxRollSlider = createPrecisionSlider(locoCard, 142, "Torso Banking Max Roll", 0.0, 35.0, CombatConfig.TorsoBankingMaxRoll or 12.0, 1.0, "%.1f°", function(v)
+maxRollSlider = createPrecisionSlider(locoCard, 142, "Torso Banking Max Roll", 0.0, 35.0, CombatConfig.TorsoBankingMaxRoll or 12.0, 1.0, "%.1fÂ°", function(v)
 	CombatConfig.TorsoBankingMaxRoll = v
 	labEvent:FireServer("UpdateLocomotionConfig", { key = "TorsoBankingMaxRoll", value = v })
 end)
@@ -3714,7 +4103,7 @@ applyCorner(ikCard, 8)
 applyStroke(ikCard, C_BORDER, 1)
 
 local ikTitle = Instance.new("TextLabel")
-ikTitle.Text = "🦶 PROCEDURAL FOOT IK (IKControl)"
+ikTitle.Text = "ðŸ¦¶ PROCEDURAL FOOT IK (IKControl)"
 ikTitle.Size = UDim2.new(1, -20, 0, 22)
 ikTitle.Position = UDim2.new(0, 10, 0, 8)
 ikTitle.BackgroundTransparency = 1
@@ -3845,9 +4234,9 @@ ikTelemetryLabel.Parent = ikTelemetryBox
 
 end
 
---------------------------------------------------------------------------------
+----------------
 -- 4C. SUB-TAB 3: ACTIVE MUSCLE RAGDOLL & SPECTACLE KNOCKBACK SANDBOX
---------------------------------------------------------------------------------
+----------------
 do
 local ragdollCard = Instance.new("ScrollingFrame")
 ragdollCard.Size = UDim2.new(0, 460, 1, -12)
@@ -3861,7 +4250,7 @@ applyCorner(ragdollCard, 8)
 applyStroke(ragdollCard, C_BORDER, 1)
 
 local ragTitle = Instance.new("TextLabel")
-ragTitle.Text = "💥 ACTIVE MUSCLE RAGDOLL CALIBRATION"
+ragTitle.Text = "ðŸ’¥ ACTIVE MUSCLE RAGDOLL CALIBRATION"
 ragTitle.Size = UDim2.new(1, -20, 0, 22)
 ragTitle.Position = UDim2.new(0, 10, 0, 8)
 ragTitle.BackgroundTransparency = 1
@@ -3920,7 +4309,7 @@ applyCorner(launchCard, 8)
 applyStroke(launchCard, C_BORDER, 1)
 
 local launchTitle = Instance.new("TextLabel")
-launchTitle.Text = "🧪 SPECTACLE TEST LAUNCHES"
+launchTitle.Text = "ðŸ§ª SPECTACLE TEST LAUNCHES"
 launchTitle.Size = UDim2.new(1, -20, 0, 22)
 launchTitle.Position = UDim2.new(0, 10, 0, 8)
 launchTitle.BackgroundTransparency = 1
@@ -3948,14 +4337,14 @@ highArcBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 220)
 highArcBtn.TextColor3 = Color3.new(1, 1, 1)
 highArcBtn.Font = Enum.Font.GothamBold
 highArcBtn.TextSize = 11
-highArcBtn.Text = "💥 Launch Test Knockback (High Arc Parabolic)"
+highArcBtn.Text = "ðŸ’¥ Launch Test Knockback (High Arc Parabolic)"
 highArcBtn.Parent = launchCard
 applyCorner(highArcBtn, 6)
 
 highArcBtn.MouseButton1Click:Connect(function()
 	if checkAndSpawnTesters then checkAndSpawnTesters(false) end
 	labEvent:FireServer("TestKnockbackLaunch", { style = "high_arc" })
-	statusToast.Text = "💥 High Arc Parabolic Knockback Launched on QuinA_Tester!"
+	statusToast.Text = "ðŸ’¥ High Arc Parabolic Knockback Launched on QuinA_Tester!"
 	statusToast.TextColor3 = C_ACCENT
 end)
 
@@ -3966,14 +4355,14 @@ lowSmashBtn.BackgroundColor3 = Color3.fromRGB(220, 100, 40)
 lowSmashBtn.TextColor3 = Color3.new(1, 1, 1)
 lowSmashBtn.Font = Enum.Font.GothamBold
 lowSmashBtn.TextSize = 11
-lowSmashBtn.Text = "⚡ Launch Test Knockback (Low Smash Horizontal)"
+lowSmashBtn.Text = "âš¡ Launch Test Knockback (Low Smash Horizontal)"
 lowSmashBtn.Parent = launchCard
 applyCorner(lowSmashBtn, 6)
 
 lowSmashBtn.MouseButton1Click:Connect(function()
 	if checkAndSpawnTesters then checkAndSpawnTesters(false) end
 	labEvent:FireServer("TestKnockbackLaunch", { style = "low_smash" })
-	statusToast.Text = "⚡ Low Smash Horizontal Knockback Launched on QuinA_Tester!"
+	statusToast.Text = "âš¡ Low Smash Horizontal Knockback Launched on QuinA_Tester!"
 	statusToast.TextColor3 = Color3.fromRGB(255, 170, 50)
 end)
 
@@ -4003,7 +4392,7 @@ ragResetBtn.BackgroundColor3 = Color3.fromRGB(35, 75, 110)
 ragResetBtn.TextColor3 = C_ACCENT
 ragResetBtn.Font = Enum.Font.GothamBold
 ragResetBtn.TextSize = 11
-ragResetBtn.Text = "🔄 Reset Tester Upright & Stationary"
+ragResetBtn.Text = "ðŸ”„ Reset Tester Upright & Stationary"
 ragResetBtn.Parent = launchCard
 applyCorner(ragResetBtn, 6)
 
@@ -4033,9 +4422,9 @@ ragTelemetryLabel.Parent = ragTelemetryBox
 
 end
 
---------------------------------------------------------------------------------
+----------------
 -- 4D. SUB-TAB 4: AUTONOMOUS LOCOMOTION MANEUVER SUITE
---------------------------------------------------------------------------------
+----------------
 do
 local manHeader = Instance.new("TextLabel")
 manHeader.Text = "QUIN AUTONOMOUS LOCOMOTION MANEUVER SUITE"
@@ -4118,7 +4507,7 @@ local function createManeuverCard(parent, xPos, title, badge, desc, accentCol, o
 	actBtn.TextColor3 = Color3.new(0, 0, 0)
 	actBtn.Font = Enum.Font.GothamBold
 	actBtn.TextSize = 11
-	actBtn.Text = "Execute Maneuver ▶"
+	actBtn.Text = "Execute Maneuver â–¶"
 	actBtn.Parent = card
 	applyCorner(actBtn, 6)
 
@@ -4128,23 +4517,23 @@ local function createManeuverCard(parent, xPos, title, badge, desc, accentCol, o
 end
 
 createManeuverCard(
-	manGrid, 0, "Sprint & 180° Cut", "Directional Pivot",
+	manGrid, 0, "Sprint & 180Â° Cut", "Directional Pivot",
 	"Commands QuinA_Tester to sprint at 50 studs/s, execute an instant 180-degree directional pivot, and sprint back. Inspects stride scaling and anti-sliding.",
 	Color3.fromRGB(0, 220, 255),
 	function(btn)
 		labEvent:FireServer("RunLocomotionTest", { testType = "Sprint180" })
-		statusToast.Text = "🏃 Executing Sprint & 180° Cut maneuver..."
+		statusToast.Text = "ðŸƒ Executing Sprint & 180Â° Cut maneuver..."
 		statusToast.TextColor3 = C_ACCENT
 	end
 )
 
 createManeuverCard(
-	manGrid, 238, "Arc Run 30°", "Centripetal Banking",
+	manGrid, 238, "Arc Run 30Â°", "Centripetal Banking",
 	"Drives QuinA_Tester along a 28-stud radius circular orbital path at 44 studs/s, tilting the torso roll angle into the turn based on centripetal speed.",
 	Color3.fromRGB(160, 220, 40),
 	function(btn)
 		labEvent:FireServer("RunLocomotionTest", { testType = "ArcRun" })
-		statusToast.Text = "🌀 Executing 30° Centripetal Arc Run maneuver..."
+		statusToast.Text = "ðŸŒ€ Executing 30Â° Centripetal Arc Run maneuver..."
 		statusToast.TextColor3 = Color3.fromRGB(180, 240, 50)
 	end
 )
@@ -4155,7 +4544,7 @@ createManeuverCard(
 	Color3.fromRGB(255, 160, 40),
 	function(btn)
 		labEvent:FireServer("RunLocomotionTest", { testType = "SprintBrake" })
-		statusToast.Text = "🛑 Executing Sprint & Hard Brake skid..."
+		statusToast.Text = "ðŸ›‘ Executing Sprint & Hard Brake skid..."
 		statusToast.TextColor3 = Color3.fromRGB(255, 180, 50)
 	end
 )
@@ -4165,7 +4554,7 @@ createManeuverCard(
 	"Positions camera and arms QuinA_Tester for high-frequency burst frame captures via inspect_locomotion_cycle.py.",
 	Color3.fromRGB(220, 100, 255),
 	function(btn)
-		statusToast.Text = "📸 Diagnostic Burst Ready: Run inspect_locomotion_cycle.py in terminal!"
+		statusToast.Text = "ðŸ“¸ Diagnostic Burst Ready: Run inspect_locomotion_cycle.py in terminal!"
 		statusToast.TextColor3 = Color3.fromRGB(230, 120, 255)
 	end
 )
@@ -4189,7 +4578,7 @@ RunService.Heartbeat:Connect(function()
 		local rollAngle = hrp.Orientation.Z
 
 		locoTelemetryLabel.Text = string.format(
-			"Rig: %s\nHorizontal Speed: %.1f studs/s\nWalkSpeed: %.1f\nCalculated Stride Scale: %.2fx (Base: %.1f)\nCurrent Torso Bank Roll: %.1f° (Max: %.1f°)",
+			"Rig: %s\nHorizontal Speed: %.1f studs/s\nWalkSpeed: %.1f\nCalculated Stride Scale: %.2fx (Base: %.1f)\nCurrent Torso Bank Roll: %.1fÂ° (Max: %.1fÂ°)",
 			tester.Name, horizSpeed, hum.WalkSpeed, dynamicMult, strideBase, rollAngle, CombatConfig.TorsoBankingMaxRoll or 12.0
 		)
 
@@ -4283,7 +4672,7 @@ function createModeCard(parent, xPos, title, badge, desc, accentCol, onClick)
 	launchBtn.TextColor3 = Color3.new(0, 0, 0)
 	launchBtn.Font = Enum.Font.GothamBold
 	launchBtn.TextSize = 12
-	launchBtn.Text = "Launch Mode ▶"
+	launchBtn.Text = "Launch Mode â–¶"
 	launchBtn.Parent = card
 	applyCorner(launchBtn, 6)
 
@@ -4294,9 +4683,9 @@ function createModeCard(parent, xPos, title, badge, desc, accentCol, onClick)
 	return card
 end
 
---------------------------------------------------------------------------------
+----------------
 -- 7. GAME MODES VIEW (1v1, 2v2, FFA, CLEAN)
---------------------------------------------------------------------------------
+----------------
 do
 local gmHeader = Instance.new("TextLabel")
 gmHeader.Text = "QUIN PRODUCTION GAME MODES"
@@ -4401,7 +4790,7 @@ local function createTeamBattleCard(parent, xPos)
 	launchBtn.TextColor3 = Color3.new(0, 0, 0)
 	launchBtn.Font = Enum.Font.GothamBold
 	launchBtn.TextSize = 12
-	launchBtn.Text = "Launch 4 vs 4 ▶"
+	launchBtn.Text = "Launch 4 vs 4 â–¶"
 	launchBtn.Parent = card
 	applyCorner(launchBtn, 6)
 
@@ -4428,16 +4817,16 @@ local function createTeamBattleCard(parent, xPos)
 				item.btn.TextColor3 = isSel and Color3.new(0, 0, 0) or C_TEXT
 			end
 			if selectedTeamCount == 16 then
-				launchBtn.Text = "Launch 16 vs 16 (Arena War) ▶"
+				launchBtn.Text = "Launch 16 vs 16 (Arena War) â–¶"
 			else
-				launchBtn.Text = "Launch " .. tostring(selectedTeamCount) .. " vs " .. tostring(selectedTeamCount) .. " ▶"
+				launchBtn.Text = "Launch " .. tostring(selectedTeamCount) .. " vs " .. tostring(selectedTeamCount) .. " â–¶"
 			end
 		end)
 	end
 
 	launchBtn.MouseButton1Click:Connect(function()
 		labEvent:FireServer("SetGameMode", { mode = "team", count = selectedTeamCount })
-		statusToast.Text = string.format("🎮 Launched %d vs %d Team Battle (%d Quins total).", 
+		statusToast.Text = string.format("ðŸŽ® Launched %d vs %d Team Battle (%d Quins total).", 
 			selectedTeamCount, selectedTeamCount, selectedTeamCount * 2)
 		statusToast.TextColor3 = C_SUCCESS
 	end)
@@ -4452,7 +4841,7 @@ createModeCard(
 	C_ACCENT,
 	function(btn)
 		labEvent:FireServer("SetGameMode", { mode = "1v1" })
-		statusToast.Text = "🎮 Launched 1v1 Sparring Match."
+		statusToast.Text = "ðŸŽ® Launched 1v1 Sparring Match."
 		statusToast.TextColor3 = C_SUCCESS
 	end
 )
@@ -4467,7 +4856,7 @@ createModeCard(
 	Color3.fromRGB(0, 220, 255),
 	function(btn)
 		labEvent:FireServer("SetGameMode", { mode = "midair_clash" })
-		statusToast.Text = "⚔️ Launched Mid-Air Clash Duel Mode."
+		statusToast.Text = "âš”ï¸ Launched Mid-Air Clash Duel Mode."
 		statusToast.TextColor3 = C_SUCCESS
 	end
 )
@@ -4479,7 +4868,7 @@ createModeCard(
 	Color3.fromRGB(255, 130, 40),
 	function(btn)
 		labEvent:FireServer("SetGameMode", { mode = "ffa", count = 8 })
-		statusToast.Text = "🎮 Launched 8-Man Free-For-All Battle Mode."
+		statusToast.Text = "ðŸŽ® Launched 8-Man Free-For-All Battle Mode."
 		statusToast.TextColor3 = C_SUCCESS
 	end
 )
@@ -4491,16 +4880,15 @@ createModeCard(
 	C_DANGER,
 	function(btn)
 		labEvent:FireServer("SetGameMode", { mode = "clean" })
-		statusToast.Text = "🧹 Arena cleared."
+		statusToast.Text = "ðŸ§¹ Arena cleared."
 		statusToast.TextColor3 = Color3.fromRGB(250, 180, 50)
 	end
 )
 
 end
-
---------------------------------------------------------------------------------
+----------------
 -- 8. TEST MODES VIEW (SPARRING LAB | INFINITE STRAFE | PROJECTILE JUMP)
---------------------------------------------------------------------------------
+----------------
 do
 local tmHeader = Instance.new("TextLabel")
 tmHeader.Text = "QUIN STATE & BEHAVIOR TEST SUITE"
@@ -4593,7 +4981,7 @@ local function createJumpStyleCard(parent, xPos)
 	launchBtn.TextColor3 = Color3.new(0, 0, 0)
 	launchBtn.Font = Enum.Font.GothamBold
 	launchBtn.TextSize = 12
-	launchBtn.Text = "Launch Style 1 (Vertical) ▶"
+	launchBtn.Text = "Launch Style 1 (Vertical) â–¶"
 	launchBtn.Parent = card
 	applyCorner(launchBtn, 6)
 
@@ -4619,13 +5007,13 @@ local function createJumpStyleCard(parent, xPos)
 				item.btn.BackgroundColor3 = isSel and Color3.fromRGB(240, 180, 40) or Color3.fromRGB(35, 40, 55)
 				item.btn.TextColor3 = isSel and Color3.new(0, 0, 0) or C_TEXT
 			end
-			launchBtn.Text = string.format("Launch Style %d (%s) ▶", selectedStyle, st.name)
+			launchBtn.Text = string.format("Launch Style %d (%s) â–¶", selectedStyle, st.name)
 		end)
 	end
 
 	launchBtn.MouseButton1Click:Connect(function()
 		labEvent:FireServer("SetTestMode", { mode = "ProjectileJump", style = selectedStyle })
-		statusToast.Text = string.format("🧪 Launched Projectile Jump Style %d (%s).", selectedStyle, styles[selectedStyle].name)
+		statusToast.Text = string.format("ðŸ§ª Launched Projectile Jump Style %d (%s).", selectedStyle, styles[selectedStyle].name)
 		statusToast.TextColor3 = C_SUCCESS
 	end)
 
@@ -4660,7 +5048,7 @@ createModeCard(
 	Color3.fromRGB(0, 230, 180),
 	function(btn)
 		labEvent:FireServer("SetTestMode", { mode = "BlockParryLab" })
-		statusToast.Text = "🛡️ Directional Block & Counter Lab ACTIVE!"
+		statusToast.Text = "ðŸ›¡ï¸ Directional Block & Counter Lab ACTIVE!"
 		statusToast.TextColor3 = C_SUCCESS
 	end
 )
@@ -4675,7 +5063,7 @@ createModeCard(
 	Color3.fromRGB(0, 200, 240),
 	function(btn)
 		isInfiniteStrafeActive = not isInfiniteStrafeActive
-		btn.Text = isInfiniteStrafeActive and "ACTIVE (Continuous) ■" or "Launch Mode ▶"
+		btn.Text = isInfiniteStrafeActive and "ACTIVE (Continuous) â– " or "Launch Mode â–¶"
 		btn.BackgroundColor3 = isInfiniteStrafeActive and C_SUCCESS or Color3.fromRGB(0, 200, 240)
 		labEvent:FireServer("SetTestMode", { mode = "InfiniteStrafe", active = isInfiniteStrafeActive })
 		if isInfiniteStrafeActive and not isNormalCombatActive then
@@ -4685,7 +5073,7 @@ createModeCard(
 			combatModeBtn.TextColor3 = Color3.new(0, 0, 0)
 			labEvent:FireServer("ToggleCombatMode", { enabled = true })
 		end
-		statusToast.Text = isInfiniteStrafeActive and "🧪 Infinite Strafe ACTIVE: Quins circle without snapping to fight." or "🧪 Infinite Strafe OFF."
+		statusToast.Text = isInfiniteStrafeActive and "ðŸ§ª Infinite Strafe ACTIVE: Quins circle without snapping to fight." or "ðŸ§ª Infinite Strafe OFF."
 		statusToast.TextColor3 = isInfiniteStrafeActive and C_SUCCESS or C_TEXT_MUTED
 	end
 )
@@ -4697,7 +5085,7 @@ createModeCard(
 	Color3.fromRGB(80, 170, 255),
 	function(btn)
 		labEvent:FireServer("SetTestMode", { mode = "SmoothLanding" })
-		statusToast.Text = "🧪 Launched Smooth Landing AI Test Mode."
+		statusToast.Text = "ðŸ§ª Launched Smooth Landing AI Test Mode."
 		statusToast.TextColor3 = C_SUCCESS
 	end
 )
@@ -4709,7 +5097,7 @@ createModeCard(
 	Color3.fromRGB(255, 200, 50),
 	function(btn)
 		labEvent:FireServer("SetTestMode", { mode = "Tournament" })
-		statusToast.Text = "🏆 8-Quin Tournament Elimination Bracket started!"
+		statusToast.Text = "ðŸ† 8-Quin Tournament Elimination Bracket started!"
 		statusToast.TextColor3 = C_SUCCESS
 	end
 )
@@ -4721,16 +5109,16 @@ createModeCard(
 	Color3.fromRGB(180, 110, 255),
 	function(btn)
 		labEvent:FireServer("SetTestMode", { mode = "DeterministicTest" })
-		statusToast.Text = "🧪 Launched Deterministic Test Mode."
+		statusToast.Text = "ðŸ§ª Launched Deterministic Test Mode."
 		statusToast.TextColor3 = C_SUCCESS
 	end
 )
 
 end
 
---------------------------------------------------------------------------------
+----------------
 -- 9. EVENT LISTENERS & PRODUCTION SYNCHRONIZATION
---------------------------------------------------------------------------------
+----------------
 labEvent.OnClientEvent:Connect(function(cmd, data)
 	data = data or {}
 	if cmd == "OpenLab" then
@@ -4752,23 +5140,23 @@ labEvent.OnClientEvent:Connect(function(cmd, data)
 	elseif cmd == "ConfigUpdated" then
 		if data.path and data.newValues then
 			AnimationConfig.update(data.path, data.newValues)
-			statusToast.Text = "✓ Hot-swapped " .. tostring(data.path) .. " live in combat!"
+			statusToast.Text = "âœ“ Hot-swapped " .. tostring(data.path) .. " live in combat!"
 			statusToast.TextColor3 = C_SUCCESS
 		end
 	elseif cmd == "SaveResult" then
 		if data.success then
-			savePermBtn.Text = "✓ Saved to Production!"
+			savePermBtn.Text = "âœ“ Saved to Production!"
 			savePermBtn.BackgroundColor3 = C_SUCCESS
-			statusToast.Text = "✓ " .. (data.message or "Saved permanently to production.")
+			statusToast.Text = "âœ“ " .. (data.message or "Saved permanently to production.")
 			statusToast.TextColor3 = C_SUCCESS
 		else
-			savePermBtn.Text = "⚠️ Save Warning"
+			savePermBtn.Text = "âš ï¸ Save Warning"
 			savePermBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
-			statusToast.Text = "⚠️ " .. (data.message or "Could not save.")
+			statusToast.Text = "âš ï¸ " .. (data.message or "Could not save.")
 			statusToast.TextColor3 = C_DANGER
 		end
 		task.delay(3, function()
-			savePermBtn.Text = "💾 Save Permanently to Production"
+			savePermBtn.Text = "ðŸ’¾ Save Permanently to Production"
 			savePermBtn.BackgroundColor3 = Color3.fromRGB(35, 95, 160)
 		end)
 	elseif cmd == "CombatModeChanged" then
@@ -4776,7 +5164,7 @@ labEvent.OnClientEvent:Connect(function(cmd, data)
 		combatModeBtn.Text = isNormalCombatActive and "Combat Mode: ACTIVE" or "Combat Mode: OFF"
 		combatModeBtn.BackgroundColor3 = isNormalCombatActive and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(48, 56, 74)
 		combatModeBtn.TextColor3 = isNormalCombatActive and Color3.new(0, 0, 0) or C_TEXT
-		statusToast.Text = isNormalCombatActive and "⚔️ Combat ACTIVE: Quins fighting autonomously. Dials hot-swap mid-combat!" or "🎯 Lab Mode: Quins reset to stationary positions."
+		statusToast.Text = isNormalCombatActive and "âš”ï¸ Combat ACTIVE: Quins fighting autonomously. Dials hot-swap mid-combat!" or "ðŸŽ¯ Lab Mode: Quins reset to stationary positions."
 		statusToast.TextColor3 = isNormalCombatActive and Color3.fromRGB(0, 220, 130) or Color3.fromRGB(130, 210, 250)
 	elseif cmd == "TestModeChanged" then
 		if data.mode == "InfiniteStrafe" then
@@ -4787,7 +5175,7 @@ labEvent.OnClientEvent:Connect(function(cmd, data)
 		partnerName = data.partnerName or "QuinB_SparringPartner"
 		if updateRigStatusBadge then updateRigStatusBadge() end
 		if statusToast then
-			statusToast.Text = "✓ Test Quins spawned and ready in arena!"
+			statusToast.Text = "âœ“ Test Quins spawned and ready in arena!"
 			statusToast.TextColor3 = C_SUCCESS
 		end
 	elseif cmd == "LocomotionConfigUpdated" then
@@ -4817,7 +5205,7 @@ labEvent.OnClientEvent:Connect(function(cmd, data)
 			if data.key == "Ragdoll_GroundFriction" and groundFrictionSlider then groundFrictionSlider.setValue(data.value) end
 			if data.key == "Ragdoll_RecoveryDelay" and recoveryDelaySlider then recoveryDelaySlider.setValue(data.value) end
 			if statusToast then
-				statusToast.Text = string.format("✓ Updated %s = %s", tostring(data.key), tostring(data.value))
+				statusToast.Text = string.format("âœ“ Updated %s = %s", tostring(data.key), tostring(data.value))
 				statusToast.TextColor3 = C_SUCCESS
 			end
 		end
@@ -4829,7 +5217,7 @@ labEvent.OnClientEvent:Connect(function(cmd, data)
 			ikToggleBtn.TextColor3 = isFootIKActive and Color3.new(0, 0, 0) or C_TEXT
 		end
 		if statusToast then
-			statusToast.Text = isFootIKActive and "🦶 Foot IK ACTIVE: Feet conforming to terrain." or "🦶 Foot IK OFF."
+			statusToast.Text = isFootIKActive and "ðŸ¦¶ Foot IK ACTIVE: Feet conforming to terrain." or "ðŸ¦¶ Foot IK OFF."
 			statusToast.TextColor3 = isFootIKActive and C_SUCCESS or C_TEXT_MUTED
 		end
 	elseif cmd == "RagdollModeChanged" then
@@ -4839,27 +5227,27 @@ labEvent.OnClientEvent:Connect(function(cmd, data)
 			toggleContinuousRagBtn.BackgroundColor3 = isContinuousRagdoll and C_DANGER or Color3.fromRGB(48, 56, 74)
 		end
 		if statusToast then
-			statusToast.Text = isContinuousRagdoll and "💥 Continuous Ragdoll ACTIVE on QuinA_Tester." or "💥 Ragdoll OFF: Rig upright."
+			statusToast.Text = isContinuousRagdoll and "ðŸ’¥ Continuous Ragdoll ACTIVE on QuinA_Tester." or "ðŸ’¥ Ragdoll OFF: Rig upright."
 			statusToast.TextColor3 = isContinuousRagdoll and Color3.fromRGB(255, 120, 120) or C_SUCCESS
 		end
 	elseif cmd == "KnockbackTestLaunched" then
 		if statusToast then
-			statusToast.Text = "💥 High Impulse Knockback Launching QuinA_Tester into Ragdoll!"
+			statusToast.Text = "ðŸ’¥ High Impulse Knockback Launching QuinA_Tester into Ragdoll!"
 			statusToast.TextColor3 = C_ACCENT
 		end
 	elseif cmd == "KnockbackTestCompleted" then
 		if statusToast then
-			statusToast.Text = "✓ Ragdoll Impact Absorbed & Get-Up Recovery Completed!"
+			statusToast.Text = "âœ“ Ragdoll Impact Absorbed & Get-Up Recovery Completed!"
 			statusToast.TextColor3 = C_SUCCESS
 		end
 	elseif cmd == "LocomotionTestStarted" then
 		if statusToast then
-			statusToast.Text = string.format("🏃 Maneuver Test '%s' executing...", tostring(data.testType))
+			statusToast.Text = string.format("ðŸƒ Maneuver Test '%s' executing...", tostring(data.testType))
 			statusToast.TextColor3 = C_ACCENT
 		end
 	elseif cmd == "LocomotionTestEnded" then
 		if statusToast then
-			statusToast.Text = string.format("✓ Maneuver Test '%s' completed successfully!", tostring(data.testType))
+			statusToast.Text = string.format("âœ“ Maneuver Test '%s' completed successfully!", tostring(data.testType))
 			statusToast.TextColor3 = C_SUCCESS
 		end
 	end

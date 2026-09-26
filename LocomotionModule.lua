@@ -101,13 +101,12 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		AnimationModule.stop(humanoid, "Movement.StopRun", 0.08)
 	end
 
-	-- For autonomous AI Quins (when not player controlled), trigger StartRun push-off from standstill ONLY if sprinting/charging
+	-- For autonomous AI Quins (when not player controlled), initialize movement and track sprint start timestamp
 	if not fighter:GetAttribute("IsPlayerControlled") then
 		if not data.isMoving and flatDesired.Magnitude > 2.0 then
 			data.isMoving = true
 			if targetSpeed > 25.0 then
-				data.startRunEndTime = now + 0.45
-				AnimationModule.playConfig(humanoid, "Movement.StartRun", 1.15, Enum.AnimationPriority.Action2, false)
+				data.sprintStartTime = now
 			end
 		end
 	else
@@ -209,7 +208,6 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	-- When no stop/skid overlay is active, ensure idle (handles Ready -> 5s inactivity -> Default)
 	local isOverlayActive = (data.stopRunEndTime and now < data.stopRunEndTime)
 		or (data.skidEndTime and now < data.skidEndTime)
-		or (data.startRunEndTime and now < data.startRunEndTime)
 
 	if not isOverlayActive then
 		if AnimationModule.isPlaying(humanoid, "Movement.Run") then
@@ -217,9 +215,6 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 		end
 		if AnimationModule.isPlaying(humanoid, "Movement.WalkConfident") then
 			AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.15)
-		end
-		if AnimationModule.isPlaying(humanoid, "Movement.StartRun") then
-			AnimationModule.stop(humanoid, "Movement.StartRun", 0.15)
 		end
 
 		-- Check 5-second inactivity timeout: if Ready stance has been inactive for >= 5s, relax to Default

@@ -186,14 +186,14 @@ local function startControlSession(quin)
 			activeQuin:SetAttribute("IsMoving", true)
 			activeQuin:SetAttribute("LastActivityTime", os.clock())
 
-			-- START RUN push-off: ONLY trigger when initiating a run/sprint (Shift + W), NEVER on default walk!
+			-- Sprint initiation: track start timestamp to dynamically ramp animation speed from slow to baseline
 			if isSprint and not wasSprinting and not isAirborne then
 				activeQuin:SetAttribute("IsSprinting", true)
-				activeQuin:SetAttribute("StartRunEndTime", os.clock() + 0.38)
+				activeQuin:SetAttribute("SprintStartTime", os.clock())
 				AnimationModule.stop(activeHumanoid, "Movement.WalkConfident", 0.10)
-				AnimationModule.playConfig(activeHumanoid, "Movement.StartRun", 1.15, Enum.AnimationPriority.Action2, false)
 			elseif not isSprint then
 				activeQuin:SetAttribute("IsSprinting", false)
+				activeQuin:SetAttribute("SprintStartTime", nil)
 			end
 
 			-- Authoritative QuinCore steer: modulates speed, checks 180° skids, turns with AutoRotate
@@ -202,12 +202,9 @@ local function startControlSession(quin)
 
 			-- Only drive ground locomotion animations when grounded (do not overwrite jump in mid-air)
 			if not isAirborne then
-				-- Protect turn skids, stop plants, and start push-off from being crushed by base locomotion
-				local startRunEnd = activeQuin:GetAttribute("StartRunEndTime") or 0
-				local isStartRunActive = (os.clock() < startRunEnd) and AnimationModule.isPlaying(activeHumanoid, "Movement.StartRun")
+				-- Protect turn skids and stop plants from being crushed by base locomotion
 				local isTurnOrStopPlaying = AnimationModule.isPlaying(activeHumanoid, "Movement.RunTurn180")
 					or AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun")
-					or isStartRunActive
 
 				if not isTurnOrStopPlaying then
 					local desiredAnim = isSprint and "Movement.Run" or "Movement.WalkConfident"
@@ -224,18 +221,44 @@ local function startControlSession(quin)
 						AnimationModule.stop(activeHumanoid, "Idles.CombatIdle", 0.15)
 						AnimationModule.playConfig(activeHumanoid, desiredAnim)
 					end
+
+					-- Dynamic Stride Scaling & Organic Acceleration Speed Ramp:
+					-- Calibrated so top sprint velocity (50 studs/s) corresponds to baseline 1.00x playback speed,
+					-- preventing hypersonic cartoon leg-flailing while organically ramping up from slow push-off.
+					if desiredAnim == "Movement.Run" and AnimationModule.isPlaying(activeHumanoid, "Movement.Run") then
+						local sprintStart = activeQuin:GetAttribute("SprintStartTime") or os.clock()
+						local elapsed = math.clamp(os.clock() - sprintStart, 0, 0.48)
+						local rampProgress = elapsed / 0.48 -- 0.0 to 1.0 over 480ms
+						local rampEase = rampProgress * rampProgress * (3 - 2 * rampProgress)
+						local rampFactor = 0.45 + (0.55 * rampEase)
+
+						local currentSpeed = activeRootPart.AssemblyLinearVelocity.Magnitude
+						local strideBase = CombatConfig.RunStrideBase or 50.0
+						local velRatio = math.clamp(currentSpeed / strideBase, 0.35, 1.00)
+						local baseCfgSpeed = AnimationConfig.get("Movement.Run") and AnimationConfig.get("Movement.Run").speed or 1.00
+
+						local dynamicSpeed = math.clamp(baseCfgSpeed * velRatio * rampFactor, 0.35, 1.00)
+						AnimationModule.adjustSpeed(activeHumanoid, "Movement.Run", dynamicSpeed)
+					elseif desiredAnim == "Movement.WalkConfident" and AnimationModule.isPlaying(activeHumanoid, "Movement.WalkConfident") then
+						local currentSpeed = activeRootPart.AssemblyLinearVelocity.Magnitude
+						local strideBase = CombatConfig.WalkStrideBase or 18.5
+						local velRatio = math.clamp(currentSpeed / strideBase, 0.50, 1.10)
+						local baseCfgSpeed = AnimationConfig.get("Movement.WalkConfident") and AnimationConfig.get("Movement.WalkConfident").speed or 1.00
+						AnimationModule.adjustSpeed(activeHumanoid, "Movement.WalkConfident", baseCfgSpeed * velRatio)
+					end
 				end
 			end
 		else
 			-- Reset pilot speed towards min pacing when keys are released
 			activeQuin:SetAttribute("CurrentPilotSpeed", minPacing)
 			activeQuin:SetAttribute("IsMoving", false)
+			activeQuin:SetAttribute("IsSprinting", false)
+			activeQuin:SetAttribute("SprintStartTime", nil)
 
 			if not isAirborne then
 				-- Authoritative QuinCore brake: smooth deceleration, slide follow-through, stops run, ensures idle
 				LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, dt)
 			end
-			activeQuin:SetAttribute("IsSprinting", false)
 		end
 	end)
 

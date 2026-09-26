@@ -256,8 +256,8 @@ local CombatConfig = {
 	Melee_SlideSpeed = 10.0,                 -- studs/s micro-slide spacing adjustment
 
 	-- Continuous Locomotion Synthesis & Stride Scaling (Step 1 & 2)
-	WalkStrideBase = 16.0,                   -- studs/s baseline stride speed for WalkConfident
-	RunStrideBase = 38.0,                    -- studs/s baseline stride speed for Run
+	WalkStrideBase = 18.5,                   -- studs/s baseline stride speed for WalkConfident (matches Locomotion_PacingSpeedMin)
+	RunStrideBase = 50.0,                    -- studs/s baseline stride speed for Run (matches Locomotion_PacingSpeedMax)
 	TorsoBankingMaxRoll = 12.0,              -- degrees max lateral roll bank into turns
 	TorsoBankingResponsiveness = 10.0,       -- lerp responsiveness for centripetal roll
 

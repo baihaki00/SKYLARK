@@ -721,13 +721,31 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	-- Dynamic Foot-Sync: Scale playback speed proportional to actual ground velocity
-	-- Stride reference: WalkConfident calibrated at ~16 studs/s, Run calibrated at ~38 studs/s
+	-- Dynamic Foot-Sync & Organic Acceleration Speed Ramp:
+	-- Dynamic Stride Scaling & Foot-Sync:
+	-- Scale playback speed proportional to actual ground velocity, easing in from slow push-off to baseline 1.00x
 	if (desiredAnim == "Movement.Run" or desiredAnim == "Movement.WalkConfident") and AnimationModule.isPlaying(humanoid, desiredAnim) then
-		local strideBase = (desiredAnim == "Movement.WalkConfident") and 16.0 or 38.0
-		local ratio = math.clamp(currentSpeed / strideBase, 0.65, 1.45)
-		local baseCfgSpeed = (desiredAnim == "Movement.Run") and 1.15 or 1.00
-		AnimationModule.adjustSpeed(humanoid, desiredAnim, baseCfgSpeed * ratio)
+		local isRun = (desiredAnim == "Movement.Run")
+		local strideBase = isRun and (CombatConfig.RunStrideBase or 50.0) or (CombatConfig.WalkStrideBase or 18.5)
+		local ratio = math.clamp(currentSpeed / strideBase, isRun and 0.35 or 0.50, isRun and 1.00 or 1.10)
+		local baseCfgSpeed = AnimationConfig.get(desiredAnim) and AnimationConfig.get(desiredAnim).speed or 1.00
+
+		if isRun then
+			if not data.runStartTime then
+				data.runStartTime = now
+			end
+			local elapsed = math.clamp(now - data.runStartTime, 0, 0.48)
+			local rampProgress = elapsed / 0.48
+			local rampEase = rampProgress * rampProgress * (3 - 2 * rampProgress)
+			local rampFactor = 0.45 + (0.55 * rampEase)
+			local dynamicSpeed = math.clamp(baseCfgSpeed * ratio * rampFactor, 0.35, 1.00)
+			AnimationModule.adjustSpeed(humanoid, desiredAnim, dynamicSpeed)
+		else
+			data.runStartTime = nil
+			AnimationModule.adjustSpeed(humanoid, desiredAnim, baseCfgSpeed * ratio)
+		end
+	else
+		data.runStartTime = nil
 	end
 	
 	-- Energy drain and recovery scaled with speedMult
