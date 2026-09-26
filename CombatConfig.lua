@@ -260,10 +260,10 @@ local CombatConfig = {
 	RunStrideBase = 50.0,                    -- studs/s baseline stride speed for Run (matches Locomotion_PacingSpeedMax)
 	TorsoBankingMaxRoll = 15.0,              -- degrees max lateral roll bank into turns
 	TorsoBankingResponsiveness = 14.0,       -- lerp responsiveness for centripetal roll
-	TurnMassDropMax = 0.45,                  -- max pelvis dip (studs) during sharp turns
-	SkidMassDropAmount = 0.55,               -- max pelvis dip (studs) during 180° skid
-	Locomotion_SkidCooldown = 0.70,          -- seconds minimum between 180° turnaround skids
-	Locomotion_SkidLockout = 0.65,           -- seconds duration of skid plant before returning to run (matches RunTurn180 length)
+	TurnMassDropMax = 0.20,                  -- max pelvis dip (studs) during sharp turns
+	SkidMassDropAmount = 0.16,               -- max pelvis dip (studs) during 180° procedural turf plant
+	Locomotion_SkidCooldown = 0.45,          -- seconds minimum between 180° turnaround skids
+	Locomotion_SkidLockout = 0.35,           -- seconds duration of procedural skid plant before accelerating into sprint
 
 	-- Procedural Foot IK & Ledge Gripping (Step 3)
 	FootIK_Enabled = true,                   -- global toggle for procedural foot planting

@@ -859,27 +859,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local dotToTarget = flatLook:Dot(flatTargetDir)
 	local localDir = rootPart.CFrame:VectorToObjectSpace(flatTargetDir)
 
-	-- 1. High-Speed 180 Direction Reversal (Mirrored Left / Right)
-	local isFreefallState = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
-	local canTurn180 = not inShowdown 
-		and not shouldWalk 
-		and currentSpeed >= 12
-		and (now >= (data.turnActiveUntil or 0))
-		and (now - (data.lastTurnTime or 0) >= 1.6)
-		and not humanoid.Jump
-		and not isFreefallState
-		and (dotToTarget < -0.65) -- Sharp reversal: target is in rear hemisphere (> 130 deg)
-
-	if canTurn180 then
-		local turnAnim = "Movement.RunTurn180"
-		data.turnAnim = turnAnim
-		data.turnActiveUntil = now + 0.65
-		data.lastTurnTime = now
-		data.turnTargetHeading = flatTargetDir
-		data.currentAnim = turnAnim
-		
-		AnimationModule.playConfig(humanoid, turnAnim, 1.00, Enum.AnimationPriority.Action, false)
-	end
+	-- 1. Direction reversals are handled 100% procedurally by LocomotionModule & ProceduralCombatReactionController
 
 	-- 2. Athletic 90-Degree Plant Cut (Mirrored Left / Right)
 	local canTurn90 = not inShowdown

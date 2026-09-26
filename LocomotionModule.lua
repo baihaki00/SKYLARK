@@ -118,46 +118,24 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local skidCooldown = CombatConfig.Locomotion_SkidCooldown or 0.70
 	local skidLockout = CombatConfig.Locomotion_SkidLockout or 0.65
 
-	-- Check if a 180 turnaround plant just finished:
-	-- The animation physically turned the character's front around. At the end of the animation,
-	-- the front has changed to the new direction! We update rootPart.CFrame to assume the new facing direction.
-	if data.isTurnaroundActive and now >= (data.skidEndTime or 0) then
-		data.isTurnaroundActive = false
-		if data.skidTargetLook and data.skidTargetLook.Magnitude > 0.1 then
-			rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + data.skidTargetLook)
-		end
-		humanoid.AutoRotate = true
-	end
-
 	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 then
 		local curDir = flatVel.Unit
 		local desDir = flatDesired.Unit
 		local cosTheta = curDir:Dot(desDir)
 
 		-- Sharp reversal: >= 115 degrees cut (cos theta < -0.42)
-		-- Unblocked from isChattering: a 180° reversal is an intentional turnaround, NOT lateral chatter!
+		-- Fully procedural turnaround: kinetic plant friction, procedural mass drop, braking pitch, and grey smoke burst!
 		if cosTheta < -0.42 and (now - (data.lastSkidTime or 0)) >= skidCooldown then
 			local turnDuration = skidLockout
 			data.lastSkidTime = now
 			data.skidEndTime = now + turnDuration
-			data.skidTargetLook = desDir
-			data.isTurnaroundActive = true
 
-			-- CRITICAL: Disable AutoRotate during the turnaround animation!
-			-- The keyframed animation itself rotates the hips and torso 180°.
-			-- Leaving AutoRotate on causes Roblox physics to rotate HRP at the same time,
-			-- causing a 360° double-spin or visual rotation conflict!
-			humanoid.AutoRotate = false
-
-			-- Signal procedural controller for mass drop & knee flexion
+			-- Signal procedural controller for hips mass drop & braking-to-drive pitch
 			fighter:SetAttribute("SkidTurnTime", now)
 			fighter:SetAttribute("SkidTurnDuration", turnDuration)
 
-			-- Visual: Play 180 Turn animation (runtimeMultiplier 1.00 for full fluid athletic readability)
-			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.00, Enum.AnimationPriority.Action3, false)
-
-			-- Kinetic plant friction: drop speed dynamically for athletic weight, NO contradictory slide impulse
-			humanoid.WalkSpeed = math.max(12.0, currentSpeed * 0.45)
+			-- Kinetic plant friction: drop speed dynamically for athletic turf bite (cleats digging in)
+			humanoid.WalkSpeed = math.max(12.0, currentSpeed * 0.40)
 			data.currentSpeed = humanoid.WalkSpeed
 
 			-- VFX: Stylized grey foot smoke burst along turf scrape vector (zero physics parts)
@@ -166,11 +144,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	end
 
 	-- 3. Issue steering command to humanoid with native physics AutoRotate
-	if not data.isTurnaroundActive then
-		humanoid.AutoRotate = true
-	else
-		humanoid.AutoRotate = false
-	end
+	humanoid.AutoRotate = true
 	if not fighter:GetAttribute("IsPlayerControlled") then
 		humanoid:MoveTo(targetPosition)
 	end
@@ -239,18 +213,8 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	-- Actively cancel humanoid active MoveTo translation so it doesn't walk in place
 	humanoid:Move(Vector3.zero, false)
 
-	-- Check if a 180 turnaround plant just finished:
-	if data.isTurnaroundActive and now >= (data.skidEndTime or 0) then
-		data.isTurnaroundActive = false
-		if data.skidTargetLook and data.skidTargetLook.Magnitude > 0.1 then
-			rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + data.skidTargetLook)
-		end
-		humanoid.AutoRotate = true
-	end
-
-	-- When no stop/skid overlay is active, ensure idle (handles Ready -> 5s inactivity -> Default)
+	-- When no StopRun braking overlay is active, ensure idle (handles Ready -> 5s inactivity -> Default)
 	local isOverlayActive = (data.stopRunEndTime and now < data.stopRunEndTime)
-		or (data.skidEndTime and now < data.skidEndTime)
 
 	if not isOverlayActive then
 		if AnimationModule.isPlaying(humanoid, "Movement.Run") then

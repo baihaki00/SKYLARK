@@ -352,15 +352,26 @@ function ProceduralCombatReactionController:update(dt)
 		-- Normal turns and WASD chatter apply ZERO procedural hips displacement,
 		-- eliminating 100% of vertical pelvis vibration and preserving pure author run cycle!
 		local skidDrop = 0
+		local skidPitch = 0
 		if isSkidding then
 			local p = math.clamp(skidElapsed / skidDur, 0, 1)
-			skidDrop = -0.12 * math.sin(p * math.pi)
+			local maxDrop = -(CombatConfig.SkidMassDropAmount or 0.16)
+			skidDrop = maxDrop * math.sin(p * math.pi)
+
+			-- Braking pitch into heels (+10.5°) transitioning into drive pitch (-7.5°)
+			if p < 0.45 then
+				local brakeFactor = math.sin((p / 0.45) * (math.pi * 0.5))
+				skidPitch = math.rad(10.5) * brakeFactor
+			else
+				local driveFactor = (p - 0.45) / 0.55
+				skidPitch = math.rad(10.5) * (1.0 - driveFactor) + math.rad(-7.5) * driveFactor
+			end
 		end
 
 		local prevMassDrop = self.turnMassDrop or 0
-		local massAlpha = 1.0 - math.exp(-12.0 * dt)
+		local massAlpha = 1.0 - math.exp(-14.0 * dt)
 		local desiredMassDrop = prevMassDrop + (skidDrop - prevMassDrop) * massAlpha
-		local maxChange = 2.0 * dt
+		local maxChange = 2.5 * dt
 		self.turnMassDrop = math.clamp(desiredMassDrop, prevMassDrop - maxChange, prevMassDrop + maxChange)
 
 		-- Centripetal Center-of-Mass Inward Lean:
@@ -374,7 +385,7 @@ function ProceduralCombatReactionController:update(dt)
 
 		-- Forward Acceleration & Braking Plant Pitch:
 		-- Derives linear forward acceleration along look vector.
-		-- Forward drive leans spine forward (-6° to -7.5°), braking/skidding leans spine into heels (+8° to +10°).
+		-- Forward drive leans spine forward (-6° to -7.5°), braking/skidding leans spine into heels (+8° to +10.5°).
 		local currentVel = self.rootPart.AssemblyLinearVelocity
 		local flatVel = Vector3.new(currentVel.X, 0, currentVel.Z)
 		local curFwdSpeed = flatVel:Dot(flatLook)
@@ -384,7 +395,7 @@ function ProceduralCombatReactionController:update(dt)
 
 		local targetPitch = 0
 		if isSkidding then
-			targetPitch = math.rad(9.5)
+			targetPitch = skidPitch
 		elseif math.abs(self.smoothedAccel) > 5.0 then
 			targetPitch = math.clamp(-self.smoothedAccel * 0.003, math.rad(-7.5), math.rad(9.0))
 		end

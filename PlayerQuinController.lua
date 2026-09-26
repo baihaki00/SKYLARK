@@ -285,22 +285,14 @@ local function startControlSession(quin)
 			local rawTargetPosition = activeRootPart.Position + rawMoveDir * 15
 			LocomotionModule.steer(activeQuin, activeHumanoid, activeRootPart, rawTargetPosition, targetSpeed, dt)
 
-			-- If a 180° turnaround was triggered, immediately align the heading spring to the new reversal direction
-			local skidTime = activeQuin:GetAttribute("SkidTurnTime") or 0
-			if (now - skidTime) < 0.10 then
-				smoothedMoveDir = rawMoveDir
-				lastHeadingAngle = targetAngle
-			end
-
 			activeHumanoid:Move(smoothedMoveDir, false)
 
 			-- Only drive ground locomotion animations when grounded (do not overwrite jump in mid-air)
 			if not isAirborne then
-				-- Protect turn skids and stop plants from being crushed by base locomotion
-				local isTurnOrStopPlaying = AnimationModule.isPlaying(activeHumanoid, "Movement.RunTurn180")
-					or AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun")
+				-- Protect stop plants from being crushed by base locomotion
+				local isStopPlaying = AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun")
 
-				if not isTurnOrStopPlaying then
+				if not isStopPlaying then
 					local desiredAnim = isSprint and "Movement.Run" or "Movement.WalkConfident"
 					local oppositeAnim = isSprint and "Movement.WalkConfident" or "Movement.Run"
 
