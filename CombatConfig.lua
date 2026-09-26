@@ -246,7 +246,7 @@ local CombatConfig = {
 	Locomotion_JumpImpulse = 56.0,           -- studs/s single vertical ballistic jump impulse
 	Locomotion_JumpDebounce = 1.0,           -- seconds minimum between successive jumps
 	Locomotion_LandingRetention = 0.88,      -- ratio of horizontal velocity preserved on landing (88%)
-	Locomotion_SkidSpeedThreshold = 20.0,    -- studs/s minimum speed to trigger dynamic braking skid
+	Locomotion_SkidSpeedThreshold = 14.0,    -- studs/s minimum speed to trigger dynamic braking skid
 	EnableOpeningProjectileJump = false,     -- Permanently ban start-of-match projectile jumps; grounded charges first
 
 	-- Melee Sweet-Spot & Transitions (Single Source of Truth)
@@ -258,8 +258,12 @@ local CombatConfig = {
 	-- Continuous Locomotion Synthesis & Stride Scaling (Step 1 & 2)
 	WalkStrideBase = 18.5,                   -- studs/s baseline stride speed for WalkConfident (matches Locomotion_PacingSpeedMin)
 	RunStrideBase = 50.0,                    -- studs/s baseline stride speed for Run (matches Locomotion_PacingSpeedMax)
-	TorsoBankingMaxRoll = 12.0,              -- degrees max lateral roll bank into turns
-	TorsoBankingResponsiveness = 10.0,       -- lerp responsiveness for centripetal roll
+	TorsoBankingMaxRoll = 15.0,              -- degrees max lateral roll bank into turns
+	TorsoBankingResponsiveness = 14.0,       -- lerp responsiveness for centripetal roll
+	TurnMassDropMax = 0.45,                  -- max pelvis dip (studs) during sharp turns
+	SkidMassDropAmount = 0.55,               -- max pelvis dip (studs) during 180° skid
+	Locomotion_SkidCooldown = 0.38,          -- seconds minimum between 180° turnaround skids
+	Locomotion_SkidLockout = 0.32,           -- seconds duration of skid plant before returning to run
 
 	-- Procedural Foot IK & Ledge Gripping (Step 3)
 	FootIK_Enabled = true,                   -- global toggle for procedural foot planting

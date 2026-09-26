@@ -24,6 +24,10 @@ local activeRootPart = nil
 local renderConn = nil
 local deathConn = nil
 local lastMoveDir = Vector3.new(0, 0, -1)
+local smoothedMoveDir = Vector3.zero
+local lastRawMoveDir = nil
+local lastRawMoveTime = 0
+local lastChatterTime = 0
 
 -- ============================================================================
 -- 1. HUD BUTTON: [ ▶ Play As Quin ] / [ ⏹ Exit Quin Mode ]
@@ -151,7 +155,8 @@ local function startControlSession(quin)
 		fwd = fwd.Magnitude > 0.01 and fwd.Unit or Vector3.new(0, 0, -1)
 		right = right.Magnitude > 0.01 and right.Unit or Vector3.new(1, 0, 0)
 
-		local moveDir = (fwd * (-moveZ) + right * moveX)
+		local rawMoveDir = (fwd * (-moveZ) + right * moveX)
+		local now = os.clock()
 
 		-- Sprint toggle (LeftShift or RightShift)
 		local isSprint = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
@@ -177,26 +182,57 @@ local function startControlSession(quin)
 		local wasMoving = activeQuin:GetAttribute("IsMoving") == true
 		local wasSprinting = activeQuin:GetAttribute("IsSprinting") == true
 
-		if moveDir.Magnitude > 0.1 then
-			moveDir = moveDir.Unit
+		if rawMoveDir.Magnitude > 0.1 then
+			rawMoveDir = rawMoveDir.Unit
+
+			-- Directional Chatter Detection:
+			-- Check dot product between successive raw input vectors and time interval
+			if lastRawMoveDir then
+				local dotRaw = lastRawMoveDir:Dot(rawMoveDir)
+				local timeSinceLastRaw = now - lastRawMoveTime
+				-- Sharp angle reversal (< -0.3) within 240ms implies rapid WASD jitter/chatter
+				if dotRaw < -0.3 and timeSinceLastRaw < 0.24 then
+					lastChatterTime = now
+				end
+			end
+			lastRawMoveDir = rawMoveDir
+			lastRawMoveTime = now
+
+			local isChattering = (now - lastChatterTime) < 0.30
+			activeQuin:SetAttribute("DirectionalChatter", isChattering)
+
+			-- Inertial Directional Spring (Option A):
+			-- Smooths out twitchy keyboard square-wave vectors with fast exponential response (lambda = 22)
+			-- Zero perceptible lag (~45ms), but prevents instant yaw-snapping and visual disorientation
+			if smoothedMoveDir.Magnitude < 0.05 then
+				smoothedMoveDir = rawMoveDir
+			else
+				local springAlpha = 1.0 - math.exp(-22.0 * dt)
+				smoothedMoveDir = smoothedMoveDir:Lerp(rawMoveDir, springAlpha)
+				if smoothedMoveDir.Magnitude > 0.01 then
+					smoothedMoveDir = smoothedMoveDir.Unit
+				end
+			end
+
+			local moveDir = smoothedMoveDir
 			lastMoveDir = moveDir
 
 			local targetPosition = activeRootPart.Position + moveDir * 15
 
 			activeQuin:SetAttribute("IsMoving", true)
-			activeQuin:SetAttribute("LastActivityTime", os.clock())
+			activeQuin:SetAttribute("LastActivityTime", now)
 
 			-- Sprint initiation: track start timestamp to dynamically ramp animation speed from slow to baseline
 			if isSprint and not wasSprinting and not isAirborne then
 				activeQuin:SetAttribute("IsSprinting", true)
-				activeQuin:SetAttribute("SprintStartTime", os.clock())
+				activeQuin:SetAttribute("SprintStartTime", now)
 				AnimationModule.stop(activeHumanoid, "Movement.WalkConfident", 0.10)
 			elseif not isSprint then
 				activeQuin:SetAttribute("IsSprinting", false)
 				activeQuin:SetAttribute("SprintStartTime", nil)
 			end
 
-			-- Authoritative QuinCore steer: modulates speed, checks 180° skids, turns with AutoRotate
+			-- Authoritative QuinCore steer: modulates speed, checks 180° skids, turns with smoothed direction
 			LocomotionModule.steer(activeQuin, activeHumanoid, activeRootPart, targetPosition, targetSpeed, dt)
 			activeHumanoid:Move(moveDir, false)
 
@@ -226,8 +262,8 @@ local function startControlSession(quin)
 					-- Calibrated so top sprint velocity (50 studs/s) corresponds to baseline 1.00x playback speed,
 					-- preventing hypersonic cartoon leg-flailing while organically ramping up from slow push-off.
 					if desiredAnim == "Movement.Run" and AnimationModule.isPlaying(activeHumanoid, "Movement.Run") then
-						local sprintStart = activeQuin:GetAttribute("SprintStartTime") or os.clock()
-						local elapsed = math.clamp(os.clock() - sprintStart, 0, 0.48)
+						local sprintStart = activeQuin:GetAttribute("SprintStartTime") or now
+						local elapsed = math.clamp(now - sprintStart, 0, 0.48)
 						local rampProgress = elapsed / 0.48 -- 0.0 to 1.0 over 480ms
 						local rampEase = rampProgress * rampProgress * (3 - 2 * rampProgress)
 						local rampFactor = 0.45 + (0.55 * rampEase)
@@ -249,6 +285,10 @@ local function startControlSession(quin)
 				end
 			end
 		else
+			smoothedMoveDir = Vector3.zero
+			lastRawMoveDir = nil
+			activeQuin:SetAttribute("DirectionalChatter", false)
+
 			-- Reset pilot speed towards min pacing when keys are released
 			activeQuin:SetAttribute("CurrentPilotSpeed", minPacing)
 			activeQuin:SetAttribute("IsMoving", false)
@@ -282,6 +322,10 @@ local function stopControlSession()
 
 	shared.PlayerControlledQuin = nil
 	_G.PlayerControlledQuin = nil
+	smoothedMoveDir = Vector3.zero
+	lastRawMoveDir = nil
+	lastRawMoveTime = 0
+	lastChatterTime = 0
 	activeQuin = nil
 	activeHumanoid = nil
 	activeRootPart = nil

@@ -129,6 +129,8 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	self.leftLedgeGrip = false
 	self.rightLedgeGrip = false
 	self.hipsDipOffset = 0
+	self.turnMassDrop = 0
+	self.lastHeadingLook = nil
 	self.leftToeFlex = 0
 	self.rightToeFlex = 0
 
@@ -290,21 +292,66 @@ function ProceduralCombatReactionController:update(dt)
 		self.airRoll = self.airRoll * math.exp(-15.0 * dt)
 	end
 
-	-- 4. Centripetal Torso Banking for Ground Locomotion
+	-- 4. Centripetal Torso Banking & Dynamic Mass Drop for Ground Locomotion
 	if not isAirborne and speed > 2.0 then
-		local angVelY = self.rootPart.AssemblyAngularVelocity.Y
-		local maxRollDeg = CombatConfig.TorsoBankingMaxRoll or 12.0
-		local responsiveness = CombatConfig.TorsoBankingResponsiveness or 10.0
-		local strideBase = CombatConfig.RunStrideBase or 38.0
+		local currentLook = self.rootPart.CFrame.LookVector
+		local flatLook = Vector3.new(currentLook.X, 0, currentLook.Z)
+		if flatLook.Magnitude > 0.01 then
+			flatLook = flatLook.Unit
+		else
+			flatLook = Vector3.new(0, 0, -1)
+		end
 
-		-- In Roblox right-handed coordinates:
-		-- Negative angVelY (turning right) -> tilt right into turn (negative roll)
-		-- Positive angVelY (turning left)  -> tilt left into turn (positive roll)
-		local speedRatio = math.clamp(speed / strideBase, 0.2, 1.4)
-		local targetRoll = -math.clamp(angVelY * speedRatio * math.rad(maxRollDeg * 0.12), -math.rad(maxRollDeg), math.rad(maxRollDeg))
+		local lastLook = self.lastHeadingLook or flatLook
+		self.lastHeadingLook = flatLook
+
+		local crossY = lastLook:Cross(flatLook).Y
+		local dotLook = math.clamp(lastLook:Dot(flatLook), -1, 1)
+		local cframeTurnRate = (dt > 0.0001) and (math.atan2(crossY, dotLook) / dt) or 0.0
+
+		-- Combine CFrame heading turn rate and physical angular velocity
+		local physAngY = self.rootPart.AssemblyAngularVelocity.Y
+		local effectiveTurnRate = (math.abs(cframeTurnRate) > math.abs(physAngY)) and cframeTurnRate or physAngY
+
+		local maxRollDeg = CombatConfig.TorsoBankingMaxRoll or 15.0
+		local responsiveness = CombatConfig.TorsoBankingResponsiveness or 14.0
+		local strideBase = CombatConfig.RunStrideBase or 50.0
+
+		-- In Roblox right-handed coordinates for spine chain:
+		-- Negative roll tilts to character's right (banking into right turn, crossY < 0)
+		-- Positive roll tilts to character's left (banking into left turn, crossY > 0)
+		local speedRatio = math.clamp(speed / strideBase, 0.25, 1.25)
+		local targetRoll = -math.clamp(effectiveTurnRate * speedRatio * math.rad(maxRollDeg * 0.18), -math.rad(maxRollDeg), math.rad(maxRollDeg))
 		self.currentBankRoll = self.currentBankRoll + (targetRoll - self.currentBankRoll) * (1 - math.exp(-responsiveness * dt))
+
+		-- Centripetal Knee Flexion / Turn Mass Drop
+		local maxTurnDrop = CombatConfig.TurnMassDropMax or 0.45
+		local turnDrop = -math.clamp(math.abs(effectiveTurnRate) * speedRatio * 0.065, 0, maxTurnDrop)
+
+		-- Skid Reversal Mass Drop: when 180 skid is active, sink hips firmly into the turf
+		local skidTime = serverModel and serverModel:GetAttribute("SkidTurnTime") or 0
+		local skidDur = serverModel and serverModel:GetAttribute("SkidTurnDuration") or 0.32
+		local skidElapsed = os.clock() - skidTime
+		local skidDrop = 0
+		if skidElapsed >= 0 and skidElapsed < skidDur then
+			local p = skidElapsed / skidDur
+			local curve = math.sin(p * math.pi)
+			local skidMaxAmount = CombatConfig.SkidMassDropAmount or 0.55
+			skidDrop = -skidMaxAmount * curve
+		end
+
+		local targetTotalMassDrop = turnDrop + skidDrop
+		self.turnMassDrop = (self.turnMassDrop or 0) + (targetTotalMassDrop - (self.turnMassDrop or 0)) * math.clamp(16.0 * dt, 0, 1)
 	else
-		self.currentBankRoll = self.currentBankRoll * math.exp(-12.0 * dt)
+		self.currentBankRoll = self.currentBankRoll * math.exp(-14.0 * dt)
+		self.turnMassDrop = (self.turnMassDrop or 0) * math.exp(-14.0 * dt)
+		if self.rootPart then
+			local currentLook = self.rootPart.CFrame.LookVector
+			local flatLook = Vector3.new(currentLook.X, 0, currentLook.Z)
+			if flatLook.Magnitude > 0.01 then
+				self.lastHeadingLook = flatLook.Unit
+			end
+		end
 	end
 
 	-- 5. Advance Hips Ground Compression Spring
@@ -333,8 +380,8 @@ function ProceduralCombatReactionController:update(dt)
 	local hPitch, hRoll          = totalPitch * 0.15, totalRoll * 0.15
 
 	-- Apply to bones multiplicatively on top of evaluated animation track
-	if self.hipsBone and (math.abs(self.hipsOffset) > 0.001 or math.abs(self.hipsDipOffset or 0) > 0.001) then
-		local totalHipsY = self.hipsOffset + (self.hipsDipOffset or 0)
+	if self.hipsBone and (math.abs(self.hipsOffset) > 0.001 or math.abs(self.hipsDipOffset or 0) > 0.001 or math.abs(self.turnMassDrop or 0) > 0.001) then
+		local totalHipsY = self.hipsOffset + (self.hipsDipOffset or 0) + (self.turnMassDrop or 0)
 		self.hipsBone.Transform = self.hipsBone.Transform * CFrame.new(0, totalHipsY, 0)
 	end
 

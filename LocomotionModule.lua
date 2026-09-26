@@ -114,21 +114,29 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	end
 	fighter:SetAttribute("LastActivityTime", now)
 
-	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 then
+	local isChattering = fighter:GetAttribute("DirectionalChatter") == true
+	local skidCooldown = CombatConfig.Locomotion_SkidCooldown or 0.38
+	local skidLockout = CombatConfig.Locomotion_SkidLockout or 0.32
+
+	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 and not isChattering then
 		local curDir = flatVel.Unit
 		local desDir = flatDesired.Unit
 		local cosTheta = curDir:Dot(desDir)
 
-		-- Sharp reversal: >= 101 degrees cut (cos theta < -0.2), relaxed cooldown for agile cuts
-		if cosTheta < -0.2 and (now - (data.lastSkidTime or 0)) >= 0.75 then
+		-- Sharp reversal: >= 115 degrees cut (cos theta < -0.42)
+		if cosTheta < -0.42 and (now - (data.lastSkidTime or 0)) >= skidCooldown then
 			data.lastSkidTime = now
-			data.skidEndTime = now + 0.55 -- Lockout window so turn plant completes cleanly
+			data.skidEndTime = now + skidLockout -- Lockout window so turn plant completes cleanly
 
-			-- Visual: Play 180 Turn animation (runtimeMultiplier 1.0 so speed is not double-compounded)
-			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.0, Enum.AnimationPriority.Action3, false)
+			-- Signal procedural controller for mass drop & knee flexion
+			fighter:SetAttribute("SkidTurnTime", now)
+			fighter:SetAttribute("SkidTurnDuration", skidLockout)
+
+			-- Visual: Play 180 Turn animation (runtimeMultiplier 1.25, clean fade for responsive blend)
+			AnimationModule.playConfig(humanoid, "Movement.RunTurn180", 1.25, Enum.AnimationPriority.Action3, false)
 
 			-- Kinetic plant friction: drop speed dynamically for athletic weight, NO contradictory slide impulse
-			humanoid.WalkSpeed = math.max(10.0, currentSpeed * 0.45)
+			humanoid.WalkSpeed = math.max(10.0, currentSpeed * 0.40)
 			data.currentSpeed = humanoid.WalkSpeed
 
 			-- VFX: Kick up dust along skid vector
