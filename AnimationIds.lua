@@ -91,9 +91,9 @@ setmetatable(AnimationIds, {
 		end
 
 		-- Movement Improvements & Reversals
-		if key == "RunTurn180" then return reg.Movement and reg.Movement.RunTurn180 and reg.Movement.RunTurn180.id end
-		if key == "RunTurn180Left" then return reg.Movement and reg.Movement.RunTurn180Left and reg.Movement.RunTurn180Left.id end
-		if key == "RunTurn180Right" then return reg.Movement and reg.Movement.RunTurn180Right and reg.Movement.RunTurn180Right.id end
+		if key == "RunTurn180" or key == "RunTurn180Left" or key == "RunTurn180Right" then
+			return reg.Movement and reg.Movement.RunTurn180 and reg.Movement.RunTurn180.id
+		end
 		if key == "IdleToRun1" then return reg.Movement and reg.Movement.IdleToRun1 and reg.Movement.IdleToRun1.id end
 		if key == "IdleToRun2" then return reg.Movement and reg.Movement.IdleToRun2 and reg.Movement.IdleToRun2.id end
 		if key == "ArcRun30Rear" then return reg.Movement and reg.Movement.ArcRun30Rear and reg.Movement.ArcRun30Rear.id end

@@ -274,7 +274,13 @@ if enableghostmode then
 					local alpha = 1.0 - math.exp(-lambda * dt)
 					alpha = math.clamp(alpha, 0.10, 1.0)
 					
-					ghostRoot.CFrame = ghostRoot.CFrame:Lerp(targetCF, alpha)
+					-- Sharp reversal check: if HRP flipped orientation (> 90°), snap rotation immediately
+					-- prevents visual ghost root from lagging behind turn plants and causing visual reverse-flips!
+					if ghostRoot.CFrame.LookVector:Dot(targetCF.LookVector) < 0 then
+						ghostRoot.CFrame = CFrame.new(ghostRoot.Position:Lerp(targetCF.Position, alpha)) * targetCF.Rotation
+					else
+						ghostRoot.CFrame = ghostRoot.CFrame:Lerp(targetCF, alpha)
+					end
 				end
 
 				local isDead = (aiModel:GetAttribute("CurrentState") == "Death")

@@ -262,8 +262,8 @@ local CombatConfig = {
 	TorsoBankingResponsiveness = 14.0,       -- lerp responsiveness for centripetal roll
 	TurnMassDropMax = 0.45,                  -- max pelvis dip (studs) during sharp turns
 	SkidMassDropAmount = 0.55,               -- max pelvis dip (studs) during 180° skid
-	Locomotion_SkidCooldown = 0.38,          -- seconds minimum between 180° turnaround skids
-	Locomotion_SkidLockout = 0.32,           -- seconds duration of skid plant before returning to run
+	Locomotion_SkidCooldown = 0.70,          -- seconds minimum between 180° turnaround skids
+	Locomotion_SkidLockout = 0.65,           -- seconds duration of skid plant before returning to run (matches RunTurn180 length)
 
 	-- Procedural Foot IK & Ledge Gripping (Step 3)
 	FootIK_Enabled = true,                   -- global toggle for procedural foot planting

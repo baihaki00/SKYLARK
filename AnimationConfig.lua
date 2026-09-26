@@ -59,8 +59,6 @@ AnimationConfig.Registry = {
 		RunTurn90Left = { id = "rbxassetid://129355316172688", speed = 1.65, fadeTime = 0.04, startCut = 0.00, endCut = 0.38, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "90-Degree Plant Cut Left" },
 		RunTurn90Right = { id = "rbxassetid://129355316172688", speed = 1.65, fadeTime = 0.04, startCut = 0.00, endCut = 0.38, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "90-Degree Plant Cut Right" },
 		RunTurn180 = { id = "rbxassetid://129355316172688", speed = 1.00, fadeTime = 0.12, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Run Turn Pivot" },
-		RunTurn180Left = { id = "rbxassetid://129355316172688", speed = 1.00, fadeTime = 0.12, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Run Turn Left" },
-		RunTurn180Right = { id = "rbxassetid://129355316172688", speed = 1.00, fadeTime = 0.12, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Run Turn Right" },
 		StartSprint = { id = "rbxassetid://113571639405597", speed = 1.15, fadeTime = 0.08, priority = "Action2", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "START RUN" },
 		Slide = { id = "rbxassetid://83869147275692", speed = 1.40, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Athletic Ground Slide" },
 		StopRun = { id = "rbxassetid://89237107000987", speed = 1.15, fadeTime = 0.08, priority = "Action2", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "STOP RUN" },

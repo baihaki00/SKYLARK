@@ -871,14 +871,14 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		and (dotToTarget < -0.65) -- Sharp reversal: target is in rear hemisphere (> 130 deg)
 
 	if canTurn180 then
-		local turnAnim = (localDir.X < 0) and "Movement.RunTurn180Left" or "Movement.RunTurn180Right"
+		local turnAnim = "Movement.RunTurn180"
 		data.turnAnim = turnAnim
-		data.turnActiveUntil = now + 0.45
+		data.turnActiveUntil = now + 0.65
 		data.lastTurnTime = now
 		data.turnTargetHeading = flatTargetDir
 		data.currentAnim = turnAnim
 		
-		AnimationModule.playConfig(humanoid, turnAnim, 1.35, Enum.AnimationPriority.Action, false)
+		AnimationModule.playConfig(humanoid, turnAnim, 1.00, Enum.AnimationPriority.Action, false)
 	end
 
 	-- 2. Athletic 90-Degree Plant Cut (Mirrored Left / Right)
