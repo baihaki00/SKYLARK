@@ -338,9 +338,10 @@ UserInputService.InputChanged:Connect(function(input, gpe)
 	end
 end)
 
--- Auto-transition: when a Quin is selected for spectating, yield Freecam so SmoothCamera tracks smoothly
+-- Auto-transition: when a Quin is selected for spectating or possessed, yield Freecam so SmoothCamera tracks smoothly
 RunService.Heartbeat:Connect(function()
-	if isFreecamActive and (shared.SpectatedQuin or _G.SpectatedQuin) then
+	local hasTargetQuin = shared.SpectatedQuin or _G.SpectatedQuin or shared.PlayerControlledQuin or _G.PlayerControlledQuin or (workspace:GetAttribute("SpectatedQuin") and workspace:GetAttribute("SpectatedQuin") ~= "")
+	if isFreecamActive and hasTargetQuin then
 		stopFreecam()
 		if _G.UpdateCamBtnText then
 			_G.UpdateCamBtnText("Cam: Spectating [F]")

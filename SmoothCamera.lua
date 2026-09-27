@@ -23,6 +23,69 @@ local posSmoothness = 14
 local zoomSpeed = 3.0
 local minZoom, maxZoom = 4.0, 45.0
 
+-- === 2ND-ORDER SUSPENSION & GYRO DYNAMICS ===
+local suspensionEnabled = true
+local suspStiffness = 175.0        -- Spring stiffness k (rad/s)^2 for vertical bob & landing shock
+local suspDamping = 19.5          -- Damping coefficient d for smooth, cushioned bounce
+local landingImpulseScale = 0.045  -- Converts landing downward velocity to vertical shock compression
+local strideBobScale = 0.65       -- Pelvic/hips bone vertical animation tracking weight
+
+local gyroEnabled = true
+local gyroStiffness = 160.0       -- Roll spring stiffness
+local gyroDamping = 21.0          -- Roll spring damping (critically damped for zero roll overshoot)
+local maxGyroRollDeg = 6.0        -- Max Dutch tilt / roll banking angle during high-speed carving turns
+local gyroBankWeight = 0.35       -- Weight of Quin's BankRoll attribute in camera roll
+
+local pitchLagStiffness = 130.0   -- Inertial pitch lag spring stiffness
+local pitchLagDamping = 17.0      -- Inertial pitch lag spring damping
+local maxPitchLagDeg = 2.2        -- Max pitch lag during rapid acceleration / braking
+
+local lateralSwayStiffness = 140.0 -- Centripetal sway spring stiffness
+local lateralSwayDamping = 18.0    -- Centripetal sway spring damping
+local maxLateralSwayStuds = 0.45   -- Max lateral displacement from centripetal G-force
+
+local fovSpeedMin = 15.0          -- Speed threshold where dynamic FOV starts expanding
+local fovSpeedMax = 55.0          -- Speed threshold where max FOV is reached
+local fovExpansionMax = 6.5       -- Max FOV expansion in degrees (e.g. 70 -> 76.5)
+local baseFOV = 70.0              -- Resting FOV
+
+-- Suspension & Gyro physical states
+local suspDispY = 0
+local suspVelY = 0
+
+local gyroRoll = 0
+local gyroRollVel = 0
+
+local inertPitch = 0
+local inertPitchVel = 0
+
+local swayDispX = 0
+local swayVelX = 0
+
+local lastTrackedHRP = nil
+local lastVerticalVel = 0
+local lastHorizSpeed = 0
+local currentCamFov = baseFOV
+
+-- Bone caching
+local currentQuinModel = nil
+local cachedHipsBone = nil
+local restHipsRelY = nil
+
+local function getHipsBone(quinModel)
+	if quinModel ~= currentQuinModel then
+		currentQuinModel = quinModel
+		cachedHipsBone = quinModel and (
+			quinModel:FindFirstChild("mixamorig:Hips", true)
+			or quinModel:FindFirstChild("Hips", true)
+			or quinModel:FindFirstChild("UpperTorso", true)
+			or quinModel:FindFirstChild("Torso", true)
+		)
+		restHipsRelY = nil
+	end
+	return cachedHipsBone
+end
+
 -- === INITIAL STATE: FREEFLY ABOVE ARENA ===
 local cameraMode = "FREEFLY" -- "FREEFLY" or "QUIN_SPECTATE"
 shared.SpectatorState = { Mode = "FREEFLY" }
@@ -316,6 +379,21 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 
 	if cameraMode == "FREEFLY" then
 		-- === FREEFLY NAVIGATION ===
+		-- Restore FOV and relax dynamic suspension states in freecam
+		if math.abs(currentCamFov - baseFOV) > 0.05 then
+			currentCamFov = currentCamFov + (baseFOV - currentCamFov) * (1 - math.exp(-8.0 * dt))
+			Camera.FieldOfView = currentCamFov
+		end
+		suspDispY = 0
+		suspVelY = 0
+		gyroRoll = 0
+		gyroRollVel = 0
+		inertPitch = 0
+		inertPitchVel = 0
+		swayDispX = 0
+		swayVelX = 0
+		lastTrackedHRP = nil
+
 		local speed = baseFlySpeed
 		if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
 			speed = speed * sprintMultiplier
@@ -354,7 +432,7 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		Camera.CFrame = CFrame.new(cameraPos) * rotCF
 
 	else
-		-- === QUIN SPECTATE (ORBIT) ===
+		-- === QUIN SPECTATE (ORBIT WITH SUSPENSION & DYNAMIC GYRO) ===
 		local rotAlpha = 1 - math.exp(-orbitSmoothness * dt)
 		local zoomAlpha = 1 - math.exp(-10 * dt)
 		local posAlpha = 1 - math.exp(-posSmoothness * dt)
@@ -367,20 +445,125 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		currentDistance += (targetDistance - currentDistance) * zoomAlpha
 
 		local rawTargetPos = targetHRP.Position + Vector3.new(0, 2.5, 0)
-		if not smoothedTargetPos or (rawTargetPos - smoothedTargetPos).Magnitude > 60 then
+		if lastTrackedHRP ~= targetHRP or not smoothedTargetPos or (rawTargetPos - smoothedTargetPos).Magnitude > 60 then
+			lastTrackedHRP = targetHRP
 			smoothedTargetPos = rawTargetPos
+			suspDispY = 0
+			suspVelY = 0
+			gyroRoll = 0
+			gyroRollVel = 0
+			inertPitch = 0
+			inertPitchVel = 0
+			swayDispX = 0
+			swayVelX = 0
+			lastVerticalVel = targetHRP.AssemblyLinearVelocity.Y
+			lastHorizSpeed = 0
+			restHipsRelY = nil
 		else
 			smoothedTargetPos = smoothedTargetPos:Lerp(rawTargetPos, posAlpha)
 		end
 
-		local camRotation = CFrame.Angles(0, math.rad(smoothYaw), 0) * CFrame.Angles(math.rad(smoothPitch), 0, 0)
-		local camPos = smoothedTargetPos - camRotation.LookVector * currentDistance
+		-- 1. BONE & BODY DISPLACEMENT TRACKING (Stride & Vertical Cadence)
+		local rawBobY = 0
+		if suspensionEnabled and quinModel then
+			local hips = getHipsBone(quinModel)
+			if hips then
+				local hipsPos
+				if hips:IsA("Bone") then
+					hipsPos = hips.TransformedWorldCFrame.Position
+				elseif hips:IsA("BasePart") then
+					hipsPos = hips.Position
+				end
+
+				if hipsPos then
+					local currentRelY = hipsPos.Y - targetHRP.Position.Y
+					if not restHipsRelY then
+						restHipsRelY = currentRelY
+					elseif targetHRP.AssemblyLinearVelocity.Magnitude < 2.0 then
+						-- Auto-calibrate resting baseline when stationary
+						restHipsRelY = restHipsRelY + (currentRelY - restHipsRelY) * (1 - math.exp(-2.0 * dt))
+					end
+					rawBobY = math.clamp(currentRelY - restHipsRelY, -1.2, 1.2)
+				end
+			end
+		end
+
+		-- 2. VERTICAL SUSPENSION & IMPACT SHOCK SPRING
+		local curLinVel = targetHRP.AssemblyLinearVelocity
+		local curVertVel = curLinVel.Y
+		if suspensionEnabled then
+			-- Landing Touchdown Shock: falling velocity abruptly absorbed on contact
+			if lastVerticalVel < -10 and curVertVel > -2 then
+				local impactSpeed = math.abs(lastVerticalVel)
+				local impulse = math.clamp(impactSpeed * landingImpulseScale, 0.3, 2.2)
+				suspVelY = suspVelY - impulse -- compress down into shocks
+			end
+			lastVerticalVel = curVertVel
+
+			-- 2nd-order damped harmonic spring
+			local targetDispY = rawBobY * strideBobScale
+			local vertForce = -suspStiffness * (suspDispY - targetDispY) - suspDamping * suspVelY
+			suspVelY = suspVelY + vertForce * dt
+			suspDispY = math.clamp(suspDispY + suspVelY * dt, -2.5, 2.0)
+		else
+			suspDispY = 0
+		end
+
+		-- 3. GYRO & CENTRIPETAL BANKING (DUTCH TILT)
+		local horizVel = Vector3.new(curLinVel.X, 0, curLinVel.Z)
+		local curSpeed = horizVel.Magnitude
+		local speedRatio = math.clamp(curSpeed / 50.0, 0, 1.25)
+
+		if gyroEnabled then
+			local bankAttrDeg = (quinModel and quinModel:GetAttribute("BankRoll")) or 0
+			local hrpAngVelY = targetHRP.AssemblyAngularVelocity.Y
+			local centripetalBank = -math.clamp(hrpAngVelY * speedRatio * 0.08, -math.rad(maxGyroRollDeg), math.rad(maxGyroRollDeg))
+			local targetRoll = math.rad(bankAttrDeg) * gyroBankWeight + centripetalBank * (1 - gyroBankWeight)
+			targetRoll = math.clamp(targetRoll, -math.rad(maxGyroRollDeg), math.rad(maxGyroRollDeg))
+
+			local rollForce = -gyroStiffness * (gyroRoll - targetRoll) - gyroDamping * gyroRollVel
+			gyroRollVel = gyroRollVel + rollForce * dt
+			gyroRoll = gyroRoll + gyroRollVel * dt
+		else
+			gyroRoll = 0
+		end
+
+		-- 4. INERTIAL PITCH LAG & ACCEL SURGE
+		local speedAccel = (curSpeed - lastHorizSpeed) / math.max(dt, 0.001)
+		lastHorizSpeed = curSpeed
+
+		local targetPitchLag = math.clamp(-speedAccel * 0.02, -maxPitchLagDeg, maxPitchLagDeg * 0.75)
+		local pitchForce = -pitchLagStiffness * (inertPitch - targetPitchLag) - pitchLagDamping * inertPitchVel
+		inertPitchVel = inertPitchVel + pitchForce * dt
+		inertPitch = inertPitch + inertPitchVel * dt
+
+		-- 5. CENTRIPETAL LATERAL SWAY (G-Force Shift)
+		local targetSwayX = math.clamp((targetHRP.AssemblyAngularVelocity.Y) * speedRatio * 0.22, -maxLateralSwayStuds, maxLateralSwayStuds)
+		local swayForce = -lateralSwayStiffness * (swayDispX - targetSwayX) - lateralSwayDamping * swayVelX
+		swayVelX = swayVelX + swayForce * dt
+		swayDispX = swayDispX + swayVelX * dt
+
+		-- 6. DYNAMIC FOV SPEED BREATHING
+		local speedFrac = math.clamp((curSpeed - fovSpeedMin) / (fovSpeedMax - fovSpeedMin), 0, 1)
+		local targetFov = baseFOV + speedFrac * fovExpansionMax
+		currentCamFov = currentCamFov + (targetFov - currentCamFov) * (1 - math.exp(-7.0 * dt))
+		Camera.FieldOfView = currentCamFov
+
+		-- 7. CONSTRUCT CAMERA CFRAME (Suspension Offset + Gyro Roll)
+		local suspendedTargetPos = smoothedTargetPos + Vector3.new(0, suspDispY, 0)
+		local finalPitch = math.clamp(smoothPitch + inertPitch, -85, 85)
+
+		local baseRotCF = CFrame.Angles(0, math.rad(smoothYaw), 0) * CFrame.Angles(math.rad(finalPitch), 0, 0)
+		local camLook = baseRotCF.LookVector
+		local camRight = baseRotCF.RightVector
+
+		local camPos = suspendedTargetPos - camLook * currentDistance + camRight * swayDispX
 
 		if camPos.Y < 2.0 then
 			camPos = Vector3.new(camPos.X, 2.0, camPos.Z)
 		end
 
-		Camera.CFrame = CFrame.lookAt(camPos, smoothedTargetPos)
+		Camera.CFrame = CFrame.lookAt(camPos, suspendedTargetPos) * CFrame.Angles(0, 0, gyroRoll)
 		cameraPos = camPos -- keep synced if switched to freefly
 	end
 end)
