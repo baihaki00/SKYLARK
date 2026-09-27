@@ -315,13 +315,14 @@ function ProceduralCombatReactionController:update(dt)
 		self.smoothedTurnRate = (self.smoothedTurnRate or 0) + (physAngY - (self.smoothedTurnRate or 0)) * (1 - math.exp(-14.0 * dt))
 
 		-- Angular Velocity Deadzone:
-		-- Physics solver contact noise on straight locomotion is typically +-0.5 to 1.2 rad/s.
-		-- Below 1.5 rad/s, there is NO intentional turn! Force effectiveTurnRate to 0.
-		-- Completely eliminates hips mass drop vibration and torso roll wobble during straight-line running!
+		-- Noise floor on straight locomotion is typically +-0.2 to 0.35 rad/s.
+		-- Gentle and medium carving turns begin at 0.35 rad/s, allowing hips and torso
+		-- to bank immediately into curves rather than drifting wide and upright!
 		local rawRate = self.smoothedTurnRate or 0
 		local effectiveTurnRate = 0
-		if math.abs(rawRate) > 1.5 then
-			effectiveTurnRate = math.sign(rawRate) * (math.abs(rawRate) - 1.5)
+		local turnDeadzone = 0.35
+		if math.abs(rawRate) > turnDeadzone then
+			effectiveTurnRate = math.sign(rawRate) * (math.abs(rawRate) - turnDeadzone)
 		end
 
 		local skidTime = serverModel and serverModel:GetAttribute("SkidTurnTime") or 0

@@ -222,7 +222,7 @@ local function startControlSession(quin)
 			if smoothedMoveDir.Magnitude < 0.1 then
 				if lastHeadingAngle and (now - lastRawMoveTime) < 0.25 then
 					local diff = (targetAngle - lastHeadingAngle + math.pi) % (2 * math.pi) - math.pi
-					local springAlpha = 1.0 - math.exp(-22.0 * dt)
+					local springAlpha = 1.0 - math.exp(-28.0 * dt)
 					local newAngle = lastHeadingAngle + diff * springAlpha
 					smoothedMoveDir = Vector3.new(math.sin(newAngle), 0, math.cos(newAngle))
 					lastHeadingAngle = newAngle
@@ -233,7 +233,7 @@ local function startControlSession(quin)
 			else
 				local currentAngle = math.atan2(smoothedMoveDir.X, smoothedMoveDir.Z)
 				local diff = (targetAngle - currentAngle + math.pi) % (2 * math.pi) - math.pi
-				local springAlpha = 1.0 - math.exp(-22.0 * dt)
+				local springAlpha = 1.0 - math.exp(-28.0 * dt)
 				local newAngle = currentAngle + diff * springAlpha
 				smoothedMoveDir = Vector3.new(math.sin(newAngle), 0, math.cos(newAngle))
 				lastHeadingAngle = newAngle
@@ -308,22 +308,18 @@ local function startControlSession(quin)
 						AnimationModule.playConfig(activeHumanoid, desiredAnim)
 					end
 
-					-- Dynamic Stride Scaling & Organic Acceleration Speed Ramp:
-					-- Calibrated so top sprint velocity (50 studs/s) corresponds to baseline 1.00x playback speed,
-					-- preventing hypersonic cartoon leg-flailing while organically ramping up from slow push-off.
+					-- Athletic Stride Turnover (Eliminates slow-motion shuffling):
+					-- At min running speed (18.5 studs/s), turnover is a crisp, natural 0.75x cadence.
+					-- At max sprint (50.0 studs/s), turnover reaches full 1.00x athletic power.
 					if desiredAnim == "Movement.Run" and AnimationModule.isPlaying(activeHumanoid, "Movement.Run") then
-						local sprintStart = activeQuin:GetAttribute("SprintStartTime") or now
-						local elapsed = math.clamp(now - sprintStart, 0, 0.48)
-						local rampProgress = elapsed / 0.48 -- 0.0 to 1.0 over 480ms
-						local rampEase = rampProgress * rampProgress * (3 - 2 * rampProgress)
-						local rampFactor = 0.45 + (0.55 * rampEase)
-
 						local currentSpeed = activeRootPart.AssemblyLinearVelocity.Magnitude
-						local strideBase = CombatConfig.RunStrideBase or 50.0
-						local velRatio = math.clamp(currentSpeed / strideBase, 0.35, 1.00)
+						local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
+						local maxPacing = CombatConfig.Locomotion_PacingSpeedMax or 50.0
 						local baseCfgSpeed = AnimationConfig.get("Movement.Run") and AnimationConfig.get("Movement.Run").speed or 1.00
 
-						local dynamicSpeed = math.clamp(baseCfgSpeed * velRatio * rampFactor, 0.35, 1.00)
+						local speedFraction = math.clamp((currentSpeed - minPacing) / math.max(1, maxPacing - minPacing), 0.0, 1.0)
+						local dynamicCadence = 0.75 + (0.25 * speedFraction)
+						local dynamicSpeed = math.clamp(baseCfgSpeed * dynamicCadence, 0.70, 1.05)
 						AnimationModule.adjustSpeed(activeHumanoid, "Movement.Run", dynamicSpeed)
 					elseif desiredAnim == "Movement.WalkConfident" and AnimationModule.isPlaying(activeHumanoid, "Movement.WalkConfident") then
 						local currentSpeed = activeRootPart.AssemblyLinearVelocity.Magnitude

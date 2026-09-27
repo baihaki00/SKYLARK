@@ -240,7 +240,7 @@ local CombatConfig = {
 
 	-- Locomotion & Physicality Parameters (Rule 2 & Rule 6)
 	Locomotion_Acceleration = 80.0,          -- studs/s^2 forward drive acceleration
-	Locomotion_BrakingDeceleration = 140.0,   -- studs/s^2 committed braking deceleration
+	Locomotion_BrakingDeceleration = 95.0,    -- studs/s^2 smooth braking deceleration (natural 1-2 step decel plant)
 	Locomotion_TractionSlipFactor = 0.35,     -- slip traction multiplier during sharp 180° direction reversals
 	Locomotion_MaxTurnRate = 18.0,            -- rad/s maximum angular turn rate
 	Locomotion_JumpImpulse = 56.0,           -- studs/s single vertical ballistic jump impulse
