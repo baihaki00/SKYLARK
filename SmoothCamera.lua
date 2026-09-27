@@ -30,6 +30,15 @@ local suspDamping = 19.5          -- Damping coefficient d for smooth, cushioned
 local landingImpulseScale = 0.045  -- Converts landing downward velocity to vertical shock compression
 local strideBobScale = 0.65       -- Pelvic/hips bone vertical animation tracking weight
 
+-- === LOCOMOTION STRIDE SUSPENSION (WALK/RUN TINY BOUNCES) ===
+local walkBounceAmp = 0.13         -- Vertical bounce amplitude when walking (studs)
+local runBounceAmp = 0.25          -- Vertical bounce amplitude when sprinting (studs)
+local walkPitchBob = 0.18          -- Camera pitch nod when walking (deg)
+local runPitchBob = 0.36           -- Camera pitch nod when sprinting (deg)
+local walkSwayAmp = 0.04           -- Lateral hip sway when walking (studs)
+local runSwayAmp = 0.08            -- Lateral hip sway when sprinting (studs)
+local stridePhase = 0              -- Continuous stride phase accumulator
+
 local gyroEnabled = true
 local gyroStiffness = 160.0       -- Roll spring stiffness
 local gyroDamping = 21.0          -- Roll spring damping (critically damped for zero roll overshoot)
@@ -450,6 +459,7 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			smoothedTargetPos = rawTargetPos
 			suspDispY = 0
 			suspVelY = 0
+			stridePhase = 0
 			gyroRoll = 0
 			gyroRollVel = 0
 			inertPitch = 0
@@ -488,9 +498,39 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			end
 		end
 
-		-- 2. VERTICAL SUSPENSION & IMPACT SHOCK SPRING
+		-- 2. LOCOMOTION SUSPENSION STRIDE BOUNCE (Walk / Run Tiny Bounces)
 		local curLinVel = targetHRP.AssemblyLinearVelocity
 		local curVertVel = curLinVel.Y
+		local horizVel = Vector3.new(curLinVel.X, 0, curLinVel.Z)
+		local curSpeed = horizVel.Magnitude
+
+		local locoBounceY = 0
+		local locoPitchNod = 0
+		local locoBounceSway = 0
+
+		local isGrounded = math.abs(curVertVel) < 4.0
+		if suspensionEnabled and curSpeed > 1.5 and isGrounded then
+			-- Stride frequency scales with speed: ~2.4 Hz at walk (18 studs/s), ~4.2 Hz at sprint (50 studs/s)
+			local speedNormalized = math.clamp(curSpeed / 50.0, 0, 1.2)
+			local strideFreq = 2.0 + 2.2 * math.clamp(speedNormalized, 0, 1.0)
+			stridePhase = (stridePhase + strideFreq * (2 * math.pi) * dt) % (2 * math.pi)
+
+			-- Blend amplitude between walking (12 studs/s) and sprinting (50 studs/s)
+			local walkRunFactor = math.clamp((curSpeed - 12.0) / 38.0, 0, 1.0)
+			local curBounceAmp = walkBounceAmp + (runBounceAmp - walkBounceAmp) * walkRunFactor
+			local curPitchBob = walkPitchBob + (runPitchBob - walkPitchBob) * walkRunFactor
+			local curSwayAmp = walkSwayAmp + (runSwayAmp - walkSwayAmp) * walkRunFactor
+
+			-- Downward suspension compression on foot plants + bone displacement
+			locoBounceY = -math.abs(math.sin(stridePhase)) * curBounceAmp + (rawBobY * strideBobScale)
+			locoPitchNod = math.cos(2 * stridePhase) * curPitchBob
+			locoBounceSway = math.sin(stridePhase) * curSwayAmp
+		else
+			-- Smoothly damp stride phase when stopped or airborne
+			stridePhase = 0
+		end
+
+		-- 3. VERTICAL SUSPENSION IMPACT SHOCK SPRING
 		if suspensionEnabled then
 			-- Landing Touchdown Shock: falling velocity abruptly absorbed on contact
 			if lastVerticalVel < -10 and curVertVel > -2 then
@@ -500,20 +540,16 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			end
 			lastVerticalVel = curVertVel
 
-			-- 2nd-order damped harmonic spring
-			local targetDispY = rawBobY * strideBobScale
-			local vertForce = -suspStiffness * (suspDispY - targetDispY) - suspDamping * suspVelY
+			-- 2nd-order damped harmonic spring for macro shocks & elevation transitions
+			local vertForce = -suspStiffness * suspDispY - suspDamping * suspVelY
 			suspVelY = suspVelY + vertForce * dt
 			suspDispY = math.clamp(suspDispY + suspVelY * dt, -2.5, 2.0)
 		else
 			suspDispY = 0
 		end
 
-		-- 3. GYRO & CENTRIPETAL BANKING (DUTCH TILT)
-		local horizVel = Vector3.new(curLinVel.X, 0, curLinVel.Z)
-		local curSpeed = horizVel.Magnitude
+		-- 4. GYRO & CENTRIPETAL BANKING (DUTCH TILT)
 		local speedRatio = math.clamp(curSpeed / 50.0, 0, 1.25)
-
 		if gyroEnabled then
 			local bankAttrDeg = (quinModel and quinModel:GetAttribute("BankRoll")) or 0
 			local hrpAngVelY = targetHRP.AssemblyAngularVelocity.Y
@@ -528,7 +564,7 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			gyroRoll = 0
 		end
 
-		-- 4. INERTIAL PITCH LAG & ACCEL SURGE
+		-- 5. INERTIAL PITCH LAG & ACCEL SURGE
 		local speedAccel = (curSpeed - lastHorizSpeed) / math.max(dt, 0.001)
 		lastHorizSpeed = curSpeed
 
@@ -537,27 +573,29 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		inertPitchVel = inertPitchVel + pitchForce * dt
 		inertPitch = inertPitch + inertPitchVel * dt
 
-		-- 5. CENTRIPETAL LATERAL SWAY (G-Force Shift)
+		-- 6. CENTRIPETAL LATERAL SWAY (G-Force Shift)
 		local targetSwayX = math.clamp((targetHRP.AssemblyAngularVelocity.Y) * speedRatio * 0.22, -maxLateralSwayStuds, maxLateralSwayStuds)
 		local swayForce = -lateralSwayStiffness * (swayDispX - targetSwayX) - lateralSwayDamping * swayVelX
 		swayVelX = swayVelX + swayForce * dt
 		swayDispX = swayDispX + swayVelX * dt
 
-		-- 6. DYNAMIC FOV SPEED BREATHING
+		-- 7. DYNAMIC FOV SPEED BREATHING
 		local speedFrac = math.clamp((curSpeed - fovSpeedMin) / (fovSpeedMax - fovSpeedMin), 0, 1)
 		local targetFov = baseFOV + speedFrac * fovExpansionMax
 		currentCamFov = currentCamFov + (targetFov - currentCamFov) * (1 - math.exp(-7.0 * dt))
 		Camera.FieldOfView = currentCamFov
 
-		-- 7. CONSTRUCT CAMERA CFRAME (Suspension Offset + Gyro Roll)
-		local suspendedTargetPos = smoothedTargetPos + Vector3.new(0, suspDispY, 0)
-		local finalPitch = math.clamp(smoothPitch + inertPitch, -85, 85)
+		-- 8. CONSTRUCT CAMERA CFRAME (Suspension Offset + Stride Bounce + Gyro Roll)
+		local totalSuspY = suspDispY + locoBounceY
+		local suspendedTargetPos = smoothedTargetPos + Vector3.new(0, totalSuspY, 0)
+		local finalPitch = math.clamp(smoothPitch + inertPitch + locoPitchNod, -85, 85)
 
 		local baseRotCF = CFrame.Angles(0, math.rad(smoothYaw), 0) * CFrame.Angles(math.rad(finalPitch), 0, 0)
 		local camLook = baseRotCF.LookVector
 		local camRight = baseRotCF.RightVector
 
-		local camPos = suspendedTargetPos - camLook * currentDistance + camRight * swayDispX
+		local totalSwayX = swayDispX + locoBounceSway
+		local camPos = suspendedTargetPos - camLook * currentDistance + camRight * totalSwayX
 
 		if camPos.Y < 2.0 then
 			camPos = Vector3.new(camPos.X, 2.0, camPos.Z)
