@@ -206,7 +206,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		end
 	end
 
-	-- 📷 Static Camera Debug Toggle (C) - only when active fly mode is engaged so it does not conflict with Quin ground slide
+	-- 📷 Static Camera Debug Toggle (C)
 	if input.KeyCode == Enum.KeyCode.C and flyEnabled then
 		staticCameraEnabled = not staticCameraEnabled
 		if staticCameraEnabled then

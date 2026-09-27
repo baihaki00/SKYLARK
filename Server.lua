@@ -222,4 +222,3 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 end
 
 print("[Server] All QuinCore server services initialized successfully. Default speed: 1.0x")
-

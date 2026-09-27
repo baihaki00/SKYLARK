@@ -1,6 +1,177 @@
-local enableghostmode = true
+local renderMode = workspace:GetAttribute("QuinRenderMode") or "Direct"
+local enableghostmode = renderMode == "Ghost"
 
-if enableghostmode then
+if renderMode == "Direct" then
+	-- Direct mode presents the authoritative QuinServer model in place. There is
+	-- no clone, root interpolation, animation copy loop, or second visual root.
+	local RunService = game:GetService("RunService")
+	local Workspace = game:GetService("Workspace")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local CollectionService = game:GetService("CollectionService")
+
+	local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
+	local LookController = require(QuinCore:WaitForChild("Modules"):WaitForChild("LookController"))
+	local ProceduralCombatReactionController = require(QuinCore:WaitForChild("Modules"):WaitForChild("ProceduralCombatReactionController"))
+
+	local presentations = {}
+	local presentationBindName = "QuinDirectPresentation"
+
+	shared.QuinPresentationControllers = presentations
+	_G.QuinPresentationControllers = presentations
+	shared.GhostLookControllers = {}
+	shared.GhostReactionControllers = {}
+	_G.GhostLookControllers = shared.GhostLookControllers
+	_G.GhostReactionControllers = shared.GhostReactionControllers
+
+	local function isVisualClone(model)
+		return string.find(model.Name, "_Visual", 1, true) ~= nil
+	end
+
+	local function isCandidate(model)
+		if not model or not model:IsA("Model") or isVisualClone(model) then
+			return false
+		end
+		if not model:FindFirstChild("HumanoidRootPart") or not model:FindFirstChildOfClass("Humanoid") then
+			return false
+		end
+		local ghostFolder = Workspace:FindFirstChild("QuinGhost")
+		if ghostFolder and model:IsDescendantOf(ghostFolder) then
+			return false
+		end
+		local serverFolder = Workspace:FindFirstChild("QuinServer")
+		return (serverFolder and model:IsDescendantOf(serverFolder))
+			or CollectionService:HasTag(model, "Quin")
+	end
+
+	local function keepOneNamed(parent, childName, className)
+		local kept = nil
+		for _, child in ipairs(parent:GetChildren()) do
+			if child.Name == childName and (not className or child:IsA(className)) then
+				if kept then
+					child:Destroy()
+				else
+					kept = child
+				end
+			end
+		end
+		return kept
+	end
+
+	local function cleanRigControls(model)
+		local root = model:FindFirstChild("HumanoidRootPart")
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		if root then
+			keepOneNamed(root, "GhostLeftFootTargetAtt", "Attachment")
+			keepOneNamed(root, "GhostRightFootTargetAtt", "Attachment")
+			keepOneNamed(root, "GhostLeftKneePoleAtt", "Attachment")
+			keepOneNamed(root, "GhostRightKneePoleAtt", "Attachment")
+		end
+		if humanoid then
+			keepOneNamed(humanoid, "GhostLeftFootIK", "IKControl")
+			keepOneNamed(humanoid, "GhostRightFootIK", "IKControl")
+		end
+	end
+
+	local function destroyPresentation(model)
+		local entry = presentations[model]
+		if not entry then return end
+		if entry.reaction then
+			entry.reaction:destroy()
+		end
+		presentations[model] = nil
+		if model and model.Parent then
+			model:SetAttribute("PresentationMode", nil)
+			model:SetAttribute("PresentationControllerCount", 0)
+			model:SetAttribute("PresentationControllerKind", nil)
+		end
+	end
+
+	local function ensurePresentation(model)
+		if not isCandidate(model) then return end
+		local desiredAiModel
+		if model:GetAttribute("IsPlayerControlled") ~= true then
+			desiredAiModel = model
+		end
+		local existing = presentations[model]
+		if existing and existing.aiModel ~= desiredAiModel then
+			destroyPresentation(model)
+			existing = nil
+		end
+		if existing then return end
+
+		cleanRigControls(model)
+		local reaction = ProceduralCombatReactionController.new(model, desiredAiModel)
+		local look = LookController.new(model, model)
+		presentations[model] = {
+			model = model,
+			reaction = reaction,
+			look = look,
+			aiModel = desiredAiModel,
+		}
+		model:SetAttribute("PresentationMode", "Direct")
+		model:SetAttribute("PresentationControllerCount", 1)
+		model:SetAttribute("PresentationControllerKind", desiredAiModel and "AI" or "Player")
+	end
+
+	local function collectCandidates()
+		local result = {}
+		local seen = {}
+		local function add(model)
+			if isCandidate(model) and not seen[model] then
+				seen[model] = true
+				table.insert(result, model)
+			end
+		end
+		local serverFolder = Workspace:FindFirstChild("QuinServer")
+		if serverFolder then
+			for _, child in ipairs(serverFolder:GetChildren()) do
+				add(child)
+			end
+		end
+		for _, tagged in ipairs(CollectionService:GetTagged("Quin")) do
+			add(tagged)
+		end
+		return result
+	end
+
+	local staleGhostFolder = Workspace:FindFirstChild("QuinGhost")
+	if staleGhostFolder then
+		staleGhostFolder:Destroy()
+	end
+
+	RunService.Heartbeat:Connect(function()
+		for _, model in ipairs(collectCandidates()) do
+			ensurePresentation(model)
+		end
+		for model in pairs(presentations) do
+			if not isCandidate(model) then
+				destroyPresentation(model)
+			end
+		end
+	end)
+
+	-- RenderStepped runs after the Animator's evaluated pose. The shared
+	-- controller therefore edits the final authoritative bone pose in place.
+	RunService.RenderStepped:Connect(function(dt)
+		for model, entry in pairs(presentations) do
+			if model.Parent and entry.reaction and entry.look then
+				local isDead = model:GetAttribute("CurrentState") == "Death"
+				if not isDead then
+					entry.reaction:update(dt)
+					entry.look:update(dt)
+				end
+				local reaction = entry.reaction
+				model:SetAttribute("ReactionType", reaction.activeReactionType)
+				model:SetAttribute("ReactionPitch", math.round(math.deg(reaction.currentPitch) * 10) / 10)
+				model:SetAttribute("ReactionRoll", math.round(math.deg(reaction.currentRoll) * 10) / 10)
+				model:SetAttribute("BankRoll", math.round(math.deg(reaction.currentBankRoll or 0) * 10) / 10)
+				model:SetAttribute("LookMode", entry.look.gazeMode)
+				model:SetAttribute("GazeYaw", math.round(math.deg(entry.look.currentYaw)))
+				model:SetAttribute("GazePitch", math.round(math.deg(entry.look.currentPitch)))
+			end
+		end
+	end)
+elseif enableghostmode then
 	--// AIGhostHandler.client.lua
 	-- Client-side visual ghost replicator for server-owned AI (pure visual, visible)
 	-- Integrates procedural LookController for dynamic head, neck, and upper torso tracking

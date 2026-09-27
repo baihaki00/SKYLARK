@@ -81,7 +81,17 @@ end
 
 -- === SETTINGS ===
 local enableAI = true
-local GHOSTMODE = true
+
+-- Render-mode boundary for the direct-authoritative presentation migration.
+-- Direct is the default; set Workspace.QuinRenderMode to "Ghost" to roll back
+-- to the legacy cloned presentation path during validation.
+local renderMode = workspace:GetAttribute("QuinRenderMode")
+if renderMode ~= "Ghost" and renderMode ~= "Direct" then
+	renderMode = "Direct"
+	workspace:SetAttribute("QuinRenderMode", renderMode)
+end
+local GHOSTMODE = renderMode == "Ghost"
+Quin:SetAttribute("QuinRenderMode", renderMode)
 
 local currentState = States.Idle
 local previousState = nil
@@ -109,7 +119,10 @@ Quin:GetAttributeChangedSignal("IsPlayerControlled"):Connect(function()
 	end
 end)
 
--- === GHOSTMODE: Hide server AI visuals ===
+-- === PRESENTATION VISIBILITY ===
+-- Ghost mode hides the authoritative rig because the legacy client clone is
+-- responsible for presentation. Direct mode leaves the authoritative model
+-- visible and is the only mode used after migration.
 if GHOSTMODE then
 	for _, part in ipairs(Quin:GetDescendants()) do
 		if part:IsA("BasePart") then
@@ -118,6 +131,12 @@ if GHOSTMODE then
 		elseif part:IsA("Decal") or part:IsA("Texture") then
 			part.Transparency = 1
 		end
+	end
+else
+	local alpha = Quin:FindFirstChild("Alpha_Surface", true)
+	if alpha and alpha:IsA("BasePart") then
+		alpha.Transparency = 0
+		alpha.CastShadow = true
 	end
 end
 
@@ -533,6 +552,7 @@ task.spawn(function()
 				end
 			end
 		end
+
 
 		-- === Tactical Perception & Emergent Decision Layer ===
 		local showdownRole = Quin:GetAttribute("LeaderShowdownRole")

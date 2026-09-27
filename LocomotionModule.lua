@@ -14,6 +14,7 @@ local KnockbackModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("K
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local AudioModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AudioModule"))
 local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
+local TraversalModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TraversalModule"))
 
 local LocomotionModule = {}
 
@@ -211,7 +212,12 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	LocomotionModule.modulateSpeed(fighter, humanoid, 0, dt or 0.1)
 
 	-- Actively cancel humanoid active MoveTo translation so it doesn't walk in place
-	humanoid:Move(Vector3.zero, false)
+	-- Preserve a short grounded slide in the current travel direction while WalkSpeed decays.
+	-- Cancelling input outright makes a 50-stud/s Quin freeze unnaturally; diminishing momentum
+	-- lets the StopRun plant and body weight read visually.
+	local brakeDir = speed > 0.1 and flatVel.Unit or Vector3.zero
+	local brakeInput = math.clamp(speed / 42.0, 0, 1)
+	humanoid:Move(brakeDir * brakeInput, false)
 
 	-- When no StopRun braking overlay is active, ensure idle (handles Ready -> 5s inactivity -> Default)
 	local isOverlayActive = (data.stopRunEndTime and now < data.stopRunEndTime)
@@ -304,14 +310,22 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	data.lastJumpTime = now
 
 	local isVault = (jumpType == "vault")
-	local isDismount = (jumpType == "dismount")
-	local jumpAnim = isVault and "Parkour.VaultObstacle" or "Movement.Jump"
+    local isDismount = (jumpType == "dismount")
+    local isHop = (jumpType == "hop")
+    local isLongJump = (jumpType == "longjump")
+    local jumpAnim = isVault and "Parkour.VaultObstacle" or "Movement.Jump"
 
-	AnimationModule.stop(humanoid, "Movement.Run")
-	AnimationModule.stop(humanoid, "Movement.WalkConfident")
-	AnimationModule.playConfig(humanoid, jumpAnim)
+    -- Keep the gait underneath the traversal layer. The parkour clip supplies
+    -- anticipation and silhouette while the run cycle preserves continuity.
+    AnimationModule.stopConfig(humanoid, "Movement.Fall", 0.10)
+    if isDismount then
+        AnimationModule.playConfig(humanoid, "Movement.Fall", 1.0, Enum.AnimationPriority.Action3, true)
+    else
+        local launchSpeed = (isLongJump and 1.08) or (isHop and 1.12) or 1.0
+        AnimationModule.playConfig(humanoid, jumpAnim, launchSpeed, Enum.AnimationPriority.Action3, true)
+    end
 
-	-- Audio feedback via QuinCore AudioModule (Authentic normal jump sound)
+    -- Audio feedback via QuinCore AudioModule (Authentic normal jump sound)
 	AudioModule.playJump(fighter or rootPart, 0.5)
 
 	-- Single vertical ballistic impulse: v_y = sqrt(2 * g * h)
@@ -338,7 +352,15 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 
 	-- Direct native physics assignment: ZERO BodyVelocity!
-	rootPart.AssemblyLinearVelocity = (flatLook * fwdSpeed) + Vector3.new(0, upImpulse, 0)
+	local plannedHorizontal = Vector3.new(
+        fighter:GetAttribute("TraversalVelocityX") or 0,
+        0,
+        fighter:GetAttribute("TraversalVelocityZ") or 0
+    )
+    if plannedHorizontal.Magnitude < 0.01 then
+        plannedHorizontal = flatLook * fwdSpeed
+    end
+    rootPart.AssemblyLinearVelocity = plannedHorizontal + Vector3.new(0, upImpulse, 0)
 	rootPart.AssemblyAngularVelocity = Vector3.zero
 
 	-- Modern AlignOrientation to prevent mid-air tumbling
@@ -352,7 +374,8 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	align.Responsiveness = 80
 	align.MaxTorque = 300000
 	align.MaxAngularVelocity = 20
-	align.CFrame = CFrame.lookAt(Vector3.zero, flatLook)
+	local alignLook = plannedHorizontal.Magnitude > 0.01 and plannedHorizontal.Unit or flatLook
+	align.CFrame = CFrame.lookAt(Vector3.zero, alignLook)
 
 	local att = Instance.new("Attachment")
 	att.Name = "Loco_JumpAtt"
@@ -397,11 +420,21 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 			AudioModule.playFallOnGround(rootPart.Position)
 		end
 
-		if isDismount then
-			AnimationModule.playConfig(humanoid, "Parkour.LedgeDropLanding", 1.4, Enum.AnimationPriority.Action3, false)
-		end
+		local landingVelocity = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
+        local impactSpeed = math.abs(landingVelocity.Y)
+        local traversalType = fighter:GetAttribute("TraversalType") or "None"
+        local traversalHeight = fighter:GetAttribute("TraversalObstacleHeight") or 0
+        if isDismount then
+            if traversalHeight >= 8 or impactSpeed > 55 then
+                AnimationModule.playConfig(humanoid, "Parkour.LandingSuperHero", 1.0, Enum.AnimationPriority.Action3, true)
+            -- Soft landing (also aliased as LedgeDropLanding) is intentionally not
+            -- played automatically: ordinary landings continue into the current gait.
+            end
+        elseif traversalType == "None" and impactSpeed > 50 and airTime > 0.9 then
+            AnimationModule.playConfig(humanoid, "Parkour.LandingHard", 1.0, Enum.AnimationPriority.Action3, true)
+        end
 
-		local currentVel = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
+        local currentVel = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
 		local flatSpeed = Vector3.new(currentVel.X, 0, currentVel.Z).Magnitude
 		if flatSpeed > 3.0 then
 			local pacingVel = fighter:GetAttribute("PacingVelocity") or 40
@@ -554,5 +587,77 @@ function LocomotionModule.cleanup(fighter)
 end
 
 LocomotionModule.performJump = LocomotionModule.jump
+
+--// Spatial parkour bridge: all callers keep using LocomotionModule.
+-- The planner is shared by the player controller and AI state machines.
+local legacyJump = LocomotionModule.jump
+local legacyDetectObstacle = LocomotionModule.detectObstacle
+
+function LocomotionModule.planTraversal(fighter, rootPart, desiredDirection, requestedHeight, forwardSpeed)
+    if not rootPart then return nil end
+    local plan, candidate = TraversalModule.plan(rootPart, desiredDirection, requestedHeight, forwardSpeed)
+    if plan then
+        plan.candidate = candidate
+    end
+    return plan, candidate
+end
+
+function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpulse, jumpType)
+    local shouldPlan = jumpType == nil or jumpType == "jump" or jumpType == "vault" or jumpType == "dismount"
+    if shouldPlan and fighter and humanoid and rootPart then
+        local plan = LocomotionModule.planTraversal(
+            fighter,
+            rootPart,
+            rootPart.CFrame.LookVector,
+            height,
+            forwardImpulse
+        )
+        if plan then
+            TraversalModule.markTraversal(fighter, plan)
+            fighter:SetAttribute("TraversalVelocityX", plan.horizontalVelocity.X)
+            fighter:SetAttribute("TraversalVelocityZ", plan.horizontalVelocity.Z)
+            local result = legacyJump(
+                fighter,
+                humanoid,
+                rootPart,
+                plan.height,
+                plan.horizontalVelocity.Magnitude,
+                plan.animationType
+            )
+            task.delay((plan.flightTime or 0.6) + 0.45, function()
+                if fighter and fighter.Parent then
+                    TraversalModule.clearTraversal(fighter)
+                    fighter:SetAttribute("TraversalVelocityX", 0)
+                    fighter:SetAttribute("TraversalVelocityZ", 0)
+                end
+            end)
+            return result
+        end
+    end
+    if fighter then
+        fighter:SetAttribute("TraversalVelocityX", 0)
+        fighter:SetAttribute("TraversalVelocityZ", 0)
+    end
+    return legacyJump(fighter, humanoid, rootPart, height, forwardImpulse, jumpType)
+end
+
+function LocomotionModule.detectObstacle(rootPart)
+    local candidate = TraversalModule.probe(rootPart, rootPart and rootPart.CFrame.LookVector or nil)
+    local traversable = candidate and candidate.kind ~= "None" and candidate.kind ~= "Blocked"
+    return traversable, candidate and (candidate.obstacleHeight or 0) or 0, candidate
+end
+
+function LocomotionModule.checkAndJump(fighter, humanoid, rootPart, forwardImpulse)
+    local traversable, height = LocomotionModule.detectObstacle(rootPart)
+    if traversable then
+        LocomotionModule.jump(fighter, humanoid, rootPart, math.max(3.5, height + 2), forwardImpulse, "jump")
+        return true
+    end
+    return false
+end
+
+function LocomotionModule.getTraversalProbe(rootPart, desiredDirection)
+    return TraversalModule.probe(rootPart, desiredDirection)
+end
 
 return LocomotionModule

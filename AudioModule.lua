@@ -194,7 +194,7 @@ function AudioModule.playSonicBoom(position)
 end
 
 function AudioModule.playFallOnGround(position)
-	playSoundAt(AudioIds.FallOnGround, position, 0.5, math.random(70, 100)/100, 15)
+	playSoundAt(AudioIds.FallOnGround, position, 0.05, math.random(70, 100)/100, 15)
 end
 
 function AudioModule.playFallOnGroundAfterMidAir(position)

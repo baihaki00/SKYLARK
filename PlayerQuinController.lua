@@ -33,6 +33,29 @@ local lastChatterTime = 0
 local lastHeadingAngle = nil
 local lastFootstepSmokeTime = 0
 
+-- PlayerQuinController owns intent only. PlayerModule must be disabled while
+-- possessed so it cannot write a second movement vector into the humanoid.
+local defaultControls = nil
+local function setDefaultControlsEnabled(enabled)
+	if not defaultControls then
+		local playerScripts = player:FindFirstChild("PlayerScripts")
+		local playerModule = playerScripts and playerScripts:FindFirstChild("PlayerModule")
+		if playerModule then
+			local ok, module = pcall(require, playerModule)
+			if ok and module and module.GetControls then
+				defaultControls = module:GetControls()
+			end
+		end
+	end
+	if defaultControls then
+		if enabled then
+			defaultControls:Enable()
+		else
+			defaultControls:Disable()
+		end
+	end
+end
+
 -- ============================================================================
 -- 1. HUD BUTTON: [ ▶ Play As Quin ] / [ ⏹ Exit Quin Mode ]
 -- ============================================================================
@@ -96,10 +119,13 @@ local function startControlSession(quin)
 		return false
 	end
 
-	-- Notify camera and ghost systems
+	-- Notify camera and presentation systems
 	shared.PlayerControlledQuin = quin
 	_G.PlayerControlledQuin = quin
 	activeQuin:SetAttribute("IsPlayerControlled", true)
+
+	-- Prevent Roblox's default PlayerModule from competing with QuinCore.
+	setDefaultControlsEnabled(false)
 
 	-- Stop any stale tracks so IdleReady_Stance has a clean slate
 	local animator = activeHumanoid:FindFirstChildOfClass("Animator")
@@ -114,6 +140,8 @@ local function startControlSession(quin)
 	activeQuin:SetAttribute("LastActivityTime", os.clock())
 	activeQuin:SetAttribute("IsMoving", false)
 	activeQuin:SetAttribute("IsSprinting", false)
+	-- Start from rest so QuinCore acceleration, braking, and animation cadence carry weight.
+	activeQuin:SetAttribute("CurrentPilotSpeed", 0)
 	AnimationModule.ensureBaseIdle(activeHumanoid)
 
 	-- Update button UI
@@ -139,6 +167,7 @@ local function startControlSession(quin)
 		if activeHumanoid.Health <= 0 then
 			return
 		end
+
 
 		-- Skip movement inputs if focused on TextBox
 		if UserInputService:GetFocusedTextBox() then
@@ -178,7 +207,7 @@ local function startControlSession(quin)
 		local goalSpeed = isSprint and maxPacing or minPacing
 
 		-- Smooth kinetic acceleration curve: emulates natural inertia and weight on keyboard
-		local curPilotSpeed = activeQuin:GetAttribute("CurrentPilotSpeed") or minPacing
+		local curPilotSpeed = activeQuin:GetAttribute("CurrentPilotSpeed") or 0
 		local accelRate = isSprint and 85.0 or 60.0
 		if curPilotSpeed < goalSpeed then
 			curPilotSpeed = math.min(curPilotSpeed + accelRate * dt, goalSpeed)
@@ -251,7 +280,6 @@ local function startControlSession(quin)
 			if isSprint and not wasSprinting and not isAirborne then
 				activeQuin:SetAttribute("IsSprinting", true)
 				activeQuin:SetAttribute("SprintStartTime", now)
-				AnimationModule.stop(activeHumanoid, "Movement.WalkConfident", 0.10)
 			elseif not isSprint then
 				activeQuin:SetAttribute("IsSprinting", false)
 				activeQuin:SetAttribute("SprintStartTime", nil)
@@ -294,12 +322,6 @@ local function startControlSession(quin)
 
 				if not isStopPlaying then
 					local desiredAnim = isSprint and "Movement.Run" or "Movement.WalkConfident"
-					local oppositeAnim = isSprint and "Movement.WalkConfident" or "Movement.Run"
-
-					if AnimationModule.isPlaying(activeHumanoid, oppositeAnim) then
-						AnimationModule.stop(activeHumanoid, oppositeAnim, 0.15)
-					end
-
 					if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
 						AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
 						AnimationModule.stop(activeHumanoid, "Idles.ReadyStance", 0.15)
@@ -339,8 +361,11 @@ local function startControlSession(quin)
 			local isChattering = lastChatterTime and (now - lastChatterTime) < 0.40
 			activeQuin:SetAttribute("DirectionalChatter", isChattering or false)
 
-			-- Reset pilot speed towards min pacing when keys are released
-			activeQuin:SetAttribute("CurrentPilotSpeed", minPacing)
+			-- Preserve weight on release: let the authoritative brake decelerate the body,
+			-- while the pilot speed attribute eases toward rest instead of snapping to walk pace.
+			local releaseAlpha = 1.0 - math.exp(-10.0 * dt)
+			local releasedSpeed = activeQuin:GetAttribute("CurrentPilotSpeed") or 0
+			activeQuin:SetAttribute("CurrentPilotSpeed", releasedSpeed + (0 - releasedSpeed) * releaseAlpha)
 			activeQuin:SetAttribute("IsMoving", false)
 			activeQuin:SetAttribute("IsSprinting", false)
 			activeQuin:SetAttribute("SprintStartTime", nil)
@@ -350,6 +375,7 @@ local function startControlSession(quin)
 				LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, dt)
 			end
 		end
+
 	end)
 
 	print(string.format("[PlayerQuinController] Successfully piloting %s via QuinCore locomotion!", quin.Name))
@@ -357,6 +383,7 @@ local function startControlSession(quin)
 end
 
 local function stopControlSession()
+	setDefaultControlsEnabled(true)
 	if renderConn then
 		renderConn:Disconnect()
 		renderConn = nil

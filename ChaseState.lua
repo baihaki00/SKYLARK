@@ -971,7 +971,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			if data.isDismountFalling then
 				data.isDismountFalling = false
 				data.wasOnPlatform = false
-				AnimationModule.playConfig(humanoid, "Parkour.LedgeDropLanding", 1.4, Enum.AnimationPriority.Action3, false)
+				-- No automatic soft landing overlay; resume the current locomotion below.
 			end
 			if data.currentAnim then
 				AnimationModule.playConfig(humanoid, data.currentAnim)

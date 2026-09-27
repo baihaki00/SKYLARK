@@ -60,33 +60,48 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 
 	local attParent = self.ghostRootPart or self.rootPart
 	if attParent and self.humanoid then
-		local leftAtt = Instance.new("Attachment")
-		leftAtt.Name = "GhostLeftFootTargetAtt"
+		local leftAtt = attParent:FindFirstChild("GhostLeftFootTargetAtt")
+		if not leftAtt or not leftAtt:IsA("Attachment") then
+			leftAtt = Instance.new("Attachment")
+			leftAtt.Name = "GhostLeftFootTargetAtt"
+			leftAtt.Parent = attParent
+		end
 		leftAtt.Position = Vector3.new(-0.85, -2.6, 0)
-		leftAtt.Parent = attParent
 		self.leftFootAtt = leftAtt
 
-		local rightAtt = Instance.new("Attachment")
-		rightAtt.Name = "GhostRightFootTargetAtt"
+		local rightAtt = attParent:FindFirstChild("GhostRightFootTargetAtt")
+		if not rightAtt or not rightAtt:IsA("Attachment") then
+			rightAtt = Instance.new("Attachment")
+			rightAtt.Name = "GhostRightFootTargetAtt"
+			rightAtt.Parent = attParent
+		end
 		rightAtt.Position = Vector3.new(0.85, -2.6, 0)
-		rightAtt.Parent = attParent
 		self.rightFootAtt = rightAtt
 
 		-- Forward Knee Pole Attachments: local -Z is forward in Roblox coordinate space!
-		local leftPole = Instance.new("Attachment")
-		leftPole.Name = "GhostLeftKneePoleAtt"
-		leftPole.Position = Vector3.new(-0.85, -1.8, -2.5) -- -Z is FORWARD in Roblox!
-		leftPole.Parent = attParent
+		local leftPole = attParent:FindFirstChild("GhostLeftKneePoleAtt")
+		if not leftPole or not leftPole:IsA("Attachment") then
+			leftPole = Instance.new("Attachment")
+			leftPole.Name = "GhostLeftKneePoleAtt"
+			leftPole.Parent = attParent
+		end
+		leftPole.Position = Vector3.new(-0.85, -1.8, -2.5) -- -Z is FORWARD in Roblox coordinate space!
 		self.leftPoleAtt = leftPole
 
-		local rightPole = Instance.new("Attachment")
-		rightPole.Name = "GhostRightKneePoleAtt"
+		local rightPole = attParent:FindFirstChild("GhostRightKneePoleAtt")
+		if not rightPole or not rightPole:IsA("Attachment") then
+			rightPole = Instance.new("Attachment")
+			rightPole.Name = "GhostRightKneePoleAtt"
+			rightPole.Parent = attParent
+		end
 		rightPole.Position = Vector3.new(0.85, -1.8, -2.5) -- -Z is FORWARD
-		rightPole.Parent = attParent
 		self.rightPoleAtt = rightPole
 
 		if self.leftUpLegBone and self.leftFootBone then
-			local leftIK = Instance.new("IKControl")
+			local leftIK = self.humanoid:FindFirstChild("GhostLeftFootIK")
+			if not leftIK or not leftIK:IsA("IKControl") then
+				leftIK = Instance.new("IKControl")
+			end
 			leftIK.Name = "GhostLeftFootIK"
 			leftIK.Type = Enum.IKControlType.Transform -- Transform preserves author-keyed forward foot angle
 			leftIK.ChainRoot = self.leftUpLegBone
@@ -101,7 +116,10 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 		end
 
 		if self.rightUpLegBone and self.rightFootBone then
-			local rightIK = Instance.new("IKControl")
+			local rightIK = self.humanoid:FindFirstChild("GhostRightFootIK")
+			if not rightIK or not rightIK:IsA("IKControl") then
+				rightIK = Instance.new("IKControl")
+			end
 			rightIK.Name = "GhostRightFootIK"
 			rightIK.Type = Enum.IKControlType.Transform -- Transform preserves author-keyed forward foot angle
 			rightIK.ChainRoot = self.rightUpLegBone
@@ -444,7 +462,7 @@ function ProceduralCombatReactionController:update(dt)
 	-- perfectly cancelling out lateral spine tilt so the head remains rock-solid level with the world horizon!
 	local vorCounterRoll = -spineRoll
 	local nPitch, nRoll  = totalPitch * 0.20, (headRoll * 0.20) + (vorCounterRoll * 0.50)
-	local hPitch, hRoll  = totalPitch * 0.15, (headRoll * 0.15) + (vorCounterRoll * 0.50)
+	local hPitch, hRoll  = totalPitch * 0.15, headRoll * 0.15
 
 	-- Apply to bones multiplicatively on top of evaluated animation track
 	local hasHipsOffset = math.abs(self.hipsOffset) > 0.001 or math.abs(self.hipsDipOffset or 0) > 0.001
@@ -473,7 +491,15 @@ function ProceduralCombatReactionController:update(dt)
 	end
 
 	if self.headBone then
-		self.headBone.Transform = self.headBone.Transform * CFrame.Angles(hPitch, 0, hRoll)
+		if self.aiModel then
+			self.headBone.Transform = self.headBone.Transform * CFrame.Angles(hPitch, 0, hRoll)
+		else
+			-- Player gait asset has a distracting baked yaw/roll wobble. Preserve pitch
+			-- bob while keeping the head stable in the horizontal plane.
+			local headPitch = select(1, self.headBone.Transform:ToOrientation())
+			local headPosition = self.headBone.Transform.Position
+			self.headBone.Transform = CFrame.new(headPosition) * CFrame.Angles(headPitch, 0, 0)
+		end
 	end
 
 	-- 7. Procedural Foot IK & Ledge Gripping (Step 3: Anatomically Sound Terrain Adaptation)
@@ -546,7 +572,14 @@ function ProceduralCombatReactionController:update(dt)
 
 				-- High-speed sprint on flat ground: let author-keyed sprint animation play 100% pure!
 				if speed > 22.0 and hit.Normal.Y >= 0.94 and math.abs(elevDelta) <= 0.60 then
-					targetWeight = 0.0
+					-- Keep a restrained contact correction during sprint. The swing phase stays
+					-- animation-driven; only a near-planted foot receives IK weight.
+					if liftAboveSurface <= 0.35 then
+						targetPos = Vector3.new(animFootPos.X, floorY + ankleHeight, animFootPos.Z)
+						targetWeight = 0.16 * turnDampen
+					else
+						targetWeight = 0.0
+					end
 				elseif not isFlatFloor and elevDelta >= -maxStepDown and elevDelta <= maxStepUp then
 					-- Foot is on uneven terrain, slope, stairs, or platform step!
 					-- Anatomical Stride Phase Rule:
