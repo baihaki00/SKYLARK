@@ -84,11 +84,25 @@ local function replicateState()
     end
 end
 
+-- Helper to strictly retrieve tournament AI combatants in QuinServer
+local function getTournamentFighters()
+    local fighters = {}
+    local qServer = Workspace:FindFirstChild("QuinServer")
+    if qServer then
+        for _, child in ipairs(qServer:GetChildren()) do
+            if child:IsA("Model") and CollectionService:HasTag(child, "AI_Fighter") and not child:GetAttribute("IsPlayerControlled") and not child:GetAttribute("IsCostume") then
+                table.insert(fighters, child)
+            end
+        end
+    end
+    return fighters
+end
+
 function Orchestrator.getTeamHealthStats()
     local alphaHp, alphaMax, alphaAlive = 0, 0, 0
     local betaHp, betaMax, betaAlive = 0, 0, 0
     
-    for _, quin in ipairs(CollectionService:GetTagged("Quin")) do
+    for _, quin in ipairs(getTournamentFighters()) do
         if quin.Parent then
             local hum = quin:FindFirstChildOfClass("Humanoid")
             if hum then
@@ -130,7 +144,7 @@ local function waitPhaseDuration(duration)
 end
 
 local function pacifyAllQuins()
-    for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+    for _, q in ipairs(getTournamentFighters()) do
         q:SetAttribute("IsInert", true)
         q:SetAttribute("InCombat", false)
         q:SetAttribute("ForceState", "Idle")
@@ -240,7 +254,7 @@ local function runMatchLifecycle()
     elseif mode == "FFA" then
         local ffaCount = teamSize
         local spawned = QuinSpawner.spawnTeam({"Male", "Female"}, nil, ffaCount)
-        for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+        for _, q in ipairs(getTournamentFighters()) do
             q:SetAttribute("CurrentState", "Idle")
             q:SetAttribute("IsInert", true)
         end
@@ -250,7 +264,7 @@ local function runMatchLifecycle()
         task.wait(0.15)
         QuinSpawner.spawnTeam({"Female", "Male"}, "TeamBeta", teamSize, 2, posBeta + prepOffsetBeta)
         
-        for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+        for _, q in ipairs(getTournamentFighters()) do
             q:SetAttribute("CurrentState", "Idle")
             q:SetAttribute("IsInert", true)
         end
@@ -276,7 +290,7 @@ local function runMatchLifecycle()
     if mode == "1vs1" then
         local p1 = Vector3.new(posAlpha.X * 0.4 + posBeta.X * 0.6, posAlpha.Y, posAlpha.Z * 0.4 + posBeta.Z * 0.6)
         local p2 = Vector3.new(posBeta.X * 0.4 + posAlpha.X * 0.6, posBeta.Y, posBeta.Z * 0.4 + posAlpha.Z * 0.6)
-        for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+        for _, q in ipairs(getTournamentFighters()) do
             local team = q:GetAttribute("Team")
             local targetPos = (team == "TeamAlpha") and p1 or p2
             local lookAtPos = (team == "TeamAlpha") and p2 or p1
@@ -289,7 +303,7 @@ local function runMatchLifecycle()
         end
     elseif mode == "FFA" then
         local _, center, _, radius = DroneTrajectories.getArenaMetrics()
-        local quins = CollectionService:GetTagged("Quin")
+        local quins = getTournamentFighters()
         local numQuins = #quins
         for idx, q in ipairs(quins) do
             local angle = (idx / math.max(1, numQuins)) * (math.pi * 2)
@@ -306,7 +320,7 @@ local function runMatchLifecycle()
         -- Team Battle: Teleport Alpha and Beta squads to their frontline deployment lines
         local alphaQuins = {}
         local betaQuins = {}
-        for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+        for _, q in ipairs(getTournamentFighters()) do
             local team = q:GetAttribute("Team")
             if team == "TeamAlpha" then
                 table.insert(alphaQuins, q)
@@ -394,7 +408,7 @@ local function runMatchLifecycle()
     end
     
     -- Release inert locks and activate Quin AI
-    for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+    for _, q in ipairs(getTournamentFighters()) do
         q:SetAttribute("IsInert", false)
         q:SetAttribute("InCombat", true)
         q:SetAttribute("ForceState", nil)
@@ -418,7 +432,7 @@ local function runMatchLifecycle()
         if mode == "FFA" then
             if alphaAlive <= 1 then
                 matchConcluded = true
-                for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+                for _, q in ipairs(getTournamentFighters()) do
                     local h = q:FindFirstChildOfClass("Humanoid")
                     if h and h.Health > 0 then
                         winnerName = q.Name

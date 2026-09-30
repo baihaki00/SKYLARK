@@ -327,27 +327,21 @@ function QuinSpawner.spawnTeam(typeNames, teamTag, count, spawnIndex, customBase
 	return spawned
 end
 
--- Clear all spawned Quins
+-- Clear all spawned AI Quins from the arena
 function QuinSpawner.cleanAll()
-	-- Cleanly release any player-controlled Quins so spectators are not left trapped in dead models
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p.Character and (p.Character:GetAttribute("IsPlayerControlled") or CollectionService:HasTag(p.Character, "Quin")) then
-			pcall(function()
-				p.ReplicationFocus = nil
-				p.Character = nil
-				p:LoadCharacter()
-			end)
+	local serverFolder = Workspace:FindFirstChild("QuinServer")
+	if serverFolder then
+		for _, child in ipairs(serverFolder:GetChildren()) do
+			LocomotionModule.cleanup(child)
+			child:Destroy()
 		end
 	end
 
-	local serverFolder = Workspace:FindFirstChild("QuinServer")
-	if serverFolder then
-		serverFolder:ClearAllChildren()
-	end
-
-	for _, quin in ipairs(CollectionService:GetTagged("Quin")) do
-		LocomotionModule.cleanup(quin)
-		quin:Destroy()
+	for _, quin in ipairs(CollectionService:GetTagged("AI_Fighter")) do
+		if quin.Parent and quin.Parent.Name == "QuinServer" then
+			LocomotionModule.cleanup(quin)
+			quin:Destroy()
+		end
 	end
 
 	local ghostFolder = Workspace:FindFirstChild("QuinGhost")
@@ -360,7 +354,7 @@ function QuinSpawner.cleanAll()
 		LSS.reset()
 	end
 
-	print("[QuinSpawner] Cleaned all Quins from arena")
+	print("[QuinSpawner] Cleaned all AI fighters from arena (player character untouched)")
 end
 
 _G.QuinSpawner = QuinSpawner

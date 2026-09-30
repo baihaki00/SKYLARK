@@ -24,29 +24,12 @@ end
 local function setupPlayerCharacter(player)
 	local function onCharacter(char)
 		local hrp = char:WaitForChild("HumanoidRootPart", 5)
-		local hum = char:WaitForChild("Humanoid", 5)
 		if hrp then
 			hrp.Anchored = false
 			pcall(function()
 				hrp:SetNetworkOwner(player)
 			end)
 		end
-		for _, part in ipairs(char:GetDescendants()) do
-			if part:IsA("BasePart") then
-				if part.Name == "HumanoidRootPart" or part.Name == "Sounds" then
-					part.Transparency = 1
-					part.CanCollide = false
-				else
-					part.Transparency = 0
-					part.CanCollide = true
-				end
-			end
-		end
-		char:SetAttribute("QuinType", "Standard")
-		char:SetAttribute("IsPlayerControlled", true)
-		char:SetAttribute("ControllingPlayer", player.Name)
-		CollectionService:AddTag(char, "Quin")
-		CollectionService:AddTag(char, "PlayerQuin")
 	end
 
 	player.CharacterAdded:Connect(onCharacter)

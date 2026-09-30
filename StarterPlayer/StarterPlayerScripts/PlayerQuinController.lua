@@ -558,28 +558,10 @@ toggleQuinControl = function(desiredState, explicitTarget)
 	end
 
 	if desiredState then
-		-- Resolve target: explicit > spectated > own character
-		local targetName = explicitTarget
-		if not targetName or targetName == "" then
-			local spec = shared.SpectatedQuin or _G.SpectatedQuin
-			if spec and spec:IsA("Model") and spec ~= player.Character then
-				targetName = spec.Name
-			end
-		end
-
-		if not targetName and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-			startControlSession(player.Character)
-			return
-		end
-
 		if not controlFunction then
 			controlFunction = ReplicatedStorage:FindFirstChild("PlayerQuinControlFunction")
 		end
 		if not controlFunction then
-			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-				startControlSession(player.Character)
-				return
-			end
 			warn("[PlayerQuinController] PlayerQuinControlFunction not found in ReplicatedStorage")
 			return
 		end
@@ -588,16 +570,21 @@ toggleQuinControl = function(desiredState, explicitTarget)
 			toggleBtn.Text = "⏳ Possessing..."
 		end
 
+		-- Target: explicit target > spectated quin > default arena quin
+		local targetName = explicitTarget
+		if not targetName or targetName == "" then
+			local spec = shared.SpectatedQuin or _G.SpectatedQuin
+			if spec and spec:IsA("Model") and spec ~= player.Character then
+				targetName = spec.Name
+			end
+		end
+
 		local possessedQuin = controlFunction:InvokeServer("Possess", targetName)
 		if possessedQuin then
 			startControlSession(possessedQuin)
 		else
-			if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-				startControlSession(player.Character)
-			else
-				warn("[PlayerQuinController] Server failed to possess Quin")
-				updateButtonDisplay(false)
-			end
+			warn("[PlayerQuinController] Server failed to possess Quin")
+			updateButtonDisplay(false)
 		end
 	else
 		if controlFunction then
@@ -611,29 +598,9 @@ end
 shared.ToggleQuinControl = toggleQuinControl
 _G.ToggleQuinControl = toggleQuinControl
 
--- Auto-attach to player.Character on spawn
-local function autoAttachCharacter(char)
-	if not char then return end
-	local hum = char:WaitForChild("Humanoid", 5)
-	local hrp = char:WaitForChild("HumanoidRootPart", 5)
-	if hum and hrp then
-		startControlSession(char)
-		print("[PlayerQuinController] Auto-attached controls to player character at spawn.")
-	end
-end
-
 player.CharacterAdded:Connect(function(char)
 	task.defer(ensureButtonHierarchy)
-	task.defer(function()
-		autoAttachCharacter(char)
-	end)
 end)
-
-if player.Character then
-	task.defer(function()
-		autoAttachCharacter(player.Character)
-	end)
-end
 
 -- ============================================================================
 -- 3. KEYBIND LISTENERS (Jump, Slide, Dash, Attack, Toggle)

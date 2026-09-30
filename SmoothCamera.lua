@@ -104,8 +104,8 @@ local function findSpawnLocation()
 	return workspace:FindFirstChild("SpawnLocation", true) or workspace:FindFirstChildOfClass("SpawnLocation")
 end
 
-local cameraMode = "QUIN_SPECTATE" -- Default to tracking player Quin!
-shared.SpectatorState = { Mode = "QUIN_SPECTATE" }
+local cameraMode = "DEFAULT" -- Default to normal player avatar!
+shared.SpectatorState = { Mode = "DEFAULT" }
 local playerSpawnObj = findSpawnLocation()
 local cameraPos = playerSpawnObj and (playerSpawnObj.Position + Vector3.new(0, 15, 30)) or Vector3.new(161, 159, -722.5)
 local yaw = 0
@@ -124,6 +124,7 @@ local isToggleLocked = false
 
 -- === MOUSE CONTROLS ===
 local function updateMouseBehavior()
+	if cameraMode == "DEFAULT" then return end
 	if isLeftMouseDown or isRightMouseDown or isToggleLocked then
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
 		UserInputService.MouseIconEnabled = false
@@ -134,6 +135,7 @@ local function updateMouseBehavior()
 end
 
 local function lockMouse()
+	if cameraMode == "DEFAULT" then return end
 	isToggleLocked = true
 	updateMouseBehavior()
 end
@@ -142,7 +144,8 @@ local function unlockMouse()
 	isToggleLocked = false
 	isLeftMouseDown = false
 	isRightMouseDown = false
-	updateMouseBehavior()
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	UserInputService.MouseIconEnabled = true
 end
 
 -- Helper to verify an object and all its ancestors are truly visible
@@ -222,15 +225,9 @@ UserInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
 	end
 end)
 
--- Check active spectated Quin
+-- Check active spectated Quin (ONLY returns AI Quin or explicitly possessed Quin, NEVER player avatar)
 local function getActiveSpectatedQuin()
 	local playerQuin = shared.PlayerControlledQuin or _G.PlayerControlledQuin
-	if not playerQuin and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-		local hum = player.Character:FindFirstChildOfClass("Humanoid")
-		if hum and hum.Health > 0 then
-			playerQuin = player.Character
-		end
-	end
 	if playerQuin and playerQuin.Parent and playerQuin:FindFirstChild("HumanoidRootPart") then
 		local hum = playerQuin:FindFirstChildOfClass("Humanoid")
 		local hrp = playerQuin:FindFirstChild("HumanoidRootPart")
@@ -261,6 +258,46 @@ end
 UserInputService.InputBegan:Connect(function(input, gp)
 	if UserInputService:GetFocusedTextBox() then return end
 
+	-- Hotkey F toggles Freefly mode from any state
+	if input.KeyCode == Enum.KeyCode.F and not gp then
+		if cameraMode == "FREEFLY" then
+			cameraMode = "DEFAULT"
+			shared.SpectatorState.Mode = cameraMode
+			unlockMouse()
+			print("[SmoothCamera] Freefly disabled -> Returned to default player avatar.")
+		else
+			cameraMode = "FREEFLY"
+			shared.SpectatorState.Mode = cameraMode
+			cameraPos = Camera.CFrame.Position
+			local look = Camera.CFrame.LookVector
+			yaw = math.deg(math.atan2(-look.X, -look.Z))
+			pitch = math.deg(math.asin(math.clamp(look.Y, -1, 1)))
+			smoothYaw = yaw
+			smoothPitch = pitch
+			shared.SpectatedQuin = nil
+			workspace:SetAttribute("SpectatedQuin", "")
+			print("[SmoothCamera] Entered Freefly mode.")
+		end
+		return
+	end
+
+	-- Hotkey R returns to default player avatar
+	if input.KeyCode == Enum.KeyCode.R and not gp then
+		cameraMode = "DEFAULT"
+		shared.SpectatorState.Mode = cameraMode
+		shared.SpectatedQuin = nil
+		_G.SpectatedQuin = nil
+		workspace:SetAttribute("SpectatedQuin", "")
+		unlockMouse()
+		print("[SmoothCamera] Returned to default player avatar.")
+		return
+	end
+
+	-- In DEFAULT avatar mode, let Roblox handle default mouse/input
+	if cameraMode == "DEFAULT" then
+		return
+	end
+
 	-- Mouse Controls: Left Click or Right Click to look around
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		if gp or isClickOnGui(input.Position) then
@@ -286,38 +323,11 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	-- Mouse Unlock keys
 	elseif input.KeyCode == Enum.KeyCode.Tab or input.KeyCode == Enum.KeyCode.Escape then
 		unlockMouse()
-
-	elseif input.KeyCode == Enum.KeyCode.R then
-		-- Return to Freefly overview
-		cameraMode = "FREEFLY"
-		shared.SpectatedQuin = nil
-		_G.SpectatedQuin = nil
-		workspace:SetAttribute("SpectatedQuin", "")
-		local ps = findSpawnLocation()
-		cameraPos = ps and (ps.Position + Vector3.new(0, 15, 30)) or Vector3.new(161, 159, -722.5)
-		pitch = ps and -18.0 or -25.0
-		yaw = 0
-		print("[SmoothCamera] Returned to default Freefly Spectator overview.")
-
-	elseif input.KeyCode == Enum.KeyCode.F then
-		-- Toggle Freefly mode
-		if cameraMode == "QUIN_SPECTATE" then
-			cameraMode = "FREEFLY"
-			cameraPos = Camera.CFrame.Position
-			shared.SpectatedQuin = nil
-			workspace:SetAttribute("SpectatedQuin", "")
-			print("[SmoothCamera] Released Quin focus to Freefly.")
-		else
-			local hrp = getActiveSpectatedQuin()
-			if hrp then
-				cameraMode = "QUIN_SPECTATE"
-				print("[SmoothCamera] Focused on spectated Quin.")
-			end
-		end
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input, gp)
+	if cameraMode == "DEFAULT" then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		if isLeftMouseDown then
 			isLeftMouseDown = false
@@ -334,6 +344,7 @@ end)
 -- Scroll wheel
 UserInputService.InputChanged:Connect(function(input, gp)
 	if gp then return end
+	if cameraMode == "DEFAULT" then return end
 	if input.UserInputType == Enum.UserInputType.MouseWheel then
 		if cameraMode == "QUIN_SPECTATE" then
 			targetDistance = math.clamp(targetDistance - input.Position.Z * zoomSpeed, minZoom, maxZoom)
@@ -365,27 +376,47 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		return
 	end
 
-	Camera.CameraType = Enum.CameraType.Scriptable
-
 	-- Check if a Quin is selected from the HUD or player possessed
 	local targetHRP, quinModel = getActiveSpectatedQuin()
-	if targetHRP and cameraMode ~= "QUIN_SPECTATE" then
-		cameraMode = "QUIN_SPECTATE"
-		shared.SpectatorState.Mode = cameraMode
-		if (shared.PlayerControlledQuin or quinModel == player.Character) and lastControlledQuin ~= quinModel then
-			lastControlledQuin = quinModel
-			targetDistance = 14
-			pitch = -12
-			local look = targetHRP.CFrame.LookVector
-			yaw = math.deg(math.atan2(-look.X, -look.Z))
-			smoothYaw = yaw
-			smoothPitch = pitch
+	if targetHRP then
+		if cameraMode ~= "QUIN_SPECTATE" then
+			cameraMode = "QUIN_SPECTATE"
+			shared.SpectatorState.Mode = cameraMode
+			if (shared.PlayerControlledQuin or quinModel == player.Character) and lastControlledQuin ~= quinModel then
+				lastControlledQuin = quinModel
+				targetDistance = 14
+				pitch = -12
+				local look = targetHRP.CFrame.LookVector
+				yaw = math.deg(math.atan2(-look.X, -look.Z))
+				smoothYaw = yaw
+				smoothPitch = pitch
+			end
 		end
-	elseif not targetHRP and cameraMode == "QUIN_SPECTATE" then
-		cameraMode = "FREEFLY"
+	elseif cameraMode == "QUIN_SPECTATE" then
+		cameraMode = "DEFAULT"
 		shared.SpectatorState.Mode = cameraMode
-		cameraPos = Camera.CFrame.Position
+		unlockMouse()
 	end
+
+	-- If in DEFAULT avatar mode, restore Roblox Custom camera and let player control character freely
+	if cameraMode == "DEFAULT" then
+		if Camera.CameraType ~= Enum.CameraType.Custom then
+			Camera.CameraType = Enum.CameraType.Custom
+		end
+		if player.Character then
+			local hum = player.Character:FindFirstChildOfClass("Humanoid")
+			if hum and Camera.CameraSubject ~= hum then
+				Camera.CameraSubject = hum
+			end
+		end
+		if math.abs(currentCamFov - baseFOV) > 0.05 then
+			currentCamFov = currentCamFov + (baseFOV - currentCamFov) * (1 - math.exp(-8.0 * dt))
+			Camera.FieldOfView = currentCamFov
+		end
+		return
+	end
+
+	Camera.CameraType = Enum.CameraType.Scriptable
 
 	-- Mouse rotation (Continuous, unconstrained 360-degree rotation)
 	local isHoldingLook = isLeftMouseDown or isRightMouseDown or isToggleLocked
