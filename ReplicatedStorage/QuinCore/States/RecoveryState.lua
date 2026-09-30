@@ -18,11 +18,11 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 	LocomotionModule.brake(fighter, humanoid, rootPart, 0.05)
 	humanoid.WalkSpeed = 0
 	humanoid.PlatformStand = false
+	fighter:SetAttribute("GetUpProtection", true)
 
-	-- Physical Upright Alignment & Floor Clearance
+	-- Physical Upright Alignment (ground-relative, zero artificial vertical CFrame pop)
 	local upY = rootPart.CFrame.UpVector.Y
 	if upY < 0.85 then
-		-- Prone tumble recovery: lift +1.2 studs to clear floor collision mesh so HipHeight raycast engages cleanly
 		local lookFlat = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
 		if lookFlat.Magnitude < 0.05 then
 			lookFlat = Vector3.new(-rootPart.CFrame.UpVector.X, 0, -rootPart.CFrame.UpVector.Z)
@@ -31,11 +31,11 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 			end
 		end
 		lookFlat = lookFlat.Unit
-		local currentPos = rootPart.Position
-		rootPart.CFrame = CFrame.lookAt(currentPos + Vector3.new(0, 1.2, 0), currentPos + Vector3.new(0, 1.2, 0) + lookFlat, Vector3.new(0, 1, 0))
+		-- Smoothly re-orient upright without popping position
+		rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + lookFlat, Vector3.new(0, 1, 0))
 	end
 
-	rootPart.AssemblyLinearVelocity = Vector3.zero
+	rootPart.AssemblyLinearVelocity = rootPart.AssemblyLinearVelocity * 0.15
 	rootPart.AssemblyAngularVelocity = Vector3.zero
 	humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 
@@ -83,6 +83,12 @@ function RecoveryState.exit(fighter, humanoid, rootPart)
 	rootPart.AssemblyAngularVelocity = Vector3.zero
 	
 	fighter:SetAttribute("KnockbackType", nil)
+	-- Clear GetUpProtection after a brief 0.3s poise buffer so character is not instantly re-knocked
+	task.delay(0.30, function()
+		if fighter and fighter.Parent then
+			fighter:SetAttribute("GetUpProtection", nil)
+		end
+	end)
 	recoveryData[fighter] = nil
 end
 
@@ -99,7 +105,27 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 	local elapsed = tick() - data.enterTime
 	
 	if elapsed >= data.duration then
-		return require(script.Parent:WaitForChild("CirclingState"))
+		local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TargetingModule"))
+		local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+		local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 60))
+		if not target then
+			target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange or 60)
+		end
+		
+		if target then
+			local combatRange = CombatConfig.CombatRange or 8
+			if distance <= combatRange * 1.2 then
+				-- Opponent in melee proximity: defend or fight!
+				return require(script.Parent:WaitForChild("FightState"))
+			elseif distance <= combatRange * 3.5 then
+				-- Standoff range: circular pacing
+				return require(script.Parent:WaitForChild("CirclingState"))
+			else
+				-- Distant opponent: pursue
+				return require(script.Parent:WaitForChild("ChaseState"))
+			end
+		end
+		return require(script.Parent:WaitForChild("IdleState"))
 	end
 	
 	-- Keep them grounded, upright, and still during get-up

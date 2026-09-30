@@ -20,39 +20,44 @@ function IdleState.enter(fighter, humanoid, rootPart)
 	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
 	local confidence = fighter:GetAttribute("Pers_Confidence") or 0.6
 
-	-- Calculate individual reaction delay upon match start (3 distinct cinematic Avengers waves)
-	-- Wave 1: Berserkers / Vanguard explode out immediately (0.0s - 0.4s) into projectile leaps or dashes
-	-- Wave 2: Main assault force charges after 1.2s - 2.0s with athletic sprint
-	-- Wave 3: Heavy anchors & strategists hold stance for 2.8s - 4.2s, then stride forward confidently
+	local isMatchInProgress = (workspace:GetAttribute("MatchStarted") == true)
+	local inCombat = (fighter:GetAttribute("InCombat") == true)
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+	local energy = fighter:GetAttribute("Energy") or 100
 	local reactionDelay = 1.5 / speedMult
 	local openingAction = "Run"
-	local energy = fighter:GetAttribute("Energy") or 100
 
-	if aggression > 0.72 then
-		-- Wave 1: Immediate assault vanguard (0.0s - 0.4s)
-		reactionDelay = (math.random() * 0.4) / speedMult
-		local roll = math.random()
-		-- Vanguard explodes forward with grounded Dash or fast sprint; opening ProjectileJump permanently purged
-		if roll < 0.45 and energy >= (CombatConfig.DashMinEnergy or 20) then
-			openingAction = "Dash"
-		else
-			openingAction = "Run"
-		end
-	elseif aggression < 0.48 or confidence < 0.45 then
-		-- Wave 3: Heavy anchors, survey the battlefield for 2.8s - 4.2s, then slow menacing walk
-		reactionDelay = (2.8 + math.random() * 1.4) / speedMult
-		openingAction = "ConfidentWalk"
+	if isMatchInProgress or inCombat then
+		-- Mid-combat survey: quick micro-pause (0.15s - 0.25s) with fluid stance, NEVER freezing WalkSpeed to 0
+		reactionDelay = (math.random(15, 25) / 100) / speedMult
+		openingAction = "Run"
 	else
-		-- Wave 2: Main assault battle line, charge after 1.2s - 2.0s
-		reactionDelay = (1.2 + math.random() * 0.8) / speedMult
-		openingAction = (math.random() > 0.25) and "Run" or "ConfidentWalk"
+		-- Calculate individual reaction delay upon match start (3 distinct cinematic Avengers waves)
+		-- Wave 1: Berserkers / Vanguard explode out immediately (0.0s - 0.4s) into dashes/sprints
+		-- Wave 2: Main assault force charges after 1.2s - 2.0s with athletic sprint
+		-- Wave 3: Heavy anchors & strategists hold stance for 2.8s - 4.2s, then stride forward confidently
+		if aggression > 0.72 then
+			reactionDelay = (math.random() * 0.4) / speedMult
+			local roll = math.random()
+			if roll < 0.45 and energy >= (CombatConfig.DashMinEnergy or 20) then
+				openingAction = "Dash"
+			else
+				openingAction = "Run"
+			end
+		elseif aggression < 0.48 or confidence < 0.45 then
+			reactionDelay = (2.8 + math.random() * 1.4) / speedMult
+			openingAction = "ConfidentWalk"
+		else
+			reactionDelay = (1.2 + math.random() * 0.8) / speedMult
+			openingAction = (math.random() > 0.25) and "Run" or "ConfidentWalk"
+		end
 	end
 
 	idleData[fighter] = {
 		reactionDelay = reactionDelay,
 		openingAction = openingAction,
 		matchStartTime = nil,
+		isMidCombat = (isMatchInProgress or inCombat),
 	}
 end
 
@@ -84,7 +89,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 
 	local data = idleData[fighter]
 	if not data then
-		data = { reactionDelay = 0.4, openingAction = "Run", matchStartTime = tick() }
+		data = { reactionDelay = 0.2, openingAction = "Run", matchStartTime = tick(), isMidCombat = true }
 		idleData[fighter] = data
 	end
 
@@ -92,10 +97,12 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		data.matchStartTime = tick()
 	end
 
-	-- Staged Reaction Delay (Avengers opening cadence)
+	-- Staged Reaction Delay (Avengers opening cadence only when NOT in active combat)
 	local timeSinceStart = tick() - data.matchStartTime
 	if timeSinceStart < data.reactionDelay then
-		humanoid.WalkSpeed = 0
+		if not data.isMidCombat then
+			humanoid.WalkSpeed = 0
+		end
 		return IdleState
 	end
 
@@ -123,7 +130,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 			gyro.CFrame = lookCF
 		end
 		
-		fighter:SetAttribute("CurrentTarget", target.Name)
+		TargetingModule.setTarget(fighter, target)
 		
 		-- Execute unique opening action if available (unblocked by arena spawn distance)
 		if data.openingAction == "ProjectileJump" and CombatConfig.EnableProjectileJump then
@@ -141,10 +148,14 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 			return require(script.Parent:WaitForChild("ChaseState"))
 		end
 
-		if distance > CombatConfig.CombatRange then
+		local combatRange = CombatConfig.CombatRange or 8
+		if distance > combatRange * 2.5 then
 			if DEBUG then print("[Idle] Enemy detected, chasing") end
 			return require(script.Parent:WaitForChild("ChaseState"))
-		elseif distance <= CombatConfig.CombatRange then
+		elseif distance > combatRange * 1.2 then
+			if DEBUG then print("[Idle] Enemy at standoff, circling") end
+			return require(script.Parent:WaitForChild("CirclingState"))
+		else
 			if DEBUG then print("[Idle] Enemy in range, fighting") end
 			return require(script.Parent:WaitForChild("FightState"))
 		end

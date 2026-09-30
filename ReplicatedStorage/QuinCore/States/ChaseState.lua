@@ -15,6 +15,7 @@ local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local BattleEventSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 
 local function findModelByName(name)
@@ -35,6 +36,7 @@ end
 local ChaseState = { name = "Chase" }
 
 -- JumpHandler routed through authoritative LocomotionModule (Rule 4 & Rule 6)
+local JumpHandler = LocomotionModule
 local chaseData = setmetatable({}, { __mode = "k" })
 
 local function selectPacingStrategy(fighter)
@@ -94,9 +96,12 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 
 	local initialAnim = "Movement.Run"
 	local pushOffAnim = nil
+	local planarVel = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
+	local actualPlanarSpeed = Vector3.new(planarVel.X, 0, planarVel.Z).Magnitude
+
 	if strategy == "ConfidentWalk" or strategy == "WalkThenSprint" then
 		initialAnim = "Movement.WalkConfident"
-	elseif initialSpeed < 10 then
+	elseif initialSpeed < 4 and actualPlanarSpeed < 4 then
 		pushOffAnim = (mobility > 0.55 or math.random() > 0.5) and "Movement.IdleToRun1" or "Movement.IdleToRun2"
 		initialAnim = pushOffAnim
 	end
@@ -104,6 +109,7 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 	chaseData[fighter] = {
 		lastStepTime = 0,
 		lastUpdateTime = now,
+		lastSlideCheckTime = now,
 		currentSpeed = initialSpeed,
 		isAccelerating = true,
 		isDecelerating = false,
@@ -142,7 +148,9 @@ end
 function ChaseState.exit(fighter, humanoid, rootPart)
 	local data = chaseData[fighter]
 	if data then
-		if data.currentAnim then
+		if data.currentAnim == "Gait" then
+			GaitModule.stop(humanoid, 0.3)
+		elseif data.currentAnim then
 			AnimationModule.stop(humanoid, data.currentAnim, 0.3)
 		end
 		if data.turnAnim then
@@ -258,15 +266,37 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("CirclingState"))
 	end
 
-	-- Vertical gap awareness: target is far above → vault toward high ground via LocomotionModule
+	-- Vertical gap awareness: target is perched on high ground
 	local verticalGap = targetHRP.Position.Y - rootPart.Position.Y
 	local lastPJ = fighter:GetAttribute("LastPositioningJumpTime") or 0
-	if not inShowdown and verticalGap > (CombatConfig.HighGroundJumpReach or 14)
-		and (fighter:GetAttribute("Energy") or 100) >= (CombatConfig.ProjectileJumpMinEnergy or 40)
-		and (os.clock() - lastPJ) >= (CombatConfig.PositioningJumpCooldown or 10) then
-		fighter:SetAttribute("LastPositioningJumpTime", os.clock())
-		LocomotionModule.jump(fighter, humanoid, rootPart, verticalGap + 2, 45, "jump")
-		return ChaseState
+	local flatDistToTgt = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
+
+	if not inShowdown and verticalGap >= (CombatConfig.HighGround_InterceptJumpMinReach or 8.0) then
+		local energy = fighter:GetAttribute("Energy") or 100
+		local climbEnergyCost = CombatConfig.HighGround_InterceptJumpEnergyCost or 20
+
+		if verticalGap <= (CombatConfig.HighGround_InterceptJumpMaxReach or 35.0) then
+			-- In reachable jump range: launch intentional High-Ground Intercept Jump
+			if energy >= climbEnergyCost and (os.clock() - lastPJ) >= 4.0 and flatDistToTgt <= 45.0
+				and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+				fighter:SetAttribute("LastPositioningJumpTime", os.clock())
+				fighter:SetAttribute("Energy", energy - climbEnergyCost)
+				fighter:SetAttribute("ObstacleAwareness", "High-Ground Intercept Jump")
+				LocomotionModule.jump(fighter, humanoid, rootPart, verticalGap + 3.0, 38.0, "jump")
+				return ChaseState
+			end
+		end
+
+		-- If standing directly underneath the platform (< 16 studs flat), back up to maintain vantage LoS
+		if flatDistToTgt < 16.0 then
+			local flatLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+			flatLook = (flatLook.Magnitude > 0.01) and flatLook.Unit or Vector3.new(0, 0, -1)
+			local rightVec = rootPart.CFrame.RightVector
+			local vantageTarget = rootPart.Position - flatLook * 22.0 + rightVec * 8.0
+			fighter:SetAttribute("ObstacleAwareness", "Positioning for High-Ground Vantage")
+			LocomotionModule.steer(fighter, humanoid, rootPart, vantageTarget, 20.0, 0.05)
+			return ChaseState
+		end
 	end
 
 	-- 3. Dangerously low resources: do not pursue into exhaustion
@@ -279,14 +309,35 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local now = tick()
 
 	-- === 4. Line-of-Sight (LoS) & Last Known Position (LKP) Tracking (Sections 41 & 44) ===
-	local hasLoS = SpatialModule.checkLineOfSight(rootPart.Position + Vector3.new(0, 2.5, 0), targetHRP.Position + Vector3.new(0, 2.5, 0), { fighter, target })
+	local myEyePos = SpatialModule.getEyePosition(rootPart)
+	local tgtEyePos = SpatialModule.getEyePosition(targetHRP)
+	local hasLoS = SpatialModule.checkLineOfSight(myEyePos, tgtEyePos, { fighter, target })
 	if hasLoS then
 		data.targetLKP = targetHRP.Position
 		data.lastLoSTime = now
+		data.surveyingAtLKP = nil
 		fighter:SetAttribute("TargetHasLoS", true)
+		fighter:SetAttribute("LastSeenTargetPosition", targetHRP.Position)
+		fighter:SetAttribute("TimeLastSeen", now)
 	else
 		fighter:SetAttribute("TargetHasLoS", false)
-		data.targetLKP = data.targetLKP or targetHRP.Position
+		local savedLKP = fighter:GetAttribute("LastSeenTargetPosition")
+		data.targetLKP = data.targetLKP or savedLKP or targetHRP.Position
+
+		-- Check if arrived at LKP without sighting target (target escaped behind obstacle)
+		local distToLKP = (data.targetLKP - rootPart.Position).Magnitude
+		if distToLKP <= 7.0 then
+			if not data.surveyingAtLKP then
+				data.surveyingAtLKP = now
+				AnimationModule.playConfig(humanoid, "Idles.SurveyIdle", 1.2, Enum.AnimationPriority.Action2, false)
+			elseif (now - data.surveyingAtLKP) >= 0.9 then
+				data.surveyingAtLKP = nil
+				data.targetLKP = nil
+				fighter:SetAttribute("CurrentTarget", nil)
+				fighter:SetAttribute("TargetQuin", nil)
+				return require(script.Parent:WaitForChild("IdleState"))
+			end
+		end
 	end
 
 	-- === 5. Chase Commitment & Pursuit Abandonment (Sections 9-11) ===
@@ -341,21 +392,29 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- Pursuit Abandonment: Target reached squad ambush (1v3+) and commitment is broken
-	if not inShowdown and commitment < 0.30 then
+	-- Only applies when actually closing in (distance <= 45 studs) and local allies are outnumbered!
+	if not inShowdown and commitment < 0.30 and distance <= 45.0 then
 		local targetTeam = target:GetAttribute("Team")
+		local myTeam = fighter:GetAttribute("Team")
 		local targetAllies = 0
+		local myAllies = 0
 		for _, q in ipairs(CollectionService:GetTagged("Quin")) do
-			if q ~= target and q.Parent and q:FindFirstChild("HumanoidRootPart") then
+			if q.Parent and q:FindFirstChild("HumanoidRootPart") then
 				local qHum = q:FindFirstChildOfClass("Humanoid")
-				if qHum and qHum.Health > 0 and q:GetAttribute("Team") == targetTeam then
-					if (q.HumanoidRootPart.Position - targetHRP.Position).Magnitude <= 24 then
-						targetAllies = targetAllies + 1
+				if qHum and qHum.Health > 0 then
+					local qDist = (q.HumanoidRootPart.Position - targetHRP.Position).Magnitude
+					if qDist <= 24 then
+						if q:GetAttribute("Team") == targetTeam and q ~= target then
+							targetAllies = targetAllies + 1
+						elseif q:GetAttribute("Team") == myTeam and q ~= fighter then
+							myAllies = myAllies + 1
+						end
 					end
 				end
 			end
 		end
 
-		if targetAllies >= 2 then
+		if targetAllies >= 2 and myAllies < targetAllies then
 			BattleEventSystem.emit("CHASE_ABANDONED", {
 				QuinId = fighter:GetAttribute("QuinId") or fighter.Name,
 				Model = fighter,
@@ -540,27 +599,33 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Slide-under: low-overhead gap ahead -> athletic SlideState
 	local slideGap = SpatialModule.detectLowOverheadGap(rootPart, 8)
 	local energy = fighter:GetAttribute("Energy") or 100
+	local quirky = fighter:GetAttribute("Quirky") or "Balanced"
 	local lastSlide = fighter:GetAttribute("LastSlideTime") or 0
-	local slideCooldown = CombatConfig.SlideCooldown or 2.5
+	local slideCooldown = (quirky == "Charger") and 5.0 or (CombatConfig.SlideCooldown or 8.0)
 	local canSlide = (now - lastSlide) >= slideCooldown and energy >= (CombatConfig.SlideMinEnergy or 12)
 		and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 
 	if slideGap and canSlide and not inShowdown then
 		fighter:SetAttribute("ObstacleAwareness", "Sliding Under Gap")
+		fighter:SetAttribute("LastSlideTime", now)
 		LocomotionModule.slide(fighter, humanoid, rootPart)
 		return ChaseState
 	end
 
 	-- Tactical Gap-Close Slide (Phase 6): high mobility, Charger quirky, or close-range flank
-	local quirky = fighter:GetAttribute("Quirky") or "Balanced"
+	-- Gated check: evaluated at most once every 1.5s rather than rolling every frame at 20-60 Hz!
 	local qType = fighter:GetAttribute("QuinType") or "TypeA"
 	local isHighMobility = (qType == "TypeC" or quirky == "Charger")
 	if canSlide and distance >= 18 and distance <= 35 and (data.currentSpeed or 30) >= 24 and not inShowdown then
-		local slideChance = isHighMobility and 0.45 or 0.18
-		if math.random() < slideChance then
-			fighter:SetAttribute("ObstacleAwareness", "Tactical Slide Gap-Close")
-			LocomotionModule.slide(fighter, humanoid, rootPart)
-			return ChaseState
+		if (now - (data.lastSlideCheckTime or 0)) >= 1.5 then
+			data.lastSlideCheckTime = now
+			local slideChance = isHighMobility and 0.35 or 0.12
+			if math.random() < slideChance then
+				fighter:SetAttribute("ObstacleAwareness", "Tactical Slide Gap-Close")
+				fighter:SetAttribute("LastSlideTime", now)
+				LocomotionModule.slide(fighter, humanoid, rootPart)
+				return ChaseState
+			end
 		end
 	end
 
@@ -624,14 +689,40 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 	
-	-- Self Platform Dismount (Phase 4): if THIS Quin is perched on an elevated OB platform,
+	-- Self Platform Dismount (Phase 4): if THIS Quin is perched on an elevated platform,
 	-- walk toward the nearest ledge biased toward the target rather than milling around.
 	local platformDismountDir = nil
-	local isOnPlatform, _ = SpatialModule.isOnElevatedPlatform(rootPart, CombatConfig.ElevatedPlatformThreshold or 6.0)
+	local ledgeDist = 999
+	local allowPlatformDrop = false
+	local targetBelow = (targetHRP.Position.Y < rootPart.Position.Y - 5.0)
+
+	local isOnPlatform, platformInfo = SpatialModule.isOnElevatedPlatform(rootPart, CombatConfig.HighGround_PerchDetectThreshold or 5.0)
 	if isOnPlatform then
 		data.wasOnPlatform = true
-		platformDismountDir = SpatialModule.getPlatformDismountDirection(rootPart, targetHRP.Position)
-		fighter:SetAttribute("ObstacleAwareness", "Dismounting Elevated Platform")
+		if targetBelow then
+			allowPlatformDrop = true
+			platformDismountDir, ledgeDist = SpatialModule.getPlatformDismountDirection(rootPart, targetHRP.Position)
+			fighter:SetAttribute("ObstacleAwareness", "Approaching Platform Ledge")
+
+			-- Check if close enough to ledge and facing target to execute Dive-Down Leap!
+			local flatDist = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
+			local lookVec = rootPart.CFrame.LookVector
+			local isFacingTarget = lookVec:Dot(platformDismountDir) > 0.15
+			local canDive = (CombatConfig.HighGround_DiveDropEnabled ~= false)
+				and not humanoid.Jump
+				and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
+				and (ledgeDist <= 8.0 or flatDist <= 28.0)
+				and isFacingTarget
+
+			if canDive then
+				fighter:SetAttribute("ObstacleAwareness", "Ledge Dive Down")
+				data.isDismountFalling = true
+				data.wasOnPlatform = false
+				local forwardSpeed = math.clamp(flatDist * 1.3, 28.0, 52.0)
+				LocomotionModule.jump(fighter, humanoid, rootPart, 2.0, forwardSpeed, "leap_down")
+				return ChaseState
+			end
+		end
 	end
 
 	-- Vertical Obstacle Unstick (Phase 4): detect zero-progress against a vertical face
@@ -640,7 +731,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	data.stuckCheckTime = data.stuckCheckTime or now
 	if (now - data.stuckCheckTime) >= 1.2 then
 		local progress = (rootPart.Position - data.stuckCheckPos).Magnitude
-		if progress < (CombatConfig.VerticalStuckThreshold or 0.8) and distance > 15 and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+		if progress < (CombatConfig.VerticalStuckThreshold or 0.8) and distance > 15 and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall and not allowPlatformDrop then
 			fighter:SetAttribute("ObstacleAwareness", "Unsticking Vertical Barrier")
 			JumpHandler.performJump(humanoid, rootPart, CombatConfig.VerticalUnstickJumpHeight or 9.0, 10, "jump")
 		end
@@ -698,43 +789,20 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.pushOffAnim = nil
 	end
 
-	if data.currentAnim ~= desiredAnim then
+	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
+	if desiredAnim == "Movement.Run" or desiredAnim == "Movement.WalkConfident" then
+		-- Base gait: shared stride-matched Walk/Run blend driven by real ground speed
+		data.currentAnim = "Gait"
+		if not isFreefall then
+			GaitModule.update(humanoid, rootPart, dt)
+		end
+	elseif data.currentAnim ~= desiredAnim then
 		data.currentAnim = desiredAnim
 		AnimationModule.playConfig(humanoid, data.currentAnim)
-	else
-		local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
-		if not isFreefall and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
-			-- Locomotion track was interrupted (hit reaction / reaction overlay);
-			-- re-assert it so the Quin does not glide like a statue while still translating.
-			AnimationModule.playConfig(humanoid, data.currentAnim)
-		end
-	end
-
-	-- Dynamic Foot-Sync & Organic Acceleration Speed Ramp:
-	-- Dynamic Stride Scaling & Foot-Sync:
-	-- Scale playback speed proportional to actual ground velocity, easing in from slow push-off to baseline 1.00x
-	if (desiredAnim == "Movement.Run" or desiredAnim == "Movement.WalkConfident") and AnimationModule.isPlaying(humanoid, desiredAnim) then
-		local isRun = (desiredAnim == "Movement.Run")
-		local strideBase = isRun and (CombatConfig.RunStrideBase or 50.0) or (CombatConfig.WalkStrideBase or 18.5)
-		local ratio = math.clamp(currentSpeed / strideBase, isRun and 0.35 or 0.50, isRun and 1.00 or 1.10)
-		local baseCfgSpeed = AnimationConfig.get(desiredAnim) and AnimationConfig.get(desiredAnim).speed or 1.00
-
-		if isRun then
-			if not data.runStartTime then
-				data.runStartTime = now
-			end
-			local elapsed = math.clamp(now - data.runStartTime, 0, 0.48)
-			local rampProgress = elapsed / 0.48
-			local rampEase = rampProgress * rampProgress * (3 - 2 * rampProgress)
-			local rampFactor = 0.45 + (0.55 * rampEase)
-			local dynamicSpeed = math.clamp(baseCfgSpeed * ratio * rampFactor, 0.35, 1.00)
-			AnimationModule.adjustSpeed(humanoid, desiredAnim, dynamicSpeed)
-		else
-			data.runStartTime = nil
-			AnimationModule.adjustSpeed(humanoid, desiredAnim, baseCfgSpeed * ratio)
-		end
-	else
-		data.runStartTime = nil
+	elseif not isFreefall and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
+		-- Locomotion overlay was interrupted (hit reaction / reaction overlay);
+		-- re-assert it so the Quin does not glide like a statue while still translating.
+		AnimationModule.playConfig(humanoid, data.currentAnim)
 	end
 	
 	-- Energy drain and recovery scaled with speedMult
@@ -809,7 +877,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	local nearEdge, awayDir = SpatialModule.isNearArenaEdge(rootPart, 6)
+	local nearEdge, awayDir = SpatialModule.isNearArenaEdge(rootPart, 6, allowPlatformDrop)
 	if nearEdge then
 		arcTarget = rootPart.Position + awayDir * 10 + dirToTarget * 5
 	end
@@ -895,7 +963,6 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Authoritative single-driver steering & speed modulation
 	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, targetSpeed, dt)
 	
-	
 	-- Fall & landing animation
 	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
 	local isGrounded = SpatialModule.isGrounded(rootPart)
@@ -914,7 +981,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				data.wasOnPlatform = false
 				-- No automatic soft landing overlay; resume the current locomotion below.
 			end
-			if data.currentAnim then
+			if data.currentAnim == "Gait" then
+				GaitModule.update(humanoid, rootPart, dt)
+			elseif data.currentAnim then
 				AnimationModule.playConfig(humanoid, data.currentAnim)
 			end
 		end

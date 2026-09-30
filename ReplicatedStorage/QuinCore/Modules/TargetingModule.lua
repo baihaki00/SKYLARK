@@ -5,6 +5,7 @@
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 
 local TargetingModule = {}
 
@@ -90,6 +91,18 @@ function TargetingModule.selectTarget(quinModel, localState)
 			local targetHp = cand.healthRatio or 1.0
 			local isIsolated = cand.isIsolated or false
 
+			-- 0. Line of Sight / 8-Stud Quin Occlusion Score:
+			-- Quins stand 8 studs tall; they cannot see through solid geometry.
+			-- Occluded enemies receive a major penalty unless in close proximity (<= 12 studs) where audio/vibration reveals them.
+			local hasLoS = cand.hasLineOfSight
+			if hasLoS == nil then
+				local myEye = SpatialModule.getEyePosition(rootPart)
+				local oEye = SpatialModule.getEyePosition(model.HumanoidRootPart)
+				hasLoS = SpatialModule.checkLineOfSight(myEye, oEye, { quinModel, model })
+				cand.hasLineOfSight = hasLoS
+			end
+			local losScore = hasLoS and 25 or (dist <= 12 and -15 or -60)
+
 			-- 1. Distance Score: exponential decay with distance (closer = higher utility)
 			local distScore = 100 * math.exp(-dist / 35)
 
@@ -161,7 +174,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				tauntScore = 60 * (1 + (aggression - 0.5) * 0.8)
 			end
 
-			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore
+			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore
 
 			if utility > bestUtility then
 				bestUtility = utility
@@ -175,6 +188,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				if teamRoleScore > 20 then table.insert(reasons, string.format("Team role (%s)", tostring(teamRole))) end
 				if isIsolated then table.insert(reasons, "Target isolated") end
 				if targetHp < 0.45 then table.insert(reasons, string.format("Target HP %.0f%%", targetHp * 100)) end
+				if not hasLoS then table.insert(reasons, "Occluded (broken LoS)") end
 				if isCurrent then table.insert(reasons, "Target persistence") end
 				if dist <= 15 then table.insert(reasons, string.format("Close range (%.1f studs)", dist)) end
 				if rearThreatScore > 15 then table.insert(reasons, "Immediate rear threat") end
@@ -188,12 +202,81 @@ function TargetingModule.selectTarget(quinModel, localState)
 	end
 
 	if bestCandidate then
+		local bestHasLoS = false
+		for _, c in ipairs(candidates) do
+			if c.model == bestCandidate then
+				bestHasLoS = (c.hasLineOfSight == true)
+				break
+			end
+		end
+
 		quinModel:SetAttribute("CurrentTarget", bestCandidate.Name)
 		quinModel:SetAttribute("LastTargetName", bestCandidate.Name)
 		quinModel:SetAttribute("TargetReason", bestReason)
+		quinModel:SetAttribute("TargetHasLoS", bestHasLoS)
+		if bestHasLoS then
+			quinModel:SetAttribute("LastSeenTargetPosition", bestCandidate.HumanoidRootPart.Position)
+			quinModel:SetAttribute("TimeLastSeen", os.clock())
+		end
 	end
 
 	return bestCandidate, bestUtility, bestReason
+end
+
+function TargetingModule.setTarget(fighter, targetModel)
+	if not fighter then return end
+	if targetModel and targetModel.Parent then
+		local tName = targetModel.Name
+		fighter:SetAttribute("CurrentTarget", tName)
+		fighter:SetAttribute("TargetQuin", tName)
+		fighter:SetAttribute("LastTargetName", tName)
+	else
+		fighter:SetAttribute("CurrentTarget", nil)
+		fighter:SetAttribute("TargetQuin", nil)
+	end
+end
+
+function TargetingModule.clearTarget(fighter)
+	if not fighter then return end
+	fighter:SetAttribute("CurrentTarget", nil)
+	fighter:SetAttribute("TargetQuin", nil)
+end
+
+function TargetingModule.getCommittedTarget(fighter, rootPart, maxRange)
+	maxRange = maxRange or 1000
+	local targetName = fighter:GetAttribute("CurrentTarget") or fighter:GetAttribute("TargetQuin")
+	if not targetName or targetName == "" then return nil, math.huge end
+
+	local quinServer = workspace:FindFirstChild("QuinServer") or workspace
+	local targetModel = quinServer:FindFirstChild(targetName) or workspace:FindFirstChild(targetName)
+	if not targetModel or not targetModel.Parent then
+		TargetingModule.clearTarget(fighter)
+		return nil, math.huge
+	end
+
+	local hum = targetModel:FindFirstChildOfClass("Humanoid")
+	local tHRP = targetModel:FindFirstChild("HumanoidRootPart")
+	if not hum or hum.Health <= 0 or not tHRP then
+		TargetingModule.clearTarget(fighter)
+		return nil, math.huge
+	end
+
+	local myShowdownRole = fighter:GetAttribute("LeaderShowdownRole")
+	local eRole = targetModel:GetAttribute("LeaderShowdownRole")
+	if eRole == "PerimeterGuard" or eRole == "Transition" or (myShowdownRole == "Duelist" and eRole ~= "Duelist") then
+		TargetingModule.clearTarget(fighter)
+		return nil, math.huge
+	end
+
+	local dist = (tHRP.Position - rootPart.Position).Magnitude
+	if dist > maxRange then
+		return nil, dist
+	end
+
+	-- Synchronize attributes so CurrentTarget and TargetQuin never disagree
+	fighter:SetAttribute("CurrentTarget", targetName)
+	fighter:SetAttribute("TargetQuin", targetName)
+	return targetModel, dist
 end
 
 -- Find nearest enemy Quin (not on same team, not dead) - Preserved for backward compatibility
@@ -208,34 +291,8 @@ function TargetingModule.getNearest(rootPart, maxRange)
 		return nil, math.huge
 	end
 
-	-- Explicit target override (set by game modes or lab server only: TargetQuin)
-	local targetName = myModel:GetAttribute("TargetQuin")
-	if targetName and targetName ~= "" then
-		local quinServer = workspace:FindFirstChild("QuinServer") or workspace
-		local explicitTarget = quinServer:FindFirstChild(targetName) or workspace:FindFirstChild(targetName)
-		if explicitTarget and explicitTarget:FindFirstChild("HumanoidRootPart") then
-			local eHum = explicitTarget:FindFirstChildOfClass("Humanoid")
-			if eHum and eHum.Health > 0 then
-				local eRole = explicitTarget:GetAttribute("LeaderShowdownRole")
-				local forbidden = false
-				if eRole == "PerimeterGuard" or eRole == "Transition" then
-					forbidden = true
-				elseif myShowdownRole == "Duelist" and eRole ~= "Duelist" then
-					forbidden = true
-				end
-
-				if not forbidden then
-					local d = (explicitTarget.HumanoidRootPart.Position - rootPart.Position).Magnitude
-					if d <= maxRange then
-						return explicitTarget, d
-					end
-				else
-					-- Clear forbidden spectator target so fighter does not lock onto spectators
-					myModel:SetAttribute("TargetQuin", nil)
-				end
-			end
-		end
-	end
+	-- Check committed target first
+	local committedModel, committedDist = TargetingModule.getCommittedTarget(myModel, rootPart, maxRange)
 	
 	local enemies = CollectionService:GetTagged("Quin")
 	if #enemies == 0 then
@@ -246,8 +303,16 @@ function TargetingModule.getNearest(rootPart, maxRange)
 			end
 		end
 	end
-	local nearest, nearestDist = nil, math.huge
+	local nearestVisible, nearestVisibleDist = nil, math.huge
+	local nearestAny, nearestAnyDist = nil, math.huge
+	local myEyePos = SpatialModule.getEyePosition(rootPart)
+	local committedHasLoS = false
 	
+	if committedModel and committedModel:FindFirstChild("HumanoidRootPart") then
+		local cEyePos = SpatialModule.getEyePosition(committedModel.HumanoidRootPart)
+		committedHasLoS = SpatialModule.checkLineOfSight(myEyePos, cEyePos, { myModel, committedModel })
+	end
+
 	for _, enemy in ipairs(enemies) do
 		if enemy ~= myModel and enemy.Parent then
 			local eHum = enemy:FindFirstChildOfClass("Humanoid")
@@ -268,9 +333,18 @@ function TargetingModule.getNearest(rootPart, maxRange)
 
 					if not isShowdownForbidden then
 						local d = (eRoot.Position - rootPart.Position).Magnitude
-						if d < nearestDist and d <= maxRange then
-							nearest = enemy
-							nearestDist = d
+						if d <= maxRange then
+							if d < nearestAnyDist then
+								nearestAny = enemy
+								nearestAnyDist = d
+							end
+							local eEyePos = SpatialModule.getEyePosition(eRoot)
+							if SpatialModule.checkLineOfSight(myEyePos, eEyePos, { myModel, enemy }) then
+								if d < nearestVisibleDist then
+									nearestVisible = enemy
+									nearestVisibleDist = d
+								end
+							end
 						end
 					end
 				end
@@ -278,7 +352,47 @@ function TargetingModule.getNearest(rootPart, maxRange)
 		end
 	end
 	
-	return nearest, nearestDist
+	local chosenTarget, chosenDist = nil, math.huge
+	if nearestVisible then
+		chosenTarget = nearestVisible
+		chosenDist = nearestVisibleDist
+	elseif nearestAny then
+		chosenTarget = nearestAny
+		chosenDist = nearestAnyDist
+	end
+
+	-- Target commitment hysteresis: If committed target is still alive and in range,
+	-- do NOT switch unless the new candidate is significantly closer (>= 30% closer)
+	-- or the candidate is visible while the committed target is completely occluded.
+	if committedModel and chosenTarget and chosenTarget ~= committedModel then
+		local shouldSwitch = false
+		if not committedHasLoS and (nearestVisible and chosenTarget == nearestVisible) then
+			-- Committed target lost LoS, candidate has visible LoS
+			if chosenDist < committedDist * 0.90 then
+				shouldSwitch = true
+			end
+		elseif chosenDist < committedDist * 0.70 then
+			-- Candidate is at least 30% closer
+			shouldSwitch = true
+		end
+
+		if not shouldSwitch then
+			chosenTarget = committedModel
+			chosenDist = committedDist
+		end
+	elseif committedModel and not chosenTarget then
+		chosenTarget = committedModel
+		chosenDist = committedDist
+	end
+
+	if chosenTarget then
+		myModel:SetAttribute("CurrentTarget", chosenTarget.Name)
+		myModel:SetAttribute("TargetQuin", chosenTarget.Name)
+		return chosenTarget, chosenDist
+	else
+		TargetingModule.clearTarget(myModel)
+		return nil, math.huge
+	end
 end
 
 -- Get all enemies within range

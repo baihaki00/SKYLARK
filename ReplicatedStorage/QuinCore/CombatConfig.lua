@@ -44,7 +44,7 @@ local CombatConfig = {
 	DashMaxDistance = 60,
 	SlideSpeed = 56,
 	SlideDuration = 0.42,
-	SlideCooldown = 2.5,
+	SlideCooldown = 8.0,
 	SlideMinEnergy = 12,
 	SlideGapMaxHeight = 3.8,
 	SlideGapMinHeight = 0.8,
@@ -186,10 +186,18 @@ local CombatConfig = {
 	--// DECISION-DRIVEN BEHAVIOR (wire tactical decision → FSM; ablation-friendly)
 	RetreatBreakoffCooldown = 3.0,        -- seconds min between retreat break-offs (prevents state thrash)
 	PursueEngageDistance = 20.0,          -- studs beyond which a Pursue decision forces a chase
+	DecisionHysteresisScoreDelta = 15.0,  -- utility score margin required to switch recommended action
+	StateDwellMin_Chase = 0.8,            -- seconds minimum commitment before voluntary chase state exit
+	StateDwellMin_Retreat = 1.2,          -- seconds minimum commitment before voluntary retreat state exit
+	StateDwellMin_Circling = 1.0,         -- seconds minimum commitment before voluntary circling state exit
+	StateDwellMin_Fight = 0.6,            -- seconds minimum commitment before voluntary fight state exit
+	QuinEyeHeight = 3.0,                  -- studs above HRP center for 8-stud tall Quin eye-level raycasts
 
 	--// SURVIVAL INSTINCT (retreat calibration)
 	RetreatCriticalHealth = 0.20,         -- hp ratio below which near-death survival instinct triggers
 	RetreatConfidenceThreshold = 0.70,    -- confidence below which a near-death Quin retreats (else it fights back)
+	RetreatSafeDistance = 85.0,           -- studs minimum distance from nearest threat to consider retreat successful
+	RetreatMinDuration = 2.5,             -- seconds minimum before allowing safe haven transition to defensive stance
 
 	--// PHASE 12 SPECTACLE: DYNAMIC BEAM STRUGGLES, AURA FARMING & RIVAL FINISHERS
 	BeamStruggle_PowerUpDurationMin = 0.50, -- min seconds charging wind-up before beam fire
@@ -249,6 +257,10 @@ local CombatConfig = {
 	Locomotion_JumpDebounce = 1.0,           -- seconds minimum between successive jumps
 	Locomotion_LandingRetention = 0.88,      -- ratio of horizontal velocity preserved on landing (88%)
 	Locomotion_SkidSpeedThreshold = 14.0,    -- studs/s minimum speed to trigger dynamic braking skid
+	Locomotion_TurnRateSlow = 14.0,          -- rad/s heading-change ceiling at walking pace (nimble pivots)
+	Locomotion_TurnRateFast = 5.5,           -- rad/s heading-change ceiling at full sprint (momentum widens the arc)
+	Locomotion_TurnRateSlowSpeed = 8.0,      -- studs/s at or below which the slow-pace ceiling applies
+	Locomotion_TurnRateFastSpeed = 44.0,     -- studs/s at or above which the sprint ceiling applies
 	EnableOpeningProjectileJump = false,     -- Permanently ban start-of-match projectile jumps; grounded charges first
 
 	-- Melee Sweet-Spot & Transitions (Single Source of Truth)
@@ -258,8 +270,43 @@ local CombatConfig = {
 	Melee_SlideSpeed = 10.0,                 -- studs/s micro-slide spacing adjustment
 
 	-- Continuous Locomotion Synthesis & Stride Scaling (Step 1 & 2)
-	WalkStrideBase = 18.5,                   -- studs/s baseline stride speed for WalkConfident (matches Locomotion_PacingSpeedMin)
-	RunStrideBase = 50.0,                    -- studs/s baseline stride speed for Run (matches Locomotion_PacingSpeedMax)
+	WalkStrideBase = 18.5,                   -- legacy tuning reference (banking speed ratio, AnimationLab); NOT the clip's stride speed
+	RunStrideBase = 50.0,                    -- legacy tuning reference (banking speed ratio, AnimationLab); NOT the clip's stride speed
+
+	-- Shared Gait Blend Space (GaitModule): Walk -> Jog -> Run. Authored speeds and plant phases
+	-- are measured by sampling each clip on the Quin rig (planted-foot velocity at 1.0x, and the
+	-- normalized time of the left-foot plant). Re-measure if a clip or the rig scale changes.
+	Gait_WalkAuthoredSpeed = 6.90,           -- studs/s ground speed of Movement.WalkConfident at 1.0x
+	Gait_JogAuthoredSpeed = 8.4,             -- studs/s ground speed of Movement.Jog at 1.0x (calibrated in-game)
+	Gait_RunAuthoredSpeed = 26.8,            -- studs/s ground speed of Movement.Run at 1.0x (calibrated in-game)
+	Gait_WalkPlantPhase = 0.31,              -- normalized time of the left-foot plant in Walk
+	Gait_JogPlantPhase = 0.34,               -- normalized time of the left-foot plant in Jog
+	Gait_RunPlantPhase = 0.46,               -- normalized time of the left-foot plant in Run
+	Gait_WalkToJogStart = 7.5,               -- studs/s where Jog starts blending in over Walk
+	Gait_WalkToJogEnd = 10.0,                -- studs/s where the blend is fully Jog
+	Gait_JogToRunStart = 15.0,               -- studs/s where Run starts blending in over Jog
+	Gait_JogToRunEnd = 26.0,                 -- studs/s where the blend is fully Run
+	Gait_MinPlayRate = 0.60,                 -- cadence floor for the dominant clip (avoids slow-motion legs)
+	Gait_MaxPlayRate = 1.50,                 -- cadence ceiling for the dominant clip (above this the feet slide a little instead of flailing)
+	Gait_IdleBlendSpeed = 3.0,               -- studs/s by which the gait fully covers the idle pose underneath
+
+	-- Player pilot gait speeds (Z toggles walk, default jog, hold Shift to run)
+	Player_WalkSpeed = 7.5,                  -- studs/s walking (Walk clip ~1.1x)
+	Player_JogSpeed = 12.0,                  -- studs/s jogging (Jog clip ~1.43x)
+	Player_RunSpeed = 40.0,                  -- studs/s running (Run clip ~1.49x; above ~40 the feet start to slide)
+
+	-- Run Slide (Movement.Slide). Times are in clip seconds at 1.0x, read from the clip's markers
+	-- and pose profile: run stride -> StartSlide drop -> low glide -> SlideStop rise -> run strides.
+	Slide_AnimRate = 1.15,                   -- playback rate of the slide clip
+	Slide_DropTime = 0.10,                   -- clip time of the StartSlide marker (body leaves the run)
+	Slide_StopTime = 1.07,                   -- clip time of the SlideStop marker (body rises out of the glide)
+	Slide_ExitTime = 1.38,                   -- clip time at which the gait takes back over (clip is in run strides here)
+	Slide_ExitGaitPhase = 0.35,              -- canonical gait phase that matches the clip pose at Slide_ExitTime
+	Slide_ExitFade = 0.18,                   -- crossfade from the slide clip back into the gait
+	Slide_MinEntrySpeed = 30.0,              -- studs/s the glide starts at even from a jog
+	Slide_EntryBoost = 1.10,                 -- multiplier on current speed when the glide starts
+	Slide_EndSpeedRatio = 0.55,              -- fraction of glide start speed left at SlideStop (friction)
+	Slide_MinStartSpeed = 8.0,               -- studs/s minimum ground speed to start a slide
 	TorsoBankingMaxRoll = 15.0,              -- degrees max lateral roll bank into turns
 	TorsoBankingResponsiveness = 14.0,       -- lerp responsiveness for centripetal roll
 	TurnMassDropMax = 0.20,                  -- max pelvis dip (studs) during sharp turns
@@ -268,7 +315,7 @@ local CombatConfig = {
 	Locomotion_SkidLockout = 0.35,           -- seconds duration of procedural skid plant before accelerating into sprint
 
 	-- Procedural Foot IK & Ledge Gripping (Step 3)
-	FootIK_Enabled = false,                  -- DISABLED: Eliminates 60Hz leg popping/jitter during running
+	FootIK_Enabled = true,                   -- Calibrated stance-phase foot pinning with dynamic weight smoothing
 	FootIK_RayDistance = 6.8,                -- studs down from hip to detect ground (HRP is ~5.36 studs above floor)
 	FootIK_MaxStepDown = 2.4,                -- max vertical drop a foot will conform to before treating as ledge
 	FootIK_MaxStepUp = 1.6,                  -- max vertical step up a foot will climb
@@ -288,6 +335,24 @@ local CombatConfig = {
 	Ragdoll_AirDrag = 0.85,                  -- aerodynamic drag alignment factor during flight
 	Ragdoll_GroundFriction = 0.55,           -- ground momentum slide retention on impact
 	Ragdoll_RecoveryDelay = 0.40,            -- seconds before initiating get-up from prone/supine
+
+	-- Procedural Full-Body Active Ragdoll & Knockback IK
+	AirKnockback_ProceduralRagdollEnabled = true, -- if false, reverts cleanly to author-keyed FallAirKnockback track
+	Ragdoll_ArmIK_Enabled = true,                -- full procedural arm IK flailing during air launches/knockback
+	Ragdoll_LegIK_Enabled = true,                -- procedural leg drag/cycling during air launches/knockback
+	Ragdoll_FlailTurbulence = 1.0,               -- wind turbulence flailing multiplier
+	Ragdoll_DragCompliance = 0.85,               -- arm/leg drag resistance scaling with linear velocity
+
+	-- High Ground & Platform Traversal Intent
+	HighGround_DiveDropEnabled = true,           -- allows perched Quins to leap down onto lower ground enemies
+	HighGround_PerchDetectThreshold = 5.0,       -- vertical elevation difference to qualify as high ground platform
+	HighGround_InterceptJumpMinReach = 8.0,      -- min vertical gap to trigger high-ground jump from below
+	HighGround_InterceptJumpMaxReach = 35.0,     -- max vertical gap for standard high-ground jump
+	HighGround_InterceptJumpEnergyCost = 20,     -- reduced mana cost for tactical high-ground climb hops
+
+	-- 3D Debug Visualizers (LoS, LKP, Trajectories, Platform Intent)
+	DebugVisualizers_Enabled = true,             -- enable 3D visualizer subsystem (toggled via HUD or 'V' key)
+	DebugVisualizers_ShowAllNearby = false,      -- true to show all nearby Quins; false for spectated Quin only
 }
 
 return CombatConfig

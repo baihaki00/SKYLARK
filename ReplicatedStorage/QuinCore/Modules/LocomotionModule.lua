@@ -4,6 +4,7 @@
 -- Single Source of Truth: ReplicatedStorage.QuinCore.CombatConfig
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
 
@@ -15,8 +16,22 @@ local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("Spa
 local AudioModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AudioModule"))
 local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
 local TraversalModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TraversalModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 
 local LocomotionModule = {}
+
+-- Active full-body locomotion actions (run slide), keyed by fighter
+local activeSlides = {}
+local endSlide -- forward declaration (section 5)
+
+local function isHumanoidAirborne(humanoid)
+	local s = humanoid:GetState()
+	return s == Enum.HumanoidStateType.Freefall or s == Enum.HumanoidStateType.Jumping
+end
+
+function LocomotionModule.isSliding(fighter)
+	return fighter ~= nil and activeSlides[fighter] ~= nil
+end
 
 -- Per-fighter tracking table (weak keys to prevent memory leaks on Quin death)
 local locoData = setmetatable({}, { __mode = "k" })
@@ -77,7 +92,19 @@ function LocomotionModule.resolveGroundIntent(fighter, rootPart, desiredDirectio
 	local delta = shortestAngleDelta(targetAngle, currentAngle)
 	local response = CombatConfig.Locomotion_GroundTurnResponse or 16.0
 	local alpha = 1.0 - math.exp(-response * dt)
-	local nextAngle = currentAngle + delta * alpha
+
+	-- Speed-scaled yaw-rate ceiling: at pace, momentum widens the turn radius instead of
+	-- snapping the heading like a cursor; at walking pace pivots stay nimble.
+	-- Committed reversals are handled by the skid plant in steer(), which sheds speed first.
+	local planarVel = rootPart.AssemblyLinearVelocity
+	local planarSpeed = Vector3.new(planarVel.X, 0, planarVel.Z).Magnitude
+	local slowSpeed = CombatConfig.Locomotion_TurnRateSlowSpeed or 8.0
+	local fastSpeed = CombatConfig.Locomotion_TurnRateFastSpeed or 44.0
+	local paceT = math.clamp((planarSpeed - slowSpeed) / math.max(fastSpeed - slowSpeed, 1), 0, 1)
+	local slowRate = CombatConfig.Locomotion_TurnRateSlow or 14.0
+	local maxTurnRate = slowRate + ((CombatConfig.Locomotion_TurnRateFast or 5.5) - slowRate) * paceT
+	local step = math.clamp(delta * alpha, -maxTurnRate * dt, maxTurnRate * dt)
+	local nextAngle = currentAngle + step
 	local resolved = Vector3.new(math.sin(nextAngle), 0, math.cos(nextAngle))
 	data.groundIntentDirection = resolved
 	return resolved
@@ -130,6 +157,8 @@ end
 
 function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, targetSpeed, dt, resolvedDirection)
 	if not fighter or not humanoid or not rootPart or not targetPosition then return end
+	-- A committed slide owns translation until it hands back to the gait
+	if activeSlides[fighter] then return activeSlides[fighter].dir end
 
 	dt = math.clamp(dt or 0.016, 0.001, 0.15)
 	local data = getLocoData(fighter)
@@ -175,7 +204,10 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local skidCooldown = CombatConfig.Locomotion_SkidCooldown or 0.70
 	local skidLockout = CombatConfig.Locomotion_SkidLockout or 0.65
 
-	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 then
+	local isStrafing = (fighter:GetAttribute("IsStrafing") == true) or (humanoid.AutoRotate == false)
+
+	-- Skid plants need traction: never trigger one in the air or during tactical strafing/feints
+	if not isStrafing and currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 and not isHumanoidAirborne(humanoid) then
 		local curDir = flatVel.Unit
 		local desDir = flatDesired.Unit
 		local cosTheta = curDir:Dot(desDir)
@@ -202,7 +234,9 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 
 	-- 3. Issue the resolved curved heading to the humanoid. Both player and AI
 	-- use this same ground-intent result and Move translation API; arrival deceleration eliminated!
-	humanoid.AutoRotate = true
+	if not isStrafing then
+		humanoid.AutoRotate = true
+	end
 	humanoid:Move(driveDirection, false)
 	-- Note: Footstep audio is driven authoritatively by animation keyframe markers via AnimationModule
 	return driveDirection
@@ -214,6 +248,8 @@ end
 
 function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	if not fighter or not humanoid or not rootPart then return end
+	-- A committed slide carries its own deceleration and exit
+	if activeSlides[fighter] then return end
 
 	local data = getLocoData(fighter)
 	local currentVel = rootPart.AssemblyLinearVelocity
@@ -231,7 +267,7 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 		-- If the Quin was running/sprinting, play StopRun plant animation (rbxassetid://89237107000987)
 		if wasSprinting and speed > 12.0 then
 			data.lastStopRunTime = now
-			data.stopRunEndTime = now + 0.55
+			data.stopRunEndTime = now + 0.68
 
 			-- Fast fade out running track & push-offs
 			AnimationModule.stop(humanoid, "Movement.Run", 0.08)
@@ -250,10 +286,9 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 			local elem = fighter:GetAttribute("Element") or "Earth"
 			VfxModule.createDust(rootPart.Position, 2, slideDir, elem)
 		else
-			-- Clean walking halt: fade out walk/run tracks directly into Ready stance without StopRun slide
+			-- Clean walking halt: no StopRun slide. The shared gait keeps stepping while the
+			-- body decelerates and fades into the Ready stance as speed reaches zero.
 			data.stopRunEndTime = nil
-			AnimationModule.stop(humanoid, "Movement.Run", 0.12)
-			AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.12)
 			AnimationModule.stop(humanoid, "Movement.StartRun", 0.08)
 
 			-- Enter Ready Stance & mark last activity time for 5s inactivity cooldown
@@ -273,18 +308,23 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	-- Cancelling input outright makes a 50-stud/s Quin freeze unnaturally; diminishing momentum
 	-- lets the StopRun plant and body weight read visually.
 	local brakeDir = speed > 0.1 and flatVel.Unit or Vector3.zero
-	local brakeInput = math.clamp(speed / 42.0, 0, 1)
-	humanoid:Move(brakeDir * brakeInput, false)
+	if speed > 0.5 and humanoid.WalkSpeed > 0.5 then
+		humanoid:Move(brakeDir, false)
+	else
+		humanoid:Move(Vector3.zero, false)
+	end
 
 	-- When no StopRun braking overlay is active, ensure idle (handles Ready -> 5s inactivity -> Default)
 	local isOverlayActive = (data.stopRunEndTime and now < data.stopRunEndTime)
 
 	if not isOverlayActive then
-		if AnimationModule.isPlaying(humanoid, "Movement.Run") then
-			AnimationModule.stop(humanoid, "Movement.Run", 0.15)
-		end
-		if AnimationModule.isPlaying(humanoid, "Movement.WalkConfident") then
-			AnimationModule.stop(humanoid, "Movement.WalkConfident", 0.15)
+		-- Feet keep cycling while the humanoid is still decelerating under its own drive
+		-- (no skating slide into idle). Once the drive has decayed, any leftover velocity
+		-- is external (pushes, uneven footing) and the Quin stands in idle.
+		if speed > 1.2 and humanoid.WalkSpeed > 0.5 then
+			GaitModule.update(humanoid, rootPart, dt or 0.1)
+		elseif GaitModule.isActive(humanoid) then
+			GaitModule.stop(humanoid, 0.2)
 		end
 
 		-- Check 5-second inactivity timeout: if Ready stance has been inactive for >= 5s, relax to Default
@@ -342,6 +382,16 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		return
 	end
 
+	-- Ballistic jumps launch from the ground only (Rule 6): no mid-air re-launch
+	if isHumanoidAirborne(humanoid) then
+		return
+	end
+
+	-- Jumping out of a slide cancels the glide and launches with its momentum
+	if activeSlides[fighter] then
+		endSlide(fighter, humanoid, rootPart, false)
+	end
+
 	-- Traversal parkour planning integration (vaults, jumps, dismounts)
 	local shouldPlan = (jumpType == nil or jumpType == "jump" or jumpType == "vault" or jumpType == "dismount")
 	if shouldPlan and rootPart:IsA("BasePart") then
@@ -386,22 +436,25 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	data.lastJumpTime = now
 
 	local isVault = (jumpType == "vault")
-	local isDismount = (jumpType == "dismount")
-	local isHop = (jumpType == "hop")
-	local isLongJump = (jumpType == "longjump")
-	local jumpAnim = isVault and "Parkour.VaultObstacle" or "Movement.Jump"
+    local isDismount = (jumpType == "dismount")
+    local isHop = (jumpType == "hop")
+    local isLongJump = (jumpType == "longjump")
+    local jumpAnim = isVault and "Parkour.VaultObstacle" or "Movement.Jump"
 
-	-- Keep the gait underneath the traversal layer. The parkour clip supplies
-	-- anticipation and silhouette while the run cycle preserves continuity.
-	AnimationModule.stopConfig(humanoid, "Movement.Fall", 0.10)
-	if isDismount then
-		AnimationModule.playConfig(humanoid, "Movement.Fall", 1.0, Enum.AnimationPriority.Action3, true)
-	else
-		local launchSpeed = (isLongJump and 1.08) or (isHop and 1.12) or 1.0
-		AnimationModule.playConfig(humanoid, jumpAnim, launchSpeed, Enum.AnimationPriority.Action3, true)
-	end
+    -- Keep the gait underneath the traversal layer. The parkour clip supplies
+    -- anticipation and silhouette while the run cycle preserves continuity.
+    AnimationModule.stopConfig(humanoid, "Movement.Fall", 0.10)
+    -- A deliberate launch hands the body to the jump clip immediately (the ground
+    -- contract's grace period is only for walking off small ledges)
+    GaitModule.notifyLaunch(humanoid)
+    if isDismount then
+        AnimationModule.playConfig(humanoid, "Movement.Fall", 1.0, Enum.AnimationPriority.Action3, true)
+    else
+        local launchSpeed = (isLongJump and 1.08) or (isHop and 1.12) or 1.0
+        AnimationModule.playConfig(humanoid, jumpAnim, launchSpeed, Enum.AnimationPriority.Action3, true)
+    end
 
-	-- Audio feedback via QuinCore AudioModule (Authentic normal jump sound)
+    -- Audio feedback via QuinCore AudioModule (Authentic normal jump sound)
 	AudioModule.playJump(fighter or rootPart, 0.5)
 
 	-- Single vertical ballistic impulse: v_y = sqrt(2 * g * h)
@@ -429,14 +482,14 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 
 	-- Direct native physics assignment: ZERO BodyVelocity!
 	local plannedHorizontal = Vector3.new(
-		fighter:GetAttribute("TraversalVelocityX") or 0,
-		0,
-		fighter:GetAttribute("TraversalVelocityZ") or 0
-	)
-	if plannedHorizontal.Magnitude < 0.01 then
-		plannedHorizontal = flatLook * fwdSpeed
-	end
-	rootPart.AssemblyLinearVelocity = plannedHorizontal + Vector3.new(0, upImpulse, 0)
+        fighter:GetAttribute("TraversalVelocityX") or 0,
+        0,
+        fighter:GetAttribute("TraversalVelocityZ") or 0
+    )
+    if plannedHorizontal.Magnitude < 0.01 then
+        plannedHorizontal = flatLook * fwdSpeed
+    end
+    rootPart.AssemblyLinearVelocity = plannedHorizontal + Vector3.new(0, upImpulse, 0)
 	rootPart.AssemblyAngularVelocity = Vector3.zero
 
 	-- Modern AlignOrientation to prevent mid-air tumbling
@@ -461,12 +514,10 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 
 	data.activeAlign = align
 	data.activeAtt = att
-
 	local flightTime = math.sqrt((2 * targetHeight) / gravity) * 2
 	-- Dynamic AlignOrientation lifetime matching calculated ballistic arc
 	Debris:AddItem(align, flightTime + 0.25)
 	Debris:AddItem(att, flightTime + 0.25)
-
 	local jumpStartTime = os.clock()
 	local landedHandled = false
 	local function onLanded()
@@ -502,23 +553,23 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		end
 
 		local landingVelocity = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
-		local impactSpeed = math.abs(landingVelocity.Y)
-		local traversalType = fighter:GetAttribute("TraversalType") or "None"
-		local traversalHeight = fighter:GetAttribute("TraversalObstacleHeight") or 0
-		if isDismount then
-			if traversalHeight >= 8 or impactSpeed > 55 then
-				AnimationModule.playConfig(humanoid, "Parkour.LandingSuperHero", 1.0, Enum.AnimationPriority.Action3, true)
-			end
-		elseif traversalType == "None" and impactSpeed > 50 and airTime > 0.9 then
-			AnimationModule.playConfig(humanoid, "Parkour.LandingHard", 1.0, Enum.AnimationPriority.Action3, true)
-		end
+        local impactSpeed = math.abs(landingVelocity.Y)
+        local traversalType = fighter:GetAttribute("TraversalType") or "None"
+        local traversalHeight = fighter:GetAttribute("TraversalObstacleHeight") or 0
+        if isDismount then
+            if traversalHeight >= 8 or impactSpeed > 55 then
+                AnimationModule.playConfig(humanoid, "Parkour.LandingSuperHero", 1.0, Enum.AnimationPriority.Action3, true)
+            -- Soft landing (also aliased as LedgeDropLanding) is intentionally not
+            -- played automatically: ordinary landings continue into the current gait.
+            end
+        elseif traversalType == "None" and impactSpeed > 50 and airTime > 0.9 then
+            AnimationModule.playConfig(humanoid, "Parkour.LandingHard", 1.0, Enum.AnimationPriority.Action3, true)
+        end
 
-		local currentVel = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
+        local currentVel = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
 		local flatSpeed = Vector3.new(currentVel.X, 0, currentVel.Z).Magnitude
 		if flatSpeed > 3.0 then
-			local pacingVel = fighter:GetAttribute("PacingVelocity") or 40
-			local resumeAnim = pacingVel < 20 and "Movement.WalkConfident" or "Movement.Run"
-			AnimationModule.playConfig(humanoid, resumeAnim)
+			GaitModule.update(humanoid, rootPart, 1 / 60)
 		else
 			AnimationModule.ensureBaseIdle(humanoid)
 		end
@@ -605,44 +656,141 @@ function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
 	return slideDuration
 end
 
-function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, duration)
+-- Run Slide: a single clip carries run stride -> drop -> glide -> rise -> run strides.
+-- Physics follows the clip's own timeline (Slide_* markers in CombatConfig), so the body
+-- keeps its run momentum until the drop, bleeds speed to friction during the glide, and
+-- regains pace while rising. At Slide_ExitTime the gait resumes on the footfall that
+-- matches the clip pose, so run -> slide -> run is one continuous motion.
+endSlide = function(fighter, humanoid, rootPart, handOff)
+	local s = activeSlides[fighter]
+	if not s then return end
+	activeSlides[fighter] = nil
+	if s.conn then s.conn:Disconnect() end
+	if s.stoppedConn then s.stoppedConn:Disconnect() end
+	if s.lv and s.lv.Parent then s.lv:Destroy() end
+	if s.att and s.att.Parent then s.att:Destroy() end
+	if fighter.Parent then
+		fighter:SetAttribute("LocomotionAction", nil)
+	end
+	if not humanoid or not humanoid.Parent then return end
+	humanoid.AutoRotate = true
+	if handOff and rootPart and rootPart.Parent then
+		-- Carry the exit speed into the drivers' acceleration curve and resume the gait
+		-- on the matching footfall while the slide clip crossfades out.
+		local v = rootPart.AssemblyLinearVelocity
+		humanoid.WalkSpeed = Vector3.new(v.X, 0, v.Z).Magnitude
+		getLocoData(fighter).currentSpeed = humanoid.WalkSpeed
+		GaitModule.setEntryPhase(humanoid, CombatConfig.Slide_ExitGaitPhase or 0.35)
+		GaitModule.update(humanoid, rootPart, 1 / 60)
+		AnimationModule.stopConfig(humanoid, "Movement.Slide", CombatConfig.Slide_ExitFade or 0.18)
+	else
+		AnimationModule.stopConfig(humanoid, "Movement.Slide", 0.12)
+	end
+end
+
+-- Returns the slide's duration in seconds, or 0 when a slide cannot start.
+-- slideDir is accepted for API compatibility; a slide always commits to the current
+-- travel direction because it is momentum, not a new drive.
+function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDuration)
+	if not fighter or not humanoid or not rootPart then return 0 end
+	if activeSlides[fighter] or isHumanoidAirborne(humanoid) then return 0 end
+
+	local vel = rootPart.AssemblyLinearVelocity
+	local flatVel = Vector3.new(vel.X, 0, vel.Z)
+	local startSpeed = flatVel.Magnitude
+	if startSpeed < (CombatConfig.Slide_MinStartSpeed or 8.0) then return 0 end
+	local dir = flatVel.Unit
+
 	local now = os.clock()
 	fighter:SetAttribute("LastSlideTime", now)
-
-	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-	local baseSpeed = CombatConfig.SlideSpeed or 56
-	local slideSpeed = baseSpeed * speedMult
-	local slideDuration = (duration or CombatConfig.SlideDuration or 0.42) / speedMult
+	fighter:SetAttribute("LastActivityTime", now)
 
 	-- Energy drain
 	local energy = fighter:GetAttribute("Energy") or 100
-	local cost = CombatConfig.SlideMinEnergy or 12
-	fighter:SetAttribute("Energy", math.max(0, energy - cost))
+	fighter:SetAttribute("Energy", math.max(0, energy - (CombatConfig.SlideMinEnergy or 12)))
 
-	-- Direction
-	local dir = slideDir
-	if not dir then
-		local look = rootPart.CFrame.LookVector
-		local flat = Vector3.new(look.X, 0, look.Z)
-		dir = flat.Magnitude > 0.001 and flat.Unit or rootPart.CFrame.LookVector
+	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+	local rate = (CombatConfig.Slide_AnimRate or 1.15) * speedMult
+	local dropT = CombatConfig.Slide_DropTime or 0.10
+	local stopT = CombatConfig.Slide_StopTime or 1.07
+	local exitT = CombatConfig.Slide_ExitTime or 1.38
+	local glideStart = math.max(startSpeed * (CombatConfig.Slide_EntryBoost or 1.10), (CombatConfig.Slide_MinEntrySpeed or 30.0) * speedMult)
+	local glideEnd = glideStart * (CombatConfig.Slide_EndSpeedRatio or 0.55)
+	local recoverSpeed = math.max(startSpeed, glideEnd)
+
+	-- The clip contains its own run strides in and out: hand the base gait over to it
+	fighter:SetAttribute("LocomotionAction", "Slide")
+	GaitModule.stop(humanoid, 0.12)
+	AnimationModule.stop(humanoid, "Movement.StopRun", 0.08)
+	local track = AnimationModule.playConfig(humanoid, "Movement.Slide", 1.0, Enum.AnimationPriority.Action3, false)
+	AudioModule.playDash(rootPart)
+	VfxModule.createDust(rootPart.Position - dir * 2, 4, nil, fighter:GetAttribute("Element"))
+
+	humanoid.AutoRotate = false
+
+	local att = Instance.new("Attachment")
+	att.Name = "LocoSlideAtt"
+	att.Parent = rootPart
+	local lv = Instance.new("LinearVelocity")
+	lv.Name = "LocoSlideLV"
+	lv.Attachment0 = att
+	lv.RelativeTo = Enum.ActuatorRelativeTo.World
+	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+	lv.MaxAxesForce = Vector3.new(150000, 0, 150000)
+	lv.VectorVelocity = dir * startSpeed
+	lv.Parent = rootPart
+
+	local slide = { dir = dir, lv = lv, att = att }
+	activeSlides[fighter] = slide
+
+	-- A higher-tier reaction (hit, knockback) that stops the clip ends the glide.
+	-- (Stopped never fires for our own exit: endSlide clears activeSlides first.)
+	if track then
+		slide.stoppedConn = track.Stopped:Once(function()
+			if activeSlides[fighter] == slide then
+				endSlide(fighter, humanoid, rootPart, false)
+			end
+		end)
 	end
 
-	-- Animation & Sensory VFX
-	AnimationModule.playConfig(humanoid, "Movement.Slide", 1.25, Enum.AnimationPriority.Action3, false)
-	AudioModule.playDash(rootPart)
-	local elem = fighter:GetAttribute("Element")
-	VfxModule.createDust(rootPart.Position - dir * 2, 4, nil, elem)
-
-	-- Physical propulsion
-	KnockbackModule.applySlide(fighter, dir, slideSpeed, slideDuration)
-
-	task.delay(slideDuration, function()
-		if humanoid and humanoid.Parent then
-			AnimationModule.stopConfig(humanoid, "Movement.Slide", 0.1)
+	local startClock = os.clock()
+	slide.conn = RunService.Heartbeat:Connect(function()
+		if not fighter.Parent or not humanoid.Parent or humanoid.Health <= 0 or not rootPart.Parent then
+			endSlide(fighter, humanoid, rootPart, false)
+			return
 		end
+		-- Sliding off a ledge or being launched ends the glide; the air contract takes over
+		if isHumanoidAirborne(humanoid) then
+			endSlide(fighter, humanoid, rootPart, false)
+			return
+		end
+
+		-- Follow the clip's own clock once it is playing; until the asset has loaded,
+		-- advance on wall time at the clip rate so physics never stalls.
+		local t = (os.clock() - startClock) * rate
+		if track and track.IsPlaying and track.Length > 0 then
+			t = track.TimePosition
+		end
+
+		local speed
+		if t < dropT then
+			speed = startSpeed -- still in the run stride: hold momentum
+		elseif t < stopT then
+			local p = (t - dropT) / (stopT - dropT)
+			local entry = math.clamp(p / 0.12, 0, 1) -- ease the boost in over the drop
+			local glide = glideStart + (glideEnd - glideStart) * p -- constant friction
+			speed = startSpeed + (glide - startSpeed) * entry
+		elseif t < exitT then
+			local p = (t - stopT) / (exitT - stopT)
+			speed = glideEnd + (recoverSpeed - glideEnd) * p * 0.6 -- legs drive again while rising
+		else
+			endSlide(fighter, humanoid, rootPart, true)
+			return
+		end
+		lv.VectorVelocity = dir * speed
 	end)
 
-	return slideDuration
+	return exitT / rate
 end
 
 -- ============================================================================
@@ -650,6 +798,9 @@ end
 -- ============================================================================
 
 function LocomotionModule.cleanup(fighter)
+	if activeSlides[fighter] then
+		endSlide(fighter, fighter:FindFirstChildOfClass("Humanoid"), fighter:FindFirstChild("HumanoidRootPart"), false)
+	end
 	local data = locoData[fighter]
 	if data then
 		if data.activeLandedConn then
@@ -668,4 +819,3 @@ end
 LocomotionModule.performJump = LocomotionModule.jump
 
 return LocomotionModule
-

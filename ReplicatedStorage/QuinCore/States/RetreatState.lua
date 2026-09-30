@@ -21,6 +21,7 @@ local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("Run
 local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local RetreatTacticsModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("RetreatTacticsModule"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 
 local RetreatState = { name = "Retreat" }
 local retreatData = setmetatable({}, { __mode = "k" })
@@ -38,10 +39,13 @@ local function gatherSides(fighter)
 		if q ~= fighter and q.Parent and q:FindFirstChild("HumanoidRootPart") then
 			local hum = q:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
-				if (q.HumanoidRootPart.Position - myPos).Magnitude <= 80 then
-					if myTeam ~= "None" and q:GetAttribute("Team") == myTeam then
+				local dist = (q.HumanoidRootPart.Position - myPos).Magnitude
+				if myTeam ~= "None" and q:GetAttribute("Team") == myTeam then
+					if dist <= 250 then
 						table.insert(allies, q)
-					else
+					end
+				else
+					if dist <= 120 then
 						table.insert(enemies, q)
 					end
 				end
@@ -120,7 +124,9 @@ end
 
 function RetreatState.exit(fighter, humanoid, rootPart)
 	local data = retreatData[fighter]
-	if data and data.currentAnim then
+	if data and data.currentAnim == "Gait" then
+		GaitModule.stop(humanoid, 0.15)
+	elseif data and data.currentAnim then
 		AnimationModule.stopConfig(humanoid, data.currentAnim, 0.15)
 	end
 
@@ -196,7 +202,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	-- If escape feasibility collapsed or fighter was set to LastStandMode, turn and make enemies pay!
 	local isLastStand = fighter:GetAttribute("LastStandMode")
 	local escapeFeas = fighter:GetAttribute("EscapeFeasibility") or 1.0
-	if isLastStand or (escapeFeas < (CombatConfig.EscapeFeasibilityThreshold or 0.20) and elapsed >= 0.20) then
+	if isLastStand or (escapeFeas < (CombatConfig.EscapeFeasibilityThreshold or 0.20) and elapsed >= minCommitDuration) then
 		BattleEventSystem.emit("LAST_STAND_TRIGGERED", {
 			QuinId = fighter:GetAttribute("QuinId") or fighter.Name,
 			Model = fighter,
@@ -205,8 +211,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		})
 		fighter:SetAttribute("LastStandMode", true)
 		fighter:SetAttribute("DesperateCounter", true)
-		fighter:SetAttribute("CurrentTarget", nearestThreat and nearestThreat.Name or "")
-		fighter:SetAttribute("TargetQuin", nearestThreat and nearestThreat.Name or "")
+		TargetingModule.setTarget(fighter, nearestThreat)
 		RuntimeTracer.checkpoint(fighter, "Escape suicidal -> Turn to Last Stand fight!")
 		return require(script.Parent:WaitForChild("FightState"))
 	end
@@ -223,7 +228,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	if nearestAllyDist > 16 and fighter:GetAttribute("ReinforcingAllyApproaching") == true and nearestThreatDist <= (CombatConfig.DefendDelayDistance or 35.0) and elapsed >= 0.20 then
+	if nearestAllyDist > 16 and fighter:GetAttribute("ReinforcingAllyApproaching") == true and nearestThreatDist <= (CombatConfig.DefendDelayDistance or 35.0) and elapsed >= minCommitDuration then
 		fighter:SetAttribute("IsGuarding", true)
 		RuntimeTracer.checkpoint(fighter, "Ally reinforcing -> Defend & Delay stance")
 		return require(script.Parent:WaitForChild("CirclingState"))
@@ -231,7 +236,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- TRANSITION 3: PURSUER OVEREXTENSION / WHIFF COUNTERATTACK
 	-- If pursuer swung and missed, or overshot past runner within 10 studs, seize initiative!
-	if nearestThreat and nearestThreatDist <= (CombatConfig.PursuerOverextendWhiffDistance or 10.0) and elapsed >= 0.30 then
+	if nearestThreat and nearestThreatDist <= (CombatConfig.PursuerOverextendWhiffDistance or 10.0) and elapsed >= minCommitDuration then
 		local threatAttacking = nearestThreat:GetAttribute("Attacking")
 		local threatWindupUntil = nearestThreat:GetAttribute("AttackWindupUntil") or 0
 		local hasWhiffed = threatAttacking and (now > threatWindupUntil)
@@ -253,16 +258,17 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 				Reason = hasWhiffed and "PursuerWhiff" or "PursuerOvershot",
 			})
 			fighter:SetAttribute("RetreatCounterattacked", true)
-			fighter:SetAttribute("CurrentTarget", nearestThreat.Name)
-			fighter:SetAttribute("TargetQuin", nearestThreat.Name)
+			TargetingModule.setTarget(fighter, nearestThreat)
 			RuntimeTracer.checkpoint(fighter, "Pursuer overextended -> Turn and Counterattack!")
 			return require(script.Parent:WaitForChild("FightState"))
 		end
 	end
 
 	-- Outcome A: Safe Haven Reached (threat dropped or out of pursuit range)
-	if #enemies == 0 or nearestThreatDist >= 40 then
-		if elapsed >= 0.8 then
+	local safeDist = CombatConfig.RetreatSafeDistance or 85.0
+	local minRetreatDur = CombatConfig.RetreatMinDuration or 2.5
+	if #enemies == 0 or nearestThreatDist >= safeDist then
+		if elapsed >= minRetreatDur then
 			BattleEventSystem.emit("RETREAT_SURVIVED", {
 				QuinId = fighter:GetAttribute("QuinId") or fighter.Name,
 				Model = fighter,
@@ -271,12 +277,13 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 				Objective = result.objective,
 			})
 			RuntimeTracer.checkpoint(fighter, "Retreat reached safety")
-			return require(script.Parent:WaitForChild("IdleState"))
+			-- Regroup & hold defensive standoff with energy recovery; do NOT dead-stop into IdleState
+			return require(script.Parent:WaitForChild("CirclingState"))
 		end
 	end
 
-	-- Outcome B: Reached Allies -> Turn and COUNTERATTACK! (Immediate as soon as squad reached)
-	if result.objective == "TO_ALLIES" and #allies >= 1 and elapsed >= 0.25 then
+	-- Outcome B: Reached Allies -> Turn and COUNTERATTACK! (Guaranteed commitment fulfilled)
+	if result.objective == "TO_ALLIES" and #allies >= 1 and elapsed >= minCommitDuration then
 		local allyDist = (result.targetPosition - rootPart.Position).Magnitude
 		if allyDist <= 16 then
 			-- We successfully pulled pursuer to allies! Turn and strike!
@@ -291,8 +298,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 				TargetName = nearestThreat and nearestThreat.Name or "Unknown",
 			})
 			fighter:SetAttribute("RetreatCounterattacked", true)
-			fighter:SetAttribute("CurrentTarget", nearestThreat and nearestThreat.Name or "")
-			fighter:SetAttribute("TargetQuin", nearestThreat and nearestThreat.Name or "")
+			TargetingModule.setTarget(fighter, nearestThreat)
 			RuntimeTracer.checkpoint(fighter, "Retreat reached allies -> COUNTERATTACK!")
 			return require(script.Parent:WaitForChild("FightState"))
 		end
@@ -404,14 +410,18 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	else
 		desiredAnim = "Movement.Run"
 	end
-	if data.currentAnim ~= desiredAnim then
+	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
+	if desiredAnim == "Movement.Run" then
+		-- Base gait: shared stride-matched Walk/Run blend driven by real ground speed
+		data.currentAnim = "Gait"
+		if not isFreefall then
+			GaitModule.update(humanoid, rootPart, dt)
+		end
+	elseif data.currentAnim ~= desiredAnim then
 		data.currentAnim = desiredAnim
 		AnimationModule.playConfig(humanoid, desiredAnim)
-	else
-		local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
-		if not isFreefall and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
-			AnimationModule.playConfig(humanoid, data.currentAnim)
-		end
+	elseif not isFreefall and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
+		AnimationModule.playConfig(humanoid, data.currentAnim)
 	end
 
 	-- Compute dynamic arcTarget on every single tick
@@ -457,4 +467,3 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 end
 
 return RetreatState
-

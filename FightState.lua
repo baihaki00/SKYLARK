@@ -326,6 +326,8 @@ function FightState.exit(fighter, humanoid, rootPart)
 	-- Cleanly stop any attack or hit reaction tracks so they do not linger into subsequent states (e.g. CirclingState)
 	AnimationModule.stopCategory(humanoid, "Attacks", 0.1)
 	AnimationModule.stopCategory(humanoid, "Reactions", 0.1)
+	local gyro = rootPart and rootPart:FindFirstChild("FightGyro")
+	if gyro then gyro:Destroy() end
 	-- Do NOT hard stop Idle; let Idle blend smoothly with whichever state takes over
 end
 
@@ -442,40 +444,38 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 	
-	-- If our previously engaged target died or was destroyed, enter Idle
-	if data.lastEngagedTarget and not TargetingModule.isValid(data.lastEngagedTarget) then
-		if DEBUG then print(string.format("[Fight] %s defeated their target! Entering Idle survey.", fighter.Name)) end
-		data.lastEngagedTarget = nil
-		return require(script.Parent:WaitForChild("IdleState"))
+	-- Find or retain committed target
+	local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 60) * 1.5)
+	
+	if not target then
+		-- No current valid committed target, or target died/escaped: acquire nearest candidate
+		target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange)
+		if target then
+			TargetingModule.setTarget(fighter, target)
+			data.lastEngagedTarget = target
+			-- If next target is beyond close combat range, transition to Chase or Circling, NEVER mid-combat Idle!
+			if distance > (CombatConfig.CombatRange or 8) * 1.8 then
+				return require(script.Parent:WaitForChild("ChaseState"))
+			end
+		else
+			-- No enemies exist anywhere in arena
+			TargetingModule.clearTarget(fighter)
+			data.lastEngagedTarget = nil
+			return require(script.Parent:WaitForChild("IdleState"))
+		end
+	else
+		data.lastEngagedTarget = target
 	end
 
-	-- Find target
-	local prevTargetName = fighter:GetAttribute("CurrentTarget")
-	local target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange)
-	
-	if not TargetingModule.isValid(target) then
-		if DEBUG then print("[Fight] Target lost/defeated -> Idle") end
-		return require(script.Parent:WaitForChild("IdleState"))
-	end
-	
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
 	if not targetHRP then
-		return require(script.Parent:WaitForChild("IdleState"))
+		return require(script.Parent:WaitForChild("ChaseState"))
 	end
 
-	data.lastEngagedTarget = target
-
-	-- Target Transition Buffer: If our previous target was defeated/lost and next opponent is not directly in melee range,
-	-- enter Idle to breathe, survey, and re-orient rather than snapping instantly across arena.
-	if prevTargetName and prevTargetName ~= "" and prevTargetName ~= target.Name and distance > (CombatConfig.CombatRange or 8) * 1.5 then
-		if DEBUG then print(string.format("[Fight] Target changed (%s -> %s, dist=%.1f) -> Idle survey", tostring(prevTargetName), target.Name, distance)) end
-		return require(script.Parent:WaitForChild("IdleState"))
-	end
-	
-	-- DO NOT attack downed opponents!
+	-- DO NOT attack downed or recovering opponents!
 	local targetState = target:GetAttribute("CurrentState")
-	if targetState == "Knockback" or targetState == "Airborne" then
-		if DEBUG then print("[Fight] Opponent is down! Entering standoff.") end
+	if targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true then
+		if DEBUG then print("[Fight] Opponent is down/recovering! Entering tactical standoff.") end
 		return require(script.Parent:WaitForChild("CirclingState"))
 	end
 	
@@ -520,11 +520,25 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("ChaseState"))
 	end
 	
-	-- Face target smoothly
+	-- Face target smoothly via physics torque AlignOrientation (Zero CFrame snapping / yaw pop)
 	local yDiff = math.abs(targetHRP.Position.Y - rootPart.Position.Y)
 	if yDiff < 5 then
 		local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
-		rootPart.CFrame = rootPart.CFrame:Lerp(lookCF, 0.5)
+		local alignOri = rootPart:FindFirstChild("FightGyro")
+		if not alignOri then
+			alignOri = Instance.new("AlignOrientation")
+			alignOri.Name = "FightGyro"
+			alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+			local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+			att.Name = "RootAttachment"
+			alignOri.Attachment0 = att
+			alignOri.RigidityEnabled = false
+			alignOri.Responsiveness = 22
+			alignOri.MaxTorque = 60000
+			alignOri.CFrame = rootPart.CFrame
+			alignOri.Parent = rootPart
+		end
+		alignOri.CFrame = lookCF
 	end
 	
 	-- Distance management
@@ -536,12 +550,15 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		LocomotionModule.steer(fighter, humanoid, rootPart, targetHRP.Position, fighter:GetAttribute("Speed") or 40, locoDt)
 		GaitModule.update(humanoid, rootPart, locoDt)
 	elseif distance < (CombatConfig.Melee_SweetSpotMin or 4.5) then
-		-- Point blank overlap: smooth physics micro-slide with momentum continuity
+		-- Point blank overlap: smooth physics micro-slide with momentum continuity & spacing animation
 		LocomotionModule.brake(fighter, humanoid, rootPart, locoDt)
 		local awayDir = (rootPart.Position - targetHRP.Position)
 		local awayFlat = Vector3.new(awayDir.X, 0, awayDir.Z)
 		if awayFlat.Magnitude > 0.01 then
 			KnockbackModule.applySlide(fighter, awayFlat.Unit, CombatConfig.Melee_SlideSpeed or 10, 0.12)
+			if not AnimationModule.isPlaying(humanoid, AnimationIds.RetreatBackstep) then
+				AnimationModule.play(humanoid, AnimationIds.RetreatBackstep, Enum.AnimationPriority.Movement, false, 1.2, 0.1)
+			end
 		end
 	else
 		-- Inside the combat sweet spot: hold stance firmly with momentum continuity

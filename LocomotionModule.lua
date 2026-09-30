@@ -204,8 +204,10 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local skidCooldown = CombatConfig.Locomotion_SkidCooldown or 0.70
 	local skidLockout = CombatConfig.Locomotion_SkidLockout or 0.65
 
-	-- Skid plants need traction: never trigger one in the air
-	if currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 and not isHumanoidAirborne(humanoid) then
+	local isStrafing = (fighter:GetAttribute("IsStrafing") == true) or (humanoid.AutoRotate == false)
+
+	-- Skid plants need traction: never trigger one in the air or during tactical strafing/feints
+	if not isStrafing and currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 and not isHumanoidAirborne(humanoid) then
 		local curDir = flatVel.Unit
 		local desDir = flatDesired.Unit
 		local cosTheta = curDir:Dot(desDir)
@@ -232,7 +234,9 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 
 	-- 3. Issue the resolved curved heading to the humanoid. Both player and AI
 	-- use this same ground-intent result and Move translation API; arrival deceleration eliminated!
-	humanoid.AutoRotate = true
+	if not isStrafing then
+		humanoid.AutoRotate = true
+	end
 	humanoid:Move(driveDirection, false)
 	-- Note: Footstep audio is driven authoritatively by animation keyframe markers via AnimationModule
 	return driveDirection
