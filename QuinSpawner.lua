@@ -106,10 +106,22 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 	end
 
 	local QuinTypeFolder = ReplicatedStorage:WaitForChild("QuinType")
-	local templateName = "Quin" .. selectedGender
-	local template = QuinTypeFolder:FindFirstChild(templateName)
-	if not template then
-		template = QuinTypeFolder:FindFirstChild("QuinFemale") or QuinTypeFolder:FindFirstChild("QuinMale") or QuinTypeFolder:FindFirstChild("QuinTypeA")
+	local template = nil
+
+	if selectedGender == "Female" then
+		template = Workspace:FindFirstChild("QuinFemale")
+		if not template or #template:GetChildren() <= 1 then
+			template = QuinTypeFolder:FindFirstChild("QuinFemale") or QuinTypeFolder:FindFirstChild("QuinTypeB")
+		end
+	else
+		template = Workspace:FindFirstChild("QuinMale")
+		if not template or #template:GetChildren() <= 1 then
+			local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
+			template = arenaOne and arenaOne:FindFirstChild("QuinMale")
+		end
+		if not template or #template:GetChildren() <= 1 then
+			template = QuinTypeFolder:FindFirstChild("QuinMale") or QuinTypeFolder:FindFirstChild("QuinTypeA")
+		end
 	end
 
 	if not template then
@@ -119,6 +131,18 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 
 	local clone = template:Clone()
 	clone.Name = string.format("Quin_%s_%s", selectedGender, quinInstance.QuinId:sub(-4))
+
+	-- Crucial Rig Sanitation: Ensure RootJoint Part0 and Part1 are strictly internal to the clone
+	local hrp = clone:FindFirstChild("HumanoidRootPart")
+	local surf = clone:FindFirstChild("Alpha_Surface") or clone:FindFirstChild("Beta_Surface") or clone:FindFirstChildWhichIsA("MeshPart")
+	if hrp and surf then
+		local rj = hrp:FindFirstChild("RootJoint")
+		if rj then
+			rj.Part0 = hrp
+			rj.Part1 = surf
+		end
+		clone.PrimaryPart = hrp
+	end
 
 	-- Ensure it goes into a server folder
 	local serverFolder = Workspace:FindFirstChild("QuinServer")
