@@ -1,4 +1,4 @@
-﻿# Python and virtual environments
+# Python and virtual environments
 *.py
 *.pyc
 __pycache__/
@@ -23,3 +23,12 @@ Docs/
 Tests/
 Tools/
 Archive/
+
+# Scratch, backups, and dumps
+*.ps1
+*.txt
+*.rbxmx
+backup_*/
+git_backups/
+studio_pull_*/
+/QuinCore/
