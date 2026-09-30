@@ -13,6 +13,10 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local AudioModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AudioModule"))
 local VfxModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("VfxModule"))
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
+local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
+
+-- Scripted staging walks tick every 0.1s; the shared gait matches the stride to the pace
+local STAGING_TICK = 0.1
 
 local LeaderShowdownSystem = {
 	isActive = false,
@@ -84,9 +88,8 @@ local function walkToPosition(model, targetPos, walkSpeed, lookAtPos, animOverri
 		effectiveSpeed = math.clamp(dist / 4.5, baseSpeed, 32)
 	end
 	hum.WalkSpeed = effectiveSpeed
-
-	local anim = animOverride or "Locomotion.ConfidentWalk"
-	AnimationModule.playConfig(hum, anim, 1.0, Enum.AnimationPriority.Movement)
+	-- Face the direction of travel while walking (states may have AutoRotate off)
+	hum.AutoRotate = true
 
 	hum:MoveTo(Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z))
 
@@ -111,12 +114,14 @@ local function walkToPosition(model, targetPos, walkSpeed, lookAtPos, animOverri
 		if curDist <= 30 and hum.WalkSpeed > baseSpeed then
 			hum.WalkSpeed = baseSpeed
 		end
-		task.wait(0.1)
+		GaitModule.update(hum, hrp, STAGING_TICK)
+		task.wait(STAGING_TICK)
 	end
 	if conn then conn:Disconnect() end
 
 	hum.WalkSpeed = 0
 	hum:MoveTo(hrp.Position)
+	GaitModule.stop(hum, 0.25)
 	AnimationModule.playConfig(hum, "Movement.Idle", 1.0, Enum.AnimationPriority.Idle, true)
 
 	if lookAtPos then
@@ -151,7 +156,7 @@ local function stageQuinToSpot(q, targetPos, walkSpeed, lookAtPos, choosePlatfor
 			local edgeSpot = ARENA_CENTER - (dirToCenter.Unit * (PLATFORM_RADIUS + 1.5))
 			edgeSpot = Vector3.new(edgeSpot.X, GROUND_STAND_Y, edgeSpot.Z)
 
-			AnimationModule.playConfig(hum, "Locomotion.ConfidentWalk", 1.1, Enum.AnimationPriority.Movement)
+			hum.AutoRotate = true
 			hum:MoveTo(edgeSpot)
 
 			local startT = tick()
@@ -160,10 +165,12 @@ local function stageQuinToSpot(q, targetPos, walkSpeed, lookAtPos, choosePlatfor
 			while (tick() - startT) < edgeWait do
 				local d = (Vector2.new(hrp.Position.X - edgeSpot.X, hrp.Position.Z - edgeSpot.Z)).Magnitude
 				if d <= 3.5 then break end
-				task.wait(0.1)
+				GaitModule.update(hum, hrp, STAGING_TICK)
+				task.wait(STAGING_TICK)
 			end
 
 			-- Perform athletic vault / hop onto dais
+			GaitModule.stop(hum, 0.1)
 			AnimationModule.playConfig(hum, "Parkour.VaultObstacle", 1.2, Enum.AnimationPriority.Action)
 			hum.Jump = true
 			
@@ -184,18 +191,18 @@ local function stageQuinToSpot(q, targetPos, walkSpeed, lookAtPos, choosePlatfor
 
 			-- Now on platform: continue walking to the final spectator position
 			AnimationModule.stopConfig(hum, "Parkour.VaultObstacle", 0.1)
-			AnimationModule.playConfig(hum, "Movement.WalkConfident", 1.0, Enum.AnimationPriority.Movement)
 			hum.WalkSpeed = baseSpeed
 			hum:MoveTo(Vector3.new(targetPos.X, PLATFORM_STAND_Y, targetPos.Z))
 			local arriveT = tick()
 			while (tick() - arriveT) < 5.0 do
 				local d = (Vector2.new(hrp.Position.X - targetPos.X, hrp.Position.Z - targetPos.Z)).Magnitude
 				if d <= 2.5 then break end
-				task.wait(0.1)
+				GaitModule.update(hum, hrp, STAGING_TICK)
+				task.wait(STAGING_TICK)
 			end
 		else
 			-- Case 2: Already on platform (rode rising dais), or staying on ground
-			AnimationModule.playConfig(hum, "Locomotion.ConfidentWalk", 1.0, Enum.AnimationPriority.Movement)
+			hum.AutoRotate = true
 			hum:MoveTo(Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z))
 
 			local startT = tick()
@@ -207,13 +214,15 @@ local function stageQuinToSpot(q, targetPos, walkSpeed, lookAtPos, choosePlatfor
 				if d <= 30 and hum.WalkSpeed > baseSpeed then
 					hum.WalkSpeed = baseSpeed
 				end
-				task.wait(0.1)
+				GaitModule.update(hum, hrp, STAGING_TICK)
+				task.wait(STAGING_TICK)
 			end
 		end
 
 		-- Arrived at mark: stop walking, idle
 		hum.WalkSpeed = 0
 		hum:MoveTo(hrp.Position)
+		GaitModule.stop(hum, 0.25)
 		AnimationModule.playConfig(hum, "Movement.Idle", 1.0, Enum.AnimationPriority.Idle, true)
 		q:SetAttribute("ShowdownStaged", true)
 

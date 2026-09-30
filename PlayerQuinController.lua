@@ -14,6 +14,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
 
@@ -42,10 +43,10 @@ local lastRawMoveTime = 0
 local lastChatterTime = 0
 local lastHeadingAngle = nil
 local lastFootstepSmokeTime = 0
+local lastHeadingLook = nil
 local bankLeanAngle = 0
-local smoothedCadenceSpeed = 0
-local lastAppliedRunSpeed = -1
-local lastAppliedWalkSpeed = -1
+local walkMode = false -- Z toggles walking; default pace is jog, Shift runs
+local groundContractConn = nil
 
 -- PlayerQuinController owns intent only. PlayerModule must be disabled while
 -- possessed so it cannot write a second movement vector into the humanoid.
@@ -159,6 +160,13 @@ local function startControlSession(quin)
 	LocomotionModule.resetGroundIntent(activeQuin)
 	AnimationModule.ensureBaseIdle(activeHumanoid)
 
+	-- This client owns the piloted Quin's animation: enforce the ground contract here
+	if groundContractConn then groundContractConn:Disconnect() end
+	local contractQuin = activeQuin
+	groundContractConn = GaitModule.bindGroundContract(activeQuin, activeHumanoid, activeRootPart, function()
+		return contractQuin:GetAttribute("IsPlayerControlled") == true
+	end)
+
 	-- Initialize GASP Runtime & Telemetry overlay
 	if gaspTelemetryEnabled and GASPDebug and GASPRuntime and GASPAssetMap and GASPAssetMap.Enabled == true then
 		pcall(function()
@@ -193,6 +201,11 @@ local function startControlSession(quin)
 		end
 
 
+		-- A committed slide owns the body until it hands back to the gait
+		if LocomotionModule.isSliding(activeQuin) then
+			return
+		end
+
 		-- Skip movement inputs if focused on TextBox
 		if UserInputService:GetFocusedTextBox() then
 			LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, dt)
@@ -226,9 +239,16 @@ local function startControlSession(quin)
 		local isSprint = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
 			or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 			or (activeQuin:GetAttribute("VirtualSprint") == true)
-		local maxPacing = CombatConfig.Locomotion_PacingSpeedMax or 50.0
-		local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
-		local goalSpeed = isSprint and maxPacing or minPacing
+		-- Gait intent: default jog, Z toggles walk, hold Shift to run. The animation
+		-- follows the resulting ground speed through the shared GaitModule blend.
+		local goalSpeed
+		if isSprint then
+			goalSpeed = CombatConfig.Player_RunSpeed or 42.0
+		elseif walkMode or activeQuin:GetAttribute("VirtualWalk") == true then
+			goalSpeed = CombatConfig.Player_WalkSpeed or 7.5
+		else
+			goalSpeed = CombatConfig.Player_JogSpeed or 13.0
+		end
 
 		-- Authoritative speed modulation: targetSpeed is set to goalSpeed,
 		-- and LocomotionModule.modulateSpeed applies the authoritative acceleration curve
@@ -322,56 +342,21 @@ local function startControlSession(quin)
 
 					GASPAnimator.play(activeHumanoid, gaspSnapshot.clip, 0.20, strideScale)
 				end
-			elseif not isAirborne then
+			else
 				-- Fallback to legacy QuinCore animation if GASP is disabled.
+				-- GaitModule self-gates: it never plays ground loops in the air or under a slide.
 				-- Clear stale GASP telemetry so the HUD cannot imply that a quarantined clip is active.
 				activeQuin:SetAttribute("GASPState", "LegacyFallback")
 				activeQuin:SetAttribute("GASPClip", "Legacy AnimationConfig")
 				activeQuin:SetAttribute("GASPSelectionScore", nil)
-				local isStopPlaying = AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun")
-
-				if not isStopPlaying then
-					local desiredAnim = isSprint and "Movement.Run" or "Movement.WalkConfident"
-					if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
-						AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
-						AnimationModule.stop(activeHumanoid, "Idles.ReadyStance", 0.15)
-						AnimationModule.stop(activeHumanoid, "Idles.FightIdle", 0.15)
-						AnimationModule.stop(activeHumanoid, "Idles.CombatIdle", 0.15)
-						AnimationModule.playConfig(activeHumanoid, desiredAnim)
-					end
-
-					-- Athletic Stride Turnover with Exponential Speed Smoothing & Deadband
-					-- (Eliminates micro-jitter from physics contact solver noise resetting animation clocks)
-					local rawSpeed = activeRootPart.AssemblyLinearVelocity.Magnitude
-					smoothedCadenceSpeed = smoothedCadenceSpeed + (rawSpeed - smoothedCadenceSpeed) * (1 - math.exp(-10.0 * dt))
-
-					if desiredAnim == "Movement.Run" and AnimationModule.isPlaying(activeHumanoid, "Movement.Run") then
-						local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
-						local maxPacing = CombatConfig.Locomotion_PacingSpeedMax or 50.0
-						local baseCfgSpeed = AnimationConfig.get("Movement.Run") and AnimationConfig.get("Movement.Run").speed or 1.00
-						local speedFraction = math.clamp((smoothedCadenceSpeed - minPacing) / math.max(1, maxPacing - minPacing), 0.0, 1.0)
-						local dynamicCadence = 0.75 + (0.25 * speedFraction)
-						local dynamicSpeed = math.clamp(baseCfgSpeed * dynamicCadence, 0.70, 1.05)
-						if math.abs(dynamicSpeed - lastAppliedRunSpeed) > 0.02 then
-							lastAppliedRunSpeed = dynamicSpeed
-							AnimationModule.adjustSpeed(activeHumanoid, "Movement.Run", dynamicSpeed)
-						end
-					elseif desiredAnim == "Movement.WalkConfident" and AnimationModule.isPlaying(activeHumanoid, "Movement.WalkConfident") then
-						local strideBase = CombatConfig.WalkStrideBase or 18.5
-						local velRatio = math.clamp(smoothedCadenceSpeed / strideBase, 0.50, 1.10)
-						local baseCfgSpeed = AnimationConfig.get("Movement.WalkConfident") and AnimationConfig.get("Movement.WalkConfident").speed or 1.00
-						local dynamicSpeed = baseCfgSpeed * velRatio
-						if math.abs(dynamicSpeed - lastAppliedWalkSpeed) > 0.02 then
-							lastAppliedWalkSpeed = dynamicSpeed
-							AnimationModule.adjustSpeed(activeHumanoid, "Movement.WalkConfident", dynamicSpeed)
-						end
-					end
+				-- Shared QuinCore gait: synchronized Walk/Run blend space whose cadence is
+				-- derived from real ground speed, identical to the AI Quins.
+				if not AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun") then
+					GaitModule.update(activeHumanoid, activeRootPart, dt)
 				end
 			end
 		else
 			smoothedMoveDir = Vector3.zero
-			lastAppliedRunSpeed = -1
-			lastAppliedWalkSpeed = -1
 			-- Retain lastRawMoveDir across brief key transitions (20-350ms) so WASD multi-taps detect chatter
 			if lastRawMoveTime and (now - lastRawMoveTime) > 0.35 then
 				lastRawMoveDir = nil
@@ -434,6 +419,10 @@ end
 
 local function stopControlSession()
 	setDefaultControlsEnabled(true)
+	if groundContractConn then
+		groundContractConn:Disconnect()
+		groundContractConn = nil
+	end
 	if renderConn then
 		renderConn:Disconnect()
 		renderConn = nil
@@ -467,9 +456,6 @@ local function stopControlSession()
 	shared.PlayerControlledQuin = nil
 	_G.PlayerControlledQuin = nil
 	smoothedMoveDir = Vector3.zero
-	smoothedCadenceSpeed = 0
-	lastAppliedRunSpeed = -1
-	lastAppliedWalkSpeed = -1
 	lastRawMoveDir = nil
 	lastRawMoveTime = 0
 	lastChatterTime = 0
@@ -558,7 +544,12 @@ UserInputService.InputBegan:Connect(function(input, gp)
 
 	-- C: Athletic Ground Slide
 	elseif input.KeyCode == Enum.KeyCode.C then
-		LocomotionModule.slide(activeQuin, activeHumanoid, activeRootPart, lastMoveDir, 0.42)
+		LocomotionModule.slide(activeQuin, activeHumanoid, activeRootPart, lastMoveDir)
+
+	-- Z: toggle walking pace (default pace is jog)
+	elseif input.KeyCode == Enum.KeyCode.Z then
+		walkMode = not walkMode
+		activeQuin:SetAttribute("WalkMode", walkMode)
 
 	-- Q or E: Dash burst
 	elseif input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E then

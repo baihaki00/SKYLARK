@@ -20,6 +20,7 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 
 -- Dynamic combat animation pools: directly hot-swappable via AnimationConfig!
 local function getLiveAttacks()
@@ -307,8 +308,9 @@ end
 
 function FightState.enter(fighter, humanoid, rootPart)
 	RuntimeTracer.checkpoint(fighter, "Enter FightState")
-	humanoid.WalkSpeed = 0
-	AnimationModule.stop(humanoid, AnimationIds.Run, 0.2)
+	-- Momentum continuity (Rule 3): no speed snap on entry. The distance-management
+	-- brake decelerates the body while the shared gait keeps stepping (or the StopRun
+	-- plant plays from a sprint), so Chase -> Fight reads as one braking motion.
 	AnimationModule.stop(humanoid, AnimationIds.Fall, 0.2)
 	AnimationModule.stop(humanoid, AnimationIds.Jump, 0.2)
 	AnimationModule.playConfig(humanoid, "Idles.CombatIdle", 1.0, Enum.AnimationPriority.Idle, true)
@@ -527,17 +529,15 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	-- Distance management
 	local idealRange = CombatConfig.CombatRange or 8
+	local locoDt = math.clamp(now - (data.lastLocoTime or (now - 0.05)), 1 / 60, 0.25)
+	data.lastLocoTime = now
 	if distance > idealRange + 1.5 then
-		local dir = (targetHRP.Position - rootPart.Position).Unit
-		humanoid.WalkSpeed = fighter:GetAttribute("Speed") or 40
-		humanoid:MoveTo(rootPart.Position + dir * 5)
-		
-		if not AnimationModule.isPlaying(humanoid, AnimationIds.Run) then
-			AnimationModule.playConfig(humanoid, "Movement.Run", 1.0, Enum.AnimationPriority.Movement, false)
-		end
+		-- Close the gap through the shared locomotion path (acceleration, turn rate, gait)
+		LocomotionModule.steer(fighter, humanoid, rootPart, targetHRP.Position, fighter:GetAttribute("Speed") or 40, locoDt)
+		GaitModule.update(humanoid, rootPart, locoDt)
 	elseif distance < (CombatConfig.Melee_SweetSpotMin or 4.5) then
 		-- Point blank overlap: smooth physics micro-slide with momentum continuity
-		LocomotionModule.brake(fighter, humanoid, rootPart)
+		LocomotionModule.brake(fighter, humanoid, rootPart, locoDt)
 		local awayDir = (rootPart.Position - targetHRP.Position)
 		local awayFlat = Vector3.new(awayDir.X, 0, awayDir.Z)
 		if awayFlat.Magnitude > 0.01 then
@@ -545,7 +545,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	else
 		-- Inside the combat sweet spot: hold stance firmly with momentum continuity
-		LocomotionModule.brake(fighter, humanoid, rootPart)
+		LocomotionModule.brake(fighter, humanoid, rootPart, locoDt)
 	end
 	
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0

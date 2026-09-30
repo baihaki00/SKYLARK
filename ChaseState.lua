@@ -15,6 +15,7 @@ local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local BattleEventSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 
 local function findModelByName(name)
@@ -35,6 +36,7 @@ end
 local ChaseState = { name = "Chase" }
 
 -- JumpHandler routed through authoritative LocomotionModule (Rule 4 & Rule 6)
+local JumpHandler = LocomotionModule
 local chaseData = setmetatable({}, { __mode = "k" })
 
 local function selectPacingStrategy(fighter)
@@ -142,7 +144,9 @@ end
 function ChaseState.exit(fighter, humanoid, rootPart)
 	local data = chaseData[fighter]
 	if data then
-		if data.currentAnim then
+		if data.currentAnim == "Gait" then
+			GaitModule.stop(humanoid, 0.3)
+		elseif data.currentAnim then
 			AnimationModule.stop(humanoid, data.currentAnim, 0.3)
 		end
 		if data.turnAnim then
@@ -698,43 +702,20 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.pushOffAnim = nil
 	end
 
-	if data.currentAnim ~= desiredAnim then
+	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
+	if desiredAnim == "Movement.Run" or desiredAnim == "Movement.WalkConfident" then
+		-- Base gait: shared stride-matched Walk/Run blend driven by real ground speed
+		data.currentAnim = "Gait"
+		if not isFreefall then
+			GaitModule.update(humanoid, rootPart, dt)
+		end
+	elseif data.currentAnim ~= desiredAnim then
 		data.currentAnim = desiredAnim
 		AnimationModule.playConfig(humanoid, data.currentAnim)
-	else
-		local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
-		if not isFreefall and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
-			-- Locomotion track was interrupted (hit reaction / reaction overlay);
-			-- re-assert it so the Quin does not glide like a statue while still translating.
-			AnimationModule.playConfig(humanoid, data.currentAnim)
-		end
-	end
-
-	-- Dynamic Foot-Sync & Organic Acceleration Speed Ramp:
-	-- Dynamic Stride Scaling & Foot-Sync:
-	-- Scale playback speed proportional to actual ground velocity, easing in from slow push-off to baseline 1.00x
-	if (desiredAnim == "Movement.Run" or desiredAnim == "Movement.WalkConfident") and AnimationModule.isPlaying(humanoid, desiredAnim) then
-		local isRun = (desiredAnim == "Movement.Run")
-		local strideBase = isRun and (CombatConfig.RunStrideBase or 50.0) or (CombatConfig.WalkStrideBase or 18.5)
-		local ratio = math.clamp(currentSpeed / strideBase, isRun and 0.35 or 0.50, isRun and 1.00 or 1.10)
-		local baseCfgSpeed = AnimationConfig.get(desiredAnim) and AnimationConfig.get(desiredAnim).speed or 1.00
-
-		if isRun then
-			if not data.runStartTime then
-				data.runStartTime = now
-			end
-			local elapsed = math.clamp(now - data.runStartTime, 0, 0.48)
-			local rampProgress = elapsed / 0.48
-			local rampEase = rampProgress * rampProgress * (3 - 2 * rampProgress)
-			local rampFactor = 0.45 + (0.55 * rampEase)
-			local dynamicSpeed = math.clamp(baseCfgSpeed * ratio * rampFactor, 0.35, 1.00)
-			AnimationModule.adjustSpeed(humanoid, desiredAnim, dynamicSpeed)
-		else
-			data.runStartTime = nil
-			AnimationModule.adjustSpeed(humanoid, desiredAnim, baseCfgSpeed * ratio)
-		end
-	else
-		data.runStartTime = nil
+	elseif not isFreefall and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
+		-- Locomotion overlay was interrupted (hit reaction / reaction overlay);
+		-- re-assert it so the Quin does not glide like a statue while still translating.
+		AnimationModule.playConfig(humanoid, data.currentAnim)
 	end
 	
 	-- Energy drain and recovery scaled with speedMult
@@ -895,7 +876,6 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Authoritative single-driver steering & speed modulation
 	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, targetSpeed, dt)
 	
-	
 	-- Fall & landing animation
 	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
 	local isGrounded = SpatialModule.isGrounded(rootPart)
@@ -914,7 +894,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				data.wasOnPlatform = false
 				-- No automatic soft landing overlay; resume the current locomotion below.
 			end
-			if data.currentAnim then
+			if data.currentAnim == "Gait" then
+				GaitModule.update(humanoid, rootPart, dt)
+			elseif data.currentAnim then
 				AnimationModule.playConfig(humanoid, data.currentAnim)
 			end
 		end

@@ -37,6 +37,7 @@ local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild(
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 
 -- === STATE MODULES ===
 local statesFolder = QuinCore:WaitForChild("States") 
@@ -105,6 +106,13 @@ end
 if not Quin:GetAttribute("IsPlayerControlled") and currentState.enter then
 	currentState.enter(Quin, humanoid, rootPart)
 end
+
+-- Ground contract for every state: ground loops (walk/jog/run/strafe) never play in the
+-- air; the Fall pose covers the body until touchdown. The piloting client enforces it
+-- while a player owns this Quin.
+GaitModule.bindGroundContract(Quin, humanoid, rootPart, function()
+	return Quin:GetAttribute("IsPlayerControlled") ~= true
+end)
 
 -- If this Quin becomes possessed by a human player, immediately kill server animation tracks
 Quin:GetAttributeChangedSignal("IsPlayerControlled"):Connect(function()

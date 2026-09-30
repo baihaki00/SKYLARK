@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 
 local LeaderShowdownState = { name = "LeaderShowdown" }
 
@@ -51,11 +52,10 @@ function LeaderShowdownState.enter(fighter, humanoid, rootPart)
 		elseif quirky == "Showoff" then
 			AnimationModule.playConfig(humanoid, "Emotes.Victory", 1.0, Enum.AnimationPriority.Action)
 		else
-			AnimationModule.playIdle(humanoid, 0.9)
+			AnimationModule.ensureBaseIdle(humanoid)
 		end
-	elseif role == "Duelist" then
-		AnimationModule.playConfig(humanoid, "Locomotion.ConfidentWalk", 1.1, Enum.AnimationPriority.Movement)
 	end
+	-- Duelists are walked to their marks by LeaderShowdownSystem (shared gait)
 end
 
 function LeaderShowdownState.exit(fighter, humanoid, rootPart)
@@ -132,7 +132,9 @@ function LeaderShowdownState.update(fighter, humanoid, rootPart, DEBUG)
 			if humanoid.WalkSpeed > 0 then
 				humanoid.WalkSpeed = 0
 				humanoid:MoveTo(rootPart.Position)
-				AnimationModule.playIdle(humanoid, 0.9)
+				humanoid.AutoRotate = false
+				GaitModule.stop(humanoid, 0.25)
+				AnimationModule.ensureBaseIdle(humanoid)
 			end
 			local lookAtCF = CFrame.lookAt(rootPart.Position, Vector3.new(ARENA_CENTER.X, rootPart.Position.Y, ARENA_CENTER.Z))
 			rootPart.CFrame = rootPart.CFrame:Lerp(lookAtCF, 0.15)
@@ -140,9 +142,12 @@ function LeaderShowdownState.update(fighter, humanoid, rootPart, DEBUG)
 			-- In transit: walk naturally towards designated mark (no teleporting)
 			if humanoid.WalkSpeed <= 1 then
 				humanoid.WalkSpeed = 16
+				humanoid.AutoRotate = true -- face the direction of travel while walking
 				humanoid:MoveTo(Vector3.new(desiredPos.X, rootPart.Position.Y, desiredPos.Z))
-				AnimationModule.playConfig(humanoid, "Locomotion.ConfidentWalk", 1.0, Enum.AnimationPriority.Movement)
 			end
+			local locoDt = math.clamp(now - (data.lastLocoTime or (now - 0.05)), 1 / 60, 0.25)
+			data.lastLocoTime = now
+			GaitModule.update(humanoid, rootPart, locoDt)
 		end
 
 		-- Quirky periodic behavioral flair
@@ -158,7 +163,7 @@ function LeaderShowdownState.update(fighter, humanoid, rootPart, DEBUG)
 				rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, jitter, 0)
 			elseif quirky == "Observer" then
 				-- Calm head tracking
-				AnimationModule.playIdle(humanoid, 0.85)
+				AnimationModule.ensureBaseIdle(humanoid)
 			elseif quirky == "Lazy" and platformStatus == "OnGround" then
 				-- Keep relaxed sitting posture
 				pcall(function() humanoid.Sit = true end)

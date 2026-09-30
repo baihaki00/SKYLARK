@@ -10,6 +10,7 @@ local Workspace = game:GetService("Workspace")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
@@ -172,6 +173,10 @@ function WallRunState.exit(fighter, humanoid, rootPart)
 	if existingLv then existingLv:Destroy() end
 	local existingAtt = rootPart:FindFirstChild("WallRun_Att")
 	if existingAtt then existingAtt:Destroy() end
+
+	-- Release the wall-run stride; the next state's driver resumes the ground gait
+	-- (or the ground contract covers the dismount with the Fall pose)
+	GaitModule.stop(humanoid, 0.15)
 
 	-- Restore humanoid properties
 	humanoid.AutoRotate = true

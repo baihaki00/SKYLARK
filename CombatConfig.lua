@@ -249,6 +249,10 @@ local CombatConfig = {
 	Locomotion_JumpDebounce = 1.0,           -- seconds minimum between successive jumps
 	Locomotion_LandingRetention = 0.88,      -- ratio of horizontal velocity preserved on landing (88%)
 	Locomotion_SkidSpeedThreshold = 14.0,    -- studs/s minimum speed to trigger dynamic braking skid
+	Locomotion_TurnRateSlow = 14.0,          -- rad/s heading-change ceiling at walking pace (nimble pivots)
+	Locomotion_TurnRateFast = 5.5,           -- rad/s heading-change ceiling at full sprint (momentum widens the arc)
+	Locomotion_TurnRateSlowSpeed = 8.0,      -- studs/s at or below which the slow-pace ceiling applies
+	Locomotion_TurnRateFastSpeed = 44.0,     -- studs/s at or above which the sprint ceiling applies
 	EnableOpeningProjectileJump = false,     -- Permanently ban start-of-match projectile jumps; grounded charges first
 
 	-- Melee Sweet-Spot & Transitions (Single Source of Truth)
@@ -258,8 +262,43 @@ local CombatConfig = {
 	Melee_SlideSpeed = 10.0,                 -- studs/s micro-slide spacing adjustment
 
 	-- Continuous Locomotion Synthesis & Stride Scaling (Step 1 & 2)
-	WalkStrideBase = 18.5,                   -- studs/s baseline stride speed for WalkConfident (matches Locomotion_PacingSpeedMin)
-	RunStrideBase = 50.0,                    -- studs/s baseline stride speed for Run (matches Locomotion_PacingSpeedMax)
+	WalkStrideBase = 18.5,                   -- legacy tuning reference (banking speed ratio, AnimationLab); NOT the clip's stride speed
+	RunStrideBase = 50.0,                    -- legacy tuning reference (banking speed ratio, AnimationLab); NOT the clip's stride speed
+
+	-- Shared Gait Blend Space (GaitModule): Walk -> Jog -> Run. Authored speeds and plant phases
+	-- are measured by sampling each clip on the Quin rig (planted-foot velocity at 1.0x, and the
+	-- normalized time of the left-foot plant). Re-measure if a clip or the rig scale changes.
+	Gait_WalkAuthoredSpeed = 6.90,           -- studs/s ground speed of Movement.WalkConfident at 1.0x
+	Gait_JogAuthoredSpeed = 8.4,             -- studs/s ground speed of Movement.Jog at 1.0x (calibrated in-game)
+	Gait_RunAuthoredSpeed = 26.8,            -- studs/s ground speed of Movement.Run at 1.0x (calibrated in-game)
+	Gait_WalkPlantPhase = 0.31,              -- normalized time of the left-foot plant in Walk
+	Gait_JogPlantPhase = 0.34,               -- normalized time of the left-foot plant in Jog
+	Gait_RunPlantPhase = 0.46,               -- normalized time of the left-foot plant in Run
+	Gait_WalkToJogStart = 7.5,               -- studs/s where Jog starts blending in over Walk
+	Gait_WalkToJogEnd = 10.0,                -- studs/s where the blend is fully Jog
+	Gait_JogToRunStart = 15.0,               -- studs/s where Run starts blending in over Jog
+	Gait_JogToRunEnd = 26.0,                 -- studs/s where the blend is fully Run
+	Gait_MinPlayRate = 0.60,                 -- cadence floor for the dominant clip (avoids slow-motion legs)
+	Gait_MaxPlayRate = 1.50,                 -- cadence ceiling for the dominant clip (above this the feet slide a little instead of flailing)
+	Gait_IdleBlendSpeed = 3.0,               -- studs/s by which the gait fully covers the idle pose underneath
+
+	-- Player pilot gait speeds (Z toggles walk, default jog, hold Shift to run)
+	Player_WalkSpeed = 7.5,                  -- studs/s walking (Walk clip ~1.1x)
+	Player_JogSpeed = 12.0,                  -- studs/s jogging (Jog clip ~1.43x)
+	Player_RunSpeed = 40.0,                  -- studs/s running (Run clip ~1.49x; above ~40 the feet start to slide)
+
+	-- Run Slide (Movement.Slide). Times are in clip seconds at 1.0x, read from the clip's markers
+	-- and pose profile: run stride -> StartSlide drop -> low glide -> SlideStop rise -> run strides.
+	Slide_AnimRate = 1.15,                   -- playback rate of the slide clip
+	Slide_DropTime = 0.10,                   -- clip time of the StartSlide marker (body leaves the run)
+	Slide_StopTime = 1.07,                   -- clip time of the SlideStop marker (body rises out of the glide)
+	Slide_ExitTime = 1.38,                   -- clip time at which the gait takes back over (clip is in run strides here)
+	Slide_ExitGaitPhase = 0.35,              -- canonical gait phase that matches the clip pose at Slide_ExitTime
+	Slide_ExitFade = 0.18,                   -- crossfade from the slide clip back into the gait
+	Slide_MinEntrySpeed = 30.0,              -- studs/s the glide starts at even from a jog
+	Slide_EntryBoost = 1.10,                 -- multiplier on current speed when the glide starts
+	Slide_EndSpeedRatio = 0.55,              -- fraction of glide start speed left at SlideStop (friction)
+	Slide_MinStartSpeed = 8.0,               -- studs/s minimum ground speed to start a slide
 	TorsoBankingMaxRoll = 15.0,              -- degrees max lateral roll bank into turns
 	TorsoBankingResponsiveness = 14.0,       -- lerp responsiveness for centripetal roll
 	TurnMassDropMax = 0.20,                  -- max pelvis dip (studs) during sharp turns

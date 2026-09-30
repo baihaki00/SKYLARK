@@ -21,6 +21,7 @@ local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("Run
 local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local RetreatTacticsModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("RetreatTacticsModule"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 
 local RetreatState = { name = "Retreat" }
 local retreatData = setmetatable({}, { __mode = "k" })
@@ -120,7 +121,9 @@ end
 
 function RetreatState.exit(fighter, humanoid, rootPart)
 	local data = retreatData[fighter]
-	if data and data.currentAnim then
+	if data and data.currentAnim == "Gait" then
+		GaitModule.stop(humanoid, 0.15)
+	elseif data and data.currentAnim then
 		AnimationModule.stopConfig(humanoid, data.currentAnim, 0.15)
 	end
 
@@ -404,14 +407,18 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	else
 		desiredAnim = "Movement.Run"
 	end
-	if data.currentAnim ~= desiredAnim then
+	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
+	if desiredAnim == "Movement.Run" then
+		-- Base gait: shared stride-matched Walk/Run blend driven by real ground speed
+		data.currentAnim = "Gait"
+		if not isFreefall then
+			GaitModule.update(humanoid, rootPart, dt)
+		end
+	elseif data.currentAnim ~= desiredAnim then
 		data.currentAnim = desiredAnim
 		AnimationModule.playConfig(humanoid, desiredAnim)
-	else
-		local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
-		if not isFreefall and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
-			AnimationModule.playConfig(humanoid, data.currentAnim)
-		end
+	elseif not isFreefall and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
+		AnimationModule.playConfig(humanoid, data.currentAnim)
 	end
 
 	-- Compute dynamic arcTarget on every single tick
@@ -457,4 +464,3 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 end
 
 return RetreatState
-

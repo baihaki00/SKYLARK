@@ -14,6 +14,7 @@ local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("A
 local AnimationIds = require(QuinCore:WaitForChild("AnimationIds"))
 local AudioModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AudioModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 
 local ReEntryState = { name = "ReEntry" }
 
@@ -46,9 +47,8 @@ function ReEntryState.enter(fighter, humanoid, rootPart)
 		lastFootstepTime = 0,
 	}
 
-	-- Start Phase 1: Confident Walk
+	-- Start Phase 1: approach stride (the shared gait matches the clip to the pace)
 	humanoid.WalkSpeed = 14
-	AnimationModule.play(humanoid, AnimationIds.WalkConfident or AnimationIds.WalkThug, Enum.AnimationPriority.Action2, true, 1.0)
 	humanoid:Move(dirToCenter)
 
 	print(string.format("[ReEntryState] %s entered Cinematic Re-Entry! Facing arena center from (%.1f, %.1f, %.1f)", 
@@ -58,9 +58,7 @@ end
 function ReEntryState.exit(fighter, humanoid, rootPart)
 	local data = reEntryData[fighter]
 	if data then
-		AnimationModule.stop(humanoid, AnimationIds.WalkConfident, 0.15)
-		AnimationModule.stop(humanoid, AnimationIds.WalkThug, 0.15)
-		AnimationModule.stop(humanoid, AnimationIds.Run, 0.15)
+		GaitModule.stop(humanoid, 0.15)
 		AnimationModule.stop(humanoid, AnimationIds.Jump, 0.15)
 		AnimationModule.stop(humanoid, AnimationIds.Fall, 0.15)
 	end
@@ -90,6 +88,8 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 	local now = tick()
 	local totalElapsed = now - data.enterTime
 	local phaseElapsed = now - data.phaseStartTime
+	local locoDt = math.clamp(now - (data.lastLocoTime or (now - 0.05)), 1 / 60, 0.25)
+	data.lastLocoTime = now
 
 	-- Global Safety Timeout (7 seconds): Emergency teleport inside if anything stalled
 	if totalElapsed > 7.0 then
@@ -112,6 +112,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 		humanoid.WalkSpeed = 14
 		humanoid:Move(data.dirToCenter)
 		rootPart.CFrame = CFrame.lookAt(currentPos, currentPos + data.dirToCenter)
+		GaitModule.update(humanoid, rootPart, locoDt)
 
 		if now - data.lastFootstepTime > 0.4 then
 			data.lastFootstepTime = now
@@ -122,9 +123,6 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 			-- Transition to Phase 2: Run Acceleration
 			data.phase = "run"
 			data.phaseStartTime = now
-			AnimationModule.stop(humanoid, AnimationIds.WalkConfident, 0.1)
-			AnimationModule.stop(humanoid, AnimationIds.WalkThug, 0.1)
-			AnimationModule.play(humanoid, AnimationIds.Run, Enum.AnimationPriority.Action2, true, 1.3)
 			humanoid.WalkSpeed = 38
 			print(string.format("[ReEntryState] %s accelerating into run sprint toward wall!", fighter.Name))
 		end
@@ -136,6 +134,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 		humanoid.WalkSpeed = 38
 		humanoid:Move(data.dirToCenter)
 		rootPart.CFrame = CFrame.lookAt(currentPos, currentPos + data.dirToCenter)
+		GaitModule.update(humanoid, rootPart, locoDt)
 
 		if now - data.lastFootstepTime > 0.25 then
 			data.lastFootstepTime = now
@@ -148,7 +147,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 			data.phaseStartTime = now
 			data.hasLeaped = true
 
-			AnimationModule.stop(humanoid, AnimationIds.Run, 0.1)
+			GaitModule.stop(humanoid, 0.1)
 			AnimationModule.play(humanoid, AnimationIds.Jump or AnimationIds.Uppercut, Enum.AnimationPriority.Action3, false, 1.2)
 
 			-- Sound & Audio
