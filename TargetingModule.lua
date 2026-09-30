@@ -5,6 +5,7 @@
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 
 local TargetingModule = {}
 
@@ -90,6 +91,18 @@ function TargetingModule.selectTarget(quinModel, localState)
 			local targetHp = cand.healthRatio or 1.0
 			local isIsolated = cand.isIsolated or false
 
+			-- 0. Line of Sight / 8-Stud Quin Occlusion Score:
+			-- Quins stand 8 studs tall; they cannot see through solid geometry.
+			-- Occluded enemies receive a major penalty unless in close proximity (<= 12 studs) where audio/vibration reveals them.
+			local hasLoS = cand.hasLineOfSight
+			if hasLoS == nil then
+				local myEye = SpatialModule.getEyePosition(rootPart)
+				local oEye = SpatialModule.getEyePosition(model.HumanoidRootPart)
+				hasLoS = SpatialModule.checkLineOfSight(myEye, oEye, { quinModel, model })
+				cand.hasLineOfSight = hasLoS
+			end
+			local losScore = hasLoS and 25 or (dist <= 12 and -15 or -60)
+
 			-- 1. Distance Score: exponential decay with distance (closer = higher utility)
 			local distScore = 100 * math.exp(-dist / 35)
 
@@ -161,7 +174,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				tauntScore = 60 * (1 + (aggression - 0.5) * 0.8)
 			end
 
-			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore
+			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore
 
 			if utility > bestUtility then
 				bestUtility = utility
@@ -175,6 +188,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				if teamRoleScore > 20 then table.insert(reasons, string.format("Team role (%s)", tostring(teamRole))) end
 				if isIsolated then table.insert(reasons, "Target isolated") end
 				if targetHp < 0.45 then table.insert(reasons, string.format("Target HP %.0f%%", targetHp * 100)) end
+				if not hasLoS then table.insert(reasons, "Occluded (broken LoS)") end
 				if isCurrent then table.insert(reasons, "Target persistence") end
 				if dist <= 15 then table.insert(reasons, string.format("Close range (%.1f studs)", dist)) end
 				if rearThreatScore > 15 then table.insert(reasons, "Immediate rear threat") end
@@ -188,9 +202,22 @@ function TargetingModule.selectTarget(quinModel, localState)
 	end
 
 	if bestCandidate then
+		local bestHasLoS = false
+		for _, c in ipairs(candidates) do
+			if c.model == bestCandidate then
+				bestHasLoS = (c.hasLineOfSight == true)
+				break
+			end
+		end
+
 		quinModel:SetAttribute("CurrentTarget", bestCandidate.Name)
 		quinModel:SetAttribute("LastTargetName", bestCandidate.Name)
 		quinModel:SetAttribute("TargetReason", bestReason)
+		quinModel:SetAttribute("TargetHasLoS", bestHasLoS)
+		if bestHasLoS then
+			quinModel:SetAttribute("LastSeenTargetPosition", bestCandidate.HumanoidRootPart.Position)
+			quinModel:SetAttribute("TimeLastSeen", os.clock())
+		end
 	end
 
 	return bestCandidate, bestUtility, bestReason
@@ -246,7 +273,9 @@ function TargetingModule.getNearest(rootPart, maxRange)
 			end
 		end
 	end
-	local nearest, nearestDist = nil, math.huge
+	local nearestVisible, nearestVisibleDist = nil, math.huge
+	local nearestAny, nearestAnyDist = nil, math.huge
+	local myEyePos = SpatialModule.getEyePosition(rootPart)
 	
 	for _, enemy in ipairs(enemies) do
 		if enemy ~= myModel and enemy.Parent then
@@ -268,9 +297,18 @@ function TargetingModule.getNearest(rootPart, maxRange)
 
 					if not isShowdownForbidden then
 						local d = (eRoot.Position - rootPart.Position).Magnitude
-						if d < nearestDist and d <= maxRange then
-							nearest = enemy
-							nearestDist = d
+						if d <= maxRange then
+							if d < nearestAnyDist then
+								nearestAny = enemy
+								nearestAnyDist = d
+							end
+							local eEyePos = SpatialModule.getEyePosition(eRoot)
+							if SpatialModule.checkLineOfSight(myEyePos, eEyePos, { myModel, enemy }) then
+								if d < nearestVisibleDist then
+									nearestVisible = enemy
+									nearestVisibleDist = d
+								end
+							end
 						end
 					end
 				end
@@ -278,7 +316,10 @@ function TargetingModule.getNearest(rootPart, maxRange)
 		end
 	end
 	
-	return nearest, nearestDist
+	if nearestVisible then
+		return nearestVisible, nearestVisibleDist
+	end
+	return nearestAny, nearestAnyDist
 end
 
 -- Get all enemies within range

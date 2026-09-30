@@ -283,14 +283,35 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local now = tick()
 
 	-- === 4. Line-of-Sight (LoS) & Last Known Position (LKP) Tracking (Sections 41 & 44) ===
-	local hasLoS = SpatialModule.checkLineOfSight(rootPart.Position + Vector3.new(0, 2.5, 0), targetHRP.Position + Vector3.new(0, 2.5, 0), { fighter, target })
+	local myEyePos = SpatialModule.getEyePosition(rootPart)
+	local tgtEyePos = SpatialModule.getEyePosition(targetHRP)
+	local hasLoS = SpatialModule.checkLineOfSight(myEyePos, tgtEyePos, { fighter, target })
 	if hasLoS then
 		data.targetLKP = targetHRP.Position
 		data.lastLoSTime = now
+		data.surveyingAtLKP = nil
 		fighter:SetAttribute("TargetHasLoS", true)
+		fighter:SetAttribute("LastSeenTargetPosition", targetHRP.Position)
+		fighter:SetAttribute("TimeLastSeen", now)
 	else
 		fighter:SetAttribute("TargetHasLoS", false)
-		data.targetLKP = data.targetLKP or targetHRP.Position
+		local savedLKP = fighter:GetAttribute("LastSeenTargetPosition")
+		data.targetLKP = data.targetLKP or savedLKP or targetHRP.Position
+
+		-- Check if arrived at LKP without sighting target (target escaped behind obstacle)
+		local distToLKP = (data.targetLKP - rootPart.Position).Magnitude
+		if distToLKP <= 7.0 then
+			if not data.surveyingAtLKP then
+				data.surveyingAtLKP = now
+				AnimationModule.playConfig(humanoid, "Idles.SurveyIdle", 1.2, Enum.AnimationPriority.Action2, false)
+			elseif (now - data.surveyingAtLKP) >= 0.9 then
+				data.surveyingAtLKP = nil
+				data.targetLKP = nil
+				fighter:SetAttribute("CurrentTarget", nil)
+				fighter:SetAttribute("TargetQuin", nil)
+				return require(script.Parent:WaitForChild("IdleState"))
+			end
+		end
 	end
 
 	-- === 5. Chase Commitment & Pursuit Abandonment (Sections 9-11) ===
@@ -345,21 +366,29 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- Pursuit Abandonment: Target reached squad ambush (1v3+) and commitment is broken
-	if not inShowdown and commitment < 0.30 then
+	-- Only applies when actually closing in (distance <= 45 studs) and local allies are outnumbered!
+	if not inShowdown and commitment < 0.30 and distance <= 45.0 then
 		local targetTeam = target:GetAttribute("Team")
+		local myTeam = fighter:GetAttribute("Team")
 		local targetAllies = 0
+		local myAllies = 0
 		for _, q in ipairs(CollectionService:GetTagged("Quin")) do
-			if q ~= target and q.Parent and q:FindFirstChild("HumanoidRootPart") then
+			if q.Parent and q:FindFirstChild("HumanoidRootPart") then
 				local qHum = q:FindFirstChildOfClass("Humanoid")
-				if qHum and qHum.Health > 0 and q:GetAttribute("Team") == targetTeam then
-					if (q.HumanoidRootPart.Position - targetHRP.Position).Magnitude <= 24 then
-						targetAllies = targetAllies + 1
+				if qHum and qHum.Health > 0 then
+					local qDist = (q.HumanoidRootPart.Position - targetHRP.Position).Magnitude
+					if qDist <= 24 then
+						if q:GetAttribute("Team") == targetTeam and q ~= target then
+							targetAllies = targetAllies + 1
+						elseif q:GetAttribute("Team") == myTeam and q ~= fighter then
+							myAllies = myAllies + 1
+						end
 					end
 				end
 			end
 		end
 
-		if targetAllies >= 2 then
+		if targetAllies >= 2 and myAllies < targetAllies then
 			BattleEventSystem.emit("CHASE_ABANDONED", {
 				QuinId = fighter:GetAttribute("QuinId") or fighter.Name,
 				Model = fighter,

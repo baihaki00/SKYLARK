@@ -78,14 +78,14 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 		rightAtt.Position = Vector3.new(0.85, -2.6, 0)
 		self.rightFootAtt = rightAtt
 
-		-- Forward Knee Pole Attachments: local -Z is forward in Roblox coordinate space!
+		-- Forward Knee Pole Attachments: local +Z is forward in Quin rig space!
 		local leftPole = attParent:FindFirstChild("GhostLeftKneePoleAtt")
 		if not leftPole or not leftPole:IsA("Attachment") then
 			leftPole = Instance.new("Attachment")
 			leftPole.Name = "GhostLeftKneePoleAtt"
 			leftPole.Parent = attParent
 		end
-		leftPole.Position = Vector3.new(-0.85, -1.8, -2.5) -- -Z is FORWARD in Roblox coordinate space!
+		leftPole.Position = Vector3.new(-0.85, -1.8, 2.5) -- +Z is FORWARD in Quin coordinate space!
 		self.leftPoleAtt = leftPole
 
 		local rightPole = attParent:FindFirstChild("GhostRightKneePoleAtt")
@@ -94,7 +94,7 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 			rightPole.Name = "GhostRightKneePoleAtt"
 			rightPole.Parent = attParent
 		end
-		rightPole.Position = Vector3.new(0.85, -1.8, -2.5) -- -Z is FORWARD
+		rightPole.Position = Vector3.new(0.85, -1.8, 2.5) -- +Z is FORWARD
 		self.rightPoleAtt = rightPole
 
 		if self.leftUpLegBone and self.leftFootBone then
@@ -103,7 +103,7 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 				leftIK = Instance.new("IKControl")
 			end
 			leftIK.Name = "GhostLeftFootIK"
-			leftIK.Type = Enum.IKControlType.Transform -- Transform preserves author-keyed forward foot angle
+			leftIK.Type = Enum.IKControlType.Position -- Position solves ankle reach while preserving natural foot rotation
 			leftIK.ChainRoot = self.leftUpLegBone
 			leftIK.EndEffector = self.leftFootBone
 			leftIK.Target = leftAtt
@@ -121,7 +121,7 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 				rightIK = Instance.new("IKControl")
 			end
 			rightIK.Name = "GhostRightFootIK"
-			rightIK.Type = Enum.IKControlType.Transform -- Transform preserves author-keyed forward foot angle
+			rightIK.Type = Enum.IKControlType.Position -- Position solves ankle reach while preserving natural foot rotation
 			rightIK.ChainRoot = self.rightUpLegBone
 			rightIK.EndEffector = self.rightFootBone
 			rightIK.Target = rightAtt
@@ -265,8 +265,9 @@ function ProceduralCombatReactionController:update(dt)
 
 	-- 3. Airborne Velocity Orientation & Ground Impact Detection
 	local rootVel = self.rootPart.AssemblyLinearVelocity
+	local flatVel = Vector3.new(rootVel.X, 0, rootVel.Z)
 	local velY = rootVel.Y
-	local speed = rootVel.Magnitude
+	local speed = flatVel.Magnitude
 	local isAirborne = false
 
 	local serverState = serverModel and serverModel:GetAttribute("CurrentState") or ""
@@ -361,6 +362,17 @@ function ProceduralCombatReactionController:update(dt)
 		self.turnMassDrop = 0
 		self.turnInwardLean = 0
 
+		-- Procedural Hip & Spine Twist (Strafing & Turning)
+		local localVel = self.rootPart.CFrame:VectorToObjectSpace(flatVel)
+		local moveAngle = 0
+		if localVel.Magnitude > 2.0 then
+			moveAngle = math.atan2(localVel.X, -localVel.Z)
+		end
+		local targetHipsYaw = moveAngle * 0.38
+		local targetSpineYaw = -targetHipsYaw * 0.85
+		self.locomotionHipsYaw = (self.locomotionHipsYaw or 0) + (targetHipsYaw - (self.locomotionHipsYaw or 0)) * (1 - math.exp(-12.0 * dt))
+		self.locomotionSpineYaw = (self.locomotionSpineYaw or 0) + (targetSpineYaw - (self.locomotionSpineYaw or 0)) * (1 - math.exp(-12.0 * dt))
+
 		local skidPitch = 0
 		if isSkidding then
 			local p = math.clamp(skidElapsed / skidDur, 0, 1)
@@ -387,6 +399,8 @@ function ProceduralCombatReactionController:update(dt)
 		self.turnMassDrop = (self.turnMassDrop or 0) * math.exp(-8.0 * dt)
 		self.turnInwardLean = (self.turnInwardLean or 0) * math.exp(-10.0 * dt)
 		self.locomotionPitch = (self.locomotionPitch or 0) * math.exp(-10.0 * dt)
+		self.locomotionHipsYaw = (self.locomotionHipsYaw or 0) * math.exp(-10.0 * dt)
+		self.locomotionSpineYaw = (self.locomotionSpineYaw or 0) * math.exp(-10.0 * dt)
 		if self.rootPart then
 			local currentLook = self.rootPart.CFrame.LookVector
 			local flatLook = Vector3.new(currentLook.X, 0, currentLook.Z)
@@ -412,12 +426,13 @@ function ProceduralCombatReactionController:update(dt)
 	local headRoll  = self.currentRoll + self.airRoll
 
 	-- Hierarchical distribution across spine chain:
-	-- Spine (lower): 30% Pitch, 35% Roll, 25% Yaw
-	-- Spine1 (mid):   35% Pitch, 35% Roll, 35% Yaw
-	-- Spine2 (chest): 35% Pitch, 30% Roll, 40% Yaw
-	local s0Pitch, s0Roll, s0Yaw = totalPitch * 0.30, spineRoll * 0.35, totalYaw * 0.25
-	local s1Pitch, s1Roll, s1Yaw = totalPitch * 0.35, spineRoll * 0.35, totalYaw * 0.35
-	local s2Pitch, s2Roll, s2Yaw = totalPitch * 0.35, spineRoll * 0.30, totalYaw * 0.40
+	-- Spine (lower): 30% Pitch, 35% Roll, 25% Yaw + procedural counter-twist
+	-- Spine1 (mid):   35% Pitch, 35% Roll, 35% Yaw + procedural counter-twist
+	-- Spine2 (chest): 35% Pitch, 30% Roll, 40% Yaw + procedural counter-twist
+	local spineTwist = self.locomotionSpineYaw or 0
+	local s0Pitch, s0Roll, s0Yaw = totalPitch * 0.30, spineRoll * 0.35, (totalYaw * 0.25) + (spineTwist * 0.40)
+	local s1Pitch, s1Roll, s1Yaw = totalPitch * 0.35, spineRoll * 0.35, (totalYaw * 0.35) + (spineTwist * 0.40)
+	local s2Pitch, s2Roll, s2Yaw = totalPitch * 0.35, spineRoll * 0.30, (totalYaw * 0.40) + (spineTwist * 0.20)
 
 	-- VOR (Vestibulo-Ocular Reflex): Horizon stabilization
 	-- Neck and head counter-rotate against the cumulative torso bank roll (-spineRoll)
@@ -429,11 +444,12 @@ function ProceduralCombatReactionController:update(dt)
 	-- Apply to bones multiplicatively on top of evaluated animation track
 	local hasHipsOffset = math.abs(self.hipsOffset) > 0.001 or math.abs(self.hipsDipOffset or 0) > 0.001
 		or math.abs(self.turnMassDrop or 0) > 0.001 or math.abs(self.turnInwardLean or 0) > 0.001
+	local hipsYaw = self.locomotionHipsYaw or 0
 
-	if self.hipsBone and hasHipsOffset then
+	if self.hipsBone and (hasHipsOffset or math.abs(hipsYaw) > 0.005) then
 		local totalHipsY = self.hipsOffset + (self.hipsDipOffset or 0) + (self.turnMassDrop or 0)
 		local totalHipsX = self.turnInwardLean or 0
-		self.hipsBone.Transform = self.hipsBone.Transform * CFrame.new(totalHipsX, totalHipsY, 0)
+		self.hipsBone.Transform = self.hipsBone.Transform * CFrame.new(totalHipsX, totalHipsY, 0) * CFrame.Angles(0, hipsYaw, 0)
 	end
 
 	if self.spineBone then
@@ -483,15 +499,15 @@ function ProceduralCombatReactionController:update(dt)
 		local nominalFloorDist = 5.36
 		local ankleHeight = 0.48 + heightOffset
 
-		-- 1. Sagittal Knee Pole Alignment: Anchored forward from animated hip root
-		-- Keeps knees strictly bending forward in the character's facing direction without circular distortion
+		-- 1. Sagittal Knee Hinge Constraint: Anchored strictly forward along the thigh bone axis
+		-- Keeps knees strictly bending forward in the anatomical hinge plane (+Z in Quin rig space)
 		if self.leftUpLegBone and self.leftPoleAtt then
-			local leftHipPos = self.leftUpLegBone.TransformedWorldCFrame.Position
-			self.leftPoleAtt.WorldPosition = leftHipPos + (lookVec * 2.5) - (upVec * 1.5)
+			local leftThighCF = self.leftUpLegBone.TransformedWorldCFrame
+			self.leftPoleAtt.WorldPosition = leftThighCF.Position + (leftThighCF.LookVector * 3.0)
 		end
 		if self.rightUpLegBone and self.rightPoleAtt then
-			local rightHipPos = self.rightUpLegBone.TransformedWorldCFrame.Position
-			self.rightPoleAtt.WorldPosition = rightHipPos + (lookVec * 2.5) - (upVec * 1.5)
+			local rightThighCF = self.rightUpLegBone.TransformedWorldCFrame
+			self.rightPoleAtt.WorldPosition = rightThighCF.Position + (rightThighCF.LookVector * 3.0)
 		end
 
 		-- 2. Turn / Spin Attenuation: Attenuate IK during high angular velocity or rapid heading changes
@@ -501,7 +517,8 @@ function ProceduralCombatReactionController:update(dt)
 		self.currentTurnDampen = (self.currentTurnDampen or 1.0) + (rawTurnDampen - (self.currentTurnDampen or 1.0)) * (1 - math.exp(-8.0 * dt))
 		local turnDampen = self.currentTurnDampen
 
-		-- 3. Anatomical Solver: Respects the animated (X, Z) stride and swing phase!
+		-- 3. Physically Accurate Anatomical Terrain Solver:
+		-- Pure forward (X, Z) stride is authored by animation; IK strictly conforms vertical (Y) terrain adaptation
 		local function solveFoot(footBone, isLeft)
 			if not footBone then return nil, 0, false, 0 end
 
@@ -526,40 +543,42 @@ function ProceduralCombatReactionController:update(dt)
 				local nominalGroundY = hrpPos.Y - nominalFloorDist
 				elevDelta = floorY - nominalGroundY
 
-				-- A. Flat Ground Deadzone:
-				-- At high speeds, vertical stride bobbing is normal (~0.25 studs).
-				-- Broaden tolerance when moving fast so flat turf never falsely engages IK.
-				local flatTolerance = speed > 15.0 and 0.45 or 0.20
+				-- A. Flat Ground Deadzone (Preserve Pure Author Animation):
+				-- On flat ground (|elevDelta| <= 0.25 and normal >= 0.94), the author animation is already
+				-- calibrated to floor level. Zero IK interference on flat ground completely eliminates leg contortions!
+				local flatTolerance = speed > 15.0 and 0.35 or 0.22
 				local isFlatFloor = (hit.Normal.Y >= 0.94 and math.abs(elevDelta) <= flatTolerance)
 
-				-- High-speed sprint on flat ground: let author-keyed sprint animation play 100% pure!
-				if speed > 22.0 and hit.Normal.Y >= 0.94 and math.abs(elevDelta) <= 0.60 then
-					-- Keep a restrained contact correction during sprint. The swing phase stays
-					-- animation-driven; only a near-planted foot receives IK weight.
-					if liftAboveSurface <= 0.35 then
-						targetPos = Vector3.new(animFootPos.X, floorY + ankleHeight, animFootPos.Z)
-						targetWeight = 0.16 * turnDampen
-					else
-						targetWeight = 0.0
-					end
-				elseif not isFlatFloor and elevDelta >= -maxStepDown and elevDelta <= maxStepUp then
-					-- Foot is on uneven terrain, slope, stairs, or platform step!
+				local chainRoot = isLeft and self.leftUpLegBone or self.rightUpLegBone
+				local hipPos = chainRoot and chainRoot.TransformedWorldCFrame.Position or hrpPos
+
+				if isFlatFloor then
+					-- Flat turf: 100% pure author animation, zero IK distortion
+					targetPos = animFootPos
+					targetWeight = 0.0
+				elseif elevDelta >= -maxStepDown and elevDelta <= maxStepUp then
+					-- Uneven ground, slopes, stairs, rocks, or platform steps!
 					-- Anatomical Stride Phase Rule:
 					-- Only engage IK when the foot is near ground contact (liftAboveSurface <= 0.35 studs).
-					-- If the foot is high in the air during the forward swing phase (liftAboveSurface > 0.35),
-					-- DO NOT drag it to the floor! Let the leg swing freely forward.
+					-- If foot is in forward swing phase (liftAboveSurface > 0.35), swing freely!
 					if liftAboveSurface <= 0.35 then
 						-- Conformed target: Keep the animated X and Z stride! Only conform Y (height)
 						targetPos = Vector3.new(animFootPos.X, floorY + ankleHeight, animFootPos.Z)
-						
-						-- Smooth weight transition: 1.0 at contact, blending down if foot is lifting
+
+						-- Anatomical Extension Soft Limit (Joint Constraint):
+						-- Leg length is ~4.6 studs. Prevent overextension / knee locking beyond 4.2 studs
+						local legVec = targetPos - hipPos
+						local legDist = legVec.Magnitude
+						if legDist > 4.2 then
+							targetPos = hipPos + legVec.Unit * 4.2
+						end
+
 						local contactWeight = math.clamp(1.0 - (liftAboveSurface / 0.35), 0.0, 1.0)
 						targetWeight = contactWeight * turnDampen
 					else
 						targetWeight = 0.0
 					end
 				else
-					-- Off edge, ledge dropoff, or step out of range: let leg swing naturally without horizontal wall snapping
 					targetWeight = 0.0
 					if elevDelta < -maxStepDown then
 						isLedge = true
@@ -582,12 +601,10 @@ function ProceduralCombatReactionController:update(dt)
 
 		-- Always update target attachment transforms to avoid stale offsets
 		if lPos then
-			local animRot = self.leftFootBone.TransformedWorldCFrame.Rotation
-			self.leftFootAtt.WorldCFrame = CFrame.new(lPos) * animRot
+			self.leftFootAtt.WorldPosition = lPos
 		end
 		if rPos then
-			local animRot = self.rightFootBone.TransformedWorldCFrame.Rotation
-			self.rightFootAtt.WorldCFrame = CFrame.new(rPos) * animRot
+			self.rightFootAtt.WorldPosition = rPos
 		end
 
 		-- Responsive weight interpolation (fast attack, smooth release)

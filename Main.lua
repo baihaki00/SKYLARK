@@ -97,6 +97,7 @@ Quin:SetAttribute("QuinRenderMode", renderMode)
 
 local currentState = States.Idle
 local previousState = nil
+local stateStartTime = os.clock()
 
 -- Init State
 Quin:SetAttribute("CurrentState", currentState.name)
@@ -669,22 +670,42 @@ task.spawn(function()
 		end
 		
 		if newState and newState ~= currentState then
-			RuntimeTracer.checkpoint(Quin, string.format("Transition: %s → %s", currentState.name, newState.name))
-			if workspace:GetAttribute("Debug_StateLabels") then
-				print(string.format("[%s] State changed: %s â†’ %s", Quin.Name, currentState.name, newState.name))
-			end
-
-			if currentState.exit then
-				currentState.exit(Quin, humanoid, rootPart)
-			end
+			-- State Dwell Commitment Check: prevent rapid 100-300ms fluttering
+			local isInterrupt = (forceState ~= nil)
+				or (newState.name == "Knockback" or newState.name == "Death" or newState.name == "Recovery"
+					or newState.name == "MidAirClash" or newState.name == "BeamStruggle" or newState.name == "ReEntry")
 			
-			if newState.enter then
-				newState.enter(Quin, humanoid, rootPart)
+			local dwellElapsed = os.clock() - stateStartTime
+			local minDwell = 0
+			if currentState.name == "Chase" then
+				minDwell = CombatConfig.StateDwellMin_Chase or 0.8
+			elseif currentState.name == "Retreat" then
+				minDwell = CombatConfig.StateDwellMin_Retreat or 1.2
+			elseif currentState.name == "Circling" then
+				minDwell = CombatConfig.StateDwellMin_Circling or 1.0
+			elseif currentState.name == "Fight" then
+				minDwell = CombatConfig.StateDwellMin_Fight or 0.6
 			end
 
-			Quin:SetAttribute("CurrentState", newState.name)
-			previousState = currentState
-			currentState = newState
+			if isInterrupt or dwellElapsed >= minDwell then
+				RuntimeTracer.checkpoint(Quin, string.format("Transition: %s → %s (dwell=%.2fs)", currentState.name, newState.name, dwellElapsed))
+				if workspace:GetAttribute("Debug_StateLabels") then
+					print(string.format("[%s] State changed: %s → %s (dwell=%.2fs)", Quin.Name, currentState.name, newState.name, dwellElapsed))
+				end
+
+				if currentState.exit then
+					currentState.exit(Quin, humanoid, rootPart)
+				end
+				
+				if newState.enter then
+					newState.enter(Quin, humanoid, rootPart)
+				end
+
+				Quin:SetAttribute("CurrentState", newState.name)
+				previousState = currentState
+				currentState = newState
+				stateStartTime = os.clock()
+			end
 		end
 
 		-- OOB Safety: If they somehow clip through the floor or get launched out, just kill them so the spawner replaces them

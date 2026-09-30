@@ -186,10 +186,18 @@ local CombatConfig = {
 	--// DECISION-DRIVEN BEHAVIOR (wire tactical decision → FSM; ablation-friendly)
 	RetreatBreakoffCooldown = 3.0,        -- seconds min between retreat break-offs (prevents state thrash)
 	PursueEngageDistance = 20.0,          -- studs beyond which a Pursue decision forces a chase
+	DecisionHysteresisScoreDelta = 15.0,  -- utility score margin required to switch recommended action
+	StateDwellMin_Chase = 0.8,            -- seconds minimum commitment before voluntary chase state exit
+	StateDwellMin_Retreat = 1.2,          -- seconds minimum commitment before voluntary retreat state exit
+	StateDwellMin_Circling = 1.0,         -- seconds minimum commitment before voluntary circling state exit
+	StateDwellMin_Fight = 0.6,            -- seconds minimum commitment before voluntary fight state exit
+	QuinEyeHeight = 3.0,                  -- studs above HRP center for 8-stud tall Quin eye-level raycasts
 
 	--// SURVIVAL INSTINCT (retreat calibration)
 	RetreatCriticalHealth = 0.20,         -- hp ratio below which near-death survival instinct triggers
 	RetreatConfidenceThreshold = 0.70,    -- confidence below which a near-death Quin retreats (else it fights back)
+	RetreatSafeDistance = 85.0,           -- studs minimum distance from nearest threat to consider retreat successful
+	RetreatMinDuration = 2.5,             -- seconds minimum before allowing safe haven transition to defensive stance
 
 	--// PHASE 12 SPECTACLE: DYNAMIC BEAM STRUGGLES, AURA FARMING & RIVAL FINISHERS
 	BeamStruggle_PowerUpDurationMin = 0.50, -- min seconds charging wind-up before beam fire
@@ -307,7 +315,7 @@ local CombatConfig = {
 	Locomotion_SkidLockout = 0.35,           -- seconds duration of procedural skid plant before accelerating into sprint
 
 	-- Procedural Foot IK & Ledge Gripping (Step 3)
-	FootIK_Enabled = false,                  -- DISABLED: Eliminates 60Hz leg popping/jitter during running
+	FootIK_Enabled = true,                   -- Calibrated stance-phase foot pinning with dynamic weight smoothing
 	FootIK_RayDistance = 6.8,                -- studs down from hip to detect ground (HRP is ~5.36 studs above floor)
 	FootIK_MaxStepDown = 2.4,                -- max vertical drop a foot will conform to before treating as ledge
 	FootIK_MaxStepUp = 1.6,                  -- max vertical step up a foot will climb

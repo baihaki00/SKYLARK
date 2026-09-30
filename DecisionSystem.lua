@@ -268,6 +268,17 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		end
 	end
 
+	-- Hysteresis Commitment: do not flip-flop between actions over tiny score deltas
+	local currentAction = quinModel:GetAttribute("RecommendedAction")
+	local currentActionScore = (currentAction and scores[currentAction]) or -math.huge
+	local hysteresisDelta = CombatConfig.DecisionHysteresisScoreDelta or 15.0
+	if currentAction and currentActionScore > -math.huge and bestAction ~= currentAction then
+		if bestScore < (currentActionScore + hysteresisDelta) then
+			bestAction = currentAction
+			table.insert(decisionReasons, string.format("Action commitment hysteresis (held %s)", currentAction))
+		end
+	end
+
 	-- Survival instinct hard override: near-death Quins retreat ONLY if escape is feasible and NOT in Last Stand!
 	if not isLastStand and escapeFeasibility >= (CombatConfig.EscapeFeasibilityThreshold or 0.20) then
 		if hpRatio < (CombatConfig.RetreatCriticalHealth or 0.20) and confidence < (CombatConfig.RetreatConfidenceThreshold or 0.70) then

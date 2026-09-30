@@ -885,6 +885,12 @@ end
 -- LINE OF SIGHT & ENVIRONMENTAL SENSING (Section 41 & 44)
 -- ============================================================
 
+-- Eye-level sensory position for 8-stud tall Quin (eyes at Y + 3.0 above HRP center)
+function SpatialModule.getEyePosition(rootPart)
+	if not rootPart then return Vector3.zero end
+	return rootPart.Position + Vector3.new(0, 3.0, 0)
+end
+
 function SpatialModule.checkLineOfSight(posA, posB, ignoreInstances)
 	local diff = posB - posA
 	local dist = diff.Magnitude
@@ -905,6 +911,11 @@ function SpatialModule.checkLineOfSight(posA, posB, ignoreInstances)
 	if qs then table.insert(exclude, qs) end
 	local qg = Workspace:FindFirstChild("QuinGhost")
 	if qg then table.insert(exclude, qg) end
+
+	local CollectionService = game:GetService("CollectionService")
+	for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+		table.insert(exclude, q)
+	end
 
 	params.FilterDescendantsInstances = exclude
 	params.FilterType = Enum.RaycastFilterType.Exclude

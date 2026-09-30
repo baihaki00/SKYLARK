@@ -263,7 +263,7 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 		-- If the Quin was running/sprinting, play StopRun plant animation (rbxassetid://89237107000987)
 		if wasSprinting and speed > 12.0 then
 			data.lastStopRunTime = now
-			data.stopRunEndTime = now + 0.55
+			data.stopRunEndTime = now + 0.68
 
 			-- Fast fade out running track & push-offs
 			AnimationModule.stop(humanoid, "Movement.Run", 0.08)
@@ -304,8 +304,11 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	-- Cancelling input outright makes a 50-stud/s Quin freeze unnaturally; diminishing momentum
 	-- lets the StopRun plant and body weight read visually.
 	local brakeDir = speed > 0.1 and flatVel.Unit or Vector3.zero
-	local brakeInput = math.clamp(speed / 42.0, 0, 1)
-	humanoid:Move(brakeDir * brakeInput, false)
+	if speed > 0.5 and humanoid.WalkSpeed > 0.5 then
+		humanoid:Move(brakeDir, false)
+	else
+		humanoid:Move(Vector3.zero, false)
+	end
 
 	-- When no StopRun braking overlay is active, ensure idle (handles Ready -> 5s inactivity -> Default)
 	local isOverlayActive = (data.stopRunEndTime and now < data.stopRunEndTime)

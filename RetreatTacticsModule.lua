@@ -220,9 +220,9 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 			allyCentroid = allyCentroid / validAllies
 			bestAllyPos = allyCentroid
 
-			-- Base ally score: increases with ally count and healthy proximity (15 to 60 studs)
+			-- Base ally score: increases with ally count and healthy proximity (15 to 180 studs)
 			local countBonus = math.min(validAllies * 18, 45)
-			local distFactor = math.clamp(1.0 - (nearestAllyDist / 80), 0.1, 1.0) * 30
+			local distFactor = math.clamp(1.0 - (nearestAllyDist / 220), 0.15, 1.0) * 35
 			allyScore = countBonus + distFactor + (protectiveness * 20)
 
 			-- Quirky & Bond modulations

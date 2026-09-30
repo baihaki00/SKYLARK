@@ -48,15 +48,15 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 	if kbType == "air" or kbType == "hard_ground" then
 		humanoid.PlatformStand = true -- Required to allow mid-air knockbacks to fly properly
 		
-		-- Upright Stabilizer
-		-- Do not let the physical rootPart tumble or spin violently. The animation handles the tumbling visual!
+		-- Active Muscle Ragdoll core compliance (replaces rigid 400,000 torque stick)
+		local muscleStiffness = CombatConfig.Ragdoll_MuscleStiffness or 8000
 		local align = Instance.new("AlignOrientation")
 		align.Name = "KB_Stabilizer"
 		align.Mode = Enum.OrientationAlignmentMode.OneAttachment
 		align.RigidityEnabled = false
-		align.Responsiveness = 60
-		align.MaxTorque = 400000
-		align.MaxAngularVelocity = 25
+		align.Responsiveness = 12
+		align.MaxTorque = muscleStiffness
+		align.MaxAngularVelocity = 15
 		align.CFrame = CFrame.lookAt(Vector3.zero, flatLook)
 		
 		local att = Instance.new("Attachment")
@@ -65,6 +65,14 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 		
 		align.Attachment0 = att
 		align.Parent = rootPart
+
+		-- Impart dynamic angular tumble velocity on launch
+		local tumbleScale = CombatConfig.Ragdoll_TumbleScale or 1.0
+		rootPart.AssemblyAngularVelocity = Vector3.new(
+			(math.random() - 0.5) * 8.0,
+			(math.random() - 0.5) * 4.0,
+			(math.random() - 0.5) * 8.0
+		) * tumbleScale
 	else
 		-- Ensure Idle is playing underneath for ground knockbacks so they don't T-pose when the flinch animation ends
 		AnimationModule.play(humanoid, AnimationIds.Idle, Enum.AnimationPriority.Idle, true, 1.0, 0)
@@ -141,21 +149,27 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 		local isGroundedNow = SpatialModule.isGrounded(rootPart)
 		
 		if isDescending and isGroundedNow and (not isBeingLaunched or velY < -30) then
-			print("[KnockbackState] isGroundedNow triggered! HRP Y:", rootPart.Position.Y, "Velocity:", rootPart.AssemblyLinearVelocity.Magnitude, "Elapsed:", elapsed)
-			-- Hit the ground! Instantly kill velocity and destroy any downward movers
+			-- Hit the ground: destroy launch velocity and retain dynamic turf slide friction
+			local flatVel = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z)
+			local groundSlideSpeed = flatVel.Magnitude * (CombatConfig.Ragdoll_GroundFriction or 0.55)
+			local slideDir = (flatVel.Magnitude > 0.1) and flatVel.Unit or -rootPart.CFrame.LookVector
+
 			if rootPart:FindFirstChild("KB_LinearVelocity") then
 				rootPart.KB_LinearVelocity:Destroy()
 			end
-			rootPart.AssemblyLinearVelocity = Vector3.zero
 			rootPart.AssemblyAngularVelocity = Vector3.zero
+			
+			if groundSlideSpeed > 10 then
+				KnockbackModule.applySlide(fighter, slideDir, groundSlideSpeed, 0.35)
+			else
+				rootPart.AssemblyLinearVelocity = Vector3.zero
+			end
 			
 			AudioModule.playSlam(rootPart.Position)
 			VfxModule.createDust(rootPart, 10)
 			VfxModule.shakeScreen(rootPart.Position, 350, 8)
-			RuntimeTracer.checkpoint(fighter, "GroundContact → IMPACT")
+			RuntimeTracer.checkpoint(fighter, "GroundContact → IMPACT & SLIDE")
 			
-			-- We no longer need to teleport CFrame or freeze animations here!
-			-- AlignOrientation kept them upright, so RecoveryState can handle the transition seamlessly.
 			return require(script.Parent:WaitForChild("RecoveryState"))
 		end
 	end

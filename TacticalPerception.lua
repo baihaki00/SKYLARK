@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local PersonalitySystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("PersonalitySystem"))
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 
 local TacticalPerception = {
 	LOCAL_RADIUS = 45,       -- Radius for direct local combat encounter reasoning
@@ -22,6 +23,7 @@ function TacticalPerception.evaluate(quinModel, targetModel)
 	if not myHRP or not myHum or myHum.Health <= 0 then return nil end
 
 	local myPos = myHRP.Position
+	local myEyePos = SpatialModule.getEyePosition(myHRP)
 	local myTeam = quinModel:GetAttribute("Team") or "None"
 
 	local nearbyAllies = {}
@@ -102,12 +104,16 @@ function TacticalPerception.evaluate(quinModel, targetModel)
 						nearestEnemyDist = dist
 						nearestEnemyModel = other
 					end
+					local oEyePos = SpatialModule.getEyePosition(oHRP)
+					local hasLoS = SpatialModule.checkLineOfSight(myEyePos, oEyePos, { quinModel, other })
+
 					if dist <= TacticalPerception.LOCAL_RADIUS then
 						table.insert(nearbyEnemies, {
 							model = other,
 							distance = dist,
 							healthRatio = oHpRatio,
 							energyRatio = oEnergyRatio,
+							hasLineOfSight = hasLoS,
 							isAuraFarming = (other:GetAttribute("IsAuraFarming") == true),
 						})
 					end
@@ -119,8 +125,16 @@ function TacticalPerception.evaluate(quinModel, targetModel)
 	local allyCount = #nearbyAllies
 	local enemyCount = #nearbyEnemies
 
-	-- Local Numerical Ratio: (allies + self) / max(1, enemies)
-	local localAdvantageRatio = (allyCount + 1) / math.max(1, enemyCount)
+	-- Count active visible threats (or point-blank proximity <= 10 studs)
+	local activeEnemyCount = 0
+	for _, e in ipairs(nearbyEnemies) do
+		if e.hasLineOfSight or e.distance <= 10.0 then
+			activeEnemyCount = activeEnemyCount + 1
+		end
+	end
+
+	-- Local Numerical Ratio: (allies + self) / max(1, activeEnemies)
+	local localAdvantageRatio = (allyCount + 1) / math.max(1, activeEnemyCount)
 
 	-- Directional Threat Breakdown & Quadrant Analysis (Phase 2)
 	local frontEnemies = {}
@@ -135,7 +149,8 @@ function TacticalPerception.evaluate(quinModel, targetModel)
 	for _, entry in ipairs(nearbyEnemies) do
 		local eModel = entry.model
 		local eHRP = eModel:FindFirstChild("HumanoidRootPart")
-		if eHRP then
+		-- Occlusion awareness: enemies behind solid walls do not trigger direct directional threat
+		if eHRP and (entry.hasLineOfSight or entry.distance <= 10.0) then
 			local diff = Vector3.new(eHRP.Position.X - myPos.X, 0, eHRP.Position.Z - myPos.Z)
 			local d = diff.Magnitude
 			local dir = (d > 0.01) and (diff / d) or lookVec

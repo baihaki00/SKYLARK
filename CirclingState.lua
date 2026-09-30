@@ -129,9 +129,20 @@ function CirclingState.exit(fighter, humanoid, rootPart)
 	if data and data.currentAnim then
 		AnimationModule.stop(humanoid, data.currentAnim, 0.15)
 	end
-	humanoid.AutoRotate = true
 	local alignOri = rootPart:FindFirstChild("CirclingGyro")
-	if alignOri then alignOri:Destroy() end
+	if alignOri then
+		-- Smooth handoff: release gyro influence over 0.15s to eliminate abrupt snapping
+		task.delay(0.15, function()
+			if alignOri and alignOri.Parent then
+				alignOri:Destroy()
+			end
+			if humanoid and humanoid.Parent then
+				humanoid.AutoRotate = true
+			end
+		end)
+	else
+		humanoid.AutoRotate = true
+	end
 	circlingData[fighter] = nil
 end
 
@@ -196,27 +207,26 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("FightState"))
 	end
 	
-	-- Snap condition 1: Time's up!
-	-- Snap condition 2: Enemy got too close (below minimum circling range)
-	-- Snap condition 3: Enemy moved too far away
+	-- Snap condition 1: Time's up (tension snap)!
+	-- Snap condition 2: Enemy got too close (below minimum circling range) -> Engage FightState!
+	-- Snap condition 3: Enemy moved too far away (above max circling range) -> Re-enter ChaseState!
 	local minCircleRange = (CombatConfig.CombatRange or 8) * 0.7
-	local maxCircleRange = (CombatConfig.CombatRange or 8) * 4.5 -- Increased to allow wider circling
+	local maxCircleRange = (CombatConfig.CombatRange or 8) * 4.5 -- Increased to allow wider circling (36 studs)
 	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne")
 	
 	if not TEST_MODE_ACTIVE and not isTargetDown then
-		if (tick() - data.enterTime) >= data.duration or distance < minCircleRange or distance > maxCircleRange then
-			if not data.hasSnapped then
-				data.hasSnapped = true
-				if DEBUG then print("[Circling] Tension snapped! FIGHT!") end
-				
-				-- 50% chance to burst dash, then fight
-				local dashMin = CombatConfig.DashMinDistance or 10
-				local dashMax = CombatConfig.DashMaxDistance or 28
-				if math.random() > 0.5 and distance >= dashMin and distance <= dashMax and targetHRP then
-					LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
-				end
-				return require(script.Parent:WaitForChild("FightState"))
+		local timeInCircle = tick() - data.enterTime
+		if timeInCircle >= data.duration or distance < minCircleRange then
+			-- Tension snapped at close quarters: dash/attack into FightState!
+			local dashMin = CombatConfig.DashMinDistance or 10
+			local dashMax = CombatConfig.DashMaxDistance or 28
+			if math.random() > 0.5 and distance >= dashMin and distance <= dashMax and targetHRP then
+				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 			end
+			return require(script.Parent:WaitForChild("FightState"))
+		elseif distance > maxCircleRange then
+			-- Target opened up a gap: pursuit resumes in ChaseState!
+			return require(script.Parent:WaitForChild("ChaseState"))
 		end
 	end
 
@@ -354,9 +364,10 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	data.lastUpdateTime = now
 
 	local targetStrafeSpeed = speed * (data.tension == "run" and 0.6 or (data.tension == "walk" and STRAFE_SPEED_MULT or 0.2))
-	LocomotionModule.modulateSpeed(fighter, humanoid, targetStrafeSpeed, dt)
 
-	humanoid:MoveTo(rootPart.Position + moveDirection * 5)
+	-- Authoritative continuous vector steering (replaces stuttering humanoid:MoveTo)
+	local driveTarget = rootPart.Position + moveDirection * 15
+	LocomotionModule.steer(fighter, humanoid, rootPart, driveTarget, targetStrafeSpeed, dt)
 	
 	-- Energy recovery during circling
 	local energy = fighter:GetAttribute("Energy") or 100
@@ -374,12 +385,48 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		att.Name = "RootAttachment"
 		alignOri.Attachment0 = att
 		alignOri.RigidityEnabled = false
-		alignOri.Responsiveness = 15
-		alignOri.MaxTorque = 100000
+		alignOri.Responsiveness = 25
+		alignOri.MaxTorque = 50000
 		alignOri.CFrame = rootPart.CFrame
 		alignOri.Parent = rootPart
 	end
 	alignOri.CFrame = lookCF
+
+	-- Dynamic Strafe Angle Animation Matching:
+	-- Determine angle between actual travel direction and facing to play accurate locomotion
+	local lookFlat = Vector3.new(lookCF.LookVector.X, 0, lookCF.LookVector.Z)
+	lookFlat = (lookFlat.Magnitude > 0.01) and lookFlat.Unit or Vector3.new(0, 0, -1)
+	local moveFlat = Vector3.new(moveDirection.X, 0, moveDirection.Z)
+	moveFlat = (moveFlat.Magnitude > 0.01) and moveFlat.Unit or lookFlat
+	local rightFlat = Vector3.new(rootPart.CFrame.RightVector.X, 0, rootPart.CFrame.RightVector.Z)
+	rightFlat = (rightFlat.Magnitude > 0.01) and rightFlat.Unit or Vector3.new(1, 0, 0)
+
+	local forwardDot = lookFlat:Dot(moveFlat)
+	local rightDot = rightFlat:Dot(moveFlat)
+
+	local desiredAnim = data.currentAnim
+	if math.abs(rightDot) > 0.40 then
+		-- Predominantly lateral strafe
+		if rightDot > 0 then
+			desiredAnim = (data.tension == "run") and AnimationIds.StrafeRightRun or AnimationIds.StrafeRightWalk
+		else
+			desiredAnim = (data.tension == "run") and AnimationIds.StrafeLeftRun or AnimationIds.StrafeLeftWalk
+		end
+	elseif forwardDot > 0.45 then
+		-- Advance / inward spiral pace
+		desiredAnim = AnimationIds.WalkConfident or AnimationIds.Walk
+	else
+		-- Backward retreat arc
+		desiredAnim = (rightDot > 0) and AnimationIds.ArcRun30RearRight or AnimationIds.ArcRun30RearLeft
+	end
+
+	if desiredAnim and data.currentAnim ~= desiredAnim then
+		if data.currentAnim then
+			AnimationModule.stop(humanoid, data.currentAnim, 0.15)
+		end
+		data.currentAnim = desiredAnim
+		AnimationModule.play(humanoid, desiredAnim, Enum.AnimationPriority.Movement, true, 1.0, 0.15)
+	end
 	
 	return CirclingState
 end

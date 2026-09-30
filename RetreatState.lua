@@ -39,10 +39,13 @@ local function gatherSides(fighter)
 		if q ~= fighter and q.Parent and q:FindFirstChild("HumanoidRootPart") then
 			local hum = q:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
-				if (q.HumanoidRootPart.Position - myPos).Magnitude <= 80 then
-					if myTeam ~= "None" and q:GetAttribute("Team") == myTeam then
+				local dist = (q.HumanoidRootPart.Position - myPos).Magnitude
+				if myTeam ~= "None" and q:GetAttribute("Team") == myTeam then
+					if dist <= 250 then
 						table.insert(allies, q)
-					else
+					end
+				else
+					if dist <= 120 then
 						table.insert(enemies, q)
 					end
 				end
@@ -264,8 +267,10 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- Outcome A: Safe Haven Reached (threat dropped or out of pursuit range)
-	if #enemies == 0 or nearestThreatDist >= 40 then
-		if elapsed >= 0.8 then
+	local safeDist = CombatConfig.RetreatSafeDistance or 85.0
+	local minRetreatDur = CombatConfig.RetreatMinDuration or 2.5
+	if #enemies == 0 or nearestThreatDist >= safeDist then
+		if elapsed >= minRetreatDur then
 			BattleEventSystem.emit("RETREAT_SURVIVED", {
 				QuinId = fighter:GetAttribute("QuinId") or fighter.Name,
 				Model = fighter,
@@ -274,7 +279,8 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 				Objective = result.objective,
 			})
 			RuntimeTracer.checkpoint(fighter, "Retreat reached safety")
-			return require(script.Parent:WaitForChild("IdleState"))
+			-- Regroup & hold defensive standoff with energy recovery; do NOT dead-stop into IdleState
+			return require(script.Parent:WaitForChild("CirclingState"))
 		end
 	end
 
