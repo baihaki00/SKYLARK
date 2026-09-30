@@ -226,10 +226,10 @@ elseif enableghostmode then
 
 		ghostMap[aiModel] = "pending" -- Prevent concurrent creation calls during yield
 
-		-- Wait for Alpha_Surface to replicate so the mesh is not missing
-		local alpha = aiModel:WaitForChild("Alpha_Surface", 5)
-		if not alpha then
-			warn("[AIGhostHandler] Timed out waiting for Alpha_Surface on " .. aiModel.Name)
+		-- Wait for visible surface to replicate so the mesh is not missing
+		local surface = aiModel:FindFirstChild("Alpha_Surface") or aiModel:FindFirstChild("Beta_Surface") or aiModel:WaitForChild("Alpha_Surface", 2) or aiModel:WaitForChild("Beta_Surface", 2) or aiModel:FindFirstChildWhichIsA("MeshPart")
+		if not surface then
+			warn("[AIGhostHandler] Timed out waiting for Surface mesh on " .. aiModel.Name)
 			ghostMap[aiModel] = nil
 			return
 		end
@@ -272,8 +272,8 @@ elseif enableghostmode then
 				desc.CanCollide = false
 				desc.Massless = true
 
-				-- Set visibility: Alpha_Surface must be visible!
-				if desc.Name == "Alpha_Surface" then
+				-- Set visibility: Surface mesh must be visible!
+				if desc.Name == "Alpha_Surface" or desc.Name == "Beta_Surface" or desc:IsA("MeshPart") then
 					desc.Transparency = 0
 					desc.LocalTransparencyModifier = 0
 					desc.CastShadow = true

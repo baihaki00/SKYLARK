@@ -334,7 +334,7 @@ local function getOrCreateAccessoryFolder(quinModel)
 end
 
 local function findBone(quinModel, boneName)
-	local surface = quinModel:FindFirstChild("Alpha_Surface")
+	local surface = quinModel:FindFirstChild("Alpha_Surface") or quinModel:FindFirstChild("Beta_Surface") or quinModel:FindFirstChildWhichIsA("MeshPart")
 	if not surface then return nil end
 	return surface:FindFirstChild(boneName, true)
 end

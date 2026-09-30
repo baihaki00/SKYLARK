@@ -134,7 +134,7 @@ if GHOSTMODE then
 		end
 	end
 else
-	local alpha = Quin:FindFirstChild("Alpha_Surface", true)
+	local alpha = Quin:FindFirstChild("Alpha_Surface", true) or Quin:FindFirstChild("Beta_Surface", true) or Quin:FindFirstChildWhichIsA("MeshPart", true)
 	if alpha and alpha:IsA("BasePart") then
 		alpha.Transparency = 0
 		alpha.CastShadow = true

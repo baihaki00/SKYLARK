@@ -73,12 +73,26 @@ local TYPE_BOUNDS = {
 		SpecialPreference  = { min = 0.30, max = 0.60 },
 		Confidence         = { min = 0.65, max = 0.90 },
 		Awareness          = { min = 0.35, max = 0.65 },
+	Standard = { -- Unified Baseline (Balanced, organically varied)
+		Aggression         = { min = 0.45, max = 0.75 },
+		RiskTolerance      = { min = 0.40, max = 0.70 },
+		DashPreference     = { min = 0.45, max = 0.75 },
+		RetreatTendency    = { min = 0.20, max = 0.50 },
+		TargetPersistence  = { min = 0.50, max = 0.80 },
+		Protectiveness     = { min = 0.35, max = 0.65 },
+		MobilityPreference = { min = 0.45, max = 0.75 },
+		SpecialPreference  = { min = 0.25, max = 0.55 },
+		Confidence         = { min = 0.50, max = 0.80 },
+		Awareness          = { min = 0.50, max = 0.80 },
 	},
 }
 
+TYPE_BOUNDS.Male = TYPE_BOUNDS.Standard
+TYPE_BOUNDS.Female = TYPE_BOUNDS.Standard
+
 -- Generate a persistent personality for a genuinely new Quin
 function PersonalitySystem.generate(typeName, customOverrides, rng)
-	local bounds = TYPE_BOUNDS[typeName] or TYPE_BOUNDS.TypeA
+	local bounds = TYPE_BOUNDS[typeName] or TYPE_BOUNDS.Standard or TYPE_BOUNDS.TypeA
 	local personality = {}
 
 	local randomFloat = function(min, max)

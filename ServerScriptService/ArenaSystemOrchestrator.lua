@@ -229,8 +229,8 @@ local function runMatchLifecycle()
     if mode == "1vs1" then
         local p1 = posAlpha + prepOffsetAlpha
         local p2 = posBeta + prepOffsetBeta
-        local qA = QuinSpawner.spawn("TypeA", p1, "TeamAlpha")
-        local qB = QuinSpawner.spawn("TypeB", p2, "TeamBeta")
+        local qA = QuinSpawner.spawn("Male", p1, "TeamAlpha")
+        local qB = QuinSpawner.spawn("Female", p2, "TeamBeta")
         if qA and qB then
             qA:SetAttribute("CurrentState", "Idle")
             qB:SetAttribute("CurrentState", "Idle")
@@ -239,27 +239,16 @@ local function runMatchLifecycle()
         end
     elseif mode == "FFA" then
         local ffaCount = teamSize
-        local types = { "TypeA", "TypeB", "TypeC", "TypeD" }
-        local ffaTypes = {}
-        for i = 1, ffaCount do
-            table.insert(ffaTypes, types[((i - 1) % #types) + 1])
-        end
-        local spawned = QuinSpawner.spawnTeam(ffaTypes, nil, ffaCount)
+        local spawned = QuinSpawner.spawnTeam({"Male", "Female"}, nil, ffaCount)
         for _, q in ipairs(CollectionService:GetTagged("Quin")) do
             q:SetAttribute("CurrentState", "Idle")
             q:SetAttribute("IsInert", true)
         end
     else
-        -- Team Battle
-        local alphaTypes = {}
-        local betaTypes = {}
-        for i = 1, teamSize do
-            table.insert(alphaTypes, (i % 2 == 0) and "TypeA" or "TypeC")
-            table.insert(betaTypes, (i % 2 == 0) and "TypeB" or "TypeD")
-        end
-        QuinSpawner.spawnTeam(alphaTypes, "TeamAlpha", teamSize, 1, posAlpha + prepOffsetAlpha)
+        -- Team Battle: Balanced mix of Male and Female Quins
+        QuinSpawner.spawnTeam({"Male", "Female"}, "TeamAlpha", teamSize, 1, posAlpha + prepOffsetAlpha)
         task.wait(0.15)
-        QuinSpawner.spawnTeam(betaTypes, "TeamBeta", teamSize, 2, posBeta + prepOffsetBeta)
+        QuinSpawner.spawnTeam({"Female", "Male"}, "TeamBeta", teamSize, 2, posBeta + prepOffsetBeta)
         
         for _, q in ipairs(CollectionService:GetTagged("Quin")) do
             q:SetAttribute("CurrentState", "Idle")
