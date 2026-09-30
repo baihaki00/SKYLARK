@@ -16,6 +16,12 @@ local StopMatchEvent = ArenaNetwork:WaitForChild("StopMatch")
 local SkipPhaseEvent = ArenaNetwork:WaitForChild("SkipPhase")
 local UpdateTogglesEvent = ArenaNetwork:WaitForChild("UpdateToggles")
 local StateReplication = ArenaNetwork:WaitForChild("StateReplication")
+local UpdateAudioSettings = ArenaNetwork:FindFirstChild("UpdateAudioSettings")
+if not UpdateAudioSettings then
+    UpdateAudioSettings = Instance.new("RemoteEvent")
+    UpdateAudioSettings.Name = "UpdateAudioSettings"
+    UpdateAudioSettings.Parent = ArenaNetwork
+end
 
 local screenGui = script.Parent
 
@@ -35,7 +41,8 @@ local C_MUTED    = Color3.fromRGB(130, 145, 170)
 local isWindowOpen = false
 local selectedMode = "TeamBattle"
 local selectedTeamSize = 4
-local selectedTrack = "Bai - Skycastle Parade"
+local selectedTrack = "365"
+local selectedInTrack = "ts - butterflyeffect live"
 local selectedPostTrack = "Bai - Tenggelam (feat. Kurt Haikal) MAXIMUS2"
 
 local activeToggles = table.clone(ArenaConfig.DefaultToggles)
@@ -100,6 +107,7 @@ mainWindow.BackgroundColor3 = C_BG
 mainWindow.BackgroundTransparency = 0.04
 mainWindow.Visible = false
 mainWindow.ClipsDescendants = true
+mainWindow.Active = true
 mainWindow.Parent = screenGui
 applyCorner(mainWindow, 16)
 applyStroke(mainWindow, C_CYAN, 1.5)
@@ -163,6 +171,43 @@ applyCorner(closeBtn, 18)
 closeBtn.MouseButton1Click:Connect(function()
     toggleWindow(false)
 end)
+
+-- Window Dragging Logic with Position Memory
+do
+    local isDragging = false
+    local dragStart = Vector3.zero
+    local startPos = UDim2.new()
+
+    local function handleDragStart(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = true
+            dragStart = input.Position
+            startPos = mainWindow.Position
+        end
+    end
+
+    header.InputBegan:Connect(handleDragStart)
+    titleLbl.InputBegan:Connect(handleDragStart)
+    subTitleLbl.InputBegan:Connect(handleDragStart)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            mainWindow.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = false
+        end
+    end)
+end
 
 -- Content Container
 local content = Instance.new("Frame")
@@ -451,7 +496,8 @@ rightCol.Position = UDim2.new(0, 445, 0, 0)
 rightCol.BackgroundTransparency = 1
 rightCol.ScrollBarThickness = 4
 rightCol.ScrollBarImageColor3 = C_CYAN
-rightCol.CanvasSize = UDim2.new(0, 0, 0, 620)
+rightCol.AutomaticCanvasSize = Enum.AutomaticSize.Y
+rightCol.CanvasSize = UDim2.new(0, 0, 0, 0)
 rightCol.Parent = content
 
 local rightLayout = Instance.new("UIListLayout")
@@ -494,7 +540,7 @@ local checkboxDefinitions = {
     { key = "Screen",            label = "Screen (Dual Jumbotron SurfaceGuis)" },
     { key = "Referee",           label = "Referee", isStub = true },
     { key = "Fireworks",         label = "Fireworks (Opening & Winner Shows)" },
-    { key = "ProceduralMusic",   label = "Arena Music (Pre-Game & Post-Game)" },
+    { key = "ProceduralMusic",   label = "Arena Music (Pre-Game, In-Game & Post-Game)" },
     { key = "CrowdFX",           label = "Procedural Crowd FX", isStub = true },
     { key = "ProceduralTerrain", label = "Procedural Terrain/Obstacles (Off = Edit parts)" },
 }
@@ -551,171 +597,344 @@ for _, cDef in ipairs(checkboxDefinitions) do
     checkboxWidgets[cDef.key] = { box = box, check = checkMark, stroke = bStroke }
 end
 
--- Section 4: Music Playlists
+-- ============================================================================
+-- Section 4: Developer Debug Audio Acoustics & Mixing
+-- ============================================================================
+local acousticSecHeader = Instance.new("TextLabel")
+acousticSecHeader.Size = UDim2.new(1, 0, 0, 20)
+acousticSecHeader.BackgroundTransparency = 1
+acousticSecHeader.Font = Enum.Font.GothamBold
+acousticSecHeader.TextSize = 12
+acousticSecHeader.TextColor3 = C_CYAN
+acousticSecHeader.TextXAlignment = Enum.TextXAlignment.Left
+acousticSecHeader.Text = "AUDIO ACOUSTICS (MIXING DEBUG)"
+acousticSecHeader.LayoutOrder = 3
+acousticSecHeader.Parent = rightCol
+
+local acousticsContainer = Instance.new("Frame")
+acousticsContainer.Size = UDim2.new(1, 0, 0, 215)
+acousticsContainer.BackgroundColor3 = C_CARD
+acousticsContainer.LayoutOrder = 4
+acousticsContainer.Parent = rightCol
+applyCorner(acousticsContainer, 10)
+applyStroke(acousticsContainer, C_STROKE, 1)
+
+local acLayout = Instance.new("UIListLayout")
+acLayout.Padding = UDim.new(0, 2)
+acLayout.Parent = acousticsContainer
+
+local acPad = Instance.new("UIPadding")
+acPad.PaddingTop = UDim.new(0, 5)
+acPad.PaddingLeft = UDim.new(0, 10)
+acPad.PaddingRight = UDim.new(0, 10)
+acPad.Parent = acousticsContainer
+
+local SoundService = game:GetService("SoundService")
+local speakerGrp = SoundService:FindFirstChild("ArenaSpeakerGroup")
+local revEffect = speakerGrp and speakerGrp:FindFirstChildOfClass("ReverbSoundEffect")
+local echoEffect = speakerGrp and speakerGrp:FindFirstChildOfClass("EchoSoundEffect")
+
+local acousticState = {
+    Volume = speakerGrp and speakerGrp.Volume or 1.0,
+    ReverbDecay = revEffect and revEffect.DecayTime or 4.28,
+    ReverbWet = revEffect and revEffect.WetLevel or 6.0,
+    ReverbDry = revEffect and revEffect.DryLevel or 2.0,
+    ReverbDensity = revEffect and revEffect.Density or 1.0,
+    EchoDelay = echoEffect and echoEffect.Delay or 1.0,
+    EchoFeedback = echoEffect and echoEffect.Feedback or 0.12,
+    EchoWet = echoEffect and echoEffect.WetLevel or 8.2,
+    EchoDry = echoEffect and echoEffect.DryLevel or -45.8,
+}
+
+local function applyAcousticLocally()
+    local grp = SoundService:FindFirstChild("ArenaSpeakerGroup")
+    if grp then
+        grp.Volume = acousticState.Volume
+        local rev = grp:FindFirstChildOfClass("ReverbSoundEffect")
+        if rev then
+            rev.DecayTime = acousticState.ReverbDecay
+            rev.WetLevel = acousticState.ReverbWet
+            rev.DryLevel = acousticState.ReverbDry
+            rev.Density = acousticState.ReverbDensity
+        end
+        local echo = grp:FindFirstChildOfClass("EchoSoundEffect")
+        if echo then
+            echo.Delay = acousticState.EchoDelay
+            echo.Feedback = acousticState.EchoFeedback
+            echo.WetLevel = acousticState.EchoWet
+            echo.DryLevel = acousticState.EchoDry
+        end
+    end
+    UpdateAudioSettings:FireServer(acousticState)
+end
+
+local function createAcousticRow(labelPrefix, key, step, minVal, maxVal, formatStr, unit)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 21)
+    row.BackgroundTransparency = 1
+    row.Parent = acousticsContainer
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -115, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 10
+    lbl.TextColor3 = C_TEXT
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Text = string.format("%s: " .. formatStr .. "%s", labelPrefix, acousticState[key], unit or "")
+    lbl.Parent = row
+
+    local btnMinus = Instance.new("TextButton")
+    btnMinus.Size = UDim2.new(0, 52, 1, -2)
+    btnMinus.Position = UDim2.new(1, -110, 0, 1)
+    btnMinus.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
+    btnMinus.TextColor3 = C_AMBER
+    btnMinus.Font = Enum.Font.GothamBold
+    btnMinus.TextSize = 10
+    btnMinus.Text = "-" .. tostring(step)
+    btnMinus.Parent = row
+    applyCorner(btnMinus, 4)
+    applyStroke(btnMinus, C_STROKE, 1)
+
+    local btnPlus = Instance.new("TextButton")
+    btnPlus.Size = UDim2.new(0, 52, 1, -2)
+    btnPlus.Position = UDim2.new(1, -54, 0, 1)
+    btnPlus.BackgroundColor3 = Color3.fromRGB(30, 36, 50)
+    btnPlus.TextColor3 = C_CYAN
+    btnPlus.Font = Enum.Font.GothamBold
+    btnPlus.TextSize = 10
+    btnPlus.Text = "+" .. tostring(step)
+    btnPlus.Parent = row
+    applyCorner(btnPlus, 4)
+    applyStroke(btnPlus, C_STROKE, 1)
+
+    btnMinus.MouseButton1Click:Connect(function()
+        acousticState[key] = math.clamp(acousticState[key] - step, minVal, maxVal)
+        lbl.Text = string.format("%s: " .. formatStr .. "%s", labelPrefix, acousticState[key], unit or "")
+        applyAcousticLocally()
+    end)
+
+    btnPlus.MouseButton1Click:Connect(function()
+        acousticState[key] = math.clamp(acousticState[key] + step, minVal, maxVal)
+        lbl.Text = string.format("%s: " .. formatStr .. "%s", labelPrefix, acousticState[key], unit or "")
+        applyAcousticLocally()
+    end)
+end
+
+createAcousticRow("Master Vol", "Volume", 0.1, 0, 2, "%.2f", "")
+createAcousticRow("Rev Decay", "ReverbDecay", 0.5, 0.1, 20, "%.2f", "s")
+createAcousticRow("Rev Wet", "ReverbWet", 2.0, -80, 20, "%.1f", "dB")
+createAcousticRow("Rev Dry", "ReverbDry", 2.0, -80, 20, "%.1f", "dB")
+createAcousticRow("Rev Density", "ReverbDensity", 0.1, 0, 1, "%.2f", "")
+createAcousticRow("Echo Delay", "EchoDelay", 0.1, 0.05, 5, "%.2f", "s")
+createAcousticRow("Echo Feedback", "EchoFeedback", 0.05, 0, 1, "%.2f", "")
+createAcousticRow("Echo Wet", "EchoWet", 2.0, -80, 20, "%.1f", "dB")
+
+-- ============================================================================
+-- Section 5: Dynamic Folder-Based Music Playlists (NO FantasyMusic)
+-- ============================================================================
+local musicHeaderRow = Instance.new("Frame")
+musicHeaderRow.Size = UDim2.new(1, 0, 0, 24)
+musicHeaderRow.BackgroundTransparency = 1
+musicHeaderRow.LayoutOrder = 5
+musicHeaderRow.Parent = rightCol
+
 local musicSecHeader = Instance.new("TextLabel")
-musicSecHeader.Size = UDim2.new(1, 0, 0, 20)
+musicSecHeader.Size = UDim2.new(1, -95, 1, 0)
 musicSecHeader.BackgroundTransparency = 1
 musicSecHeader.Font = Enum.Font.GothamBold
 musicSecHeader.TextSize = 12
 musicSecHeader.TextColor3 = C_CYAN
 musicSecHeader.TextXAlignment = Enum.TextXAlignment.Left
-musicSecHeader.Text = "PRE-GAME MUSIC PLAYLIST (ArenaOpen -> PreGame)"
-musicSecHeader.LayoutOrder = 3
-musicSecHeader.Parent = rightCol
+musicSecHeader.Text = "ARENA MUSIC PLAYLISTS (FOLDER-BASED)"
+musicSecHeader.Parent = musicHeaderRow
 
-local playlistContainer = Instance.new("Frame")
-playlistContainer.Size = UDim2.new(1, 0, 0, 160)
-playlistContainer.BackgroundColor3 = C_CARD
-playlistContainer.LayoutOrder = 4
-playlistContainer.Parent = rightCol
-applyCorner(playlistContainer, 10)
-applyStroke(playlistContainer, C_STROKE, 1)
+local reloadMusicBtn = Instance.new("TextButton")
+reloadMusicBtn.Size = UDim2.new(0, 90, 1, -2)
+reloadMusicBtn.Position = UDim2.new(1, -90, 0, 1)
+reloadMusicBtn.BackgroundColor3 = Color3.fromRGB(30, 42, 60)
+reloadMusicBtn.TextColor3 = C_CYAN
+reloadMusicBtn.Font = Enum.Font.GothamBold
+reloadMusicBtn.TextSize = 10
+reloadMusicBtn.Text = "🔄 Reload"
+reloadMusicBtn.Parent = musicHeaderRow
+applyCorner(reloadMusicBtn, 4)
+applyStroke(reloadMusicBtn, C_CYAN, 1)
 
-local plScroll = Instance.new("ScrollingFrame")
-plScroll.Size = UDim2.new(1, -12, 1, -12)
-plScroll.Position = UDim2.new(0, 6, 0, 6)
-plScroll.BackgroundTransparency = 1
-plScroll.ScrollBarThickness = 3
-plScroll.ScrollBarImageColor3 = C_CYAN
-plScroll.CanvasSize = UDim2.new(0, 0, 0, #ArenaConfig.PreGamePlaylist * 28)
-plScroll.Parent = playlistContainer
+local function scanFolderTracks(folderName)
+    local tracks = {}
+    -- STRICT EXCLUSION: Never load FantasyMusic
+    if folderName == "FantasyMusic" then return tracks end
 
-local plLayout = Instance.new("UIListLayout")
-plLayout.Padding = UDim.new(0, 4)
-plLayout.Parent = plScroll
-
-local trackButtons = {}
-
-local function updateTrackButtons()
-    for name, item in pairs(trackButtons) do
-        local sel = (selectedTrack == name)
-        item.btn.BackgroundColor3 = sel and Color3.fromRGB(35, 48, 68) or Color3.fromRGB(20, 24, 34)
-        item.stroke.Color = sel and C_CYAN or C_STROKE
-        item.title.TextColor3 = sel and C_CYAN or C_TEXT
+    local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
+    local musicFolder = arenaOne and arenaOne:FindFirstChild("Music")
+    local folder = musicFolder and musicFolder:FindFirstChild(folderName)
+    
+    if folder then
+        for _, s in ipairs(folder:GetChildren()) do
+            if s:IsA("Sound") then
+                table.insert(tracks, {
+                    Name = s.Name,
+                    SoundId = s.SoundId
+                })
+            end
+        end
     end
+    table.sort(tracks, function(a, b) return a.Name < b.Name end)
+    return tracks
 end
 
-for _, track in ipairs(ArenaConfig.PreGamePlaylist) do
-    local tBtn = Instance.new("TextButton")
-    tBtn.Size = UDim2.new(1, -6, 0, 24)
-    tBtn.BackgroundColor3 = (selectedTrack == track.Name) and Color3.fromRGB(35, 48, 68) or Color3.fromRGB(20, 24, 34)
-    tBtn.Text = ""
-    tBtn.Parent = plScroll
-    applyCorner(tBtn, 4)
-    local tStroke = applyStroke(tBtn, (selectedTrack == track.Name) and C_CYAN or C_STROKE, 1)
-    
-    local tLbl = Instance.new("TextLabel")
-    tLbl.Size = UDim2.new(1, -60, 1, 0)
-    tLbl.Position = UDim2.new(0, 8, 0, 0)
-    tLbl.BackgroundTransparency = 1
-    tLbl.Font = Enum.Font.Gotham
-    tLbl.TextSize = 10
-    tLbl.TextColor3 = (selectedTrack == track.Name) and C_CYAN or C_TEXT
-    tLbl.TextXAlignment = Enum.TextXAlignment.Left
-    tLbl.Text = "🎵 " .. track.Name
-    tLbl.Parent = tBtn
-    
-    local sLbl = Instance.new("TextLabel")
-    sLbl.Size = UDim2.new(0, 50, 1, 0)
-    sLbl.Position = UDim2.new(1, -55, 0, 0)
-    sLbl.BackgroundTransparency = 1
-    sLbl.Font = Enum.Font.Gotham
-    sLbl.TextSize = 9
-    sLbl.TextColor3 = C_MUTED
-    sLbl.TextXAlignment = Enum.TextXAlignment.Right
-    sLbl.Text = track.Style
-    sLbl.Parent = tBtn
-    
-    tBtn.MouseButton1Click:Connect(function()
-        selectedTrack = track.Name
-        updateTrackButtons()
-    end)
-    
-    trackButtons[track.Name] = { btn = tBtn, stroke = tStroke, title = tLbl }
-end
+-- Pre-Game Container
+local preSecLbl = Instance.new("TextLabel")
+preSecLbl.Size = UDim2.new(1, 0, 0, 16)
+preSecLbl.BackgroundTransparency = 1
+preSecLbl.Font = Enum.Font.GothamBold
+preSecLbl.TextSize = 10
+preSecLbl.TextColor3 = C_MUTED
+preSecLbl.TextXAlignment = Enum.TextXAlignment.Left
+preSecLbl.Text = "PRE-GAME MUSIC (PreGameMusic/)"
+preSecLbl.LayoutOrder = 6
+preSecLbl.Parent = rightCol
 
--- Post-Game Music Header
-local postSecHeader = Instance.new("TextLabel")
-postSecHeader.Size = UDim2.new(1, 0, 0, 20)
-postSecHeader.BackgroundTransparency = 1
-postSecHeader.Font = Enum.Font.GothamBold
-postSecHeader.TextSize = 12
-postSecHeader.TextColor3 = C_CYAN
-postSecHeader.TextXAlignment = Enum.TextXAlignment.Left
-postSecHeader.Text = "POST-GAME MUSIC (Arena Closure - 3 Minutes)"
-postSecHeader.LayoutOrder = 5
-postSecHeader.Parent = rightCol
+local preContainer = Instance.new("Frame")
+preContainer.Size = UDim2.new(1, 0, 0, 95)
+preContainer.BackgroundColor3 = C_CARD
+preContainer.LayoutOrder = 7
+preContainer.Parent = rightCol
+applyCorner(preContainer, 8)
+applyStroke(preContainer, C_STROKE, 1)
+
+local preScroll = Instance.new("ScrollingFrame")
+preScroll.Size = UDim2.new(1, -8, 1, -8)
+preScroll.Position = UDim2.new(0, 4, 0, 4)
+preScroll.BackgroundTransparency = 1
+preScroll.ScrollBarThickness = 3
+preScroll.ScrollBarImageColor3 = C_CYAN
+preScroll.Parent = preContainer
+
+-- In-Game Container
+local inSecLbl = Instance.new("TextLabel")
+inSecLbl.Size = UDim2.new(1, 0, 0, 16)
+inSecLbl.BackgroundTransparency = 1
+inSecLbl.Font = Enum.Font.GothamBold
+inSecLbl.TextSize = 10
+inSecLbl.TextColor3 = C_MUTED
+inSecLbl.TextXAlignment = Enum.TextXAlignment.Left
+inSecLbl.Text = "IN-GAME COMBAT MUSIC (InGameMusic/)"
+inSecLbl.LayoutOrder = 8
+inSecLbl.Parent = rightCol
+
+local inContainer = Instance.new("Frame")
+inContainer.Size = UDim2.new(1, 0, 0, 95)
+inContainer.BackgroundColor3 = C_CARD
+inContainer.LayoutOrder = 9
+inContainer.Parent = rightCol
+applyCorner(inContainer, 8)
+applyStroke(inContainer, C_STROKE, 1)
+
+local inScroll = Instance.new("ScrollingFrame")
+inScroll.Size = UDim2.new(1, -8, 1, -8)
+inScroll.Position = UDim2.new(0, 4, 0, 4)
+inScroll.BackgroundTransparency = 1
+inScroll.ScrollBarThickness = 3
+inScroll.ScrollBarImageColor3 = C_CYAN
+inScroll.Parent = inContainer
+
+-- Post-Game Container
+local postSecLbl = Instance.new("TextLabel")
+postSecLbl.Size = UDim2.new(1, 0, 0, 16)
+postSecLbl.BackgroundTransparency = 1
+postSecLbl.Font = Enum.Font.GothamBold
+postSecLbl.TextSize = 10
+postSecLbl.TextColor3 = C_MUTED
+postSecLbl.TextXAlignment = Enum.TextXAlignment.Left
+postSecLbl.Text = "POST-GAME CLOSURE (PostGameMusic/)"
+postSecLbl.LayoutOrder = 10
+postSecLbl.Parent = rightCol
 
 local postContainer = Instance.new("Frame")
 postContainer.Size = UDim2.new(1, 0, 0, 75)
 postContainer.BackgroundColor3 = C_CARD
-postContainer.LayoutOrder = 6
+postContainer.LayoutOrder = 11
 postContainer.Parent = rightCol
-applyCorner(postContainer, 10)
+applyCorner(postContainer, 8)
 applyStroke(postContainer, C_STROKE, 1)
 
 local postScroll = Instance.new("ScrollingFrame")
-postScroll.Size = UDim2.new(1, -12, 1, -12)
-postScroll.Position = UDim2.new(0, 6, 0, 6)
+postScroll.Size = UDim2.new(1, -8, 1, -8)
+postScroll.Position = UDim2.new(0, 4, 0, 4)
 postScroll.BackgroundTransparency = 1
 postScroll.ScrollBarThickness = 3
 postScroll.ScrollBarImageColor3 = C_CYAN
-postScroll.CanvasSize = UDim2.new(0, 0, 0, #ArenaConfig.PostGamePlaylist * 28)
 postScroll.Parent = postContainer
 
-local postLayout = Instance.new("UIListLayout")
-postLayout.Padding = UDim.new(0, 4)
-postLayout.Parent = postScroll
+local function populateTrackList(scrollFrame, tracks, getSelected, setSelected)
+    scrollFrame:ClearAllChildren()
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 3)
+    layout.Parent = scrollFrame
 
-local postTrackButtons = {}
-
-local function updatePostTrackButtons()
-    for name, item in pairs(postTrackButtons) do
-        local sel = (selectedPostTrack == name)
-        item.btn.BackgroundColor3 = sel and Color3.fromRGB(35, 48, 68) or Color3.fromRGB(20, 24, 34)
-        item.stroke.Color = sel and C_CYAN or C_STROKE
-        item.title.TextColor3 = sel and C_CYAN or C_TEXT
+    local buttons = {}
+    local function refreshVisuals()
+        for name, item in pairs(buttons) do
+            local sel = (getSelected() == name)
+            item.btn.BackgroundColor3 = sel and Color3.fromRGB(35, 48, 68) or Color3.fromRGB(20, 24, 34)
+            item.stroke.Color = sel and C_CYAN or C_STROKE
+            item.lbl.TextColor3 = sel and C_CYAN or C_TEXT
+        end
     end
+
+    for _, track in ipairs(tracks) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -6, 0, 22)
+        btn.BackgroundColor3 = (getSelected() == track.Name) and Color3.fromRGB(35, 48, 68) or Color3.fromRGB(20, 24, 34)
+        btn.Text = ""
+        btn.Parent = scrollFrame
+        applyCorner(btn, 4)
+        local stroke = applyStroke(btn, (getSelected() == track.Name) and C_CYAN or C_STROKE, 1)
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, -12, 1, 0)
+        lbl.Position = UDim2.new(0, 8, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.Gotham
+        lbl.TextSize = 10
+        lbl.TextColor3 = (getSelected() == track.Name) and C_CYAN or C_TEXT
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Text = "🎵 " .. track.Name
+        lbl.Parent = btn
+
+        btn.MouseButton1Click:Connect(function()
+            setSelected(track.Name)
+            refreshVisuals()
+        end)
+
+        buttons[track.Name] = { btn = btn, stroke = stroke, lbl = lbl }
+    end
+
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, #tracks * 25)
 end
 
-for _, track in ipairs(ArenaConfig.PostGamePlaylist) do
-    local tBtn = Instance.new("TextButton")
-    tBtn.Size = UDim2.new(1, -6, 0, 24)
-    tBtn.BackgroundColor3 = (selectedPostTrack == track.Name) and Color3.fromRGB(35, 48, 68) or Color3.fromRGB(20, 24, 34)
-    tBtn.Text = ""
-    tBtn.Parent = postScroll
-    applyCorner(tBtn, 4)
-    local tStroke = applyStroke(tBtn, (selectedPostTrack == track.Name) and C_CYAN or C_STROKE, 1)
-    
-    local tLbl = Instance.new("TextLabel")
-    tLbl.Size = UDim2.new(1, -60, 1, 0)
-    tLbl.Position = UDim2.new(0, 8, 0, 0)
-    tLbl.BackgroundTransparency = 1
-    tLbl.Font = Enum.Font.Gotham
-    tLbl.TextSize = 10
-    tLbl.TextColor3 = (selectedPostTrack == track.Name) and C_CYAN or C_TEXT
-    tLbl.TextXAlignment = Enum.TextXAlignment.Left
-    tLbl.Text = "🎵 " .. track.Name
-    tLbl.Parent = tBtn
-    
-    local sLbl = Instance.new("TextLabel")
-    sLbl.Size = UDim2.new(0, 50, 1, 0)
-    sLbl.Position = UDim2.new(1, -55, 0, 0)
-    sLbl.BackgroundTransparency = 1
-    sLbl.Font = Enum.Font.Gotham
-    sLbl.TextSize = 9
-    sLbl.TextColor3 = C_MUTED
-    sLbl.TextXAlignment = Enum.TextXAlignment.Right
-    sLbl.Text = track.Style
-    sLbl.Parent = tBtn
-    
-    tBtn.MouseButton1Click:Connect(function()
-        selectedPostTrack = track.Name
-        updatePostTrackButtons()
-    end)
-    
-    postTrackButtons[track.Name] = { btn = tBtn, stroke = tStroke, title = tLbl }
+local function refreshAllPlaylists()
+    local preTracks = scanFolderTracks("PreGameMusic")
+    if #preTracks == 0 then preTracks = ArenaConfig.PreGamePlaylist end
+
+    local inTracks = scanFolderTracks("InGameMusic")
+    if #inTracks == 0 then inTracks = ArenaConfig.InGamePlaylist end
+
+    local postTracks = scanFolderTracks("PostGameMusic")
+    if #postTracks == 0 then postTracks = ArenaConfig.PostGamePlaylist end
+
+    populateTrackList(preScroll, preTracks, function() return selectedTrack end, function(v) selectedTrack = v end)
+    populateTrackList(inScroll, inTracks, function() return selectedInTrack end, function(v) selectedInTrack = v end)
+    populateTrackList(postScroll, postTracks, function() return selectedPostTrack end, function(v) selectedPostTrack = v end)
 end
+
+reloadMusicBtn.MouseButton1Click:Connect(function()
+    refreshAllPlaylists()
+end)
+
+refreshAllPlaylists()
 
 -- ============================================================================
 -- 4. BOTTOM ACTION & STATUS DOCK
@@ -796,6 +1015,7 @@ startBtn.MouseButton1Click:Connect(function()
         Mode = selectedMode,
         TeamSize = selectedTeamSize,
         SelectedTrack = selectedTrack,
+        SelectedInTrack = selectedInTrack,
         SelectedPostTrack = selectedPostTrack,
         Toggles = activeToggles,
         Durations = activeDurations,

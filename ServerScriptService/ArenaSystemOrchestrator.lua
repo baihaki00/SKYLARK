@@ -39,7 +39,8 @@ local activeConfig = {
     TeamSize = 4,
     Toggles = table.clone(ArenaConfig.DefaultToggles),
     Durations = table.clone(ArenaConfig.DefaultDurations),
-    SelectedTrack = "Bai - Skycastle Parade",
+    SelectedTrack = "365",
+    SelectedInTrack = "ts - butterflyeffect live",
     SelectedPostTrack = "Bai - Tenggelam (feat. Kurt Haikal) MAXIMUS2",
 }
 
@@ -398,6 +399,11 @@ local function runMatchLifecycle()
     
     Workspace:SetAttribute("MatchStarted", true)
     
+    -- Start In-Game combat music if ProceduralMusic toggle is on
+    if activeConfig.Toggles.ProceduralMusic then
+        ArenaAudio.playInGameMusic(activeConfig.SelectedInTrack or "ts - butterflyeffect live", 1.0, 1.5)
+    end
+    
     -- Release inert locks and activate Quin AI
     for _, q in ipairs(CollectionService:GetTagged("Quin")) do
         q:SetAttribute("IsInert", false)
@@ -499,6 +505,7 @@ local function runMatchLifecycle()
     
     Workspace:SetAttribute("MatchStarted", false)
     pacifyAllQuins()
+    ArenaAudio.stopInGameMusic(2.0)
     
     ArenaScreen.showWinner(winnerName, matchStats.EndReason or "VICTORY ACHIEVED")
     
@@ -575,7 +582,8 @@ function Orchestrator.startMatch(config)
     config = config or {}
     activeConfig.Mode = config.Mode or "TeamBattle"
     activeConfig.TeamSize = config.TeamSize or 4
-    activeConfig.SelectedTrack = config.SelectedTrack or "Bai - Skycastle Parade"
+    activeConfig.SelectedTrack = config.SelectedTrack or "365"
+    activeConfig.SelectedInTrack = config.SelectedInTrack or "ts - butterflyeffect live"
     activeConfig.SelectedPostTrack = config.SelectedPostTrack or "Bai - Tenggelam (feat. Kurt Haikal) MAXIMUS2"
     
     if config.Toggles then

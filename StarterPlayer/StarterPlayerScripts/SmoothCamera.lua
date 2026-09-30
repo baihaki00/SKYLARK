@@ -201,12 +201,34 @@ local function isClickOnGui(mousePos)
 			if obj:IsA("GuiButton") or obj:IsA("TextBox") or (obj:IsA("ScrollingFrame") and obj.Active) then
 				return true
 			end
+			-- Any recognized menu or HUD ScreenGui
+			local screen = obj:FindFirstAncestorWhichIsA("ScreenGui")
+			if screen then
+				local sName = screen.Name
+				if sName == "ArenaOrchestratorUI" or sName == "AnimationLabUI" 
+					or sName == "QuinMenuUI" or sName == "QuinDebugGui" 
+					or sName == "PlayAsQuinGui" or sName == "JumpDebugUI" then
+					return true
+				end
+			end
+			-- Explicit name / ancestor checks
+			if obj:FindFirstAncestor("ArenaOrchestratorUI") or obj.Name == "ArenaOrchestratorUI" or obj.Name == "ArenaMainWindow" then
+				return true
+			end
 			-- Quin Manager Menu window (AnimationLabUI)
 			if obj:FindFirstAncestor("AnimationLabUI") or obj.Name == "AnimationLabUI" then
 				return true
 			end
 			-- Spectator HUD (QuinDebugGui)
 			if obj:FindFirstAncestor("QuinDebugGui") or obj.Name == "QuinDebugGui" then
+				return true
+			end
+			-- Play As Quin UI
+			if obj:FindFirstAncestor("PlayAsQuinGui") or obj.Name == "PlayAsQuinGui" then
+				return true
+			end
+			-- QuinMenuUI
+			if obj:FindFirstAncestor("QuinMenuUI") or obj.Name == "QuinMenuUI" then
 				return true
 			end
 			-- Explicitly active GUI frames
@@ -322,11 +344,15 @@ end)
 
 UserInputService.InputEnded:Connect(function(input, gp)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		isLeftMouseDown = false
-		updateMouseBehavior()
+		if isLeftMouseDown then
+			isLeftMouseDown = false
+			updateMouseBehavior()
+		end
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-		isRightMouseDown = false
-		updateMouseBehavior()
+		if isRightMouseDown then
+			isRightMouseDown = false
+			updateMouseBehavior()
+		end
 	end
 end)
 

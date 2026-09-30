@@ -89,21 +89,28 @@ ArenaConfig.AudioSettings = {
     }
 }
 
--- Music Playlists
+-- Music Playlists (Default fallbacks if Workspace folder is unavailable; live UI dynamically scans Workspace.argoniaonion.ArenaOne.Music)
 ArenaConfig.PreGamePlaylist = {
-    { Id = "rbxassetid://113929509678352", Name = "Bai - Skycastle Parade", Artist = "Bai", Style = "Orchestral Fanfare" },
-    { Id = "rbxassetid://82364890157176",  Name = "Bai - Velvet Carousel",  Artist = "Bai", Style = "Melodic Fantasy" },
-    { Id = "rbxassetid://133867258789343", Name = "ts - butterflyeffect live", Artist = "TS", Style = "Energetic Electronic" },
-    { Id = "rbxassetid://133121268471992", Name = "GUTU ONLY_Master",        Artist = "Gutu", Style = "Battle Rhythm" },
-    { Id = "rbxassetid://126291069838831", Name = "TOMA FUNK PHONK",         Artist = "Toma", Style = "Adrenaline Phonk" },
-    { Id = "rbxassetid://103937504170019", Name = "SYSTEMMUSIC",             Artist = "System", Style = "Futuristic Pulse" },
-    { Id = "rbxassetid://83342518250258",  Name = "SPLICEMUSIC",             Artist = "Splice", Style = "Atmospheric Beat" },
-    { Id = "rbxassetid://99750260128110",  Name = "365",                     Artist = "365", Style = "Synthwave Speed" },
+    { Id = "rbxassetid://99750260128110",  Name = "365" },
+    { Id = "rbxassetid://133121268471992", Name = "GUTU ONLY_Master" },
+    { Id = "rbxassetid://126291069838831", Name = "TOMA FUNK PHONK" },
+    { Id = "rbxassetid://133867258789343", Name = "ts - butterflyeffect live" },
+    { Id = "rbxassetid://103937504170019", Name = "SYSTEMMUSIC" },
+    { Id = "rbxassetid://83342518250258",  Name = "SPLICEMUSIC" },
+    { Id = "rbxassetid://106739257785158", Name = "LALUATEST" },
+}
+
+ArenaConfig.InGamePlaylist = {
+    { Id = "rbxassetid://99750260128110",  Name = "365" },
+    { Id = "rbxassetid://133121268471992", Name = "GUTU ONLY_Master" },
+    { Id = "rbxassetid://133867258789343", Name = "ts - butterflyeffect live" },
+    { Id = "rbxassetid://83342518250258",  Name = "SPLICEMUSIC" },
+    { Id = "rbxassetid://106739257785158", Name = "LALUATEST" },
 }
 
 ArenaConfig.PostGamePlaylist = {
-    { Id = "rbxassetid://139341117198830", Name = "Bai - Tenggelam (feat. Kurt Haikal) MAXIMUS2", Artist = "Bai feat. Kurt Haikal", Style = "Post-Battle Closure" },
-    { Id = "rbxassetid://106739257785158", Name = "LALUATEST", Artist = "Arena", Style = "Spectator Exit Ambience" },
+    { Id = "rbxassetid://106739257785158", Name = "LALUATEST" },
+    { Id = "rbxassetid://139341117198830", Name = "Bai - Tenggelam (feat. Kurt Haikal) MAXIMUS2" },
 }
 
 ArenaConfig.ProceduralMusic = {} -- Reserved for future procedural generation

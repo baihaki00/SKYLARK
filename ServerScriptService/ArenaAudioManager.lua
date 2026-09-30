@@ -72,6 +72,7 @@ function ArenaAudio.init()
 end
 
 -- Find a sound asset by Name or Id in Workspace.argoniaonion.ArenaOne.Music
+-- STRICT RULE: FantasyMusic is completely excluded and never loaded.
 local function findMusicSoundAsset(trackNameOrId, playlistType)
     local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
     local musicFolder = arenaOne and arenaOne:FindFirstChild("Music")
@@ -80,12 +81,13 @@ local function findMusicSoundAsset(trackNameOrId, playlistType)
     local foldersToCheck = {}
     if playlistType == "PreGame" then
         table.insert(foldersToCheck, musicFolder:FindFirstChild("PreGameMusic"))
-        table.insert(foldersToCheck, musicFolder:FindFirstChild("FantasyMusic"))
+    elseif playlistType == "InGame" then
+        table.insert(foldersToCheck, musicFolder:FindFirstChild("InGameMusic"))
     elseif playlistType == "PostGame" then
         table.insert(foldersToCheck, musicFolder:FindFirstChild("PostGameMusic"))
     else
         table.insert(foldersToCheck, musicFolder:FindFirstChild("PreGameMusic"))
-        table.insert(foldersToCheck, musicFolder:FindFirstChild("FantasyMusic"))
+        table.insert(foldersToCheck, musicFolder:FindFirstChild("InGameMusic"))
         table.insert(foldersToCheck, musicFolder:FindFirstChild("PostGameMusic"))
     end
     
@@ -160,12 +162,12 @@ end
 
 -- 1. PreGame Music (Fades in during ArenaOpen, fades out during PreGame countdown)
 function ArenaAudio.playPregameMusic(trackNameOrId, volume, fadeTime)
-    trackNameOrId = trackNameOrId or "Bai - Skycastle Parade"
+    trackNameOrId = trackNameOrId or "365"
     volume = volume or ArenaConfig.AudioSettings.BaselineVolume
     fadeTime = fadeTime or 2.0
     
     local asset = findMusicSoundAsset(trackNameOrId, "PreGame")
-    local soundId = asset and asset.SoundId or "rbxassetid://113929509678352"
+    local soundId = asset and asset.SoundId or "rbxassetid://99750260128110"
     local soundName = asset and asset.Name or trackNameOrId
     
     return playOnGlobe(asset, soundId, soundName, volume, fadeTime, true, "PreGameMusic")
@@ -188,7 +190,37 @@ function ArenaAudio.stopPregameMusic(fadeTime)
     end
 end
 
--- 2. PostGame Music (Fades in during Arena Closure, fades out while ARIA_SkylarkClosure)
+-- 2. InGame Music (Fades in at match start, loops during combat)
+function ArenaAudio.playInGameMusic(trackNameOrId, volume, fadeTime)
+    trackNameOrId = trackNameOrId or "ts - butterflyeffect live"
+    volume = volume or ArenaConfig.AudioSettings.BaselineVolume
+    fadeTime = fadeTime or 1.5
+    
+    local asset = findMusicSoundAsset(trackNameOrId, "InGame")
+    local soundId = asset and asset.SoundId or "rbxassetid://133867258789343"
+    local soundName = asset and asset.Name or trackNameOrId
+    
+    return playOnGlobe(asset, soundId, soundName, volume, fadeTime, true, "InGameMusic")
+end
+
+function ArenaAudio.stopInGameMusic(fadeTime)
+    fadeTime = fadeTime or 2.0
+    if activeMusicSound and currentMusicType == "InGameMusic" then
+        print(string.format("[ArenaAudio] Fading out InGameMusic (%.1fs)", fadeTime))
+        local s = activeMusicSound
+        TweenService:Create(s, TweenInfo.new(fadeTime), { Volume = 0 }):Play()
+        task.delay(fadeTime, function()
+            if s == activeMusicSound then
+                activeMusicSound = nil
+                currentMusicType = "None"
+            end
+            s:Stop()
+            s:Destroy()
+        end)
+    end
+end
+
+-- 3. PostGame Music (Fades in during Arena Closure, fades out while ARIA_SkylarkClosure)
 function ArenaAudio.playPostgameMusic(trackNameOrId, volume, fadeTime)
     trackNameOrId = trackNameOrId or "Bai - Tenggelam (feat. Kurt Haikal) MAXIMUS2"
     volume = volume or ArenaConfig.AudioSettings.BaselineVolume
@@ -274,6 +306,80 @@ end
 
 function ArenaAudio.getActiveTrackName()
     return activeMusicSound and activeMusicSound.Name or "None"
+end
+
+-- 4. Dynamic Acoustic & Mixing Updates (Developer Debug)
+function ArenaAudio.updateAcoustics(settings)
+    ensureSpeakerGroup()
+    if not arenaSpeakerGroup then return end
+    if not settings or type(settings) ~= "table" then return end
+    
+    if settings.Volume ~= nil then
+        local vol = math.clamp(tonumber(settings.Volume) or 1.0, 0, 2)
+        arenaSpeakerGroup.Volume = vol
+        baselineMusicVolume = vol
+        if activeMusicSound and activeMusicSound.Parent and not isDucked then
+            activeMusicSound.Volume = vol
+        end
+    end
+    
+    local reverb = arenaSpeakerGroup:FindFirstChildOfClass("ReverbSoundEffect")
+    if reverb then
+        if settings.ReverbDecay ~= nil then
+            reverb.DecayTime = math.clamp(tonumber(settings.ReverbDecay) or 4.28, 0.1, 20.0)
+        end
+        if settings.ReverbDensity ~= nil then
+            reverb.Density = math.clamp(tonumber(settings.ReverbDensity) or 1.0, 0, 1.0)
+        end
+        if settings.ReverbDiffusion ~= nil then
+            reverb.Diffusion = math.clamp(tonumber(settings.ReverbDiffusion) or 1.0, 0, 1.0)
+        end
+        if settings.ReverbDry ~= nil then
+            reverb.DryLevel = math.clamp(tonumber(settings.ReverbDry) or 2.0, -80.0, 20.0)
+        end
+        if settings.ReverbWet ~= nil then
+            reverb.WetLevel = math.clamp(tonumber(settings.ReverbWet) or 6.0, -80.0, 20.0)
+        end
+    end
+    
+    local echo = arenaSpeakerGroup:FindFirstChildOfClass("EchoSoundEffect")
+    if echo then
+        if settings.EchoDelay ~= nil then
+            echo.Delay = math.clamp(tonumber(settings.EchoDelay) or 1.0, 0.01, 5.0)
+        end
+        if settings.EchoFeedback ~= nil then
+            echo.Feedback = math.clamp(tonumber(settings.EchoFeedback) or 0.12, 0, 1.0)
+        end
+        if settings.EchoDry ~= nil then
+            echo.DryLevel = math.clamp(tonumber(settings.EchoDry) or -45.8, -80.0, 20.0)
+        end
+        if settings.EchoWet ~= nil then
+            echo.WetLevel = math.clamp(tonumber(settings.EchoWet) or 8.2, -80.0, 20.0)
+        end
+    end
+    
+    print(string.format("[ArenaAudio] Acoustics updated: Vol=%.2f, RevDecay=%.2f, RevWet=%.1f, RevDry=%.1f, EchoDelay=%.2f, EchoFeedback=%.2f",
+        arenaSpeakerGroup.Volume,
+        reverb and reverb.DecayTime or 0,
+        reverb and reverb.WetLevel or 0,
+        reverb and reverb.DryLevel or 0,
+        echo and echo.Delay or 0,
+        echo and echo.Feedback or 0
+    ))
+end
+
+-- Network Listener for Developer Debug Acoustic Updates
+local ArenaNetwork = RS:FindFirstChild("ArenaNetwork")
+if ArenaNetwork then
+    local updateEvent = ArenaNetwork:FindFirstChild("UpdateAudioSettings")
+    if not updateEvent then
+        updateEvent = Instance.new("RemoteEvent")
+        updateEvent.Name = "UpdateAudioSettings"
+        updateEvent.Parent = ArenaNetwork
+    end
+    updateEvent.OnServerEvent:Connect(function(player, settings)
+        ArenaAudio.updateAcoustics(settings)
+    end)
 end
 
 ArenaAudio.init()
