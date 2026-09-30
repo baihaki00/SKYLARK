@@ -394,14 +394,20 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		pitch = math.clamp(pitch - delta.Y * flySensitivity, -85, 85)
 	elseif cameraMode == "QUIN_SPECTATE" and targetHRP then
 		-- GTA V / Watch Dogs 2 Dynamic Auto-Follow Yaw:
-		-- When actively moving and not manually orbiting with mouse, gently track behind character travel direction
+		-- Only gently track behind character travel direction when moving forward relative to the camera.
+		-- During pure strafes (A/D) or reverse, freeze auto-follow yaw so the camera never spirals or drifts off-center.
 		local curVel = targetHRP.AssemblyLinearVelocity
 		local flatVel = Vector3.new(curVel.X, 0, curVel.Z)
-		if flatVel.Magnitude > 6.0 then
-			local moveHeading = math.deg(math.atan2(-flatVel.X, -flatVel.Z))
-			local diff = (moveHeading - yaw) % 360
-			if diff > 180 then diff = diff - 360 end
-			yaw = yaw + diff * (1 - math.exp(-3.5 * dt))
+		local camLook = Camera.CFrame.LookVector
+		local fwdCam = Vector3.new(camLook.X, 0, camLook.Z)
+		if fwdCam.Magnitude > 0.01 and flatVel.Magnitude > 6.0 then
+			local forwardDot = flatVel.Unit:Dot(fwdCam.Unit)
+			if forwardDot > 0.65 then
+				local moveHeading = math.deg(math.atan2(-flatVel.X, -flatVel.Z))
+				local diff = (moveHeading - yaw) % 360
+				if diff > 180 then diff = diff - 360 end
+				yaw = yaw + diff * (1 - math.exp(-3.5 * dt))
+			end
 		end
 	end
 

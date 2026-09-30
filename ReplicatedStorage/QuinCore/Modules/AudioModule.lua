@@ -208,8 +208,8 @@ function AudioModule.playLanding(targetOrPos, volume)
 	AudioModule.playFallOnGround(pos)
 end
 
-local lastFootstep = {}
-local lastFootstepTimes = {}
+local lastFootstep = setmetatable({}, { __mode = "k" })
+local lastFootstepTimes = setmetatable({}, { __mode = "k" })
 local SoundFootstepsFolder = ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Assets"):WaitForChild("SoundFootsteps")
 local footstepSounds = SoundFootstepsFolder:GetChildren()
 

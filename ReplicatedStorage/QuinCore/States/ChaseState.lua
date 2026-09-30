@@ -35,9 +35,7 @@ end
 local ChaseState = { name = "Chase" }
 
 -- JumpHandler routed through authoritative LocomotionModule (Rule 4 & Rule 6)
-local JumpHandler = LocomotionModule
-
-local chaseData = {}
+local chaseData = setmetatable({}, { __mode = "k" })
 
 local function selectPacingStrategy(fighter)
 	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
@@ -159,14 +157,7 @@ function ChaseState.exit(fighter, humanoid, rootPart)
 	
 	local speed = fighter:GetAttribute("Speed") or 40
 	humanoid.WalkSpeed = speed
-	
-	if data and data.rootJoint then
-		local origC0 = data.rootJoint:GetAttribute("OriginalC0")
-		if origC0 then
-			data.rootJoint.C0 = origC0
-		end
-	end
-	
+
 	chaseData[fighter] = nil
 end
 
@@ -904,54 +895,6 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Authoritative single-driver steering & speed modulation
 	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, targetSpeed, dt)
 	
-	local rootJoint = data.rootJoint
-	if not rootJoint then
-		for _, child in pairs(fighter:GetDescendants()) do
-			if child:IsA("Motor6D") and child.Part0 == rootPart then
-				rootJoint = child
-				data.rootJoint = rootJoint
-				if not rootJoint:GetAttribute("OriginalC0") then
-					rootJoint:SetAttribute("OriginalC0", rootJoint.C0)
-				end
-				break
-			end
-		end
-	end
-	
-	if rootJoint then
-		local origC0 = rootJoint:GetAttribute("OriginalC0")
-		if origC0 then
-			local leanAngle
-			if data.isAccelerating and currentSpeed < targetSpeed * 0.85 then
-				-- Heavy forward torso tilt on push-off acceleration (~20 deg)
-				leanAngle = math.rad(-20)
-			elseif data.isDecelerating and currentSpeed > targetSpeed + 4 then
-				-- Kinetic braking drag lean back (~8 deg)
-				leanAngle = math.rad(8)
-			elseif shouldWalk then
-				leanAngle = math.rad(-5)
-			else
-				leanAngle = math.rad(-14)
-			end
-
-			-- Centripetal roll banking into turns
-			local maxRollDeg = CombatConfig.TorsoBankingMaxRoll or 12.0
-			local angVelY = rootPart.AssemblyAngularVelocity.Y
-			local strideBase = CombatConfig.RunStrideBase or 38.0
-			local speedRatio = math.clamp(currentSpeed / strideBase, 0.2, 1.4)
-			local targetBankRoll = -math.clamp(angVelY * speedRatio * math.rad(maxRollDeg * 0.12), -math.rad(maxRollDeg), math.rad(maxRollDeg))
-
-			if data.arcAnim then
-				local isLeftArc = string.find(data.arcAnim, "Left") ~= nil
-				targetBankRoll = isLeftArc and math.rad(maxRollDeg) or -math.rad(maxRollDeg)
-			end
-
-			data.currentBankRoll = (data.currentBankRoll or 0) + (targetBankRoll - (data.currentBankRoll or 0)) * 0.15
-			local rollAngle = data.currentBankRoll
-
-			rootJoint.C0 = rootJoint.C0:Lerp(origC0 * CFrame.Angles(leanAngle, 0, rollAngle), 0.14)
-		end
-	end
 	
 	-- Fall & landing animation
 	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)

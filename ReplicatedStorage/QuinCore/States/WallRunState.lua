@@ -16,19 +16,8 @@ local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModu
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 
 local WallRunState = { name = "WallRun" }
-local wallRunData = {}
+local wallRunData = setmetatable({}, { __mode = "k" })
 
--- Helper to find RootJoint for visual procedural banking
-local function findRootJoint(model)
-	local rootPart = model:FindFirstChild("HumanoidRootPart")
-	if not rootPart then return nil end
-	for _, desc in ipairs(model:GetDescendants()) do
-		if desc:IsA("Motor6D") and (desc.Part0 == rootPart or desc.Part1 == rootPart) then
-			return desc
-		end
-	end
-	return nil
-end
 
 function WallRunState.enter(fighter, humanoid, rootPart)
 	local now = os.clock()
@@ -80,24 +69,6 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 	-- Orient physical HRP along tangent forward
 	rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + tangent)
 
-	-- Visual Procedural Banking: tilt RootJoint toward wall surface (Roll angle)
-	local rootJoint = findRootJoint(fighter)
-	local origC0 = nil
-	local tiltDeg = CombatConfig.WallRunTiltDegrees or 18
-	if side == "Left" then
-		tiltDeg = -tiltDeg
-	end
-
-	if rootJoint then
-		origC0 = rootJoint:GetAttribute("OriginalC0")
-		if not origC0 then
-			origC0 = rootJoint.C0
-			rootJoint:SetAttribute("OriginalC0", origC0)
-		end
-		-- Bank visual body inward toward wall
-		rootJoint.C0 = origC0 * CFrame.Angles(0, 0, math.rad(tiltDeg))
-	end
-
 	-- Animation & Visual friction effects
 	AnimationModule.playConfig(humanoid, "Movement.Run", 1.35, Enum.AnimationPriority.Movement, true)
 	local elem = fighter:GetAttribute("Element")
@@ -112,8 +83,6 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 		side = side,
 		linearVelocity = lv,
 		att = att,
-		rootJoint = rootJoint,
-		origC0 = origC0,
 		isDismounting = false,
 		origWalkSpeed = fighter:GetAttribute("Speed") or 40,
 	}
@@ -203,16 +172,6 @@ function WallRunState.exit(fighter, humanoid, rootPart)
 	if existingLv then existingLv:Destroy() end
 	local existingAtt = rootPart:FindFirstChild("WallRun_Att")
 	if existingAtt then existingAtt:Destroy() end
-
-	-- Smoothly restore visual torso banking
-	if data.rootJoint and data.origC0 then
-		local tween = TweenService:Create(
-			data.rootJoint,
-			TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ C0 = data.origC0 }
-		)
-		tween:Play()
-	end
 
 	-- Restore humanoid properties
 	humanoid.AutoRotate = true

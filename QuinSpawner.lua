@@ -12,6 +12,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local ElementData = require(QuinCore:WaitForChild("ElementData"))
 local QuinInstance = require(QuinCore:WaitForChild("Modules"):WaitForChild("QuinInstance"))
 local FXService = require(QuinCore:WaitForChild("Modules"):WaitForChild("FXService"))
+local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 
 local QuinSpawner = {}
 
@@ -290,6 +291,7 @@ function QuinSpawner.cleanAll()
 	end
 
 	for _, quin in ipairs(CollectionService:GetTagged("Quin")) do
+		LocomotionModule.cleanup(quin)
 		quin:Destroy()
 	end
 

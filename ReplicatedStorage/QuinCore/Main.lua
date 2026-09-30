@@ -36,6 +36,7 @@ local DecisionSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("De
 local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 
 -- === STATE MODULES ===
 local statesFolder = QuinCore:WaitForChild("States") 
@@ -386,7 +387,10 @@ humanoid.Died:Connect(function()
 	print(Quin.Name .. " has died ðŸ©¸")
 
 	healthGui.Enabled = false
-	
+
+	-- Clean up locomotion tracking & align movers
+	LocomotionModule.cleanup(Quin)
+
 	-- Change state to DeathState immediately
 	if currentState.exit then
 		currentState.exit(Quin, humanoid, rootPart)

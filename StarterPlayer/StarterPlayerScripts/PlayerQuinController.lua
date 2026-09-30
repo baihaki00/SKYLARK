@@ -42,8 +42,10 @@ local lastRawMoveTime = 0
 local lastChatterTime = 0
 local lastHeadingAngle = nil
 local lastFootstepSmokeTime = 0
-local lastHeadingLook = nil
 local bankLeanAngle = 0
+local smoothedCadenceSpeed = 0
+local lastAppliedRunSpeed = -1
+local lastAppliedWalkSpeed = -1
 
 -- PlayerQuinController owns intent only. PlayerModule must be disabled while
 -- possessed so it cannot write a second movement vector into the humanoid.
@@ -228,16 +230,10 @@ local function startControlSession(quin)
 		local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
 		local goalSpeed = isSprint and maxPacing or minPacing
 
-		-- Smooth kinetic acceleration curve: emulates natural inertia and weight on keyboard
-		local curPilotSpeed = activeQuin:GetAttribute("CurrentPilotSpeed") or 0
-		local accelRate = isSprint and 85.0 or 60.0
-		if curPilotSpeed < goalSpeed then
-			curPilotSpeed = math.min(curPilotSpeed + accelRate * dt, goalSpeed)
-		else
-			curPilotSpeed = math.max(curPilotSpeed - accelRate * 1.5 * dt, goalSpeed)
-		end
-		activeQuin:SetAttribute("CurrentPilotSpeed", curPilotSpeed)
-		local targetSpeed = curPilotSpeed
+		-- Authoritative speed modulation: targetSpeed is set to goalSpeed,
+		-- and LocomotionModule.modulateSpeed applies the authoritative acceleration curve
+		local targetSpeed = goalSpeed
+		activeQuin:SetAttribute("CurrentPilotSpeed", activeHumanoid.WalkSpeed)
 
 		local isAirborne = (activeHumanoid:GetState() == Enum.HumanoidStateType.Jumping)
 			or (activeHumanoid:GetState() == Enum.HumanoidStateType.Freefall)
@@ -267,12 +263,11 @@ local function startControlSession(quin)
 			activeQuin:SetAttribute("DirectionalChatter", isChattering or false)
 
 			-- Direct, Responsive Player Drive (GTA V / Watch Dogs 2 style):
-			-- The player controls the exact direction of travel in camera space without input vector lag.
+			-- We do NOT pass moveDir as resolvedDirection; LocomotionModule.steer carves the turn arc
+			-- through resolveGroundIntent, eliminating instantaneous 45° crab-strafe snaps on diagonal transitions.
 			local moveDir = rawMoveDir
 			smoothedMoveDir = moveDir
 			lastMoveDir = moveDir
-
-			local targetPosition = activeRootPart.Position + rawMoveDir * 15
 
 			activeQuin:SetAttribute("IsMoving", true)
 			activeQuin:SetAttribute("LastActivityTime", now)
@@ -301,9 +296,9 @@ local function startControlSession(quin)
 				end
 			end
 
-			-- Authoritative QuinCore steer: checks 180° skids against RAW player intent vector, modulates speed
+			-- Authoritative QuinCore steer: resolves ground intent through continuous damped heading arc (GTA V / Watch Dogs 2)
 			local rawTargetPosition = activeRootPart.Position + rawMoveDir * 15
-			LocomotionModule.steer(activeQuin, activeHumanoid, activeRootPart, rawTargetPosition, targetSpeed, dt, moveDir)
+			LocomotionModule.steer(activeQuin, activeHumanoid, activeRootPart, rawTargetPosition, targetSpeed, dt)
 
 			-- Authoritative GASP Motion Matching Animation Driver
 			if gaspRuntimeInstance and GASPAssetMap and GASPAssetMap.Enabled and GASPAnimator and not isAirborne then
@@ -345,27 +340,38 @@ local function startControlSession(quin)
 						AnimationModule.playConfig(activeHumanoid, desiredAnim)
 					end
 
-					-- Athletic Stride Turnover (Eliminates slow-motion shuffling):
+					-- Athletic Stride Turnover with Exponential Speed Smoothing & Deadband
+					-- (Eliminates micro-jitter from physics contact solver noise resetting animation clocks)
+					local rawSpeed = activeRootPart.AssemblyLinearVelocity.Magnitude
+					smoothedCadenceSpeed = smoothedCadenceSpeed + (rawSpeed - smoothedCadenceSpeed) * (1 - math.exp(-10.0 * dt))
+
 					if desiredAnim == "Movement.Run" and AnimationModule.isPlaying(activeHumanoid, "Movement.Run") then
-						local currentSpeed = activeRootPart.AssemblyLinearVelocity.Magnitude
 						local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
 						local maxPacing = CombatConfig.Locomotion_PacingSpeedMax or 50.0
 						local baseCfgSpeed = AnimationConfig.get("Movement.Run") and AnimationConfig.get("Movement.Run").speed or 1.00
-						local speedFraction = math.clamp((currentSpeed - minPacing) / math.max(1, maxPacing - minPacing), 0.0, 1.0)
+						local speedFraction = math.clamp((smoothedCadenceSpeed - minPacing) / math.max(1, maxPacing - minPacing), 0.0, 1.0)
 						local dynamicCadence = 0.75 + (0.25 * speedFraction)
 						local dynamicSpeed = math.clamp(baseCfgSpeed * dynamicCadence, 0.70, 1.05)
-						AnimationModule.adjustSpeed(activeHumanoid, "Movement.Run", dynamicSpeed)
+						if math.abs(dynamicSpeed - lastAppliedRunSpeed) > 0.02 then
+							lastAppliedRunSpeed = dynamicSpeed
+							AnimationModule.adjustSpeed(activeHumanoid, "Movement.Run", dynamicSpeed)
+						end
 					elseif desiredAnim == "Movement.WalkConfident" and AnimationModule.isPlaying(activeHumanoid, "Movement.WalkConfident") then
-						local currentSpeed = activeRootPart.AssemblyLinearVelocity.Magnitude
 						local strideBase = CombatConfig.WalkStrideBase or 18.5
-						local velRatio = math.clamp(currentSpeed / strideBase, 0.50, 1.10)
+						local velRatio = math.clamp(smoothedCadenceSpeed / strideBase, 0.50, 1.10)
 						local baseCfgSpeed = AnimationConfig.get("Movement.WalkConfident") and AnimationConfig.get("Movement.WalkConfident").speed or 1.00
-						AnimationModule.adjustSpeed(activeHumanoid, "Movement.WalkConfident", baseCfgSpeed * velRatio)
+						local dynamicSpeed = baseCfgSpeed * velRatio
+						if math.abs(dynamicSpeed - lastAppliedWalkSpeed) > 0.02 then
+							lastAppliedWalkSpeed = dynamicSpeed
+							AnimationModule.adjustSpeed(activeHumanoid, "Movement.WalkConfident", dynamicSpeed)
+						end
 					end
 				end
 			end
 		else
 			smoothedMoveDir = Vector3.zero
+			lastAppliedRunSpeed = -1
+			lastAppliedWalkSpeed = -1
 			-- Retain lastRawMoveDir across brief key transitions (20-350ms) so WASD multi-taps detect chatter
 			if lastRawMoveTime and (now - lastRawMoveTime) > 0.35 then
 				lastRawMoveDir = nil
@@ -461,6 +467,9 @@ local function stopControlSession()
 	shared.PlayerControlledQuin = nil
 	_G.PlayerControlledQuin = nil
 	smoothedMoveDir = Vector3.zero
+	smoothedCadenceSpeed = 0
+	lastAppliedRunSpeed = -1
+	lastAppliedWalkSpeed = -1
 	lastRawMoveDir = nil
 	lastRawMoveTime = 0
 	lastChatterTime = 0

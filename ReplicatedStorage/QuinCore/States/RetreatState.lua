@@ -23,7 +23,7 @@ local RetreatTacticsModule = require(QuinCore:WaitForChild("Modules"):WaitForChi
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 
 local RetreatState = { name = "Retreat" }
-local retreatData = {}
+local retreatData = setmetatable({}, { __mode = "k" })
 
 -- JumpHandler routed through authoritative LocomotionModule (Rule 4 & Rule 6)
 local JumpHandler = LocomotionModule
@@ -122,13 +122,6 @@ function RetreatState.exit(fighter, humanoid, rootPart)
 	local data = retreatData[fighter]
 	if data and data.currentAnim then
 		AnimationModule.stopConfig(humanoid, data.currentAnim, 0.15)
-	end
-
-	if data and data.rootJoint then
-		local origC0 = data.rootJoint:GetAttribute("OriginalC0")
-		if origC0 then
-			data.rootJoint.C0 = origC0
-		end
 	end
 
 	retreatData[fighter] = nil
@@ -460,53 +453,8 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Continuous per-frame target steering with dynamic traction skid
 	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, maxSpeed, dt)
 
-	-- Dynamic forward torso lean & banking (rootJoint.C0)
-	local rootJoint = data.rootJoint
-	if not rootJoint then
-		for _, child in pairs(fighter:GetDescendants()) do
-			if child:IsA("Motor6D") and child.Part0 == rootPart then
-				rootJoint = child
-				data.rootJoint = rootJoint
-				if not rootJoint:GetAttribute("OriginalC0") then
-					rootJoint:SetAttribute("OriginalC0", rootJoint.C0)
-				end
-				break
-			end
-		end
-	end
-	if rootJoint then
-		local origC0 = rootJoint:GetAttribute("OriginalC0")
-		if origC0 then
-			local leanAngle = data.isAccelerating and math.rad(-20) or math.rad(-14)
-			local maxRollDeg = CombatConfig.TorsoBankingMaxRoll or 12.0
-			local targetBankRoll = 0
-			if result.isJuking and result.steerDirection then
-				-- Dynamic banking into the lateral cut (roll around Z)
-				local isRight = (result.steerDirection:Dot(rootPart.CFrame.RightVector) > 0)
-				targetBankRoll = isRight and -math.rad(maxRollDeg * 1.25) or math.rad(maxRollDeg * 1.25)
-			else
-				local angVelY = rootPart.AssemblyAngularVelocity.Y
-				local strideBase = CombatConfig.RunStrideBase or 38.0
-				local speedRatio = math.clamp(currentSpeed / strideBase, 0.2, 1.4)
-				targetBankRoll = -math.clamp(angVelY * speedRatio * math.rad(maxRollDeg * 0.12), -math.rad(maxRollDeg), math.rad(maxRollDeg))
-			end
-			data.currentBankRoll = (data.currentBankRoll or 0) + (targetBankRoll - (data.currentBankRoll or 0)) * 0.16
-			rootJoint.C0 = rootJoint.C0:Lerp(origC0 * CFrame.Angles(leanAngle, 0, data.currentBankRoll), 0.14)
-		end
-	end
-
 	return RetreatState
 end
 
-function RetreatState.exit(fighter, humanoid, rootPart)
-	local data = retreatData[fighter]
-	if data and data.rootJoint then
-		local origC0 = data.rootJoint:GetAttribute("OriginalC0")
-		if origC0 then
-			data.rootJoint.C0 = origC0
-		end
-	end
-	retreatData[fighter] = nil
-end
-
 return RetreatState
+
