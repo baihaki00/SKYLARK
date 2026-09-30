@@ -21,59 +21,44 @@ local function findSpawnLocation()
 	return Workspace:FindFirstChild("SpawnLocation", true) or Workspace:FindFirstChildOfClass("SpawnLocation")
 end
 
-local function isolateSpectatorPlayer(player)
-	player.CharacterAdded:Connect(function(char)
-		if char:GetAttribute("QuinType") or char:GetAttribute("IsPlayerControlled") or CollectionService:HasTag(char, "Quin") then
-			return -- Never isolate active Quin characters
-		end
-		task.wait(0.1)
+local function setupPlayerCharacter(player)
+	local function onCharacter(char)
 		local hrp = char:WaitForChild("HumanoidRootPart", 5)
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		local spawnObj = findSpawnLocation()
-		local isoCF = spawnObj and (spawnObj.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(161, 159, -752.5)
+		local hum = char:WaitForChild("Humanoid", 5)
 		if hrp then
-			hrp.Anchored = true
-			hrp.CFrame = isoCF
+			hrp.Anchored = false
+			pcall(function()
+				hrp:SetNetworkOwner(player)
+			end)
 		end
 		for _, part in ipairs(char:GetDescendants()) do
 			if part:IsA("BasePart") then
-				part.CanCollide = false
-				part.Transparency = 1
-				part.CastShadow = false
-			end
-		end
-		if hum then
-			hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-		end
-	end)
-	if player.Character then
-		task.spawn(function()
-			local char = player.Character
-			if char:GetAttribute("QuinType") or char:GetAttribute("IsPlayerControlled") or CollectionService:HasTag(char, "Quin") then
-				return
-			end
-			local hrp = char:WaitForChild("HumanoidRootPart", 5)
-			local spawnObj = Workspace:FindFirstChildOfClass("SpawnLocation") or Workspace:FindFirstChild("SpawnLocation")
-			local isoCF = spawnObj and (spawnObj.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(182.5, 20, 468.5)
-			if hrp then
-				hrp.Anchored = true
-				hrp.CFrame = isoCF
-			end
-			for _, part in ipairs(char:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.CanCollide = false
+				if part.Name == "HumanoidRootPart" or part.Name == "Sounds" then
 					part.Transparency = 1
-					part.CastShadow = false
+					part.CanCollide = false
+				else
+					part.Transparency = 0
+					part.CanCollide = true
 				end
 			end
-		end)
+		end
+		char:SetAttribute("QuinType", "Standard")
+		char:SetAttribute("IsPlayerControlled", true)
+		char:SetAttribute("ControllingPlayer", player.Name)
+		CollectionService:AddTag(char, "Quin")
+		CollectionService:AddTag(char, "PlayerQuin")
+	end
+
+	player.CharacterAdded:Connect(onCharacter)
+	if player.Character then
+		task.spawn(onCharacter, player.Character)
 	end
 end
 
 for _, p in ipairs(Players:GetPlayers()) do
-	isolateSpectatorPlayer(p)
+	setupPlayerCharacter(p)
 end
-Players.PlayerAdded:Connect(isolateSpectatorPlayer)
+Players.PlayerAdded:Connect(setupPlayerCharacter)
 
 -- ============================================================
 -- BATTLE SIMULATION SPEED CONTROLLER (Default: 1.0x)

@@ -104,12 +104,12 @@ local function findSpawnLocation()
 	return workspace:FindFirstChild("SpawnLocation", true) or workspace:FindFirstChildOfClass("SpawnLocation")
 end
 
-local cameraMode = "FREEFLY" -- "FREEFLY" or "QUIN_SPECTATE"
-shared.SpectatorState = { Mode = "FREEFLY" }
+local cameraMode = "QUIN_SPECTATE" -- Default to tracking player Quin!
+shared.SpectatorState = { Mode = "QUIN_SPECTATE" }
 local playerSpawnObj = findSpawnLocation()
 local cameraPos = playerSpawnObj and (playerSpawnObj.Position + Vector3.new(0, 15, 30)) or Vector3.new(161, 159, -722.5)
 local yaw = 0
-local pitch = playerSpawnObj and -18.0 or -25.0 -- Angled toward the course
+local pitch = -15.0
 
 -- Orbit internals
 local smoothYaw, smoothPitch = yaw, pitch
@@ -121,37 +121,6 @@ local lastControlledQuin = nil
 local isLeftMouseDown = false
 local isRightMouseDown = false
 local isToggleLocked = false
-
--- Ensure dummy spectator character is non-interfering (NEVER isolate a Quin)
-local function isolatePlayerCharacter(char)
-	if not char then return end
-	if char:GetAttribute("QuinType") or char:GetAttribute("IsPlayerControlled") or CollectionService:HasTag(char, "Quin") then
-		return -- Never isolate active Quin characters
-	end
-	local root = char:WaitForChild("HumanoidRootPart", 5)
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	local sl = findSpawnLocation()
-	local isoCF = sl and (sl.CFrame + Vector3.new(0, 15, 0)) or CFrame.new(161, 159, -752.5)
-	if root then
-		root.Anchored = true
-		root.CFrame = isoCF
-	end
-	for _, part in ipairs(char:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.CanCollide = false
-			part.Transparency = 1
-			part.CastShadow = false
-		end
-	end
-	if hum then
-		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-	end
-end
-
-if player.Character then
-	isolatePlayerCharacter(player.Character)
-end
-player.CharacterAdded:Connect(isolatePlayerCharacter)
 
 -- === MOUSE CONTROLS ===
 local function updateMouseBehavior()
@@ -256,6 +225,12 @@ end)
 -- Check active spectated Quin
 local function getActiveSpectatedQuin()
 	local playerQuin = shared.PlayerControlledQuin or _G.PlayerControlledQuin
+	if not playerQuin and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		local hum = player.Character:FindFirstChildOfClass("Humanoid")
+		if hum and hum.Health > 0 then
+			playerQuin = player.Character
+		end
+	end
 	if playerQuin and playerQuin.Parent and playerQuin:FindFirstChild("HumanoidRootPart") then
 		local hum = playerQuin:FindFirstChildOfClass("Humanoid")
 		local hrp = playerQuin:FindFirstChild("HumanoidRootPart")
@@ -397,7 +372,7 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 	if targetHRP and cameraMode ~= "QUIN_SPECTATE" then
 		cameraMode = "QUIN_SPECTATE"
 		shared.SpectatorState.Mode = cameraMode
-		if shared.PlayerControlledQuin and lastControlledQuin ~= quinModel then
+		if (shared.PlayerControlledQuin or quinModel == player.Character) and lastControlledQuin ~= quinModel then
 			lastControlledQuin = quinModel
 			targetDistance = 14
 			pitch = -12
