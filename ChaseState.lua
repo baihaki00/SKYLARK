@@ -262,15 +262,37 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("CirclingState"))
 	end
 
-	-- Vertical gap awareness: target is far above → vault toward high ground via LocomotionModule
+	-- Vertical gap awareness: target is perched on high ground
 	local verticalGap = targetHRP.Position.Y - rootPart.Position.Y
 	local lastPJ = fighter:GetAttribute("LastPositioningJumpTime") or 0
-	if not inShowdown and verticalGap > (CombatConfig.HighGroundJumpReach or 14)
-		and (fighter:GetAttribute("Energy") or 100) >= (CombatConfig.ProjectileJumpMinEnergy or 40)
-		and (os.clock() - lastPJ) >= (CombatConfig.PositioningJumpCooldown or 10) then
-		fighter:SetAttribute("LastPositioningJumpTime", os.clock())
-		LocomotionModule.jump(fighter, humanoid, rootPart, verticalGap + 2, 45, "jump")
-		return ChaseState
+	local flatDistToTgt = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
+
+	if not inShowdown and verticalGap >= (CombatConfig.HighGround_InterceptJumpMinReach or 8.0) then
+		local energy = fighter:GetAttribute("Energy") or 100
+		local climbEnergyCost = CombatConfig.HighGround_InterceptJumpEnergyCost or 20
+
+		if verticalGap <= (CombatConfig.HighGround_InterceptJumpMaxReach or 35.0) then
+			-- In reachable jump range: launch intentional High-Ground Intercept Jump
+			if energy >= climbEnergyCost and (os.clock() - lastPJ) >= 4.0 and flatDistToTgt <= 45.0
+				and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+				fighter:SetAttribute("LastPositioningJumpTime", os.clock())
+				fighter:SetAttribute("Energy", energy - climbEnergyCost)
+				fighter:SetAttribute("ObstacleAwareness", "High-Ground Intercept Jump")
+				LocomotionModule.jump(fighter, humanoid, rootPart, verticalGap + 3.0, 38.0, "jump")
+				return ChaseState
+			end
+		end
+
+		-- If standing directly underneath the platform (< 16 studs flat), back up to maintain vantage LoS
+		if flatDistToTgt < 16.0 then
+			local flatLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+			flatLook = (flatLook.Magnitude > 0.01) and flatLook.Unit or Vector3.new(0, 0, -1)
+			local rightVec = rootPart.CFrame.RightVector
+			local vantageTarget = rootPart.Position - flatLook * 22.0 + rightVec * 8.0
+			fighter:SetAttribute("ObstacleAwareness", "Positioning for High-Ground Vantage")
+			LocomotionModule.steer(fighter, humanoid, rootPart, vantageTarget, 20.0, 0.05)
+			return ChaseState
+		end
 	end
 
 	-- 3. Dangerously low resources: do not pursue into exhaustion
@@ -657,14 +679,40 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 	
-	-- Self Platform Dismount (Phase 4): if THIS Quin is perched on an elevated OB platform,
+	-- Self Platform Dismount (Phase 4): if THIS Quin is perched on an elevated platform,
 	-- walk toward the nearest ledge biased toward the target rather than milling around.
 	local platformDismountDir = nil
-	local isOnPlatform, _ = SpatialModule.isOnElevatedPlatform(rootPart, CombatConfig.ElevatedPlatformThreshold or 6.0)
+	local ledgeDist = 999
+	local allowPlatformDrop = false
+	local targetBelow = (targetHRP.Position.Y < rootPart.Position.Y - 5.0)
+
+	local isOnPlatform, platformInfo = SpatialModule.isOnElevatedPlatform(rootPart, CombatConfig.HighGround_PerchDetectThreshold or 5.0)
 	if isOnPlatform then
 		data.wasOnPlatform = true
-		platformDismountDir = SpatialModule.getPlatformDismountDirection(rootPart, targetHRP.Position)
-		fighter:SetAttribute("ObstacleAwareness", "Dismounting Elevated Platform")
+		if targetBelow then
+			allowPlatformDrop = true
+			platformDismountDir, ledgeDist = SpatialModule.getPlatformDismountDirection(rootPart, targetHRP.Position)
+			fighter:SetAttribute("ObstacleAwareness", "Approaching Platform Ledge")
+
+			-- Check if close enough to ledge and facing target to execute Dive-Down Leap!
+			local flatDist = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
+			local lookVec = rootPart.CFrame.LookVector
+			local isFacingTarget = lookVec:Dot(platformDismountDir) > 0.15
+			local canDive = (CombatConfig.HighGround_DiveDropEnabled ~= false)
+				and not humanoid.Jump
+				and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
+				and (ledgeDist <= 8.0 or flatDist <= 28.0)
+				and isFacingTarget
+
+			if canDive then
+				fighter:SetAttribute("ObstacleAwareness", "Ledge Dive Down")
+				data.isDismountFalling = true
+				data.wasOnPlatform = false
+				local forwardSpeed = math.clamp(flatDist * 1.3, 28.0, 52.0)
+				LocomotionModule.jump(fighter, humanoid, rootPart, 2.0, forwardSpeed, "leap_down")
+				return ChaseState
+			end
+		end
 	end
 
 	-- Vertical Obstacle Unstick (Phase 4): detect zero-progress against a vertical face
@@ -673,7 +721,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	data.stuckCheckTime = data.stuckCheckTime or now
 	if (now - data.stuckCheckTime) >= 1.2 then
 		local progress = (rootPart.Position - data.stuckCheckPos).Magnitude
-		if progress < (CombatConfig.VerticalStuckThreshold or 0.8) and distance > 15 and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+		if progress < (CombatConfig.VerticalStuckThreshold or 0.8) and distance > 15 and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall and not allowPlatformDrop then
 			fighter:SetAttribute("ObstacleAwareness", "Unsticking Vertical Barrier")
 			JumpHandler.performJump(humanoid, rootPart, CombatConfig.VerticalUnstickJumpHeight or 9.0, 10, "jump")
 		end
@@ -819,7 +867,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	local nearEdge, awayDir = SpatialModule.isNearArenaEdge(rootPart, 6)
+	local nearEdge, awayDir = SpatialModule.isNearArenaEdge(rootPart, 6, allowPlatformDrop)
 	if nearEdge then
 		arcTarget = rootPart.Position + awayDir * 10 + dirToTarget * 5
 	end

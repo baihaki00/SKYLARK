@@ -335,6 +335,24 @@ local CombatConfig = {
 	Ragdoll_AirDrag = 0.85,                  -- aerodynamic drag alignment factor during flight
 	Ragdoll_GroundFriction = 0.55,           -- ground momentum slide retention on impact
 	Ragdoll_RecoveryDelay = 0.40,            -- seconds before initiating get-up from prone/supine
+
+	-- Procedural Full-Body Active Ragdoll & Knockback IK
+	AirKnockback_ProceduralRagdollEnabled = true, -- if false, reverts cleanly to author-keyed FallAirKnockback track
+	Ragdoll_ArmIK_Enabled = true,                -- full procedural arm IK flailing during air launches/knockback
+	Ragdoll_LegIK_Enabled = true,                -- procedural leg drag/cycling during air launches/knockback
+	Ragdoll_FlailTurbulence = 1.0,               -- wind turbulence flailing multiplier
+	Ragdoll_DragCompliance = 0.85,               -- arm/leg drag resistance scaling with linear velocity
+
+	-- High Ground & Platform Traversal Intent
+	HighGround_DiveDropEnabled = true,           -- allows perched Quins to leap down onto lower ground enemies
+	HighGround_PerchDetectThreshold = 5.0,       -- vertical elevation difference to qualify as high ground platform
+	HighGround_InterceptJumpMinReach = 8.0,      -- min vertical gap to trigger high-ground jump from below
+	HighGround_InterceptJumpMaxReach = 35.0,     -- max vertical gap for standard high-ground jump
+	HighGround_InterceptJumpEnergyCost = 20,     -- reduced mana cost for tactical high-ground climb hops
+
+	-- 3D Debug Visualizers (LoS, LKP, Trajectories, Platform Intent)
+	DebugVisualizers_Enabled = true,             -- enable 3D visualizer subsystem (toggled via HUD or 'V' key)
+	DebugVisualizers_ShowAllNearby = false,      -- true to show all nearby Quins; false for spectated Quin only
 }
 
 return CombatConfig

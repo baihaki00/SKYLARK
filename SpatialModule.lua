@@ -76,8 +76,10 @@ function SpatialModule.raycastDown(rootPart, maxDistance)
 	return false, maxDistance, nil, nil
 end
 
--- Check if near an edge by raycasting down at forward+left+right offsets
-function SpatialModule.isNearArenaEdge(rootPart, threshold)
+-- Check if near a true lethal arena edge or void boundary.
+-- If allowPlatformDrop is true (e.g. Quin wants to leap down toward a target below),
+-- drops with valid ground/baseplate below within 250 studs are permitted.
+function SpatialModule.isNearArenaEdge(rootPart, threshold, allowPlatformDrop)
 	threshold = threshold or 8
 	local params = RaycastParams.new()
 	params.FilterDescendantsInstances = {rootPart.Parent}
@@ -91,10 +93,19 @@ function SpatialModule.isNearArenaEdge(rootPart, threshold)
 	
 	for _, offset in ipairs(checkDirs) do
 		local checkPos = rootPart.Position + offset
-		local result = Workspace:Raycast(checkPos, Vector3.new(0, -20, 0), params)
-		if not result then
-			-- No ground found at this offset = edge detected
-			return true, -offset.Unit -- Return direction AWAY from edge
+		local shallowHit = Workspace:Raycast(checkPos, Vector3.new(0, -20, 0), params)
+		if not shallowHit then
+			-- No shallow ground found at this offset. Check if this is a platform ledge or true void
+			local deepHit = Workspace:Raycast(checkPos, Vector3.new(0, -250, 0), params)
+			if not deepHit then
+				-- True void! No ground anywhere below = lethal arena boundary!
+				return true, -offset.Unit
+			else
+				-- Valid ground exists below (elevated platform ledge)
+				if not allowPlatformDrop then
+					return true, -offset.Unit
+				end
+			end
 		end
 	end
 	return false, Vector3.zero
@@ -774,10 +785,10 @@ end
 -- Phase 4: Vertical Navigation & Floating Platform Reasoning
 -- ============================================================
 
--- Detect whether this Quin is currently perched on an elevated OB platform.
--- Returns (isElevated, info) where info = { part, surfaceY, elevation, isOB }.
+-- Detect whether this Quin is currently perched on an elevated platform or obstacle.
+-- Returns (isElevated, info) where info = { part, surfaceY, elevation, floorY, isOB }.
 function SpatialModule.isOnElevatedPlatform(rootPart, threshold)
-	threshold = threshold or 6.0
+	threshold = threshold or 5.0
 	if not rootPart then return false, nil end
 
 	local pos = rootPart.Position
@@ -792,7 +803,8 @@ function SpatialModule.isOnElevatedPlatform(rootPart, threshold)
 
 	local surfacePart = hit.Instance
 	local surfaceY = hit.Position.Y
-	local isOB = (surfacePart.Name == "OB" or surfacePart.Name:find("OB") ~= nil or surfacePart.Name:find("Platform") ~= nil)
+	local nameLower = surfacePart.Name:lower()
+	local isOB = (nameLower:find("ob") ~= nil or nameLower:find("platform") ~= nil)
 
 	-- Measure vertical drop from this surface down to the arena floor,
 	-- excluding the platform part itself so we pierce through to real ground.
@@ -807,10 +819,12 @@ function SpatialModule.isOnElevatedPlatform(rootPart, threshold)
 		part = surfacePart,
 		surfaceY = surfaceY,
 		elevation = elevation,
+		floorY = floorY,
 		isOB = isOB,
 	}
 
-	if isOB and elevation >= threshold then
+	-- Any anchored surface elevated above nominal floor qualifies as a platform
+	if elevation >= threshold then
 		return true, info
 	end
 	return false, info
@@ -818,18 +832,19 @@ end
 
 -- Find the nearest safe ledge direction to dismount an elevated platform,
 -- biased toward the target position or open ground.
+-- Returns (bestDir, bestDist)
 function SpatialModule.getPlatformDismountDirection(rootPart, targetPos)
-	if not rootPart then return Vector3.new(0, 0, -1) end
+	if not rootPart then return Vector3.new(0, 0, -1), 999 end
 
-	local _, info = SpatialModule.isOnElevatedPlatform(rootPart)
+	local isElevated, info = SpatialModule.isOnElevatedPlatform(rootPart)
 	local platformPart = info and info.part
 	if not platformPart then
 		-- Not on a platform; no dismount needed.
 		if targetPos then
 			local tDir = Vector3.new(targetPos.X - rootPart.Position.X, 0, targetPos.Z - rootPart.Position.Z)
-			if tDir.Magnitude > 0.01 then return tDir.Unit end
+			if tDir.Magnitude > 0.01 then return tDir.Unit, 0 end
 		end
-		return SpatialModule.getArenaCenterDirection(rootPart)
+		return SpatialModule.getArenaCenterDirection(rootPart), 0
 	end
 
 	local params = RaycastParams.new()
@@ -843,18 +858,19 @@ function SpatialModule.getPlatformDismountDirection(rootPart, targetPos)
 		if targetDir.Magnitude > 0.01 then targetDir = targetDir.Unit end
 	end
 
-	local rayCount = 12
-	local maxRange = 15.0
+	local rayCount = 16
+	local maxRange = 24.0
 	local bestDir = nil
+	local bestDist = 999
 	local bestScore = -math.huge
 
 	for i = 0, rayCount - 1 do
 		local angle = (i / rayCount) * math.pi * 2
 		local dir = Vector3.new(math.sin(angle), 0, math.cos(angle))
 
-		-- Step outward to find the first distance where the platform surface ends
+		-- Step outward to find where the platform surface ends
 		local edgeDist = nil
-		for _, d in ipairs({ 3, 6, 9, 12, 15 }) do
+		for _, d in ipairs({ 2, 4, 6, 8, 10, 14, 18, 22 }) do
 			local probe = pos + dir * d
 			local hit = Workspace:Raycast(Vector3.new(probe.X, pos.Y + 1, probe.Z), Vector3.new(0, -40, 0), params)
 			if (not hit) or (hit.Instance ~= platformPart) then
@@ -866,19 +882,20 @@ function SpatialModule.getPlatformDismountDirection(rootPart, targetPos)
 		if edgeDist then
 			local score = 0
 			if targetDir.Magnitude > 0.01 then
-				score = score + dir:Dot(targetDir) * 2.0
+				score = score + dir:Dot(targetDir) * 2.5
 			end
-			score = score + (1.0 - edgeDist / maxRange) * 1.0
+			score = score + (1.0 - edgeDist / maxRange) * 1.2
 			if score > bestScore then
 				bestScore = score
 				bestDir = dir
+				bestDist = edgeDist
 			end
 		end
 	end
 
-	if bestDir then return bestDir end
-	if targetDir.Magnitude > 0.01 then return targetDir end
-	return SpatialModule.getArenaCenterDirection(rootPart)
+	if bestDir then return bestDir, bestDist end
+	if targetDir.Magnitude > 0.01 then return targetDir, 999 end
+	return SpatialModule.getArenaCenterDirection(rootPart), 999
 end
 
 -- ============================================================

@@ -81,10 +81,21 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 	-- Strip down rotation entirely. No BodyGyro. Let physics tumble them naturally.
 	if isHardKnockback then
 		knockbackData[fighter].stunDuration = math.max(knockbackData[fighter].stunDuration, 1.5)
-		AnimationModule.play(humanoid, AnimationIds.KnockbackExtreme, Enum.AnimationPriority.Action4, false, 1, 0)
+		if kbType == "air" and CombatConfig.AirKnockback_ProceduralRagdollEnabled then
+			fighter:SetAttribute("ProceduralRagdollActive", true)
+		else
+			AnimationModule.play(humanoid, AnimationIds.KnockbackExtreme, Enum.AnimationPriority.Action4, false, 1, 0)
+		end
 	else
 		if kbType == "air" then
-			AnimationModule.play(humanoid, AnimationIds.FallAirKnockback, Enum.AnimationPriority.Action4, true, 1.0, 0.1)
+			if CombatConfig.AirKnockback_ProceduralRagdollEnabled then
+				-- Full-body active procedural IK ragdoll drives flight flailing & tumbling!
+				-- Suppresses rigid static FallAirKnockback animation track.
+				fighter:SetAttribute("ProceduralRagdollActive", true)
+			else
+				-- Revertible fallback to author-keyed FallAirKnockback
+				AnimationModule.play(humanoid, AnimationIds.FallAirKnockback, Enum.AnimationPriority.Action4, true, 1.0, 0.1)
+			end
 		else
 			AnimationModule.play(humanoid, AnimationIds.Knockback, Enum.AnimationPriority.Action4, false, 1.0, 0.1)
 		end
@@ -98,6 +109,7 @@ end
 
 function KnockbackState.exit(fighter, humanoid, rootPart)
 	knockbackData[fighter] = nil
+	fighter:SetAttribute("ProceduralRagdollActive", false)
 	local speed = fighter:GetAttribute("Speed") or 40
 	humanoid.WalkSpeed = speed
 	humanoid.PlatformStand = false

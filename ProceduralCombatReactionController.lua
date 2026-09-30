@@ -132,6 +132,89 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 			rightIK.Parent = self.humanoid
 			self.rightIK = rightIK
 		end
+
+		-- Procedural Arm IK & Elbow Pole Setup (Step 4: Active Ragdoll Flailing)
+		self.leftHandBone = ghostModel:FindFirstChild("mixamorig:LeftHand", true)
+		self.rightHandBone = ghostModel:FindFirstChild("mixamorig:RightHand", true)
+		self.leftHandAtt = nil
+		self.rightHandAtt = nil
+		self.leftElbowPoleAtt = nil
+		self.rightElbowPoleAtt = nil
+		self.leftArmIK = nil
+		self.rightArmIK = nil
+
+		local leftHandAtt = attParent:FindFirstChild("GhostLeftHandTargetAtt")
+		if not leftHandAtt or not leftHandAtt:IsA("Attachment") then
+			leftHandAtt = Instance.new("Attachment")
+			leftHandAtt.Name = "GhostLeftHandTargetAtt"
+			leftHandAtt.Parent = attParent
+		end
+		leftHandAtt.Position = Vector3.new(-1.8, 0, 0)
+		self.leftHandAtt = leftHandAtt
+
+		local rightHandAtt = attParent:FindFirstChild("GhostRightHandTargetAtt")
+		if not rightHandAtt or not rightHandAtt:IsA("Attachment") then
+			rightHandAtt = Instance.new("Attachment")
+			rightHandAtt.Name = "GhostRightHandTargetAtt"
+			rightHandAtt.Parent = attParent
+		end
+		rightHandAtt.Position = Vector3.new(1.8, 0, 0)
+		self.rightHandAtt = rightHandAtt
+
+		-- Elbow pole vectors: placed backward and slightly outward
+		local leftElbowPole = attParent:FindFirstChild("GhostLeftElbowPoleAtt")
+		if not leftElbowPole or not leftElbowPole:IsA("Attachment") then
+			leftElbowPole = Instance.new("Attachment")
+			leftElbowPole.Name = "GhostLeftElbowPoleAtt"
+			leftElbowPole.Parent = attParent
+		end
+		leftElbowPole.Position = Vector3.new(-2.2, 0.5, -2.0)
+		self.leftElbowPoleAtt = leftElbowPole
+
+		local rightElbowPole = attParent:FindFirstChild("GhostRightElbowPoleAtt")
+		if not rightElbowPole or not rightElbowPole:IsA("Attachment") then
+			rightElbowPole = Instance.new("Attachment")
+			rightElbowPole.Name = "GhostRightElbowPoleAtt"
+			rightElbowPole.Parent = attParent
+		end
+		rightElbowPole.Position = Vector3.new(2.2, 0.5, -2.0)
+		self.rightElbowPoleAtt = rightElbowPole
+
+		if self.leftArmBone and self.leftHandBone then
+			local leftArmIK = self.humanoid:FindFirstChild("GhostLeftArmIK")
+			if not leftArmIK or not leftArmIK:IsA("IKControl") then
+				leftArmIK = Instance.new("IKControl")
+			end
+			leftArmIK.Name = "GhostLeftArmIK"
+			leftArmIK.Type = Enum.IKControlType.Position
+			leftArmIK.ChainRoot = self.leftArmBone
+			leftArmIK.EndEffector = self.leftHandBone
+			leftArmIK.Target = leftHandAtt
+			leftArmIK.Pole = leftElbowPole
+			leftArmIK.Weight = 0
+			leftArmIK.Enabled = false
+			leftArmIK.SmoothTime = 0.0
+			leftArmIK.Parent = self.humanoid
+			self.leftArmIK = leftArmIK
+		end
+
+		if self.rightArmBone and self.rightHandBone then
+			local rightArmIK = self.humanoid:FindFirstChild("GhostRightArmIK")
+			if not rightArmIK or not rightArmIK:IsA("IKControl") then
+				rightArmIK = Instance.new("IKControl")
+			end
+			rightArmIK.Name = "GhostRightArmIK"
+			rightArmIK.Type = Enum.IKControlType.Position
+			rightArmIK.ChainRoot = self.rightArmBone
+			rightArmIK.EndEffector = self.rightHandBone
+			rightArmIK.Target = rightHandAtt
+			rightArmIK.Pole = rightElbowPole
+			rightArmIK.Weight = 0
+			rightArmIK.Enabled = false
+			rightArmIK.SmoothTime = 0.0
+			rightArmIK.Parent = self.humanoid
+			self.rightArmIK = rightArmIK
+		end
 	end
 
 	-- Raycast filtering (reusable RaycastParams)
@@ -645,6 +728,98 @@ function ProceduralCombatReactionController:update(dt)
 		self.rightToeFlex = 0
 	end
 
+	-- 8. Procedural Full-Body Active Ragdoll & Arm IK (Air Knockback & Tumble)
+	local isRagdollActive = CombatConfig.AirKnockback_ProceduralRagdollEnabled
+		and (serverState == "Knockback" or (serverModel and serverModel:GetAttribute("ProceduralRagdollActive") == true) or (isAirborne and speed > 32))
+
+	if self.leftArmIK and self.rightArmIK and self.leftHandAtt and self.rightHandAtt and self.rootPart then
+		if isRagdollActive and CombatConfig.Ragdoll_ArmIK_Enabled ~= false then
+			local hrpCF = self.rootPart.CFrame
+			local hrpPos = self.rootPart.Position
+			local rootVel = self.rootPart.AssemblyLinearVelocity
+			local angVel = self.rootPart.AssemblyAngularVelocity
+
+			-- Aerodynamic drag lag: hands trail behind velocity vector
+			local dragCompliance = CombatConfig.Ragdoll_DragCompliance or 0.85
+			local dragLag = -rootVel * (0.040 * dragCompliance)
+			if dragLag.Magnitude > 3.0 then
+				dragLag = dragLag.Unit * 3.0
+			end
+
+			-- Atmospheric wind flutter / turbulence
+			local flailMult = CombatConfig.Ragdoll_FlailTurbulence or 1.0
+			local t = os.clock() * 16.0
+			local turbLeft = Vector3.new(
+				math.sin(t) * 0.35,
+				math.cos(t * 1.3) * 0.45,
+				math.sin(t * 0.7) * 0.30
+			) * flailMult
+			local turbRight = Vector3.new(
+				math.cos(t * 1.1) * 0.35,
+				math.sin(t * 1.4) * 0.45,
+				math.cos(t * 0.8) * 0.30
+			) * flailMult
+
+			-- Centrifugal angular velocity flail
+			local centrifugalL = angVel:Cross(-hrpCF.RightVector) * 0.08
+			local centrifugalR = angVel:Cross(hrpCF.RightVector) * 0.08
+
+			-- Shoulder anchor origins
+			local leftShoulderPos = self.leftArmBone and self.leftArmBone.TransformedWorldCFrame.Position
+				or (hrpPos - (hrpCF.RightVector * 1.4) + (hrpCF.UpVector * 1.2))
+			local rightShoulderPos = self.rightArmBone and self.rightArmBone.TransformedWorldCFrame.Position
+				or (hrpPos + (hrpCF.RightVector * 1.4) + (hrpCF.UpVector * 1.2))
+
+			-- Natural resting flail direction: hands spread out and back
+			local leftHandTarget = leftShoulderPos - (hrpCF.RightVector * 1.6) - (hrpCF.UpVector * 0.4) + dragLag + turbLeft + centrifugalL
+			local rightHandTarget = rightShoulderPos + (hrpCF.RightVector * 1.6) - (hrpCF.UpVector * 0.4) + dragLag + turbRight + centrifugalR
+
+			self.leftHandAtt.WorldPosition = leftHandTarget
+			self.rightHandAtt.WorldPosition = rightHandTarget
+
+			-- Elbow poles positioned backward/outward to ensure natural elbow flexion
+			if self.leftElbowPoleAtt then
+				self.leftElbowPoleAtt.WorldPosition = leftShoulderPos - (hrpCF.LookVector * 2.5) - (hrpCF.RightVector * 1.2)
+			end
+			if self.rightElbowPoleAtt then
+				self.rightElbowPoleAtt.WorldPosition = rightShoulderPos - (hrpCF.LookVector * 2.5) + (hrpCF.RightVector * 1.2)
+			end
+
+			-- Fast attack weight interpolation
+			local armWeightSpeed = 24.0 * dt
+			self.leftArmIK.Weight = self.leftArmIK.Weight + (1.0 - self.leftArmIK.Weight) * math.clamp(armWeightSpeed, 0, 1)
+			self.rightArmIK.Weight = self.rightArmIK.Weight + (1.0 - self.rightArmIK.Weight) * math.clamp(armWeightSpeed, 0, 1)
+			self.leftArmIK.Enabled = true
+			self.rightArmIK.Enabled = true
+
+			-- Legs flail & trail behind momentum with knee flexion during air ragdoll
+			if CombatConfig.Ragdoll_LegIK_Enabled ~= false and self.leftIK and self.rightIK and self.leftFootAtt and self.rightFootAtt then
+				local legDrag = -rootVel * 0.035
+				if legDrag.Magnitude > 2.5 then legDrag = legDrag.Unit * 2.5 end
+
+				local legT = os.clock() * 12.0
+				local flutterL = math.sin(legT) * 0.25
+				local flutterR = math.cos(legT) * 0.25
+
+				self.leftFootAtt.WorldPosition = hrpPos - (hrpCF.RightVector * 0.8) - (hrpCF.UpVector * 4.0) + legDrag + Vector3.new(0, flutterL, 0)
+				self.rightFootAtt.WorldPosition = hrpPos + (hrpCF.RightVector * 0.8) - (hrpCF.UpVector * 4.0) + legDrag - Vector3.new(0, flutterR, 0)
+
+				local legWeightSpeed = 20.0 * dt
+				self.leftIK.Weight = self.leftIK.Weight + (0.85 - self.leftIK.Weight) * math.clamp(legWeightSpeed, 0, 1)
+				self.rightIK.Weight = self.rightIK.Weight + (0.85 - self.rightIK.Weight) * math.clamp(legWeightSpeed, 0, 1)
+				self.leftIK.Enabled = true
+				self.rightIK.Enabled = true
+			end
+		else
+			-- Smooth decay of Arm IK weight on landing/recovery
+			local armDecaySpeed = 16.0 * dt
+			self.leftArmIK.Weight = self.leftArmIK.Weight + (0.0 - self.leftArmIK.Weight) * math.clamp(armDecaySpeed, 0, 1)
+			self.rightArmIK.Weight = self.rightArmIK.Weight + (0.0 - self.rightArmIK.Weight) * math.clamp(armDecaySpeed, 0, 1)
+			self.leftArmIK.Enabled = (self.leftArmIK.Weight > 0.005)
+			self.rightArmIK.Enabled = (self.rightArmIK.Weight > 0.005)
+		end
+	end
+
 	-- Attribute telemetry for diagnostics
 	if math.abs(self.currentPitch) < 0.005 and math.abs(self.velocityPitch) < 0.05
 		and math.abs(self.currentRoll) < 0.005 and math.abs(self.velocityRoll) < 0.05
@@ -674,6 +849,12 @@ function ProceduralCombatReactionController:getTelemetry()
 			hipsDip = self.hipsDipOffset or 0,
 			leftToeFlexDeg = math.deg(self.leftToeFlex or 0),
 			rightToeFlexDeg = math.deg(self.rightToeFlex or 0),
+		},
+		armIK = {
+			enabled = CombatConfig.Ragdoll_ArmIK_Enabled ~= false,
+			leftWeight = self.leftArmIK and self.leftArmIK.Weight or 0,
+			rightWeight = self.rightArmIK and self.rightArmIK.Weight or 0,
+			ragdollActive = CombatConfig.AirKnockback_ProceduralRagdollEnabled == true,
 		}
 	}
 end
@@ -704,6 +885,12 @@ function ProceduralCombatReactionController:destroy()
 	if self.rightFootAtt then self.rightFootAtt:Destroy() self.rightFootAtt = nil end
 	if self.leftPoleAtt then self.leftPoleAtt:Destroy() self.leftPoleAtt = nil end
 	if self.rightPoleAtt then self.rightPoleAtt:Destroy() self.rightPoleAtt = nil end
+	if self.leftArmIK then self.leftArmIK:Destroy() self.leftArmIK = nil end
+	if self.rightArmIK then self.rightArmIK:Destroy() self.rightArmIK = nil end
+	if self.leftHandAtt then self.leftHandAtt:Destroy() self.leftHandAtt = nil end
+	if self.rightHandAtt then self.rightHandAtt:Destroy() self.rightHandAtt = nil end
+	if self.leftElbowPoleAtt then self.leftElbowPoleAtt:Destroy() self.leftElbowPoleAtt = nil end
+	if self.rightElbowPoleAtt then self.rightElbowPoleAtt:Destroy() self.rightElbowPoleAtt = nil end
 	self.ghostModel = nil
 	self.aiModel = nil
 	self.hipsBone = nil
@@ -720,6 +907,12 @@ function ProceduralCombatReactionController:destroy()
 	self.rightLegBone = nil
 	self.rightFootBone = nil
 	self.rightToeBone = nil
+	self.leftArmBone = nil
+	self.leftForeArmBone = nil
+	self.leftHandBone = nil
+	self.rightArmBone = nil
+	self.rightForeArmBone = nil
+	self.rightHandBone = nil
 	self.rootPart = nil
 	self.humanoid = nil
 end
