@@ -100,6 +100,11 @@ end)
 -- ============================================================
 -- PLAYER QUIN POSSESSION CONTROLLER (Play As Quin)
 -- ============================================================
+local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
+local HitboxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("HitboxModule"))
+local DamageModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("DamageModule"))
+local KnockbackModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("KnockbackModule"))
+
 local quinControlFunction = ReplicatedStorage:FindFirstChild("PlayerQuinControlFunction")
 if not quinControlFunction then
 	quinControlFunction = Instance.new("RemoteFunction")
@@ -111,6 +116,7 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 	if action == "Possess" then
 		local quinServer = Workspace:FindFirstChild("QuinServer")
 		local targetQuin = nil
+		local wasNewlySpawned = false
 
 		-- Clean up any dead quins previously controlled by this player
 		if quinServer then
@@ -124,55 +130,74 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 			end
 		end
 
-		-- 1. Try to find requested or existing living Quin in QuinServer
-		if targetQuinName and quinServer then
-			targetQuin = quinServer:FindFirstChild(targetQuinName)
+		-- 1. Try to find explicitly requested Quin by name (e.g. from Spectator HUD)
+		if targetQuinName and targetQuinName ~= "" then
+			if quinServer then
+				targetQuin = quinServer:FindFirstChild(targetQuinName)
+			end
+			if not targetQuin then
+				for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+					if q.Name == targetQuinName then
+						targetQuin = q
+						break
+					end
+				end
+			end
+			if targetQuin then
+				local hum = targetQuin:FindFirstChildOfClass("Humanoid")
+				if hum and hum.Health <= 0 then
+					targetQuin = nil
+				end
+			end
 		end
+
+		-- 2. If no specific target requested, pick any living Quin in the arena
 		if not targetQuin and quinServer then
 			for _, child in ipairs(quinServer:GetChildren()) do
 				local hum = child:FindFirstChildOfClass("Humanoid")
-				if child:IsA("Model") and child:FindFirstChild("HumanoidRootPart") and (not hum or hum.Health > 0) and not child:GetAttribute("IsPlayerControlled") then
+				if child:IsA("Model") and child:FindFirstChild("HumanoidRootPart") and hum and hum.Health > 0 and not child:GetAttribute("IsPlayerControlled") then
 					targetQuin = child
 					break
 				end
 			end
 		end
 
-		-- Calculate target spawn CFrame using SpawnLocation in Workspace
-		local spawnLocation = findSpawnLocation()
-		local targetCFrame
-		if spawnLocation and spawnLocation:IsA("BasePart") then
-			targetCFrame = spawnLocation.CFrame * CFrame.new(0, spawnLocation.Size.Y / 2 + 3.5, 0)
-		else
-			targetCFrame = CFrame.new(161, 147.5, -752.5)
-		end
-
-		-- Clean up any dead quins previously controlled by this player, or reuse living one
-		if quinServer then
-			for _, child in ipairs(quinServer:GetChildren()) do
-				if child:GetAttribute("ControllingPlayer") == player.Name then
-					local hum = child:FindFirstChildOfClass("Humanoid")
-					if hum and hum.Health <= 0 then
-						child:Destroy()
-					else
-						targetQuin = child
-					end
+		-- Fallback to any tagged living Quin in Workspace
+		if not targetQuin then
+			for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+				local hum = q:FindFirstChildOfClass("Humanoid")
+				if hum and hum.Health > 0 and not q:GetAttribute("IsPlayerControlled") then
+					targetQuin = q
+					break
 				end
 			end
 		end
 
-		-- 2. If no living Quin exists in arena, spawn a clean one at SpawnLocation
+		-- 3. ONLY if NO living Quins exist anywhere in arena/workspace, spawn a fallback test Quin
 		if not targetQuin then
-			targetQuin = QuinSpawner.spawn("TypeA", targetCFrame.Position, "Team1", "Fire")
+			local spawnLocation = findSpawnLocation()
+			local targetCFrame
+			if spawnLocation and spawnLocation:IsA("BasePart") then
+				targetCFrame = spawnLocation.CFrame * CFrame.new(0, spawnLocation.Size.Y / 2 + 3.5, 0)
+			else
+				targetCFrame = CFrame.new(161, 147.5, -752.5)
+			end
+			targetQuin = QuinSpawner.spawn("TypeA", targetCFrame.Position, "TeamAlpha", "Fire")
+			wasNewlySpawned = true
 		end
 
 		if targetQuin then
 			local root = targetQuin:FindFirstChild("HumanoidRootPart")
 			if root then
 				root.Anchored = false
-				targetQuin:PivotTo(targetCFrame)
-				root.AssemblyLinearVelocity = Vector3.zero
-				root.AssemblyAngularVelocity = Vector3.zero
+				-- CRITICAL: NEVER teleport an existing arena fighter! Keep its combat position in the arena!
+				if wasNewlySpawned then
+					local spawnLocation = findSpawnLocation()
+					local targetCFrame = spawnLocation and (spawnLocation.CFrame * CFrame.new(0, spawnLocation.Size.Y / 2 + 3.5, 0)) or CFrame.new(161, 147.5, -752.5)
+					targetQuin:PivotTo(targetCFrame)
+					root.AssemblyLinearVelocity = Vector3.zero
+					root.AssemblyAngularVelocity = Vector3.zero
+				end
 			end
 			targetQuin:SetAttribute("IsPlayerControlled", true)
 			targetQuin:SetAttribute("ControllingPlayer", player.Name)
@@ -196,10 +221,37 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 			pcall(function()
 				player.ReplicationFocus = root
 			end)
-			print(string.format("[Server] Player %s possessed %s as Character at %s (NetworkOwner granted)", player.Name, targetQuin.Name, tostring(targetCFrame.Position)))
+			print(string.format("[Server] Player %s possessed %s (Existing in arena: %s)", player.Name, targetQuin.Name, tostring(not wasNewlySpawned)))
 			return targetQuin
 		end
 		return nil
+
+	elseif action == "Attack" then
+		-- Combat attack from player-controlled Quin
+		local char = player.Character
+		if char and char:GetAttribute("IsPlayerControlled") == true and char:GetAttribute("ControllingPlayer") == player.Name then
+			local root = char:FindFirstChild("HumanoidRootPart")
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if root and hum and hum.Health > 0 then
+				local step = tonumber(targetQuinName) or 1
+				local hitModels = HitboxModule.castInFront(root, Vector3.new(7, 6, 7), Vector3.new(0, 0, -3.5), char)
+				local myTeam = char:GetAttribute("Team")
+				for _, hitModel in ipairs(hitModels) do
+					local targetTeam = hitModel:GetAttribute("Team")
+					if not myTeam or not targetTeam or myTeam ~= targetTeam then
+						local dmgInfo = DamageModule.calculate(char, hitModel, step, 1.0)
+						DamageModule.apply(char, hitModel, dmgInfo)
+						local hitRoot = hitModel:FindFirstChild("HumanoidRootPart")
+						if hitRoot then
+							local knockDir = (hitRoot.Position - root.Position).Unit + Vector3.new(0, 0.35, 0)
+							KnockbackModule.apply(hitModel, knockDir, 38, 0.4)
+						end
+					end
+				end
+				return true
+			end
+		end
+		return false
 
 	elseif action == "Release" then
 		pcall(function()
@@ -207,19 +259,29 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 		end)
 		player.Character = nil
 		local quinServer = Workspace:FindFirstChild("QuinServer")
+		local releasedModel = nil
+		local function releaseModel(child)
+			if child:GetAttribute("ControllingPlayer") == player.Name or child.Name == targetQuinName then
+				child:SetAttribute("IsPlayerControlled", false)
+				child:SetAttribute("ControllingPlayer", nil)
+				local root = child:FindFirstChild("HumanoidRootPart")
+				if root then
+					pcall(function()
+						root:SetNetworkOwner(nil)
+					end)
+				end
+				releasedModel = child
+				print(string.format("[Server] Player %s released %s (AI resumed, NetworkOwner reverted to Server)", player.Name, child.Name))
+			end
+		end
 		if quinServer then
 			for _, child in ipairs(quinServer:GetChildren()) do
-				if child:GetAttribute("ControllingPlayer") == player.Name or child.Name == targetQuinName then
-					child:SetAttribute("IsPlayerControlled", false)
-					child:SetAttribute("ControllingPlayer", nil)
-					local root = child:FindFirstChild("HumanoidRootPart")
-					if root then
-						pcall(function()
-							root:SetNetworkOwner(nil)
-						end)
-					end
-					print(string.format("[Server] Player %s released %s (NetworkOwner reverted to Server)", player.Name, child.Name))
-				end
+				releaseModel(child)
+			end
+		end
+		for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+			if q ~= releasedModel then
+				releaseModel(q)
 			end
 		end
 		pcall(function()

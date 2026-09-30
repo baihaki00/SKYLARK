@@ -14,6 +14,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
 
@@ -42,10 +43,10 @@ local lastRawMoveTime = 0
 local lastChatterTime = 0
 local lastHeadingAngle = nil
 local lastFootstepSmokeTime = 0
+local lastHeadingLook = nil
 local bankLeanAngle = 0
-local smoothedCadenceSpeed = 0
-local lastAppliedRunSpeed = -1
-local lastAppliedWalkSpeed = -1
+local walkMode = false -- Z toggles walking; default pace is jog, Shift runs
+local groundContractConn = nil
 
 -- PlayerQuinController owns intent only. PlayerModule must be disabled while
 -- possessed so it cannot write a second movement vector into the humanoid.
@@ -70,55 +71,94 @@ local function setDefaultControlsEnabled(enabled)
 	end
 end
 
--- ============================================================================
+-- ============================================================
 -- 1. HUD BUTTON: [ ▶ Play As Quin ] / [ ⏹ Exit Quin Mode ]
--- ============================================================================
+-- ============================================================
 local playerGui = player:WaitForChild("PlayerGui")
-local screenGui = playerGui:FindFirstChild("ScreenGui")
-if not screenGui then
-	screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "ScreenGui"
-	screenGui.ResetOnSpawn = false
-	screenGui.Parent = playerGui
+local playAsQuinGui = nil
+local toggleBtn = nil
+local stroke = nil
+local toggleQuinControl = nil -- forward declaration
+
+local function updateButtonDisplay(isPiloting)
+	if not toggleBtn then return end
+	if isPiloting then
+		toggleBtn.Text = "⏹ Exit Quin Mode [P]"
+		toggleBtn.TextColor3 = Color3.fromRGB(255, 180, 60)
+		if stroke then stroke.Color = Color3.fromRGB(255, 140, 40) end
+	else
+		toggleBtn.Text = "▶ Play As Quin [P]"
+		toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
+		if stroke then stroke.Color = Color3.fromRGB(0, 200, 255) end
+	end
 end
 
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Name = "PlayAsQuinBtn"
-toggleBtn.Size = UDim2.new(0, 180, 0, 36)
-toggleBtn.AnchorPoint = Vector2.new(1, 1)
-toggleBtn.Position = UDim2.new(1, -20, 1, -113)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
-toggleBtn.BackgroundTransparency = 0.15
-toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 12
-toggleBtn.Text = "▶ Play As Quin [P]"
-toggleBtn.Parent = screenGui
+local function ensureButtonHierarchy()
+	if not playAsQuinGui or playAsQuinGui.Parent ~= playerGui then
+		playAsQuinGui = playerGui:FindFirstChild("PlayAsQuinGui")
+		if not playAsQuinGui then
+			playAsQuinGui = Instance.new("ScreenGui")
+			playAsQuinGui.Name = "PlayAsQuinGui"
+			playAsQuinGui.ResetOnSpawn = false
+			playAsQuinGui.DisplayOrder = 20
+			playAsQuinGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+			playAsQuinGui.Parent = playerGui
+		end
+	end
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 18)
-corner.Parent = toggleBtn
+	local existing = playAsQuinGui:FindFirstChild("PlayAsQuinBtn")
+	if existing then
+		toggleBtn = existing
+		stroke = toggleBtn:FindFirstChildOfClass("UIStroke")
+	else
+		toggleBtn = Instance.new("TextButton")
+		toggleBtn.Name = "PlayAsQuinBtn"
+		toggleBtn.Size = UDim2.new(0, 180, 0, 36)
+		toggleBtn.AnchorPoint = Vector2.new(1, 1)
+		toggleBtn.Position = UDim2.new(1, -20, 1, -113)
+		toggleBtn.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
+		toggleBtn.BackgroundTransparency = 0.15
+		toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
+		toggleBtn.Font = Enum.Font.GothamBold
+		toggleBtn.TextSize = 12
+		toggleBtn.Text = (activeQuin ~= nil) and "⏹ Exit Quin Mode [P]" or "▶ Play As Quin [P]"
 
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(0, 200, 255)
-stroke.Thickness = 1.5
-stroke.Transparency = 0.4
-stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-stroke.Parent = toggleBtn
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 18)
+		corner.Parent = toggleBtn
 
--- Subtle hover animation matching spectator and manager pills
-toggleBtn.MouseEnter:Connect(function()
-	TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.05 }):Play()
-	TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.1 }):Play()
+		stroke = Instance.new("UIStroke")
+		stroke.Color = (activeQuin ~= nil) and Color3.fromRGB(255, 140, 40) or Color3.fromRGB(0, 200, 255)
+		stroke.Thickness = 1.5
+		stroke.Transparency = 0.4
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Parent = toggleBtn
+
+		toggleBtn.MouseEnter:Connect(function()
+			TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.05 }):Play()
+			if stroke then TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.1 }):Play() end
+		end)
+
+		toggleBtn.MouseLeave:Connect(function()
+			TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.15 }):Play()
+			if stroke then TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.4 }):Play() end
+		end)
+
+		toggleBtn.MouseButton1Click:Connect(function()
+			if toggleQuinControl then
+				toggleQuinControl()
+			end
+		end)
+
+		toggleBtn.Parent = playAsQuinGui
+	end
+	updateButtonDisplay(activeQuin ~= nil)
+end
+
+ensureButtonHierarchy()
+player.CharacterAdded:Connect(function()
+	task.defer(ensureButtonHierarchy)
 end)
-
-toggleBtn.MouseLeave:Connect(function()
-	TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.15 }):Play()
-	TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.4 }):Play()
-end)
-
--- Forward declaration
-local toggleQuinControl
 
 -- ============================================================================
 -- 2. LOCOMOTION INPUT ENGINE (Calls QuinCore.LocomotionModule Directly)
@@ -159,6 +199,13 @@ local function startControlSession(quin)
 	LocomotionModule.resetGroundIntent(activeQuin)
 	AnimationModule.ensureBaseIdle(activeHumanoid)
 
+	-- This client owns the piloted Quin's animation: enforce the ground contract here
+	if groundContractConn then groundContractConn:Disconnect() end
+	local contractQuin = activeQuin
+	groundContractConn = GaitModule.bindGroundContract(activeQuin, activeHumanoid, activeRootPart, function()
+		return contractQuin:GetAttribute("IsPlayerControlled") == true
+	end)
+
 	-- Initialize GASP Runtime & Telemetry overlay
 	if gaspTelemetryEnabled and GASPDebug and GASPRuntime and GASPAssetMap and GASPAssetMap.Enabled == true then
 		pcall(function()
@@ -193,6 +240,11 @@ local function startControlSession(quin)
 		end
 
 
+		-- A committed slide owns the body until it hands back to the gait
+		if LocomotionModule.isSliding(activeQuin) then
+			return
+		end
+
 		-- Skip movement inputs if focused on TextBox
 		if UserInputService:GetFocusedTextBox() then
 			LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, dt)
@@ -226,9 +278,16 @@ local function startControlSession(quin)
 		local isSprint = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
 			or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 			or (activeQuin:GetAttribute("VirtualSprint") == true)
-		local maxPacing = CombatConfig.Locomotion_PacingSpeedMax or 50.0
-		local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
-		local goalSpeed = isSprint and maxPacing or minPacing
+		-- Gait intent: default jog, Z toggles walk, hold Shift to run. The animation
+		-- follows the resulting ground speed through the shared GaitModule blend.
+		local goalSpeed
+		if isSprint then
+			goalSpeed = CombatConfig.Player_RunSpeed or 42.0
+		elseif walkMode or activeQuin:GetAttribute("VirtualWalk") == true then
+			goalSpeed = CombatConfig.Player_WalkSpeed or 7.5
+		else
+			goalSpeed = CombatConfig.Player_JogSpeed or 13.0
+		end
 
 		-- Authoritative speed modulation: targetSpeed is set to goalSpeed,
 		-- and LocomotionModule.modulateSpeed applies the authoritative acceleration curve
@@ -322,56 +381,21 @@ local function startControlSession(quin)
 
 					GASPAnimator.play(activeHumanoid, gaspSnapshot.clip, 0.20, strideScale)
 				end
-			elseif not isAirborne then
+			else
 				-- Fallback to legacy QuinCore animation if GASP is disabled.
+				-- GaitModule self-gates: it never plays ground loops in the air or under a slide.
 				-- Clear stale GASP telemetry so the HUD cannot imply that a quarantined clip is active.
 				activeQuin:SetAttribute("GASPState", "LegacyFallback")
 				activeQuin:SetAttribute("GASPClip", "Legacy AnimationConfig")
 				activeQuin:SetAttribute("GASPSelectionScore", nil)
-				local isStopPlaying = AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun")
-
-				if not isStopPlaying then
-					local desiredAnim = isSprint and "Movement.Run" or "Movement.WalkConfident"
-					if not AnimationModule.isPlaying(activeHumanoid, desiredAnim) then
-						AnimationModule.stop(activeHumanoid, "Movement.Idle", 0.15)
-						AnimationModule.stop(activeHumanoid, "Idles.ReadyStance", 0.15)
-						AnimationModule.stop(activeHumanoid, "Idles.FightIdle", 0.15)
-						AnimationModule.stop(activeHumanoid, "Idles.CombatIdle", 0.15)
-						AnimationModule.playConfig(activeHumanoid, desiredAnim)
-					end
-
-					-- Athletic Stride Turnover with Exponential Speed Smoothing & Deadband
-					-- (Eliminates micro-jitter from physics contact solver noise resetting animation clocks)
-					local rawSpeed = activeRootPart.AssemblyLinearVelocity.Magnitude
-					smoothedCadenceSpeed = smoothedCadenceSpeed + (rawSpeed - smoothedCadenceSpeed) * (1 - math.exp(-10.0 * dt))
-
-					if desiredAnim == "Movement.Run" and AnimationModule.isPlaying(activeHumanoid, "Movement.Run") then
-						local minPacing = CombatConfig.Locomotion_PacingSpeedMin or 18.5
-						local maxPacing = CombatConfig.Locomotion_PacingSpeedMax or 50.0
-						local baseCfgSpeed = AnimationConfig.get("Movement.Run") and AnimationConfig.get("Movement.Run").speed or 1.00
-						local speedFraction = math.clamp((smoothedCadenceSpeed - minPacing) / math.max(1, maxPacing - minPacing), 0.0, 1.0)
-						local dynamicCadence = 0.75 + (0.25 * speedFraction)
-						local dynamicSpeed = math.clamp(baseCfgSpeed * dynamicCadence, 0.70, 1.05)
-						if math.abs(dynamicSpeed - lastAppliedRunSpeed) > 0.02 then
-							lastAppliedRunSpeed = dynamicSpeed
-							AnimationModule.adjustSpeed(activeHumanoid, "Movement.Run", dynamicSpeed)
-						end
-					elseif desiredAnim == "Movement.WalkConfident" and AnimationModule.isPlaying(activeHumanoid, "Movement.WalkConfident") then
-						local strideBase = CombatConfig.WalkStrideBase or 18.5
-						local velRatio = math.clamp(smoothedCadenceSpeed / strideBase, 0.50, 1.10)
-						local baseCfgSpeed = AnimationConfig.get("Movement.WalkConfident") and AnimationConfig.get("Movement.WalkConfident").speed or 1.00
-						local dynamicSpeed = baseCfgSpeed * velRatio
-						if math.abs(dynamicSpeed - lastAppliedWalkSpeed) > 0.02 then
-							lastAppliedWalkSpeed = dynamicSpeed
-							AnimationModule.adjustSpeed(activeHumanoid, "Movement.WalkConfident", dynamicSpeed)
-						end
-					end
+				-- Shared QuinCore gait: synchronized Walk/Run blend space whose cadence is
+				-- derived from real ground speed, identical to the AI Quins.
+				if not AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun") then
+					GaitModule.update(activeHumanoid, activeRootPart, dt)
 				end
 			end
 		else
 			smoothedMoveDir = Vector3.zero
-			lastAppliedRunSpeed = -1
-			lastAppliedWalkSpeed = -1
 			-- Retain lastRawMoveDir across brief key transitions (20-350ms) so WASD multi-taps detect chatter
 			if lastRawMoveTime and (now - lastRawMoveTime) > 0.35 then
 				lastRawMoveDir = nil
@@ -434,6 +458,10 @@ end
 
 local function stopControlSession()
 	setDefaultControlsEnabled(true)
+	if groundContractConn then
+		groundContractConn:Disconnect()
+		groundContractConn = nil
+	end
 	if renderConn then
 		renderConn:Disconnect()
 		renderConn = nil
@@ -467,9 +495,6 @@ local function stopControlSession()
 	shared.PlayerControlledQuin = nil
 	_G.PlayerControlledQuin = nil
 	smoothedMoveDir = Vector3.zero
-	smoothedCadenceSpeed = 0
-	lastAppliedRunSpeed = -1
-	lastAppliedWalkSpeed = -1
 	lastRawMoveDir = nil
 	lastRawMoveTime = 0
 	lastChatterTime = 0
@@ -478,14 +503,56 @@ local function stopControlSession()
 	activeRootPart = nil
 
 	-- Update button UI
-	toggleBtn.Text = "▶ Play As Quin [P]"
-	toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
-	stroke.Color = Color3.fromRGB(0, 200, 255)
+	updateButtonDisplay(false)
 
 	print("[PlayerQuinController] Released Quin control — returned to Freefly spectator.")
 end
 
-toggleQuinControl = function(desiredState)
+-- ============================================================
+-- COMBAT ATTACK ENGINE (Punches & Light Combos)
+-- ============================================================
+local comboStep = 1
+local lastAttackTime = 0
+local PUNCH_TRACKS = {
+	"rbxassetid://113219639247452", -- Lead Jab
+	"rbxassetid://99362983788110",  -- Cross Right
+	"rbxassetid://135206101877204", -- Hook Punch
+}
+
+local function executePlayerAttack()
+	if not activeQuin or not activeHumanoid or not activeRootPart then return end
+	if activeHumanoid.Health <= 0 then return end
+	local now = os.clock()
+	if now - lastAttackTime < 0.28 then return end
+
+	if now - lastAttackTime > 1.2 then
+		comboStep = 1
+	else
+		comboStep = (comboStep % #PUNCH_TRACKS) + 1
+	end
+	lastAttackTime = now
+
+	-- Refresh activity & set Ready stance
+	activeQuin:SetAttribute("LastActivityTime", now)
+	activeQuin:SetAttribute("CurrentIdleStance", "Ready")
+
+	-- Play attack animation track
+	local animId = PUNCH_TRACKS[comboStep]
+	AnimationModule.play(activeHumanoid, animId, {
+		speed = 1.35,
+		priority = Enum.AnimationPriority.Action4,
+		fadeTime = 0.05
+	})
+
+	-- Invoke server-authoritative damage & hitbox
+	if controlFunction then
+		task.spawn(function()
+			controlFunction:InvokeServer("Attack", comboStep)
+		end)
+	end
+end
+
+toggleQuinControl = function(desiredState, explicitTarget)
 	if desiredState == nil then
 		desiredState = (activeQuin == nil)
 	end
@@ -499,13 +566,30 @@ toggleQuinControl = function(desiredState)
 			return
 		end
 
-		toggleBtn.Text = "⏳ Summoning..."
-		local possessedQuin = controlFunction:InvokeServer("Possess")
+		if toggleBtn then
+			toggleBtn.Text = "⏳ Possessing..."
+		end
+
+		-- Resolve target: explicit > spectated > arena default
+		local targetName = explicitTarget
+		if not targetName or targetName == "" then
+			local spec = shared.SpectatedQuin or _G.SpectatedQuin
+			if spec and spec:IsA("Model") then
+				targetName = spec.Name
+			else
+				local specAttr = Workspace:GetAttribute("SpectatedQuin")
+				if specAttr and specAttr ~= "" then
+					targetName = specAttr
+				end
+			end
+		end
+
+		local possessedQuin = controlFunction:InvokeServer("Possess", targetName)
 		if possessedQuin then
 			startControlSession(possessedQuin)
 		else
-			warn("[PlayerQuinController] Server failed to possess or spawn Quin")
-			toggleBtn.Text = "▶ Play As Quin [P]"
+			warn("[PlayerQuinController] Server failed to possess Quin")
+			updateButtonDisplay(false)
 		end
 	else
 		if controlFunction then
@@ -515,13 +599,13 @@ toggleQuinControl = function(desiredState)
 	end
 end
 
--- ============================================================================
--- 3. KEYBIND LISTENERS (Jump, Slide, Dash, Toggle)
--- ============================================================================
-toggleBtn.MouseButton1Click:Connect(function()
-	toggleQuinControl()
-end)
+-- Export to shared environment for QuinDebugHUD & other UI integration
+shared.ToggleQuinControl = toggleQuinControl
+_G.ToggleQuinControl = toggleQuinControl
 
+-- ============================================================================
+-- 3. KEYBIND LISTENERS (Jump, Slide, Dash, Attack, Toggle)
+-- ============================================================================
 UserInputService.InputBegan:Connect(function(input, gp)
 	if UserInputService:GetFocusedTextBox() then return end
 
@@ -545,6 +629,18 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	if not activeQuin or not activeRootPart or not activeHumanoid then return end
 	if activeHumanoid.Health <= 0 then return end
 
+	-- Mouse Click Attack (Left Click when not clicking UI)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and not gp then
+		executePlayerAttack()
+		return
+	end
+
+	-- F Key: Light Attack / Punch Combo
+	if input.KeyCode == Enum.KeyCode.F and not gp then
+		executePlayerAttack()
+		return
+	end
+
 	-- Pilot action touches activity timestamp & keeps Quin alert in Ready stance
 	activeQuin:SetAttribute("LastActivityTime", os.clock())
 	activeQuin:SetAttribute("CurrentIdleStance", "Ready")
@@ -558,7 +654,12 @@ UserInputService.InputBegan:Connect(function(input, gp)
 
 	-- C: Athletic Ground Slide
 	elseif input.KeyCode == Enum.KeyCode.C then
-		LocomotionModule.slide(activeQuin, activeHumanoid, activeRootPart, lastMoveDir, 0.42)
+		LocomotionModule.slide(activeQuin, activeHumanoid, activeRootPart, lastMoveDir)
+
+	-- Z: toggle walking pace (default pace is jog)
+	elseif input.KeyCode == Enum.KeyCode.Z then
+		walkMode = not walkMode
+		activeQuin:SetAttribute("WalkMode", walkMode)
 
 	-- Q or E: Dash burst
 	elseif input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E then
@@ -567,13 +668,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("[PlayerQuinController] Initialized. Press 'P' or click 'Play As Quin' to hop in.")
-
--- Auto-spawn into Quin mode at SpawnLocation on startup
-task.spawn(function()
-	task.wait(0.5)
-	if not activeQuin then
-		print("[PlayerQuinController] Auto-spawning player at SpawnLocation...")
-		toggleQuinControl(true)
-	end
-end)
+print("[PlayerQuinController] Initialized in Spectator Mode. Press 'P' or click 'Play As Quin' to possess a fighter.")

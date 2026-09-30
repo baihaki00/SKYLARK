@@ -216,7 +216,7 @@ headerPadding.PaddingRight = UDim.new(0, 8)
 headerPadding.Parent = headerBar
 
 local headerTitle = Instance.new("TextLabel")
-headerTitle.Size = UDim2.new(1, -195, 1, 0)
+headerTitle.Size = UDim2.new(1, -265, 1, 0)
 headerTitle.Position = UDim2.new(0, 0, 0, 0)
 headerTitle.BackgroundTransparency = 1
 headerTitle.TextColor3 = Color3.fromRGB(255, 215, 0)
@@ -226,10 +226,33 @@ headerTitle.TextXAlignment = Enum.TextXAlignment.Left
 headerTitle.Text = "QUIN SPECTATOR HUD [H]"
 headerTitle.Parent = headerBar
 
+local pilotBtn = Instance.new("TextButton")
+pilotBtn.Name = "PilotBtn"
+pilotBtn.Size = UDim2.new(0, 76, 0, 22)
+pilotBtn.Position = UDim2.new(1, -252, 0, 3)
+pilotBtn.BackgroundColor3 = Color3.fromRGB(30, 140, 100)
+pilotBtn.TextColor3 = Color3.fromRGB(240, 255, 250)
+pilotBtn.Font = Enum.Font.GothamBold
+pilotBtn.TextSize = 10
+pilotBtn.Text = "🎮 Pilot [P]"
+pilotBtn.Parent = headerBar
+
+local pilotCorner = Instance.new("UICorner")
+pilotCorner.CornerRadius = UDim.new(0, 4)
+pilotCorner.Parent = pilotBtn
+
+pilotBtn.MouseButton1Click:Connect(function()
+	if shared.ToggleQuinControl then
+		local spec = shared.SpectatedQuin or _G.SpectatedQuin
+		local targetName = spec and spec:IsA("Model") and spec.Name or nil
+		shared.ToggleQuinControl(nil, targetName)
+	end
+end)
+
 local vizBtn = Instance.new("TextButton")
 vizBtn.Name = "ToggleVizBtn"
-vizBtn.Size = UDim2.new(0, 68, 0, 22)
-vizBtn.Position = UDim2.new(1, -190, 0, 3)
+vizBtn.Size = UDim2.new(0, 58, 0, 22)
+vizBtn.Position = UDim2.new(1, -172, 0, 3)
 vizBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 220)
 vizBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 vizBtn.Font = Enum.Font.GothamBold
@@ -242,8 +265,8 @@ vizCorner.CornerRadius = UDim.new(0, 4)
 vizCorner.Parent = vizBtn
 
 local resetCamBtn = Instance.new("TextButton")
-resetCamBtn.Size = UDim2.new(0, 85, 0, 22)
-resetCamBtn.Position = UDim2.new(1, -118, 0, 3)
+resetCamBtn.Size = UDim2.new(0, 80, 0, 22)
+resetCamBtn.Position = UDim2.new(1, -110, 0, 3)
 resetCamBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
 resetCamBtn.TextColor3 = Color3.fromRGB(220, 235, 255)
 resetCamBtn.Font = Enum.Font.GothamBold
@@ -522,6 +545,16 @@ RunService.Heartbeat:Connect(function()
 			cycleSpectatedQuin(1)
 			curSpectated = shared.SpectatedQuin or _G.SpectatedQuin
 		end
+	end
+
+	-- Sync Pilot Button state in header
+	local isLocalPiloting = (player.Character and player.Character:GetAttribute("IsPlayerControlled") == true)
+	if isLocalPiloting then
+		pilotBtn.Text = "⏹ Exit [P]"
+		pilotBtn.BackgroundColor3 = Color3.fromRGB(200, 110, 30)
+	else
+		pilotBtn.Text = "🎮 Pilot [P]"
+		pilotBtn.BackgroundColor3 = Color3.fromRGB(30, 140, 100)
 	end
 
 	for _, model in ipairs(quins) do

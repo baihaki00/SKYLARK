@@ -71,55 +71,94 @@ local function setDefaultControlsEnabled(enabled)
 	end
 end
 
--- ============================================================================
+-- ============================================================
 -- 1. HUD BUTTON: [ ▶ Play As Quin ] / [ ⏹ Exit Quin Mode ]
--- ============================================================================
+-- ============================================================
 local playerGui = player:WaitForChild("PlayerGui")
-local screenGui = playerGui:FindFirstChild("ScreenGui")
-if not screenGui then
-	screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "ScreenGui"
-	screenGui.ResetOnSpawn = false
-	screenGui.Parent = playerGui
+local playAsQuinGui = nil
+local toggleBtn = nil
+local stroke = nil
+local toggleQuinControl = nil -- forward declaration
+
+local function updateButtonDisplay(isPiloting)
+	if not toggleBtn then return end
+	if isPiloting then
+		toggleBtn.Text = "⏹ Exit Quin Mode [P]"
+		toggleBtn.TextColor3 = Color3.fromRGB(255, 180, 60)
+		if stroke then stroke.Color = Color3.fromRGB(255, 140, 40) end
+	else
+		toggleBtn.Text = "▶ Play As Quin [P]"
+		toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
+		if stroke then stroke.Color = Color3.fromRGB(0, 200, 255) end
+	end
 end
 
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Name = "PlayAsQuinBtn"
-toggleBtn.Size = UDim2.new(0, 180, 0, 36)
-toggleBtn.AnchorPoint = Vector2.new(1, 1)
-toggleBtn.Position = UDim2.new(1, -20, 1, -113)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
-toggleBtn.BackgroundTransparency = 0.15
-toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = 12
-toggleBtn.Text = "▶ Play As Quin [P]"
-toggleBtn.Parent = screenGui
+local function ensureButtonHierarchy()
+	if not playAsQuinGui or playAsQuinGui.Parent ~= playerGui then
+		playAsQuinGui = playerGui:FindFirstChild("PlayAsQuinGui")
+		if not playAsQuinGui then
+			playAsQuinGui = Instance.new("ScreenGui")
+			playAsQuinGui.Name = "PlayAsQuinGui"
+			playAsQuinGui.ResetOnSpawn = false
+			playAsQuinGui.DisplayOrder = 20
+			playAsQuinGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+			playAsQuinGui.Parent = playerGui
+		end
+	end
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 18)
-corner.Parent = toggleBtn
+	local existing = playAsQuinGui:FindFirstChild("PlayAsQuinBtn")
+	if existing then
+		toggleBtn = existing
+		stroke = toggleBtn:FindFirstChildOfClass("UIStroke")
+	else
+		toggleBtn = Instance.new("TextButton")
+		toggleBtn.Name = "PlayAsQuinBtn"
+		toggleBtn.Size = UDim2.new(0, 180, 0, 36)
+		toggleBtn.AnchorPoint = Vector2.new(1, 1)
+		toggleBtn.Position = UDim2.new(1, -20, 1, -113)
+		toggleBtn.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
+		toggleBtn.BackgroundTransparency = 0.15
+		toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
+		toggleBtn.Font = Enum.Font.GothamBold
+		toggleBtn.TextSize = 12
+		toggleBtn.Text = (activeQuin ~= nil) and "⏹ Exit Quin Mode [P]" or "▶ Play As Quin [P]"
 
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(0, 200, 255)
-stroke.Thickness = 1.5
-stroke.Transparency = 0.4
-stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-stroke.Parent = toggleBtn
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 18)
+		corner.Parent = toggleBtn
 
--- Subtle hover animation matching spectator and manager pills
-toggleBtn.MouseEnter:Connect(function()
-	TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.05 }):Play()
-	TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.1 }):Play()
+		stroke = Instance.new("UIStroke")
+		stroke.Color = (activeQuin ~= nil) and Color3.fromRGB(255, 140, 40) or Color3.fromRGB(0, 200, 255)
+		stroke.Thickness = 1.5
+		stroke.Transparency = 0.4
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Parent = toggleBtn
+
+		toggleBtn.MouseEnter:Connect(function()
+			TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.05 }):Play()
+			if stroke then TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.1 }):Play() end
+		end)
+
+		toggleBtn.MouseLeave:Connect(function()
+			TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.15 }):Play()
+			if stroke then TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.4 }):Play() end
+		end)
+
+		toggleBtn.MouseButton1Click:Connect(function()
+			if toggleQuinControl then
+				toggleQuinControl()
+			end
+		end)
+
+		toggleBtn.Parent = playAsQuinGui
+	end
+	updateButtonDisplay(activeQuin ~= nil)
+end
+
+ensureButtonHierarchy()
+player.CharacterAdded:Connect(function()
+	task.defer(ensureButtonHierarchy)
 end)
-
-toggleBtn.MouseLeave:Connect(function()
-	TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundTransparency = 0.15 }):Play()
-	TweenService:Create(stroke, TweenInfo.new(0.2), { Transparency = 0.4 }):Play()
-end)
-
--- Forward declaration
-local toggleQuinControl
 
 -- ============================================================================
 -- 2. LOCOMOTION INPUT ENGINE (Calls QuinCore.LocomotionModule Directly)
@@ -464,14 +503,56 @@ local function stopControlSession()
 	activeRootPart = nil
 
 	-- Update button UI
-	toggleBtn.Text = "▶ Play As Quin [P]"
-	toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
-	stroke.Color = Color3.fromRGB(0, 200, 255)
+	updateButtonDisplay(false)
 
 	print("[PlayerQuinController] Released Quin control — returned to Freefly spectator.")
 end
 
-toggleQuinControl = function(desiredState)
+-- ============================================================
+-- COMBAT ATTACK ENGINE (Punches & Light Combos)
+-- ============================================================
+local comboStep = 1
+local lastAttackTime = 0
+local PUNCH_TRACKS = {
+	"rbxassetid://113219639247452", -- Lead Jab
+	"rbxassetid://99362983788110",  -- Cross Right
+	"rbxassetid://135206101877204", -- Hook Punch
+}
+
+local function executePlayerAttack()
+	if not activeQuin or not activeHumanoid or not activeRootPart then return end
+	if activeHumanoid.Health <= 0 then return end
+	local now = os.clock()
+	if now - lastAttackTime < 0.28 then return end
+
+	if now - lastAttackTime > 1.2 then
+		comboStep = 1
+	else
+		comboStep = (comboStep % #PUNCH_TRACKS) + 1
+	end
+	lastAttackTime = now
+
+	-- Refresh activity & set Ready stance
+	activeQuin:SetAttribute("LastActivityTime", now)
+	activeQuin:SetAttribute("CurrentIdleStance", "Ready")
+
+	-- Play attack animation track
+	local animId = PUNCH_TRACKS[comboStep]
+	AnimationModule.play(activeHumanoid, animId, {
+		speed = 1.35,
+		priority = Enum.AnimationPriority.Action4,
+		fadeTime = 0.05
+	})
+
+	-- Invoke server-authoritative damage & hitbox
+	if controlFunction then
+		task.spawn(function()
+			controlFunction:InvokeServer("Attack", comboStep)
+		end)
+	end
+end
+
+toggleQuinControl = function(desiredState, explicitTarget)
 	if desiredState == nil then
 		desiredState = (activeQuin == nil)
 	end
@@ -485,13 +566,30 @@ toggleQuinControl = function(desiredState)
 			return
 		end
 
-		toggleBtn.Text = "⏳ Summoning..."
-		local possessedQuin = controlFunction:InvokeServer("Possess")
+		if toggleBtn then
+			toggleBtn.Text = "⏳ Possessing..."
+		end
+
+		-- Resolve target: explicit > spectated > arena default
+		local targetName = explicitTarget
+		if not targetName or targetName == "" then
+			local spec = shared.SpectatedQuin or _G.SpectatedQuin
+			if spec and spec:IsA("Model") then
+				targetName = spec.Name
+			else
+				local specAttr = Workspace:GetAttribute("SpectatedQuin")
+				if specAttr and specAttr ~= "" then
+					targetName = specAttr
+				end
+			end
+		end
+
+		local possessedQuin = controlFunction:InvokeServer("Possess", targetName)
 		if possessedQuin then
 			startControlSession(possessedQuin)
 		else
-			warn("[PlayerQuinController] Server failed to possess or spawn Quin")
-			toggleBtn.Text = "▶ Play As Quin [P]"
+			warn("[PlayerQuinController] Server failed to possess Quin")
+			updateButtonDisplay(false)
 		end
 	else
 		if controlFunction then
@@ -501,13 +599,13 @@ toggleQuinControl = function(desiredState)
 	end
 end
 
--- ============================================================================
--- 3. KEYBIND LISTENERS (Jump, Slide, Dash, Toggle)
--- ============================================================================
-toggleBtn.MouseButton1Click:Connect(function()
-	toggleQuinControl()
-end)
+-- Export to shared environment for QuinDebugHUD & other UI integration
+shared.ToggleQuinControl = toggleQuinControl
+_G.ToggleQuinControl = toggleQuinControl
 
+-- ============================================================================
+-- 3. KEYBIND LISTENERS (Jump, Slide, Dash, Attack, Toggle)
+-- ============================================================================
 UserInputService.InputBegan:Connect(function(input, gp)
 	if UserInputService:GetFocusedTextBox() then return end
 
@@ -530,6 +628,18 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	-- Controls when actively piloting
 	if not activeQuin or not activeRootPart or not activeHumanoid then return end
 	if activeHumanoid.Health <= 0 then return end
+
+	-- Mouse Click Attack (Left Click when not clicking UI)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and not gp then
+		executePlayerAttack()
+		return
+	end
+
+	-- F Key: Light Attack / Punch Combo
+	if input.KeyCode == Enum.KeyCode.F and not gp then
+		executePlayerAttack()
+		return
+	end
 
 	-- Pilot action touches activity timestamp & keeps Quin alert in Ready stance
 	activeQuin:SetAttribute("LastActivityTime", os.clock())
@@ -558,13 +668,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("[PlayerQuinController] Initialized. Press 'P' or click 'Play As Quin' to hop in.")
-
--- Auto-spawn into Quin mode at SpawnLocation on startup
-task.spawn(function()
-	task.wait(0.5)
-	if not activeQuin then
-		print("[PlayerQuinController] Auto-spawning player at SpawnLocation...")
-		toggleQuinControl(true)
-	end
-end)
+print("[PlayerQuinController] Initialized in Spectator Mode. Press 'P' or click 'Play As Quin' to possess a fighter.")

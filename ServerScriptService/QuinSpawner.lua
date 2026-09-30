@@ -3,6 +3,7 @@
 -- Applies stats from QuinData, tags them, applies Element appearance & FX, inserts Main script
 
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -285,6 +286,17 @@ end
 
 -- Clear all spawned Quins
 function QuinSpawner.cleanAll()
+	-- Cleanly release any player-controlled Quins so spectators are not left trapped in dead models
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character and (p.Character:GetAttribute("IsPlayerControlled") or CollectionService:HasTag(p.Character, "Quin")) then
+			pcall(function()
+				p.ReplicationFocus = nil
+				p.Character = nil
+				p:LoadCharacter()
+			end)
+		end
+	end
+
 	local serverFolder = Workspace:FindFirstChild("QuinServer")
 	if serverFolder then
 		serverFolder:ClearAllChildren()
