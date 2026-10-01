@@ -204,14 +204,16 @@ local function runMatchLifecycle()
         print("[ArenaSystemOrchestrator] Using standard edit-mode arena obstacle configuration.")
     end
     
-    -- Mid-generation confirmation
-    task.delay((activeConfig.Durations.ArenaGeneration or 15) * 0.55, function()
+    local genDuration = math.max(5.5, activeConfig.Durations.ArenaGeneration or 15)
+    
+    -- Mid-generation confirmation (delayed so it does not overlap with generation commence)
+    task.delay(math.max(2.2, genDuration * 0.55), function()
         if currentPhase == "ARENA_GENERATION" and activeConfig.Toggles.Announcer then
             ArenaAria.speak("ARIA_ArenaGenerationCompleted")
         end
     end)
     
-    waitPhaseDuration(activeConfig.Durations.ArenaGeneration or 15)
+    waitPhaseDuration(genDuration)
     
     -- -------------------------------------------------------------
     -- PHASE 3: PREPARATION ROOM (STAGING / WARM-UP) (30s DEFAULT)
@@ -222,8 +224,15 @@ local function runMatchLifecycle()
     QuinSpawner.cleanAll()
     Workspace:SetAttribute("MatchStarted", false)
     
-    local prepDuration = activeConfig.Durations.PreparationRoom or 30
+    -- Non-truncating prepDuration: minimum 12.5s so ARIA_AnnouncementPreparationRoomGuide (11.65s) is NEVER cut off!
+    local prepDuration = math.max(12.5, activeConfig.Durations.PreparationRoom or 30)
     ArenaScreen.setTitle("PREPARATION ROOM", string.format("FIGHTERS STAGED IN PREPARATION SECTORS • %d SECONDS", prepDuration))
+    
+    -- Procedural Anthem 1: combines ARIA_SkylarkAnthem1Procedural + Anthem1DrumFX + Anthem1CrowdFX
+    -- Plays during and after ARIA_AnnouncementPreparationRoomGuide (ducked while ARIA speaks, unducked after)
+    if activeConfig.Toggles.ProceduralMusic then
+        ArenaAudio.playProceduralAnthem1(1.0, 1.5, true, "PreGameMusic")
+    end
     
     if activeConfig.Toggles.Announcer then
         ArenaAria.speak("ARIA_AnnouncementPreparationRoomGuide")
@@ -278,7 +287,7 @@ local function runMatchLifecycle()
     currentPhase = "TELEPORTING_QUINS"
     print("[ArenaSystemOrchestrator] Entering Phase: TELEPORTING_QUINS")
     
-    local teleportDuration = activeConfig.Durations.TeleportingQuins or 10
+    local teleportDuration = math.max(5.5, activeConfig.Durations.TeleportingQuins or 10)
     ArenaScreen.setTitle("TELEPORTING QUINS", "DEPLOYING TO COMBAT STATIONS")
     ArenaScreen.displayAnnouncement("TELEPORTING QUINS TO DESIGNATED AREAS", 2.5, "ARENA DISPATCH", Color3.fromRGB(0, 200, 255))
     
@@ -402,6 +411,10 @@ local function runMatchLifecycle()
     
     Workspace:SetAttribute("MatchStarted", true)
     
+    -- Sound Stadium Warhorn right as Quins start moving!
+    ArenaAudio.playWarhorn()
+    ArenaScreen.displayAnnouncement("📯 WARHORN SOUNDS -- ENGAGE! 📯", 2.0, "ARENA ONE", Color3.fromRGB(255, 180, 50))
+    
     -- Start In-Game combat music if ProceduralMusic toggle is on
     if activeConfig.Toggles.ProceduralMusic then
         ArenaAudio.playInGameMusic(activeConfig.SelectedInTrack or "ts - butterflyeffect live", 1.0, 1.5)
@@ -513,14 +526,15 @@ local function runMatchLifecycle()
     ArenaScreen.showWinner(winnerName, matchStats.EndReason or "VICTORY ACHIEVED")
     
     if activeConfig.Toggles.Announcer then
-        ArenaAria.speak("ARIA_AnnounceWinner")
+        ArenaAria.playWinnerSequence(matchStats.WinnerTeam or winnerName)
     end
     
     if activeConfig.Toggles.Fireworks then
         ArenaFireworks.launchWinnerShow(activeConfig.Durations.WinnerDetermination or 8)
     end
     
-    waitPhaseDuration(activeConfig.Durations.WinnerDetermination or 8)
+    local winnerDuration = math.max(7.5, activeConfig.Durations.WinnerDetermination or 8)
+    waitPhaseDuration(winnerDuration)
     
     -- -------------------------------------------------------------
     -- PHASE 7: POST-GAME / ARENA CLOSURE / SPECTATORS LEAVING (3 MINUTES DEFAULT)

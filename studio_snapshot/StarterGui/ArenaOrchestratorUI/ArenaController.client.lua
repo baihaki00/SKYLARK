@@ -479,8 +479,19 @@ stdBtn.MouseButton1Click:Connect(function()
     end
 end)
 
+local safeFastTestDurations = {
+    ArenaOpen = 3,
+    ArenaGeneration = 6,
+    PreparationRoom = 13, -- 11.65s guide plays in full without truncation!
+    TeleportingQuins = 6,  -- 4.60s announcement plays in full!
+    PreGame = 5,           -- 4.68s countdown plays in full!
+    GameTime = 20,
+    WinnerDetermination = 8, -- 1s delay + Congratulations + Team Wins plays in full!
+    PostGame = 20,
+}
+
 fastBtn.MouseButton1Click:Connect(function()
-    for k, v in pairs(ArenaConfig.FastTestDurations) do
+    for k, v in pairs(safeFastTestDurations) do
         activeDurations[k] = v
         if durationInputs[k] then durationInputs[k].Text = tostring(v) end
     end
@@ -781,6 +792,10 @@ local function scanFolderTracks(folderName)
         end
     end
     table.sort(tracks, function(a, b) return a.Name < b.Name end)
+    table.insert(tracks, 1, {
+        Name = "ARIA_SkylarkAnthem1Procedural (3-Stem)",
+        SoundId = "Anthem1"
+    })
     return tracks
 end
 
