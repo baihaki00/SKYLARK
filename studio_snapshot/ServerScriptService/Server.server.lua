@@ -82,117 +82,71 @@ end
 
 quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 	if action == "Possess" then
-		local quinServer = Workspace:FindFirstChild("QuinServer")
-		local targetQuin = nil
-		local wasNewlySpawned = false
+		-- Play As Quin is a costume: always the player's own Quin, spawned at the spawn
+		-- location outside the tournament. It never takes over or removes a match fighter,
+		-- carries no team or AI, and is invisible to targeting and the orchestrator.
+		local costumeFolder = Workspace:FindFirstChild("PlayerCostumes")
+		if not costumeFolder then
+			costumeFolder = Instance.new("Folder")
+			costumeFolder.Name = "PlayerCostumes"
+			costumeFolder.Parent = Workspace
+		end
 
-		-- Clean up any dead quins previously controlled by this player
-		if quinServer then
-			for _, child in ipairs(quinServer:GetChildren()) do
-				if child:GetAttribute("ControllingPlayer") == player.Name then
-					local hum = child:FindFirstChildOfClass("Humanoid")
-					if hum and hum.Health <= 0 then
-						child:Destroy()
-					end
-				end
+		-- One costume per player: replace any previous one
+		for _, child in ipairs(costumeFolder:GetChildren()) do
+			if child:GetAttribute("ControllingPlayer") == player.Name then
+				child:Destroy()
 			end
 		end
 
-		-- 1. Try to find explicitly requested Quin by name (e.g. from Spectator HUD)
+		-- Wear the look of the requested / spectated fighter if one was named (read only)
+		local costumeGender, costumeElement = nil, nil
 		if targetQuinName and targetQuinName ~= "" then
-			if quinServer then
-				targetQuin = quinServer:FindFirstChild(targetQuinName)
-			end
-			if not targetQuin then
-				for _, q in ipairs(CollectionService:GetTagged("Quin")) do
-					if q.Name == targetQuinName then
-						targetQuin = q
-						break
-					end
-				end
-			end
-			if targetQuin then
-				local hum = targetQuin:FindFirstChildOfClass("Humanoid")
-				if hum and hum.Health <= 0 then
-					targetQuin = nil
-				end
+			local quinServer = Workspace:FindFirstChild("QuinServer")
+			local source = quinServer and quinServer:FindFirstChild(targetQuinName)
+			if source then
+				costumeGender = source:GetAttribute("Gender")
+				costumeElement = source:GetAttribute("Element")
 			end
 		end
 
-		-- 2. If no specific target requested, pick any living Quin in the arena
-		if not targetQuin and quinServer then
-			for _, child in ipairs(quinServer:GetChildren()) do
-				local hum = child:FindFirstChildOfClass("Humanoid")
-				if child:IsA("Model") and child:FindFirstChild("HumanoidRootPart") and hum and hum.Health > 0 and not child:GetAttribute("IsPlayerControlled") then
-					targetQuin = child
-					break
-				end
-			end
+		local spawnLocation = findSpawnLocation()
+		local spawnCFrame = (spawnLocation and spawnLocation:IsA("BasePart"))
+			and (spawnLocation.CFrame * CFrame.new(0, spawnLocation.Size.Y / 2 + 3.5, 0))
+			or CFrame.new(161, 147.5, -752.5)
+		local costume = QuinSpawner.spawn(costumeGender or "Male", spawnCFrame.Position, nil, costumeElement, nil, { costume = true, parent = costumeFolder })
+		if not costume then
+			return nil
+		end
+		costume.Name = "Costume_" .. player.Name
+		costume:SetAttribute("ControllingPlayer", player.Name)
+
+		local root = costume:FindFirstChild("HumanoidRootPart")
+		local hum = costume:FindFirstChildOfClass("Humanoid")
+		if hum then
+			-- Same humanoid states the fighter AI (Main) disables
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
+		end
+		if root then
+			root.Anchored = false
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
 		end
 
-		-- Fallback to any tagged living Quin in Workspace
-		if not targetQuin then
-			for _, q in ipairs(CollectionService:GetTagged("Quin")) do
-				local hum = q:FindFirstChildOfClass("Humanoid")
-				if hum and hum.Health > 0 and not q:GetAttribute("IsPlayerControlled") then
-					targetQuin = q
-					break
-				end
-			end
-		end
-
-		-- 3. ONLY if NO living Quins exist anywhere in arena/workspace, spawn a fallback test Quin
-		if not targetQuin then
-			local spawnLocation = findSpawnLocation()
-			local targetCFrame
-			if spawnLocation and spawnLocation:IsA("BasePart") then
-				targetCFrame = spawnLocation.CFrame * CFrame.new(0, spawnLocation.Size.Y / 2 + 3.5, 0)
-			else
-				targetCFrame = CFrame.new(161, 147.5, -752.5)
-			end
-			targetQuin = QuinSpawner.spawn("TypeA", targetCFrame.Position, "TeamAlpha", "Fire")
-			wasNewlySpawned = true
-		end
-
-		if targetQuin then
-			local root = targetQuin:FindFirstChild("HumanoidRootPart")
-			if root then
-				root.Anchored = false
-				-- CRITICAL: NEVER teleport an existing arena fighter! Keep its combat position in the arena!
-				if wasNewlySpawned then
-					local spawnLocation = findSpawnLocation()
-					local targetCFrame = spawnLocation and (spawnLocation.CFrame * CFrame.new(0, spawnLocation.Size.Y / 2 + 3.5, 0)) or CFrame.new(161, 147.5, -752.5)
-					targetQuin:PivotTo(targetCFrame)
-					root.AssemblyLinearVelocity = Vector3.zero
-					root.AssemblyAngularVelocity = Vector3.zero
-				end
-			end
-			targetQuin:SetAttribute("IsPlayerControlled", true)
-			targetQuin:SetAttribute("ControllingPlayer", player.Name)
-
-			-- Stop server animations so client player controller has exclusive authoritative animation control
-			local hum = targetQuin:FindFirstChildOfClass("Humanoid")
-			local animator = hum and hum:FindFirstChildOfClass("Animator")
-			if animator then
-				for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-					track:Stop(0)
-				end
-			end
-
-			-- Assign as player.Character so client native character controller simulates movement
-			player.Character = targetQuin
-			if root then
-				pcall(function()
-					root:SetNetworkOwner(player)
-				end)
-			end
+		-- Assign as player.Character so the client native character controller simulates movement
+		player.Character = costume
+		if root then
+			pcall(function()
+				root:SetNetworkOwner(player)
+			end)
 			pcall(function()
 				player.ReplicationFocus = root
 			end)
-			print(string.format("[Server] Player %s possessed %s (Existing in arena: %s)", player.Name, targetQuin.Name, tostring(not wasNewlySpawned)))
-			return targetQuin
 		end
-		return nil
+		print(string.format("[Server] Player %s wearing costume %s", player.Name, costume.Name))
+		return costume
 
 	elseif action == "Attack" then
 		-- Combat attack from player-controlled Quin
@@ -226,38 +180,33 @@ quinControlFunction.OnServerInvoke = function(player, action, targetQuinName)
 			player.ReplicationFocus = nil
 		end)
 		player.Character = nil
-		local quinServer = Workspace:FindFirstChild("QuinServer")
-		local releasedModel = nil
-		local function releaseModel(child)
-			if child:GetAttribute("ControllingPlayer") == player.Name or child.Name == targetQuinName then
-				child:SetAttribute("IsPlayerControlled", false)
-				child:SetAttribute("ControllingPlayer", nil)
-				local root = child:FindFirstChild("HumanoidRootPart")
-				if root then
-					pcall(function()
-						root:SetNetworkOwner(nil)
-					end)
+		-- The costume belongs to this player only; nothing in the tournament is touched
+		local costumeFolder = Workspace:FindFirstChild("PlayerCostumes")
+		if costumeFolder then
+			for _, child in ipairs(costumeFolder:GetChildren()) do
+				if child:GetAttribute("ControllingPlayer") == player.Name then
+					child:Destroy()
 				end
-				releasedModel = child
-				print(string.format("[Server] Player %s released %s (AI resumed, NetworkOwner reverted to Server)", player.Name, child.Name))
-			end
-		end
-		if quinServer then
-			for _, child in ipairs(quinServer:GetChildren()) do
-				releaseModel(child)
-			end
-		end
-		for _, q in ipairs(CollectionService:GetTagged("Quin")) do
-			if q ~= releasedModel then
-				releaseModel(q)
 			end
 		end
 		pcall(function()
 			player:LoadCharacter()
 		end)
+		print(string.format("[Server] Player %s took off their costume", player.Name))
 		return true
 	end
 	return nil
 end
+
+Players.PlayerRemoving:Connect(function(player)
+	local costumeFolder = Workspace:FindFirstChild("PlayerCostumes")
+	if costumeFolder then
+		for _, child in ipairs(costumeFolder:GetChildren()) do
+			if child:GetAttribute("ControllingPlayer") == player.Name then
+				child:Destroy()
+			end
+		end
+	end
+end)
 
 print("[Server] All QuinCore server services initialized successfully. Default speed: 1.0x")

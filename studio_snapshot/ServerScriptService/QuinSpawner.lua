@@ -77,8 +77,67 @@ local function applyStats(model, typeName)
 	end
 end
 
+-- Physical body (README Rule 1: physics != visuals). The visible skinned mesh must not be the
+-- collision body: its auto-generated collision shape differs per mesh and the mesh dips below
+-- the floor, so on some templates (QuinFemale) it drags on the ground and pins the Humanoid.
+-- The Humanoid floats the root at HipHeight; a dedicated invisible CollisionBody, welded to the
+-- root and starting just above the floor, blocks walls and other Quins without floor contact.
+local COLLISION_BODY_SIZE = Vector3.new(2.4, 6.8, 1.8)
+local COLLISION_BODY_FLOOR_CLEARANCE = 0.5
+
+local function buildPhysicsBody(model)
+	local hrp = model:FindFirstChild("HumanoidRootPart")
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if not hrp or not humanoid then return end
+
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") and part ~= hrp then
+			part.CanCollide = false -- visual / utility parts stay hittable (CanQuery) but never collide
+		end
+	end
+
+	-- Utility parts (e.g. "Sounds") belong on the root, not offset to the side of the body
+	local sounds = model:FindFirstChild("Sounds")
+	if sounds and sounds:IsA("BasePart") then
+		local welds = {}
+		for _, w in ipairs(sounds:GetChildren()) do
+			if w:IsA("WeldConstraint") then w.Enabled = false; table.insert(welds, w) end
+		end
+		sounds.CFrame = hrp.CFrame
+		for _, w in ipairs(welds) do w.Enabled = true end
+	end
+
+	local existing = model:FindFirstChild("CollisionBody")
+	if existing then existing:Destroy() end
+	local rootAboveFloor = hrp.Size.Y / 2 + humanoid.HipHeight
+	local body = Instance.new("Part")
+	body.Name = "CollisionBody"
+	body.Size = COLLISION_BODY_SIZE
+	body.Transparency = 1
+	body.CanCollide = true
+	body.CanQuery = false
+	body.CanTouch = false
+	body.Massless = true
+	body.CastShadow = false
+	body.CFrame = hrp.CFrame * CFrame.new(0, -rootAboveFloor + COLLISION_BODY_FLOOR_CLEARANCE + COLLISION_BODY_SIZE.Y / 2, 0)
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = hrp
+	weld.Part1 = body
+	weld.Parent = body
+	body.Parent = model
+end
+
 -- Spawn a single Quin with either a QuinInstance OR typeName/gender
-function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElement, faceTargetPosition)
+-- options.costume = true spawns a player costume instead of a fighter: no "Quin" /
+-- "AI_Fighter" / team tags, no AI Main script, parented to options.parent. Tournament
+-- systems (targeting, orchestrator counts, cleanAll, AI) find fighters by tag or by the
+-- QuinServer folder, so a costume is invisible to all of them.
+function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElement, faceTargetPosition, options)
+	options = options or {}
+	local isCostume = options.costume == true
+	if isCostume then
+		teamTag = nil
+	end
 	local quinInstance = nil
 	local selectedGender = nil
 
@@ -111,7 +170,7 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 	if selectedGender == "Female" then
 		template = Workspace:FindFirstChild("QuinFemale")
 		if not template or #template:GetChildren() <= 1 then
-			template = QuinTypeFolder:FindFirstChild("QuinFemale") or QuinTypeFolder:FindFirstChild("QuinTypeB")
+			template = QuinTypeFolder:FindFirstChild("QuinFemale")
 		end
 	else
 		template = Workspace:FindFirstChild("QuinMale")
@@ -120,7 +179,7 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 			template = arenaOne and arenaOne:FindFirstChild("QuinMale")
 		end
 		if not template or #template:GetChildren() <= 1 then
-			template = QuinTypeFolder:FindFirstChild("QuinMale") or QuinTypeFolder:FindFirstChild("QuinTypeA")
+			template = QuinTypeFolder:FindFirstChild("QuinMale")
 		end
 	end
 
@@ -143,6 +202,7 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 		end
 		clone.PrimaryPart = hrp
 	end
+	buildPhysicsBody(clone)
 
 	-- Ensure it goes into a server folder
 	local serverFolder = Workspace:FindFirstChild("QuinServer")
@@ -176,23 +236,29 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 	clone:SetAttribute("LastActivityTime", os.clock())
 	clone:SetAttribute("IsMoving", false)
 
-	-- Tags
-	CollectionService:AddTag(clone, "Quin")
-	CollectionService:AddTag(clone, "AI_Fighter")
-	if teamTag then
-		CollectionService:AddTag(clone, teamTag)
-	end
+	if isCostume then
+		-- Player costume: outside the tournament entirely (no tags, no AI)
+		clone:SetAttribute("IsCostume", true)
+		clone:SetAttribute("IsPlayerControlled", true)
+	else
+		-- Tags
+		CollectionService:AddTag(clone, "Quin")
+		CollectionService:AddTag(clone, "AI_Fighter")
+		if teamTag then
+			CollectionService:AddTag(clone, teamTag)
+		end
 
-	-- Insert Main script (clone from QuinCore)
-	local mainScript = ReplicatedStorage:WaitForChild("QuinCore"):FindFirstChild("Main")
-	if mainScript then
-		local mainClone = mainScript:Clone()
-		mainClone.Parent = clone
-		mainClone.Disabled = false
+		-- Insert Main script (clone from QuinCore)
+		local mainScript = ReplicatedStorage:WaitForChild("QuinCore"):FindFirstChild("Main")
+		if mainScript then
+			local mainClone = mainScript:Clone()
+			mainClone.Parent = clone
+			mainClone.Disabled = false
+		end
 	end
 
 	-- Parent last (after all setup)
-	clone.Parent = serverFolder
+	clone.Parent = (isCostume and options.parent) or serverFolder
 
 	-- Dynamically apply data-driven Element visual identity
 	FXService.applyElementAppearance(clone, quinInstance.Element)
@@ -250,7 +316,7 @@ function QuinSpawner.spawnTeam(typeNames, teamTag, count, spawnIndex, customBase
 		local actualTeamTag = typeNames
 		local actualCount = teamTag
 		local actualSpawnIndex = (typeof(count) == "number") and count or 1
-		typeNames = { "TypeA", "TypeB", "TypeC", "TypeD" }
+		typeNames = { "Male", "Female" }
 		teamTag = actualTeamTag
 		count = actualCount
 		spawnIndex = actualSpawnIndex
@@ -268,7 +334,7 @@ function QuinSpawner.spawnTeam(typeNames, teamTag, count, spawnIndex, customBase
 	if typeof(typeNames) == "string" then
 		typeNames = { typeNames }
 	elseif typeof(typeNames) ~= "table" or #typeNames == 0 then
-		typeNames = { "TypeA", "TypeB", "TypeC", "TypeD" }
+		typeNames = { "Male", "Female" }
 	end
 	count = (typeof(count) == "number") and count or 1
 	spawnIndex = spawnIndex or 1

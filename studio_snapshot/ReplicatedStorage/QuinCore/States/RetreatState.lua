@@ -22,6 +22,7 @@ local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild(
 local RetreatTacticsModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("RetreatTacticsModule"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
+local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 
 local RetreatState = { name = "Retreat" }
 local retreatData = setmetatable({}, { __mode = "k" })

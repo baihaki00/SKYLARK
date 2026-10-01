@@ -28,11 +28,14 @@ function FXService.applyElementAppearance(model, elementName)
 	if oldHighlight then oldHighlight:Destroy() end
 
 	-- 3. Recolor the visible body (Alpha_Surface) to a solid element color.
-	-- Preserve skin textures
+	-- A MeshPart TextureID overrides Color, so the skin texture is cleared for the
+	-- element color to read (QuinMale carries a skin texture; QuinFemale does not).
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") and (part.Name == "Alpha_Surface" or part.Name == "Beta_Surface" or part.Name:find("Surface") or part.Name:find("Mesh") or part.Name == "Body") then
 			part.Color = elem.BodyTint or elem.Color
-			
+			if part:IsA("MeshPart") and part.TextureID ~= "" then
+				part.TextureID = ""
+			end
 		end
 	end
 

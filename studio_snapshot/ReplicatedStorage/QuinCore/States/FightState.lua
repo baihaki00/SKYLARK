@@ -797,8 +797,4 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	return FightState
 end
 
-function FightState.exit(fighter, humanoid, rootPart)
-	fightData[fighter] = nil
-end
-
 return FightState
