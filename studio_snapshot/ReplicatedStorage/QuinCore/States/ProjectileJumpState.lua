@@ -22,6 +22,7 @@ local AudioModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForCh
 local VfxModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("VfxModule"))
 local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
+local AnimationConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationConfig"))
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
@@ -138,7 +139,11 @@ local function calculateCombatAimPoint(rootPart, targetHRP, dashSpeed, humanoid,
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	rayParams.FilterDescendantsInstances = {rootPart.Parent, targetHRP.Parent}
-	local floorRay = DebugDraw.raycast(rootPart, leadPos + Vector3.new(0, 10, 0), Vector3.new(0, -35, 0), rayParams)
+	-- (all the way down: a 35-stud ray found nothing under an airborne target or a tall
+	-- platform, the aim fell back to the target's own height and the dive went up at it)
+	rayParams.FilterDescendantsInstances = {rootPart.Parent, targetHRP.Parent, Workspace:FindFirstChild("QuinServer")}
+	rayParams.RespectCanCollide = true
+	local floorRay = DebugDraw.raycast(rootPart, leadPos + Vector3.new(0, 10, 0), Vector3.new(0, -1000, 0), rayParams)
 	if floorRay then
 		groundY = floorRay.Position.Y + (humanoid and humanoid.HipHeight or 2.0) + (rootPart.Size.Y / 2)
 	end
@@ -296,6 +301,37 @@ local function stopAnim(track)
 	if track then track:Stop(0.2) end
 end
 
+-- Projectile jump kits (AnimationConfig.Registry.ProjectileJump): a jump picks one
+local KITS = {
+	{ name = "Ninja", jump = "ProjectileJump.NinjaJump", loop = "ProjectileJump.NinjaAirLoop" },
+	{ name = "Standard", jump = "ProjectileJump.StandardJump", loop = "ProjectileJump.StandardAirLoop" },
+}
+
+local function playClip(humanoid, path, looped)
+	local entry = AnimationConfig.get(path)
+	local track = entry and AnimationModule.getTrack(humanoid, entry.id)
+	if track then
+		track.Priority = Enum.AnimationPriority.Action3
+		track.Looped = looped == true
+		track:Play(entry.fadeTime or 0.1, 1, entry.speed or 1)
+	end
+	return track
+end
+
+-- The dive: the flying clip, head first along the path
+local function playDiveAnim(humanoid)
+	return playClip(humanoid, "ProjectileJump.DiveFly", true)
+end
+
+-- A dive only ever goes down. Re-aimed at 480+ studs/s toward a target above (one in the air, on
+-- a higher platform) it went up past it, then down, then up again.
+local function diveDirection(offset, fallback)
+	local flat = Vector3.new(offset.X, 0, offset.Z)
+	local y = math.min(offset.Y, -0.3 * math.max(flat.Magnitude, 1))
+	local dir = Vector3.new(offset.X, y, offset.Z)
+	return dir.Magnitude > 0.001 and dir.Unit or fallback
+end
+
 function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	humanoid.PlatformStand = true
 	cleanupMovers(rootPart)
@@ -359,8 +395,12 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		scatterAngle = math.random() * math.pi * 2,
 		precise = target ~= nil and target.Name == POINT_TARGET_NAME,
 		touchedDown = false,
-		animTrack = playAnim(humanoid, AnimationIds.Jump)
+		animTrack = nil,
+		kit = KITS[math.random(1, #KITS)],
+		fighter = fighter,
 	}
+	fighter:SetAttribute("PJPhase", "Init")
+	stateData[fighter].animTrack = playClip(humanoid, stateData[fighter].kit.jump, false)
 
 	AudioModule.playJumpUp(rootPart.Position)
 
@@ -442,6 +482,32 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 			lv.VectorVelocity = containVelocity(rootPart.Position, lv.VectorVelocity)
 		end
 
+		-- The body faces along its flight (it used to only turn about the vertical, staying
+		-- upright whatever the path): the upright launch and airborne clips tilt forward into a
+		-- climb; the dive (flying clip, a horizontal pose) points head first along the path and
+		-- flares back upright over the last ~25 studs so it lands on its feet.
+		local flightVel = rootPart.AssemblyLinearVelocity
+		local flatFlight = Vector3.new(flightVel.X, 0, flightVel.Z)
+		if flightVel.Magnitude > 15 and not data.settingDown then
+			local bodyLook = rootPart.CFrame.LookVector
+			local flatDir = flatFlight.Magnitude > 1 and flatFlight.Unit
+				or (Vector3.new(bodyLook.X, 0, bodyLook.Z).Magnitude > 0.01 and Vector3.new(bodyLook.X, 0, bodyLook.Z).Unit)
+				or Vector3.new(0, 0, -1)
+			local look
+			if data.phase == "Dash" then
+				local gap = heightAboveStand(rootPart, humanoid)
+				local headFirst = math.clamp((gap - 6) / 25, 0, 1)
+				look = flatDir:Lerp(flightVel.Unit, headFirst)
+			else
+				local elevation = math.atan2(flightVel.Y, math.max(flatFlight.Magnitude, 0.001))
+				local tilt = elevation > 0 and math.clamp(math.pi / 2 - elevation, 0, 0.6) or 0.2
+				look = flatDir * math.cos(tilt) - Vector3.yAxis * math.sin(tilt)
+			end
+			if look.Magnitude > 0.01 then
+				ao.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + look)
+			end
+		end
+
 		-- Touchdown: the body used to hit the floor first and lie sliding on it until the next
 		-- update noticed. On contact the mover is held still and Impact follows.
 		local fallSpeed = -rootPart.AssemblyLinearVelocity.Y
@@ -477,12 +543,16 @@ function ProjectileJumpState.exit(fighter, humanoid, rootPart)
 	end
 	fighter:SetAttribute("LastProjectileJumpTime", tick())
 	fighter:SetAttribute("JumpStyle", nil)
+	fighter:SetAttribute("PJPhase", nil)
 	stateData[fighter] = nil
 end
 
 local function switchPhase(data, newPhase)
 	data.phase = newPhase
 	data.phaseTime = tick()
+	if data.fighter then
+		data.fighter:SetAttribute("PJPhase", newPhase) -- for the debug HUD and probes
+	end
 end
 
 function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
@@ -505,6 +575,15 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	local lv = rootPart:FindFirstChild("PJ_LinearVelocity") or rootPart:FindFirstChild("PJ_Velocity")
 	local ao = rootPart:FindFirstChild("PJ_Align") or rootPart:FindFirstChild("PJ_Gyro")
 	if not lv or not ao then return require(script.Parent:WaitForChild("FightState")) end
+
+	-- After the launch clip: the kit's airborne loop until the dive (or the landing) takes over
+	if data.kit and not data.inAirLoop and data.phase ~= "Dash" and data.phase ~= "Impact" then
+		local launch = data.animTrack
+		if not launch or not launch.IsPlaying or (launch.Length > 0 and launch.TimePosition >= launch.Length * 0.92) then
+			data.inAirLoop = true
+			data.animTrack = playClip(humanoid, data.kit.loop, true)
+		end
+	end
 
 	if not data.lastNodePos or (rootPart.Position - data.lastNodePos).Magnitude > 5 then
 		spawnVisualizerNode(rootPart.Position)
@@ -557,13 +636,13 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			local dashSpeed = Config.SlamSpeed * Config.SlamSpeedMultiplier
 			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
 			local offset = aimPoint - rootPart.Position
-			local dashDir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
+			local dashDir = diveDirection(offset, rootPart.CFrame.LookVector)
 			lv.VectorVelocity = dashDir * dashSpeed
 			rootPart.AssemblyLinearVelocity = lv.VectorVelocity
 			ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
 
 			stopAnim(data.animTrack)
-			data.animTrack = playAnim(humanoid, AnimationIds.Dash)
+			data.animTrack = playDiveAnim(humanoid)
 			AudioModule.playSonicBoom(rootPart.Position)
 			VfxModule.createVaporCone(rootPart, 0.5)
 		end
@@ -821,11 +900,13 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 				rootPart.AssemblyLinearVelocity = Vector3.zero
 
 				stopAnim(data.animTrack)
-				data.animTrack = playAnim(humanoid, AnimationIds.Dash)
+				data.animTrack = playDiveAnim(humanoid)
 				AudioModule.playSonicBoom(rootPart.Position)
 				VfxModule.createVaporCone(rootPart, Config.BezierDashDuration / speedMult)
 			else
 				switchPhase(data, "Dash")
+				stopAnim(data.animTrack)
+				data.animTrack = playDiveAnim(humanoid)
 
 				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 				local dashSpeed = (FAST_DIVE_STYLES[data.style] and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed) * speedMult
@@ -861,13 +942,13 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			local dashSpeed = Config.SlamSpeed
 			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
 			local offset = aimPoint - rootPart.Position
-			local dashDir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
+			local dashDir = diveDirection(offset, rootPart.CFrame.LookVector)
 			lv.VectorVelocity = dashDir * dashSpeed
 			rootPart.AssemblyLinearVelocity = lv.VectorVelocity
 			ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
 
 			stopAnim(data.animTrack)
-			data.animTrack = playAnim(humanoid, AnimationIds.Dash)
+			data.animTrack = playDiveAnim(humanoid)
 			AudioModule.playSonicBoom(rootPart.Position)
 			VfxModule.createVaporCone(rootPart, 0.5)
 		end
@@ -920,7 +1001,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			local dashSpeed = (FAST_DIVE_STYLES[data.style] and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed) * speedMult
 			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
 			local offset = aimPoint - rootPart.Position
-			local dir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
+			local dir = diveDirection(offset, rootPart.CFrame.LookVector)
 			lv.VectorVelocity = dir * dashSpeed
 			ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
 

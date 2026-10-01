@@ -12,12 +12,12 @@ local dynamicPunches = setmetatable({}, {
 	__index = function(_, idx)
 		local p = AnimationConfig.Registry.Attacks and AnimationConfig.Registry.Attacks.Punches
 		if not p then return nil end
-		local punchKeys = {"Punch1", "CrossLeft", "CrossRight", "Hook"}
+		local punchKeys = {"Punch1", "CrossLeft", "CrossRight"}
 		local key = punchKeys[idx] or ("Punch" .. tostring(idx))
 		return p[key] and p[key].id or nil
 	end,
 	__len = function(_)
-		return 4
+		return 3
 	end
 })
 

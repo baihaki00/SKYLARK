@@ -194,6 +194,41 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	return self
 end
 
+-- CombatConfig.ClipCorrections: while a listed clip is the main clip on the body, its hip
+-- translation is scaled and the whole body (everything under the hips) is turned about the
+-- root's vertical axis. All or nothing at 50% weight: a half-applied 180 degree turn would twist.
+function ProceduralCombatReactionController:applyClipCorrections()
+	local corrections = CombatConfig.ClipCorrections
+	if not corrections or not self.hipsBone or not self.humanoid then return end
+	local animator = self.humanoid:FindFirstChildOfClass("Animator")
+	if not animator then return end
+	local correction, weight = nil, 0.5
+	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+		local id = track.Animation and string.match(track.Animation.AnimationId, "%d+$")
+		local entry = id and corrections[id]
+		if entry and track.WeightCurrent > weight then
+			correction, weight = entry, track.WeightCurrent
+		end
+	end
+	self.activeClipCorrection = correction
+	if not correction then return end
+
+	local hips = self.hipsBone
+	if correction.translationScale then
+		local transform = hips.Transform
+		hips.Transform = CFrame.new(transform.Position * correction.translationScale) * (transform - transform.Position)
+	end
+	local root = self.ghostRootPart or self.rootPart
+	if correction.yaw and root then
+		local rootCF = root.CFrame
+		local relative = rootCF:ToObjectSpace(hips.TransformedWorldCFrame)
+		local turned = rootCF * CFrame.Angles(0, math.rad(correction.yaw), 0) * relative
+		local parent = hips.Parent
+		local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame
+		hips.Transform = (parentW * hips.CFrame):Inverse() * turned
+	end
+end
+
 -- Trigger a directional hit recoil impulse
 function ProceduralCombatReactionController:triggerImpact(dirWorld, magnitude, impactType)
 	if not self.enabled or not self.rootPart then return end
@@ -236,6 +271,10 @@ function ProceduralCombatReactionController:update(dt)
 	if not self.enabled or not self.rootPart then return end
 	if self.aiModel and self.aiModel:GetAttribute("CurrentState") == "Death" then return end
 	dt = math.clamp(dt, 0.001, 0.05)
+
+	-- 0. Clips authored facing backwards or with oversized root motion are put right before
+	-- anything here reads the pose (CombatConfig.ClipCorrections)
+	self:applyClipCorrections()
 
 	-- 1. Check server model for new replicated impact event
 	local serverModel = self.aiModel
@@ -624,7 +663,13 @@ function ProceduralCombatReactionController:update(dt)
 		local now = os.clock()
 		local plantContact = CombatConfig.FootIK_PlantContact or 0.15
 		local plantLift = CombatConfig.FootIK_PlantLift or 0.35
-		local plantMaxDrift = CombatConfig.FootIK_PlantMaxDrift or 1.4
+		-- A running clip's planted foot still creeps a little (4-14 studs/s at a sprint): the
+		-- allowance grows with speed so a stance is held to the end instead of being let go
+		-- (or stepped) halfway through it
+		local plantMaxDrift = (CombatConfig.FootIK_PlantMaxDrift or 1.4) + speed * (CombatConfig.FootIK_PlantDriftPerSpeed or 0.04)
+		-- Procedural steps are for clips that do not step (a stance played while moving); at a
+		-- run the clip lifts the foot itself
+		local stepMaxSpeed = CombatConfig.FootIK_StepMaxSpeed or 12
 
 		local impulse = self.rootPart:FindFirstChild("ImpulseLV")
 		local pushed = impulse ~= nil and impulse:IsA("LinearVelocity") and impulse.MaxAxesForce.X > 0
@@ -707,7 +752,7 @@ function ProceduralCombatReactionController:update(dt)
 						if drift > plantMaxDrift or overreach then
 							local other = isLeft and "Right" or "Left"
 							local landing = nil
-							if stepOn and not self.step[other] then
+							if stepOn and speed < stepMaxSpeed and not self.step[other] then
 								-- Just ahead of where the clip has the foot, as far as the leg reaches
 								local hipHeight = hipPos.Y - (floorY + ankleHeight)
 								local reachFlat = math.sqrt(math.max(maxReach * maxReach - hipHeight * hipHeight, 0)) * 0.85
@@ -790,6 +835,14 @@ function ProceduralCombatReactionController:update(dt)
 				else
 					self.plantFade[side] = nil
 				end
+			end
+
+			-- (debug: why the left foot is or is not planted; client-only attribute)
+			if isLeft and self.aiModel and workspace:GetAttribute("FootDebug") then
+				local reason = footsFree and "free" or (not hit and "nohit") or (pushed and "pushed")
+					or (self.step[side] and "step") or (self.plant[side] and "lock")
+					or (self.plantArmed[side] and "armed") or "waitLift"
+				self.aiModel:SetAttribute("FootDbg", string.format("%s lift=%.2f w=%.2f", reason, animFootPos.Y - ((hit and hit.Position.Y or 0) + ankleHeight), self.legWeight[side]))
 			end
 
 			return targetPos, targetWeight, isLedge, elevDelta, planted, leg
@@ -1010,21 +1063,37 @@ end
 -- the arm trailing for a moment and settling with a slight overshoot. The offset is capped
 -- per bone, and it fades out while the clip itself moves the arm fast relative to the body
 -- (a punch), so strikes stay as authored.
+-- The spine, neck and head follow the same way with smaller caps (SecondaryMotion_Spine):
+-- the upper body trails a turn or a stop by a few degrees and settles. Parents first.
 local ARM_CHAIN = {
+	{ "Spine1", "Spine2", "spine" },
+	{ "Spine2", "Neck", "spine" },
+	{ "Neck", "Head", "neck" },
+	{ "Head", nil, "neck", 0.8 }, -- no head-top bone: a point 0.8 studs up the head
 	{ "LeftArm", "LeftForeArm", "upper" },
 	{ "LeftForeArm", "LeftHand", "fore" },
 	{ "RightArm", "RightForeArm", "upper" },
 	{ "RightForeArm", "RightHand", "fore" },
 }
 
+local function chainTip(entry)
+	if entry.child then
+		return entry.child.TransformedWorldCFrame.Position
+	end
+	local w = entry.bone.TransformedWorldCFrame
+	return w.Position + w.UpVector * entry.length
+end
+
 function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 	if not self.smBones then
 		self.smBones = {}
+		local spineOn = CombatConfig.SecondaryMotion_Spine ~= false
 		for _, link in ipairs(ARM_CHAIN) do
+			local isTorso = link[3] == "spine" or link[3] == "neck"
 			local bone = self.ghostModel and self.ghostModel:FindFirstChild("mixamorig:" .. link[1], true)
-			local child = self.ghostModel and self.ghostModel:FindFirstChild("mixamorig:" .. link[2], true)
-			if bone and child then
-				table.insert(self.smBones, { bone = bone, child = child, kind = link[3] })
+			local child = link[2] and self.ghostModel and self.ghostModel:FindFirstChild("mixamorig:" .. link[2], true)
+			if bone and (child or link[4]) and (spineOn or not isTorso) then
+				table.insert(self.smBones, { bone = bone, child = child, kind = link[3], length = link[4] })
 			end
 		end
 	end
@@ -1034,6 +1103,9 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 	local zeta = CombatConfig.SecondaryMotion_Damping or 0.75
 	local maxUpper = math.rad(CombatConfig.SecondaryMotion_MaxUpperArmDegrees or 14)
 	local maxFore = math.rad(CombatConfig.SecondaryMotion_MaxForearmDegrees or 20)
+	local maxSpine = math.rad(CombatConfig.SecondaryMotion_MaxSpineDegrees or 5)
+	local maxNeck = math.rad(CombatConfig.SecondaryMotion_MaxNeckDegrees or 7)
+	local caps = { upper = maxUpper, fore = maxFore, spine = maxSpine, neck = maxNeck }
 	local fastClip = CombatConfig.SecondaryMotion_FastClipSpeed or 12 -- studs/s of a tip relative to the body
 	local omega = 2 * math.pi * frequency
 	local rootVelocity = self.rootPart.AssemblyLinearVelocity
@@ -1049,7 +1121,7 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 	-- The clip's tips, before any bone here is turned
 	local tips = {}
 	for i, entry in ipairs(self.smBones) do
-		tips[i] = entry.child.TransformedWorldCFrame.Position
+		tips[i] = chainTip(entry)
 	end
 
 	-- Springs (sub-stepped: a 6 Hz spring at a 20 fps frame is past stable for one step)
@@ -1084,19 +1156,29 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 		weights[i] = current
 	end
 
+	-- Which torso parts follow: workspace SecondaryMotionTorso = "none" | "spine" | "all"
+	-- (A/B), else the config
+	local torso = workspace:GetAttribute("SecondaryMotionTorso")
+		or (CombatConfig.SecondaryMotion_Spine == false and "none")
+		or (CombatConfig.SecondaryMotion_Neck == false and "spine")
+		or "all"
+
 	-- Turn each bone from where its tip is toward where the spring has it (parents first)
 	for i, entry in ipairs(self.smBones) do
 		local weight = weights[i]
+		if (entry.kind == "spine" and torso == "none") or (entry.kind == "neck" and torso ~= "all") then
+			weight = 0
+		end
 		if weight > 0.01 then
 			local boneW = entry.bone.TransformedWorldCFrame
-			local current = entry.child.TransformedWorldCFrame.Position - boneW.Position
+			local current = chainTip(entry) - boneW.Position
 			local wanted = self.smState[i].x - boneW.Position
 			if current.Magnitude > 1e-3 and wanted.Magnitude > 1e-3 then
 				local cu, wu = current.Unit, wanted.Unit
 				local axis = cu:Cross(wu)
 				if axis.Magnitude > 1e-5 then
 					local angle = math.acos(math.clamp(cu:Dot(wu), -1, 1))
-					angle = math.min(angle, entry.kind == "upper" and maxUpper or maxFore) * weight
+					angle = math.min(angle, caps[entry.kind] or maxFore) * weight
 					local newW = CFrame.new(boneW.Position) * CFrame.fromAxisAngle(axis.Unit, angle) * (boneW - boneW.Position)
 					local parent = entry.bone.Parent
 					local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame

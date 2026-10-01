@@ -110,7 +110,15 @@ if renderMode == "Direct" then
 			reaction = reaction,
 			look = look,
 			aiModel = desiredAiModel,
+			hiddenSince = os.clock(),
 		}
+		-- A Quin that has just appeared has no animation loaded yet and shows its bind pose
+		-- (the T-pose seen at spawn). It stays invisible here until a clip drives it.
+		for _, part in ipairs(model:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.LocalTransparencyModifier = 1
+			end
+		end
 		model:SetAttribute("PresentationMode", "Direct")
 		model:SetAttribute("PresentationControllerCount", 1)
 		model:SetAttribute("PresentationControllerKind", desiredAiModel and "AI" or "Player")
@@ -155,8 +163,28 @@ if renderMode == "Direct" then
 
 	-- RenderStepped runs after the Animator's evaluated pose. The shared
 	-- controller therefore edits the final authoritative bone pose in place.
+	local function animatedYet(model)
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+		if not animator then return false end
+		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+			if track.WeightCurrent > 0.5 and track.Length > 0 then
+				return true
+			end
+		end
+		return false
+	end
+
 	RunService.RenderStepped:Connect(function(dt)
 		for model, entry in pairs(presentations) do
+			if entry.hiddenSince and (animatedYet(model) or os.clock() - entry.hiddenSince > 3) then
+				entry.hiddenSince = nil
+				for _, part in ipairs(model:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.LocalTransparencyModifier = 0
+					end
+				end
+			end
 			if model.Parent and entry.reaction and entry.look then
 				local isDead = model:GetAttribute("CurrentState") == "Death"
 				if not isDead then

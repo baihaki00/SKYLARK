@@ -105,8 +105,14 @@ function LocomotionModule.resolveGroundIntent(fighter, rootPart, desiredDirectio
 	local slowSpeed = CombatConfig.Locomotion_TurnRateSlowSpeed or 8.0
 	local fastSpeed = CombatConfig.Locomotion_TurnRateFastSpeed or 44.0
 	local paceT = math.clamp((planarSpeed - slowSpeed) / math.max(fastSpeed - slowSpeed, 1), 0, 1)
-	local slowRate = CombatConfig.Locomotion_TurnRateSlow or 14.0
-	local maxTurnRate = slowRate + ((CombatConfig.Locomotion_TurnRateFast or 5.5) - slowRate) * paceT
+	local slowRate = CombatConfig.Locomotion_TurnRateSlow or 10.0
+	local maxTurnRate = slowRate + ((CombatConfig.Locomotion_TurnRateFast or 2.2) - slowRate) * paceT
+	-- A runner turns by leaning into the ground, so how fast it can turn falls with speed:
+	-- yaw rate = sideways grip / speed. The old ceiling (5.5 rad/s at a 40 stud/s sprint, 14 at
+	-- a jog) meant 200-380 studs/s^2 sideways - the body snapped through corners while the run
+	-- clip ran straight ahead and the feet skated. Reversals still go through the skid plant.
+	local grip = CombatConfig.Locomotion_LateralGrip or 90
+	maxTurnRate = math.min(maxTurnRate, grip / math.max(planarSpeed, 1))
 	local step = math.clamp(delta * alpha, -maxTurnRate * dt, maxTurnRate * dt)
 	local nextAngle = currentAngle + step
 	local resolved = Vector3.new(math.sin(nextAngle), 0, math.cos(nextAngle))

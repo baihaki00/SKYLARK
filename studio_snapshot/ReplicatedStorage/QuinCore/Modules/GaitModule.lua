@@ -55,7 +55,9 @@ local STANDSTILL_SPEED = 0.4 -- studs/s below which the Quin is standing: no gro
 local AUTO_DRIVE_EXCLUDED_STATES = {
 	Knockback = true, Recovery = true, Death = true, WallRun = true, Airborne = true,
 	MidAirClash = true, BeamStruggle = true, ProjectileJump = true, ProjectileFight = true,
-	Circling = true,
+	-- (Circling was excluded for its strafe clips; hasForeignLocomotion already keeps the fill
+	-- off while one plays, and without the fill a Circling Quin between strafes moved in the
+	-- fight stance - or in no pose at all)
 }
 
 local states = {} -- [humanoid] = per-Quin gait state
@@ -375,6 +377,26 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 		if shouldHandle and not shouldHandle() then
 			st.airTime = 0
 			return
+		end
+
+		-- Never no pose: with every clip faded out (a Circling Quin between its survey and a
+		-- strike) the rig showed its bind pose - the T-pose seen mid-match
+		local nowCheck = os.clock()
+		if nowCheck - (st.lastPoseCheck or 0) > 0.1 then
+			st.lastPoseCheck = nowCheck
+			local animator = humanoid:FindFirstChildOfClass("Animator")
+			local posed = false
+			if animator then
+				for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+					if track.WeightTarget > 0.05 then
+						posed = true
+						break
+					end
+				end
+			end
+			if not posed and model:GetAttribute("CurrentState") ~= "Death" then
+				AnimationModule.ensureBaseIdle(humanoid)
+			end
 		end
 		if isAirborneState(humanoid) and not rootPart.Anchored then
 			st.airTime += dt

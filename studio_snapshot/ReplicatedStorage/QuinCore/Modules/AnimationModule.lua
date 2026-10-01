@@ -765,24 +765,38 @@ function AnimationModule.getActiveTracksReport(humanoid)
 end
 
 -- Apply hit stop (freeze frames)
+-- One freeze per humanoid: each track's real speed is saved once, and only the last hit stop to
+-- run out restores it. Two hit stops overlapping (two hits within 50 ms) used to save speed 0 the
+-- second time and "restore" it last - the strike, or the walk/run loop, then stayed frozen until
+-- it ended: punches hung mid-swing for up to 4 s and legs stood still under a running body.
+local hitStops = setmetatable({}, { __mode = "k" })
+
 function AnimationModule.applyHitStop(humanoid, duration)
 	if not humanoid or not animationTracks[humanoid] then return end
-	
-	local playingTracks = {}
+
+	local freeze = hitStops[humanoid]
+	if not freeze then
+		freeze = { token = 0, speeds = {} }
+		hitStops[humanoid] = freeze
+	end
+	freeze.token += 1
+	local token = freeze.token
+
 	for _, track in pairs(animationTracks[humanoid]) do
-		if track.IsPlaying then
-			playingTracks[track] = track.Speed
+		if track.IsPlaying and freeze.speeds[track] == nil then
+			freeze.speeds[track] = track.Speed
 			track:AdjustSpeed(0)
 		end
 	end
-	
+
 	task.delay(duration, function()
-		if not humanoid or not humanoid.Parent then return end
-		for track, origSpeed in pairs(playingTracks) do
-			if track.IsPlaying then
-				track:AdjustSpeed(origSpeed)
+		if freeze.token ~= token then return end -- a later hit stop extends the freeze
+		for track, originalSpeed in pairs(freeze.speeds) do
+			if track.IsPlaying and track.Speed == 0 then
+				track:AdjustSpeed(originalSpeed)
 			end
 		end
+		freeze.speeds = {}
 	end)
 end
 

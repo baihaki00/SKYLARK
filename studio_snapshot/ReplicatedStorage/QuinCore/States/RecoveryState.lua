@@ -21,7 +21,7 @@ local GET_UP_HEAVY = "Reactions.GetUpGround"
 local GET_UP_HANDOVER = 0.92
 
 -- Landing a projectile jump or smash: one of these plays on reaching the ground
-local SLAM_LANDINGS = { "Parkour.LandingSuperHero", "Parkour.LandingHard" }
+local SLAM_LANDINGS = { "Parkour.LandingSuperHero", "Parkour.LandingHard", "ProjectileJump.NinjaLanding", "ProjectileJump.StandardLanding" }
 
 local UPRIGHT_ALIGN_NAME = "RecoveryUpright"
 local UPRIGHT_ATT_NAME = "RecoveryUprightAtt"

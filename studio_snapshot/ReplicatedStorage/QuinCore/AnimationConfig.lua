@@ -15,7 +15,7 @@ AnimationConfig.Registry = {
 		Punches = {
 			CrossLeft = { id = "rbxassetid://79937990476934", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.35, cancelRatio = 0.70, name = "Cross Left" },
 			CrossRight = { id = "rbxassetid://99362983788110", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.35, cancelRatio = 0.70, name = "Cross Right" },
-			Hook = { id = "rbxassetid://135206101877204", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.75, name = "Hook Punch" },
+			-- (Hook Punch 135206101877204 removed: a re-upload of 118776942028972, which the owner dropped)
 			Punch1 = { id = "rbxassetid://113219639247452", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.35, cancelRatio = 0.70, name = "Lead Jab" },
 			Uppercut = { id = "rbxassetid://113219639247452", speed = 1.20, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.30, cancelRatio = 0.60, name = "Uppercut" },
 		},
@@ -77,7 +77,7 @@ AnimationConfig.Registry = {
 		Turn180Pivot = { id = "rbxassetid://129355316172688", speed = 1.50, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Degree Turn Pivot" },
 	},
 	Tactics = {
-		DesperateCounter = { id = "rbxassetid://135206101877204", speed = 1.35, fadeTime = 0.06, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.75, name = "Cornered Desperate Counter" },
+		DesperateCounter = { id = "rbxassetid://99362983788110", speed = 1.35, fadeTime = 0.06, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.75, name = "Cornered Desperate Counter" },
 		ProceduralEvade1 = { id = "rbxassetid://131563762426355", speed = 1.30, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Procedural Evade 01" },
 		ProceduralEvade2 = { id = "rbxassetid://135253684509200", speed = 1.30, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Procedural Evade Enemy 02" },
 		RetreatBackstep = { id = "rbxassetid://71421932655009", speed = 1.30, fadeTime = 0.08, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Tactical Backstep Hop" },
@@ -121,6 +121,20 @@ AnimationConfig.Registry = {
 		StrafeRightTired = { id = "rbxassetid://110691224052109", speed = 0.80, fadeTime = 0.15, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Strafe Right (Fatigued)" },
 		StrafeRightWalk = { id = "rbxassetid://82291519563301", speed = 1.00, fadeTime = 0.10, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Strafe Right Walk" },
 	},
+}
+
+-- Projectile jump kits: each jump picks one. Launch -> airborne loop -> DiveFly for the dive
+-- -> a landing from the shared random list (RecoveryState). These six clips were authored
+-- facing backwards and the Ninja ones with hip translation 10x too large: corrected on the
+-- client (CombatConfig.ClipCorrections).
+AnimationConfig.Registry.ProjectileJump = {
+	NinjaJump = { id = "rbxassetid://90572410559809", speed = 1.00, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "NINJA PROJECTILE JUMP" },
+	NinjaAirLoop = { id = "rbxassetid://107304638987317", speed = 1.00, fadeTime = 0.15, priority = "Action3", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "NINJA AIRBORNE LOOP" },
+	NinjaLanding = { id = "rbxassetid://92021932752253", speed = 1.10, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.35, cancelRatio = 0.85, name = "NINJA CONFIDENT LANDING" },
+	StandardJump = { id = "rbxassetid://121127010274438", speed = 1.00, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "PROJECTILE JUMP" },
+	StandardAirLoop = { id = "rbxassetid://122361647744311", speed = 1.00, fadeTime = 0.15, priority = "Action3", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "PROJECTILE JUMP AIRBORNE LOOP" },
+	StandardLanding = { id = "rbxassetid://105219213466134", speed = 1.10, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.35, cancelRatio = 0.85, name = "PJ JUMP STYLE LANDING" },
+	DiveFly = { id = "rbxassetid://120414990498875", speed = 1.00, fadeTime = 0.08, priority = "Action3", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Flying (dive)" },
 }
 
 function AnimationConfig.get(dotPath)

@@ -259,8 +259,9 @@ local CombatConfig = {
 	Locomotion_JumpDebounce = 1.0,           -- seconds minimum between successive jumps
 	Locomotion_LandingRetention = 0.88,      -- ratio of horizontal velocity preserved on landing (88%)
 	Locomotion_SkidSpeedThreshold = 14.0,    -- studs/s minimum speed to trigger dynamic braking skid
-	Locomotion_TurnRateSlow = 14.0,          -- rad/s heading-change ceiling at walking pace (nimble pivots)
-	Locomotion_TurnRateFast = 5.5,           -- rad/s heading-change ceiling at full sprint (momentum widens the arc)
+	Locomotion_TurnRateSlow = 10.0,          -- rad/s heading-change ceiling at walking pace (nimble pivots)
+	Locomotion_LateralGrip = 90,             -- studs/s^2 sideways a running body can lean into: turn rate = grip / speed (2.2 rad/s at 40)
+	Locomotion_TurnRateFast = 2.2,           -- rad/s heading-change ceiling at full sprint (momentum widens the arc)
 	Locomotion_TurnRateSlowSpeed = 8.0,      -- studs/s at or below which the slow-pace ceiling applies
 	Locomotion_TurnRateFastSpeed = 44.0,     -- studs/s at or above which the sprint ceiling applies
 	EnableOpeningProjectileJump = false,     -- Permanently ban start-of-match projectile jumps; grounded charges first
@@ -337,6 +338,8 @@ local CombatConfig = {
 	FootIK_Step = true,                      -- a pinned foot the clip does not lift steps after the body (arc step); workspace FootPlant=false switches plant+step off
 	FootIK_StepDuration = 0.28,              -- seconds a step takes at a walk (shorter when faster, 0.14 at least)
 	FootIK_StepLead = 0.1,                   -- seconds of body travel a step lands ahead of the clip's foot
+	FootIK_PlantDriftPerSpeed = 0.04,        -- extra drift allowance per stud/s of body speed (3 studs at a 40 stud/s sprint)
+	FootIK_StepMaxSpeed = 12,                -- studs/s above which no procedural step is taken (the clip steps)
 	VisualGhostHeightOffset = 0.02,          -- vertical calibration offset (studs) ensuring visual shoe sole rests flush on terrain without bone deformation
 
 	-- Active Muscle Ragdoll & Spectacle Knockback (Step 4)
@@ -462,6 +465,23 @@ CombatConfig.SecondaryMotion_Damping = 0.75          -- below 1: a slight oversh
 CombatConfig.SecondaryMotion_MaxUpperArmDegrees = 14 -- most an upper arm trails its clip pose
 CombatConfig.SecondaryMotion_MaxForearmDegrees = 20  -- ... a forearm
 CombatConfig.SecondaryMotion_FastClipSpeed = 12      -- studs/s of clip arm motion relative to the body above which it fades out (strikes)
+-- === Clip corrections (applied on the client before the procedural layers) ===
+-- yaw: degrees the body is turned about the root's vertical axis while the clip plays (clips
+-- authored facing backwards); translationScale: hip translation multiplier (clips exported with
+-- their root motion 10x too large). Measured in a pose lab: hips facing vs the idle pose.
+CombatConfig.ClipCorrections = {
+	["90572410559809"] = { yaw = 180, translationScale = 0.1 },  -- NINJA PROJECTILE JUMP
+	["107304638987317"] = { yaw = 180, translationScale = 0.1 }, -- NINJA AIRBORNE LOOP
+	["92021932752253"] = { yaw = 180, translationScale = 0.1 },  -- NINJA CONFIDENT LANDING
+	["121127010274438"] = { yaw = 180 },                         -- PROJECTILE JUMP
+	["122361647744311"] = { yaw = 180 },                         -- PROJECTILE JUMP AIRBORNE LOOP
+	["105219213466134"] = { yaw = 180 },                         -- PJ JUMP STYLE LANDING
+}
+
+CombatConfig.SecondaryMotion_Spine = true            -- the spine follows too
+CombatConfig.SecondaryMotion_Neck = false            -- neck and head springs: off (they doubled head jitter in Chase; the head turns on LookController's own spring). Workspace SecondaryMotionTorso = none|spine|all for A/B
+CombatConfig.SecondaryMotion_MaxSpineDegrees = 5     -- per spine segment
+CombatConfig.SecondaryMotion_MaxNeckDegrees = 7      -- neck and head
 
 -- === Ground VFX (VfxModule) ===
 CombatConfig.Vfx_LandingDust = true                    -- smoke burst where a body lands (jumps, knockdowns, projectile-jump impacts)

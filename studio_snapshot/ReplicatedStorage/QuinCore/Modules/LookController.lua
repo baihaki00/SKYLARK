@@ -73,6 +73,25 @@ function LookController:resolveTargetPosition()
 			end
 		end
 
+		-- Looking back over the shoulder while running (the full-body glance clip froze the legs):
+		-- at the threat behind if there is one, else to one side
+		local glanceUntil = serverModel:GetAttribute("GlanceBackUntil")
+		if not isPlayer and glanceUntil and workspace:GetServerTimeNow() < glanceUntil and self.rootPart then
+			local threatName = serverModel:GetAttribute("ClosestRearThreat")
+			local qServer = Workspace:FindFirstChild("QuinServer") or Workspace
+			local threat = threatName and qServer:FindFirstChild(threatName)
+			local threatRoot = threat and threat:FindFirstChild("HumanoidRootPart")
+			if threatRoot then
+				return threatRoot.Position + Vector3.new(0, 2, 0), "GLANCE_BACK"
+			end
+			if not self.glanceSide or (self.glanceSideUntil or 0) < glanceUntil then
+				self.glanceSide = math.random() < 0.5 and -1 or 1
+				self.glanceSideUntil = glanceUntil
+			end
+			local cf = self.rootPart.CFrame
+			return self.rootPart.Position + (cf.RightVector * self.glanceSide - cf.LookVector * 0.6) * 30 + Vector3.new(0, 2, 0), "GLANCE_BACK"
+		end
+
 		-- Scanning (Cognition.Gaze): a glance at the sky, or looking down over the edge of
 		-- high ground. The head pitches to the gaze, straight ahead of the body.
 		local gazeMode = serverModel:GetAttribute("GazeMode")
@@ -137,15 +156,29 @@ function LookController:update(dt)
 	local targetPos, mode = self:resolveTargetPosition()
 	self.gazeMode = mode
 
+	-- The head turns on a critically damped spring with a top speed: it eases into a turn and
+	-- settles without overshoot. (An exponential lerp started every turn at full speed, and a
+	-- 1.2 degree dead zone held the head still then let it jump.)
+	local function springTo(targetYaw, targetPitch)
+		local omega = 11.0
+		local maxSpeed = math.rad(420)
+		dt = math.clamp(dt, 0.001, 0.05)
+		self.yawVelocity = self.yawVelocity or 0
+		self.pitchVelocity = self.pitchVelocity or 0
+		local yawAccel = omega * omega * (targetYaw - self.currentYaw) - 2 * omega * self.yawVelocity
+		local pitchAccel = omega * omega * (targetPitch - self.currentPitch) - 2 * omega * self.pitchVelocity
+		self.yawVelocity = math.clamp(self.yawVelocity + yawAccel * dt, -maxSpeed, maxSpeed)
+		self.pitchVelocity = math.clamp(self.pitchVelocity + pitchAccel * dt, -maxSpeed, maxSpeed)
+		self.currentYaw += self.yawVelocity * dt
+		self.currentPitch += self.pitchVelocity * dt
+	end
+
 	if not targetPos then
-		-- No combat target: smoothly decay gaze offsets back to zero (identity)
-		-- Eliminates head vibration on idle and prevents head whipping during rapid WASD exploration
-		local decayAlpha = 1.0 - math.exp(-12.0 * dt)
-		self.currentYaw = self.currentYaw * (1.0 - decayAlpha)
-		self.currentPitch = self.currentPitch * (1.0 - decayAlpha)
-		if math.abs(self.currentYaw) < 0.001 and math.abs(self.currentPitch) < 0.001 then
-			self.currentYaw = 0
-			self.currentPitch = 0
+		-- No target: settle back to the clip's own head
+		springTo(0, 0)
+		if math.abs(self.currentYaw) < 0.002 and math.abs(self.currentPitch) < 0.002
+			and math.abs(self.yawVelocity) < 0.01 and math.abs(self.pitchVelocity) < 0.01 then
+			self.currentYaw, self.currentPitch, self.yawVelocity, self.pitchVelocity = 0, 0, 0, 0
 			return -- Early return: leaves author-keyed head/neck bone transforms 100% untouched
 		end
 	else
@@ -182,43 +215,23 @@ function LookController:update(dt)
 			end
 		end
 
-		local clampedYaw = math.clamp(rawYaw, -ZONE2_MAX, ZONE2_MAX) * gazeWeight
+		-- A look back over the shoulder turns further, the upper back taking its share
+		local yawLimit = ZONE2_MAX
+		if mode == "GLANCE_BACK" then
+			gazeWeight = 1.0
+			yawLimit = ZONE3_MAX
+		end
+		local clampedYaw = math.clamp(rawYaw, -yawLimit, yawLimit) * gazeWeight
 		local clampedPitch = math.clamp(rawPitch, PITCH_MIN, PITCH_MAX) * gazeWeight
-
-		-- Deadzone filter (prevents sub-degree jitter)
-		if math.abs(clampedYaw - self.currentYaw) < math.rad(1.2) then
-			clampedYaw = self.currentYaw
-		end
-		if math.abs(clampedPitch - self.currentPitch) < math.rad(1.0) then
-			clampedPitch = self.currentPitch
-		end
-
-		-- Smooth rotation over time (exponential decay lerp)
-		local alpha = 1.0 - math.exp(-self.smoothSpeed * dt)
-		self.currentYaw = self.currentYaw + (clampedYaw - self.currentYaw) * alpha
-		self.currentPitch = self.currentPitch + (clampedPitch - self.currentPitch) * alpha
+		springTo(clampedYaw, clampedPitch)
 	end
 
-	-- Graduated biomechanical distribution
-	local headYaw, neckYaw, spineYaw = 0, 0, 0
-	local curAbsYaw = math.abs(self.currentYaw)
-
-	if curAbsYaw <= ZONE1_MAX then
-		-- Zone 1 (0-30 deg): 100% Head
-		headYaw = self.currentYaw
-		neckYaw = 0
-		spineYaw = 0
-	elseif curAbsYaw <= ZONE2_MAX then
-		-- Zone 2 (30-60 deg): 60% Head, 40% Neck
-		headYaw = self.currentYaw * 0.60
-		neckYaw = self.currentYaw * 0.40
-		spineYaw = 0
-	else
-		-- Zone 3 (60-100 deg): 40% Head, 30% Neck, 30% Spine2
-		headYaw = self.currentYaw * 0.40
-		neckYaw = self.currentYaw * 0.30
-		spineYaw = self.currentYaw * 0.30
-	end
+	-- Distribution over head, neck and upper back: fixed shares, so the split never jumps.
+	-- (Zones with different splits - 100% head to 30 degrees, then 60/40 - moved the head
+	-- back 12 degrees the moment a target crossed 30 degrees.)
+	local headYaw = self.currentYaw * 0.50
+	local neckYaw = self.currentYaw * 0.30
+	local spineYaw = self.currentYaw * 0.20
 
 	-- Pitch distribution: 70% Head, 30% Neck
 	local headPitch = self.currentPitch * 0.70

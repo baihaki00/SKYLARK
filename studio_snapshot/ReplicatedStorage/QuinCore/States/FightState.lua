@@ -746,7 +746,13 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		data.currentAction = "anticipate"
 		data.actionEndTime = now + (0.3 / speedMult)
 		data.attackFinishTime = now + (0.3 / speedMult)
-		AnimationModule.playConfig(humanoid, "Awareness.RearThreatGlance", 1.0, Enum.AnimationPriority.Action2, false)
+		-- (full-body clip: on the move only the head and shoulders look back)
+		local v = rootPart.AssemblyLinearVelocity
+		if Vector3.new(v.X, 0, v.Z).Magnitude > 6 then
+			fighter:SetAttribute("GlanceBackUntil", workspace:GetServerTimeNow() + 0.6)
+		else
+			AnimationModule.playConfig(humanoid, "Awareness.RearThreatGlance", 1.0, Enum.AnimationPriority.Action2, false)
+		end
 		return FightState
 		
 	elseif action == "block" then
