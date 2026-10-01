@@ -653,14 +653,12 @@ function SpatialModule.getSafeRetreatDirection(rootPart, enemies, allies, config
 		end
 	end
 
-	-- Arena center (flat)
-	local arenaCenter = Vector3.zero
-	local arenaRadius = 290 -- default fallback
-	local arenaGround = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaGround")
-	if arenaGround then
-		arenaCenter = Vector3.new(arenaGround.Position.X, 0, arenaGround.Position.Z)
-		arenaRadius = math.min(arenaGround.Size.X, arenaGround.Size.Z) / 2
-	end
+	-- Arena centre and radius from the real ground part. (A direct-child lookup found nothing,
+	-- so the boundary penalty was measured from the world origin: every direction looked like
+	-- it led off the arena and Quins read as cornered ~40% of the time.)
+	local arenaBounds = SpatialModule.getArenaBounds()
+	local arenaCenter = arenaBounds.center
+	local arenaRadius = arenaBounds.radius
 
 	-- Raycast params (exclude self and Quin containers)
 	local params = RaycastParams.new()

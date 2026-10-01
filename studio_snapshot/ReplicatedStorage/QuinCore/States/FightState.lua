@@ -91,7 +91,11 @@ local function decideAction(fighter, target, distance, data)
 	local isDesperateCounter = fighter:GetAttribute("DesperateCounter")
 	if isDesperateCounter then
 		fighter:SetAttribute("DesperateCounter", nil) -- Consume the flag
-		return "desperate_counter"
+		-- A committed, occasional move: cornered again inside the cooldown, the Quin just fights
+		if now - (data.lastDesperateCounterTime or 0) >= (CombatConfig.Combat_DesperateCounterCooldown or 6.0) then
+			data.lastDesperateCounterTime = now
+			return "desperate_counter"
+		end
 	end
 	
 	-- If we are in the middle of a combo, immediately continue it!
@@ -188,6 +192,62 @@ local function decideAction(fighter, target, distance, data)
 	return "light"
 end
 
+-- The cornered counter-strike resolves its hit like a combo finisher
+local DESPERATE_COUNTER_MOVE = { name = "DesperateCounter", knockback = 35, isFinisher = true }
+
+-- Footing consequence of a landed strike. A flinch needs nothing here: DamageModule.apply has
+-- already slid the victim back on its feet.
+local function applyHitOutcome(rootPart, hitModel, moveData, outcome)
+	local hitRoot = hitModel:FindFirstChild("HumanoidRootPart")
+	if not hitRoot or outcome == DamageModule.Outcome.Flinch then return end
+
+	local away = rootPart.CFrame.LookVector
+	AudioModule.playSlam(hitRoot.Position)
+	hitModel:SetAttribute("ForceState", "Knockback")
+	if outcome == DamageModule.Outcome.AirKnockback then
+		hitModel:SetAttribute("KnockbackType", "air")
+		local force = math.max(moveData.knockback, CombatConfig.Combat_LaunchMinForce or 60) * 1.5
+		KnockbackModule.applyKnockback(hitModel, away, force)
+	else
+		hitModel:SetAttribute("KnockbackType", "ground")
+		local minStuds = CombatConfig.Combat_GroundKnockbackMinStuds or 10
+		local maxStuds = CombatConfig.Combat_GroundKnockbackMaxStuds or 18
+		KnockbackModule.applyGroundSkid(hitModel, away, minStuds + math.random() * (maxStuds - minStuds), CombatConfig.Combat_GroundKnockbackTime or 0.6)
+	end
+end
+
+-- Answer an incoming strike by getting the guard up in time. Rolled once per strike (keyed by
+-- the attacker's wind-up), so a slow wind-up is not a string of extra chances. The guard still
+-- has to hold (DamageModule); a held guard ends the attacker's chain and opens a counter.
+local function tryRaiseGuard(fighter, humanoid, data, now, attacker, chance)
+	if not attacker or attacker:GetAttribute("Attacking") ~= true then return end
+	local windupUntil = attacker:GetAttribute("AttackWindupUntil") or 0
+	if now >= windupUntil or data.guardRolledFor == windupUntil then return end
+	data.guardRolledFor = windupUntil
+	if math.random() >= chance then return end
+
+	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+	fighter:SetAttribute("IsGuarding", true)
+	AnimationModule.playConfig(humanoid, "Reactions.Block", 1.0, Enum.AnimationPriority.Action4, false)
+	task.delay((windupUntil - now) + 0.2 / speedMult, function()
+		if fighter.Parent and fighter:GetAttribute("IsGuarding") == true then
+			fighter:SetAttribute("IsGuarding", false)
+		end
+	end)
+end
+
+-- Chance to guard the next strike of a combo the Quin is caught in (defensive Quins more often)
+local function comboBreakChance(fighter)
+	local defense = fighter:GetAttribute("Pers_DefensePreference") or 0.5
+	return (CombatConfig.Combat_ComboBreakChance or 0.25) * (0.5 + defense)
+end
+
+-- Chance to guard a strike seen coming while the Quin is between its own attacks
+local function reactiveGuardChance(fighter)
+	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
+	return (fighter:GetAttribute("BlockChance") or 0.25) * (1.2 - aggression * 0.5)
+end
+
 local function executeAttack(fighter, humanoid, rootPart, target, moveData, data, DEBUG)
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
 	if not targetHRP then return 0.5, 0.35 end
@@ -227,18 +287,16 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		end
 	end)
 		
-	-- Overshoot Lunge (Slide forward with momentum)
+	-- Step into the strike with momentum, but only as far as the gap: the attacker closes to
+	-- striking distance and never drives into (or through) its target
 	local lungeSpeed = 20 + (moveData.step * 7)
-	if moveData.isLaunch or moveData.knockback >= 40 then lungeSpeed = 45 end
-	
-	-- Prevent lunging past the target if already very close ("Kissing" fix)
-	if dist < 7.5 then
-		lungeSpeed = lungeSpeed * 0.35
-	end
-	
+	if moveData.isLaunch or moveData.isFinisher then lungeSpeed = 45 end
 	local lungeTime = math.min(effectiveDuration * 0.4, 0.35)
-	KnockbackModule.applyLunge(fighter, rootPart.CFrame.LookVector, lungeSpeed, lungeTime)
-	
+	local lungeRoom = dist - (CombatConfig.Combat_LungeStopDistance or 5.5)
+	if lungeRoom > 0.25 then
+		KnockbackModule.applyLunge(fighter, rootPart.CFrame.LookVector, lungeSpeed, lungeTime, lungeRoom)
+	end
+
 	-- Punch sound (precisely synchronized with strike apex)
 	local soundPart = fighter:FindFirstChild("Sounds")
 	if soundPart then
@@ -256,50 +314,43 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	task.delay(impactDelay, function()
 		if not fighter.Parent or not target.Parent then return end
 		local hitModels = HitboxModule.castInFront(rootPart, moveData.hitboxSize, Vector3.new(0, 0, -3), fighter)
-		
+		local landed = false
+
 		for _, hitModel in ipairs(hitModels) do
 			local damageInfo = DamageModule.calculate(fighter, hitModel, moveData.step, moveData.damageMultiplier)
 			local applied, isKill, status = DamageModule.apply(fighter, hitModel, damageInfo)
-			
+
 			if status == "Blocked" or status == "Dodged" then
 				if DEBUG then print("[Fight] Combo broken by " .. status .. "!") end
 				ComboModule.resetCombo(fighter)
 				data.lastAttackTime = tick() + 0.3 -- Stagger them slightly
 			elseif applied then
+				landed = true
 				if DEBUG then
 					print(string.format("[Fight] %s -> %s: %s (DMG=%d%s, Combo=%d)",
 						fighter.Name, hitModel.Name, moveData.name,
 						damageInfo.damage, damageInfo.isCrit and " CRIT!" or "",
 						moveData.step))
 				end
-				
+
 				if moveData.isLaunch then
 					-- LAUNCH: Send them flying up!
 					AudioModule.playSlam(hitModel:FindFirstChild("HumanoidRootPart").Position)
-					
-					KnockbackModule.applyLaunch(hitModel, 
+					KnockbackModule.applyLaunch(hitModel,
 						CombatConfig.LaunchVerticalForce or 120,
 						CombatConfig.LaunchHorizontalForce or 20)
-					
 					hitModel:SetAttribute("ForceState", "Knockback")
 					if DEBUG then print("[Fight] LAUNCH! -> Airborne pursuit") end
-				elseif moveData.knockback > 0 then
-					local kbDuration = math.clamp(0.2 + (moveData.knockback / 300), 0.2, 0.8)
-					
-					if moveData.knockback >= 40 then
-						AudioModule.playSlam(hitModel:FindFirstChild("HumanoidRootPart").Position)
-						local kbDir = rootPart.CFrame.LookVector
-						hitModel:SetAttribute("ForceState", "Knockback")
-						hitModel:SetAttribute("KnockbackType", "air")
-						KnockbackModule.applyKnockback(hitModel, kbDir, moveData.knockback * 1.5, kbDuration * 1.2)
-						if DEBUG then print("[Fight] Air Knockback Finisher!") end
-					else
-						-- LIGHT COMBO MICRO-KNOCKBACK:
-						local kbDir = rootPart.CFrame.LookVector
-						KnockbackModule.applyMicroKnockback(hitModel, kbDir, moveData.knockback)
-					end
+				else
+					applyHitOutcome(rootPart, hitModel, moveData, DamageModule.resolveOutcome(fighter, hitModel, moveData, damageInfo))
 				end
 			end
+		end
+
+		-- A strike that connects with nothing ends the chain: the next attack opens a new combo
+		-- instead of throwing the finisher at empty air
+		if not landed then
+			ComboModule.resetCombo(fighter)
 		end
 	end)
 
@@ -375,6 +426,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- on every tick froze a running body in one frame and kept cancelling the hit push,
 		-- which showed as a stutter during the flinch.
 		humanoid.WalkSpeed = math.max(0, humanoid.WalkSpeed - 30)
+		tryRaiseGuard(fighter, humanoid, data, now, findModelByName(fighter:GetAttribute("LastAttackerName")), comboBreakChance(fighter))
 		return FightState
 	end
 
@@ -437,7 +489,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 						if hitHRP then
 							AudioModule.playImpact(hitHRP.Position, false)
 						end
-						KnockbackModule.applyMicroKnockback(hitModel, rootPart.CFrame.LookVector, 14)
+						KnockbackModule.applyMicroKnockback(hitModel, rootPart.CFrame.LookVector, CombatConfig.Combat_CounterSlideStuds or 4.5)
 					end
 				end
 			end)
@@ -570,7 +622,9 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Only once the body has shed its own speed: the spacing mover has full authority, so
 		-- applied to a Quin still running in it reversed 40-50 studs/s in a single frame.
 		local ownVel = rootPart.AssemblyLinearVelocity
-		if awayFlat.Magnitude > 0.01 and Vector3.new(ownVel.X, 0, ownVel.Z).Magnitude < 16 then
+		-- Not during its own strike either: backing off mid-swing and lunging on the next one
+		-- rocked the body back and forth.
+		if awayFlat.Magnitude > 0.01 and Vector3.new(ownVel.X, 0, ownVel.Z).Magnitude < 16 and fighter:GetAttribute("Attacking") ~= true then
 			KnockbackModule.applySlide(fighter, awayFlat.Unit, CombatConfig.Melee_SlideSpeed or 10, 0.3) -- refreshed each tick; eases out once spacing is restored
 			if not AnimationModule.isPlaying(humanoid, AnimationIds.RetreatBackstep) then
 				AnimationModule.play(humanoid, AnimationIds.RetreatBackstep, Enum.AnimationPriority.Movement, false, 1.2, 0.1)
@@ -602,6 +656,10 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	
 	if (now - data.lastAttackTime) < cooldown then
+		-- Between its own attacks the Quin can still see a strike coming and guard it
+		if distance <= 9 then
+			tryRaiseGuard(fighter, humanoid, data, now, target, reactiveGuardChance(fighter))
+		end
 		-- Maintain base idle stance during recovery / cooldown
 		if now >= (data.attackFinishTime or 0) then
 			AnimationModule.ensureBaseIdle(humanoid)
@@ -788,10 +846,9 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			local damageInfo = DamageModule.calculate(fighter, hitModel, 1, 1.3)
 			local applied, isKill, status = DamageModule.apply(fighter, hitModel, damageInfo)
 			if applied then
-				-- Strong knockback to carve breathing room
-				local kbDir = rootPart.CFrame.LookVector
-				KnockbackModule.applyKnockback(hitModel, kbDir, 35, 0.4)
-				hitModel:SetAttribute("ForceState", "Knockback")
+				-- Carves breathing room like a finisher: knocks the victim back along the ground,
+				-- or launches it by the same chance
+				applyHitOutcome(rootPart, hitModel, DESPERATE_COUNTER_MOVE, DamageModule.resolveOutcome(fighter, hitModel, DESPERATE_COUNTER_MOVE, damageInfo))
 			end
 		end
 		

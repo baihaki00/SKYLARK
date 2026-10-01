@@ -51,6 +51,34 @@ function DamageModule.calculate(attackerModel, targetModel, comboStep, damageMul
 	}
 end
 
+-- What a landed strike does to the victim's footing
+DamageModule.Outcome = {
+	Flinch = "Flinch", -- slides back a little, stays in the exchange
+	GroundKnockback = "GroundKnockback", -- skids away on its feet
+	AirKnockback = "AirKnockback", -- sent flying
+}
+
+-- Launches are a chance, not a guarantee: finishers launch often, any clean hit can be the
+-- devastating one, and a crit, a hit from behind or a victim with broken posture raise the odds.
+function DamageModule.resolveOutcome(attackerModel, targetModel, moveData, damageInfo)
+	local chance = moveData.isFinisher and (CombatConfig.Combat_FinisherLaunchChance or 0.40)
+		or (CombatConfig.Combat_DevastatingBlowChance or 0.05)
+	if damageInfo.isCrit then
+		chance *= CombatConfig.Combat_CritLaunchMultiplier or 2.0
+	end
+	if damageInfo.isBackAttack then
+		chance *= CombatConfig.Combat_BackAttackLaunchMultiplier or 1.5
+	end
+	local posture = math.clamp((targetModel:GetAttribute("Posture") or 100) / 100, 0, 1)
+	chance *= 1 + (1 - posture) * (CombatConfig.Combat_BrokenPostureLaunchBonus or 0.8)
+	chance *= (attackerModel:GetAttribute("LaunchPower") or 1.0) / (targetModel:GetAttribute("Weight") or 1.0)
+
+	if math.random() < chance then
+		return DamageModule.Outcome.AirKnockback
+	end
+	return moveData.isFinisher and DamageModule.Outcome.GroundKnockback or DamageModule.Outcome.Flinch
+end
+
 -- Apply damage to target
 function DamageModule.apply(attackerModel, targetModel, damageInfo)
 	local targetHum = targetModel:FindFirstChildOfClass("Humanoid")
@@ -104,8 +132,10 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 
 		if not isBehind then
 			-- Roll success vs failure
-			local blockChance = targetModel:GetAttribute("BlockChance") or 0.70
-			local isSuccess = math.random() < blockChance
+			-- GuardStrength is how often a raised guard holds. (BlockChance is how often a Quin
+			-- decides to raise it; reading that here made guards hold 8% of the time.)
+			local guardStrength = targetModel:GetAttribute("GuardStrength") or CombatConfig.Combat_GuardStrength or 0.70
+			local isSuccess = math.random() < guardStrength
 
 			if isSuccess then
 				-- Play block impact sound
@@ -119,7 +149,7 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 				-- Slide backward slightly from the blocked impact
 				if hrp and attackerHRP then
 					local awayDir = (hrp.Position - attackerHRP.Position).Unit
-					KnockbackModule.applyMicroKnockback(targetModel, awayDir, 4.0)
+					KnockbackModule.applyMicroKnockback(targetModel, awayDir, CombatConfig.Combat_BlockSlideStuds or 1.5)
 				end
 
 				-- Trigger Immediate Counter-Attack
@@ -184,14 +214,16 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		
 		-- Micro Knockback (flinching/giving ground, scales with combo step to match attacker lunge)
 		local pushDir = (hrp.Position - attackerHRP.Position).Unit
-		local pushAmount = 3.0 + ((damageInfo.comboStep or 1) * 1.5)
-		if isHeavy then pushAmount = pushAmount + 2.5 end
+		-- Studs the victim slides back on its feet (like on ice): enough to read the force, not
+		-- enough to leave the exchange
+		local pushAmount = (CombatConfig.Combat_FlinchSlideStuds or 2.5) + ((damageInfo.comboStep or 1) - 1) * (CombatConfig.Combat_FlinchSlidePerComboStep or 0.4)
+		if isHeavy then pushAmount = pushAmount + (CombatConfig.Combat_HeavyFlinchSlideBonus or 1.5) end
 		KnockbackModule.applyMicroKnockback(targetModel, pushDir, pushAmount)
 
 		-- Procedural Combat Reaction Telemetry (replicated to visual ghost)
 		targetModel:SetAttribute("ImpactTime", serverTime)
 		targetModel:SetAttribute("ImpactDir", pushDir)
-		targetModel:SetAttribute("ImpactMag", math.clamp(pushAmount / 10, 0.2, 1.0))
+		targetModel:SetAttribute("ImpactMag", math.clamp(pushAmount / 6, 0.2, 1.0))
 		targetModel:SetAttribute("ImpactType", isHeavy and "HEAVY" or "LIGHT")
 		
 		-- Hit Stun Duration

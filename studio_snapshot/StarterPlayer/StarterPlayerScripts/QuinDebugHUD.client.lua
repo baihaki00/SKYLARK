@@ -403,6 +403,8 @@ local function cycleSpectatedQuin(delta)
 	setSpectatedQuin(quins[curIdx])
 end
 
+local visualizerDrawn = false
+
 local function setHudVisibility(visible)
 	isHudVisible = visible
 	local hideOverride = (Workspace:GetAttribute("HideSpectatorHUD") == true)
@@ -757,9 +759,15 @@ RunService.Heartbeat:Connect(function()
 	end
 
 	-- 3D Debug Visualizers (LoS, LKP, Trajectories, Platform Intent)
+	-- Only while the Spectator HUD is open: closed, nothing is drawn over the Quins
 	if RuntimeVisualizer then
-		local vizQuin = curSpectated or quins[1]
-		RuntimeVisualizer.update(vizQuin)
+		if isHudVisible and not hideOverride then
+			RuntimeVisualizer.update(curSpectated or quins[1])
+			visualizerDrawn = true
+		elseif visualizerDrawn then
+			RuntimeVisualizer.clear()
+			visualizerDrawn = false
+		end
 	end
 
 	-- Prune stale cards

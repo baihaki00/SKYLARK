@@ -9,19 +9,22 @@ local ComboModule = {}
 -- Per-fighter combo state
 local comboStates = {}
 
--- Combo sequences (index = step)
+-- Combo sequences (index = step).
+-- knockback = launch force used when the strike sends its victim into the air;
+-- finisher = the strike that ends a chain: it knocks the victim back along the ground, or
+-- launches it (DamageModule.resolveOutcome decides which).
 local COMBO_SEQUENCES = {
 	Light = {
 		{name = "Jab", damageMultiplier = 1.0, knockback = 18, hitboxSize = Vector3.new(4, 4, 4), duration = 0.3},
 		{name = "Cross", damageMultiplier = 1.1, knockback = 25, hitboxSize = Vector3.new(4, 4, 5), duration = 0.3},
 		{name = "Hook", damageMultiplier = 1.2, knockback = 32, hitboxSize = Vector3.new(5, 4, 5), duration = 0.35},
 		{name = "Uppercut", damageMultiplier = 1.3, knockback = 40, hitboxSize = Vector3.new(5, 5, 5), duration = 0.4},
-		{name = "PowerPunch", damageMultiplier = 1.6, knockback = 105, hitboxSize = Vector3.new(6, 6, 6), duration = 0.6},
+		{name = "PowerPunch", damageMultiplier = 1.6, knockback = 105, finisher = true, hitboxSize = Vector3.new(6, 6, 6), duration = 0.6},
 	},
 	Heavy = {
 		{name = "Haymaker", damageMultiplier = 1.8, knockback = 30, hitboxSize = Vector3.new(5, 5, 6), duration = 0.6},
 		{name = "GutPunch", damageMultiplier = 2.0, knockback = 35, hitboxSize = Vector3.new(5, 5, 5), duration = 0.5},
-		{name = "OverheadSlam", damageMultiplier = 2.5, knockback = 126, hitboxSize = Vector3.new(6, 6, 6), duration = 0.7},
+		{name = "OverheadSlam", damageMultiplier = 2.5, knockback = 126, finisher = true, hitboxSize = Vector3.new(6, 6, 6), duration = 0.7},
 	},
 	Aerial = {
 		{name = "AirJab", damageMultiplier = 1.0, knockback = 20, hitboxSize = Vector3.new(4, 4, 4), duration = 0.25},
@@ -79,6 +82,7 @@ function ComboModule.nextAttack(fighter, sequenceType)
 		damageMultiplier = moveData.damageMultiplier,
 		knockback = moveData.knockback,
 		isLaunch = moveData.launch or false,
+		isFinisher = moveData.finisher or false,
 		isSlam = moveData.slam or false,
 		hitboxSize = moveData.hitboxSize,
 		duration = moveData.duration,

@@ -298,7 +298,8 @@ end
 -- Input Listeners for Freecam
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe or UserInputService:GetFocusedTextBox() then return end
-	if input.KeyCode == Enum.KeyCode.F then
+	-- B toggles the free camera (F flies the body: TheArchitectCode)
+	if input.KeyCode == Enum.KeyCode.B then
 		if _G.ToggleCamMode then
 			_G.ToggleCamMode()
 		end
@@ -344,7 +345,7 @@ RunService.Heartbeat:Connect(function()
 	if isFreecamActive and hasTargetQuin then
 		stopFreecam()
 		if _G.UpdateCamBtnText then
-			_G.UpdateCamBtnText("Cam: Spectating [F]")
+			_G.UpdateCamBtnText("Cam: Spectating [B]")
 		end
 	end
 end)
@@ -500,7 +501,7 @@ camToggleBtn.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
 camToggleBtn.TextColor3 = C_TEXT
 camToggleBtn.Font = Enum.Font.GothamBold
 camToggleBtn.TextSize = 10
-camToggleBtn.Text = "Cam: Char [F]"
+camToggleBtn.Text = "Cam: Char [B]"
 camToggleBtn.Parent = titleBar
 applyCorner(camToggleBtn, 6)
 
@@ -518,10 +519,10 @@ end
 local function toggleCamMode()
 	if isFreecamActive then
 		stopFreecam()
-		updateCamBtnDisplay("Cam: Char [F]")
+		updateCamBtnDisplay("Cam: Char [B]")
 	else
 		startFreecam()
-		updateCamBtnDisplay("Cam: Fly [F]")
+		updateCamBtnDisplay("Cam: Fly [B]")
 	end
 end
 

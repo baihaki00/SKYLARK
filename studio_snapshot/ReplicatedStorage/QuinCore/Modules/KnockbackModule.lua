@@ -1,70 +1,48 @@
 --// KnockbackModule.lua
--- Physics-based knockback, launch, slam, and slide
+-- Knockback, launch, slam, lunge and slide
 -- Respects Weight and KnockbackResist from QuinData
+--
+-- Pushes along the ground go through ImpulseModule (one force channel per Quin); launches into
+-- the air are ballistic (a velocity set once, then gravity).
 
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
-local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
+local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local ImpulseModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("ImpulseModule"))
 
-local function cleanupMovers(hrp)
+local Priority = ImpulseModule.Priority
+local SLIDE_FORCE = 150000 -- slides and knockbacks have full authority over the body's walking
+local FLINCH_TIME = 0.3
+
+-- A launch owns the body: drop every ground push and any vertical slam mover
+local function cleanupMovers(targetModel, hrp)
+	ImpulseModule.cancel(targetModel)
 	for _, child in ipairs(hrp:GetChildren()) do
-		if child.Name:find("^KB_") or child.Name:find("^Slide") then
-			child:Destroy()
-		end
-		-- Also clean up old unnamed ones just in case
-		if child:IsA("AlignPosition") and child.MaxAxesForce == Vector3.new(0, 100000, 0) then
+		if child.Name:find("^KB_Slam") then
 			child:Destroy()
 		end
 	end
 end
 
-local KnockbackModule = {}
-
--- Apply ground knockback (ice gliding)
-function KnockbackModule.applyGroundKnockback(targetModel, direction, force, duration)
-	local targetHRP = targetModel:FindFirstChild("HumanoidRootPart")
-	if not targetHRP then return end
-	
-	cleanupMovers(targetHRP)
-	
+-- Push strength after the victim's weight and knockback resistance
+local function resisted(targetModel, amount)
 	local weight = targetModel:GetAttribute("Weight") or 1.0
 	local resist = targetModel:GetAttribute("KnockbackResist") or 0.0
-	
-	local effectiveForce = force * (1 - resist) / weight
-	if effectiveForce <= 0 then return end
-	
-	local flatDirection = Vector3.new(direction.X, 0, direction.Z).Unit
-	
-	local lv = Instance.new("LinearVelocity")
-	lv.Name = "KB_LinearVelocity"
-	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
-	lv.MaxAxesForce = Vector3.new(100000, 0, 100000) -- Never counteract vertical gravity
-	lv.VectorVelocity = flatDirection * effectiveForce
-	
-	local att = Instance.new("Attachment")
-	att.Name = "KB_Att"
-	att.Parent = targetHRP
-	lv.Attachment0 = att
-	lv.Parent = targetHRP
-	
-	-- No AlignPosition to lock X and Z, just let the LinearVelocity push them horizontally!
-	
-	-- Decelerate over time
-	local steps = 10
-	local stepTime = (duration or 0.5) / steps
-	task.spawn(function()
-		for i = 1, steps do
-			task.wait(stepTime)
-			if lv.Parent then
-				lv.VectorVelocity = lv.VectorVelocity * 0.7 -- friction decay
-			end
-		end
-		lv:Destroy()
-		att:Destroy()
-	end)
+	return amount * (1 - resist) / weight
+end
+
+local KnockbackModule = {}
+
+-- Ground knockback: the victim skids away on its feet like on ice (speed in studs/s at the start)
+function KnockbackModule.applyGroundKnockback(targetModel, direction, speed, duration)
+	local effectiveSpeed = resisted(targetModel, speed)
+	if effectiveSpeed <= 0 then return end
+	ImpulseModule.push(targetModel, "knockback", direction, effectiveSpeed, duration or 0.5, {
+		profile = "friction", endRatio = 0.05, priority = Priority.Knockback, maxForce = SLIDE_FORCE, rampIn = 0.03,
+	})
 end
 
 -- Apply horizontal knockback (punches, combos)
@@ -73,7 +51,7 @@ function KnockbackModule.applyKnockback(targetModel, direction, force, duration)
 	local humanoid = targetModel:FindFirstChildOfClass("Humanoid")
 	if not targetHRP or not humanoid then return end
 	
-	cleanupMovers(targetHRP)
+	cleanupMovers(targetModel, targetHRP)
 	
 	local weight = targetModel:GetAttribute("Weight") or 1.0
 	local resist = targetModel:GetAttribute("KnockbackResist") or 0.0
@@ -120,7 +98,7 @@ function KnockbackModule.applyLaunch(targetModel, verticalForce, horizontalForce
 	local humanoid = targetModel:FindFirstChildOfClass("Humanoid")
 	if not targetHRP or not humanoid then return end
 	
-	cleanupMovers(targetHRP)
+	cleanupMovers(targetModel, targetHRP)
 	
 	local weight = targetModel:GetAttribute("Weight") or 1.0
 	local launchPower = targetModel:GetAttribute("LaunchPower") or 1.0
@@ -146,27 +124,33 @@ function KnockbackModule.applyLaunch(targetModel, verticalForce, horizontalForce
 	targetModel:SetAttribute("ImpactType", "LAUNCH")
 end
 
+-- Ground knockback given as the distance the victim should skid on a free floor
+function KnockbackModule.applyGroundSkid(targetModel, direction, studs, duration)
+	duration = duration or 0.6
+	KnockbackModule.applyGroundKnockback(targetModel, direction, ImpulseModule.speedForDistance(studs, duration, "friction", 0.05), duration)
+end
+
 -- Meteor slam (air to ground)
 function KnockbackModule.applySlam(targetModel, downForce)
 	local targetHRP = targetModel:FindFirstChild("HumanoidRootPart")
 	if not targetHRP then return end
-	
-	cleanupMovers(targetHRP)
-	
+
+	cleanupMovers(targetModel, targetHRP)
+
 	downForce = downForce or 200
-	
+
 	local att = Instance.new("Attachment")
-	att.Name = "KB_Att"
+	att.Name = "KB_SlamAtt"
 	att.Parent = targetHRP
-	
+
 	local lv = Instance.new("LinearVelocity")
-	lv.Name = "KB_LinearVelocity"
+	lv.Name = "KB_SlamVelocity"
 	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
 	lv.MaxAxesForce = Vector3.new(0, 250000, 0)
 	lv.VectorVelocity = Vector3.new(0, -downForce, 0)
 	lv.Attachment0 = att
 	lv.Parent = targetHRP
-	
+
 	Debris:AddItem(lv, 0.35)
 	Debris:AddItem(att, 0.35)
 
@@ -177,129 +161,47 @@ function KnockbackModule.applySlam(targetModel, downForce)
 	targetModel:SetAttribute("ImpactType", "SLAM")
 end
 
--- Dash/slide movement for the attacker (Lunge / Overshoot)
-function KnockbackModule.applyLunge(model, direction, speed, duration)
-	local hrp = model:FindFirstChild("HumanoidRootPart")
-	if not hrp then return end
-	
-	local att = Instance.new("Attachment")
-	att.Name = "KB_LungeAtt"
-	att.Parent = hrp
-	
-	local lv = Instance.new("LinearVelocity")
-	lv.Name = "KB_LungeVelocity"
-	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
-	lv.MaxAxesForce = Vector3.new(18000, 0, 18000)
-	local dir = direction.Unit
-	local peak = speed or 25
-	lv.VectorVelocity = dir * (peak * 0.3)
-	lv.Attachment0 = att
-	lv.Parent = hrp
-	
-	-- Per-frame envelope: short ramp in, then a continuous ease-out to rest (the old
-	-- 6-step staircase changed speed in visible jumps)
-	local total = duration or 0.25
-	local rampIn = math.min(0.06, total * 0.25)
-	local startClock = os.clock()
-	local conn
-	conn = RunService.Heartbeat:Connect(function()
-		local t = os.clock() - startClock
-		if t >= total or not lv.Parent then
-			conn:Disconnect()
-			if lv.Parent then lv:Destroy() end
-			if att.Parent then att:Destroy() end
-			return
-		end
-		local k
-		if t < rampIn then
-			k = 0.3 + 0.7 * (t / rampIn)
-		else
-			local p = (t - rampIn) / math.max(total - rampIn, 0.01)
-			k = (1 - p) * (1 - p)
-		end
-		lv.VectorVelocity = dir * (peak * k)
-	end)
+-- Attacker's step into a strike: a short burst that eases out.
+-- maxTravel (optional) caps the distance covered, so a strike thrown at arm's length does not
+-- carry the attacker into (and through) its target.
+function KnockbackModule.applyLunge(model, direction, speed, duration, maxTravel)
+	speed = speed or 25
+	duration = duration or 0.25
+	if maxTravel then
+		speed = math.min(speed, ImpulseModule.speedForDistance(maxTravel, duration, "lunge"))
+	end
+	ImpulseModule.push(model, "lunge", direction, speed, duration, {
+		profile = "lunge", priority = Priority.SelfMotion,
+	})
 end
 
--- Dash/slide movement for the attacker (modern LinearVelocity with full authority)
+-- Dash / dodge / skid for the body itself.
 -- opts (optional): { friction = true } decays from full speed over the whole duration (a body
 -- skidding to rest); { endRatio = n } sets the fraction of speed left at the end.
 function KnockbackModule.applySlide(model, direction, speed, duration, opts)
 	local hrp = model:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 	opts = opts or {}
-	
-	local att = hrp:FindFirstChild("SlideAtt")
-	if not att then
-		att = Instance.new("Attachment")
-		att.Name = "SlideAtt"
-		att.Parent = hrp
-	end
-	
-	local lv = hrp:FindFirstChild("SlideLV")
-	if not lv then
-		lv = Instance.new("LinearVelocity")
-		lv.Name = "SlideLV"
-		lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
-		lv.MaxAxesForce = Vector3.new(150000, 0, 150000)
-		lv.Attachment0 = att
-		lv.Parent = hrp
-	end
-	
+
 	local flatDir = Vector3.new(direction.X, 0, direction.Z)
-	if flatDir.Magnitude > 0.001 then
-		flatDir = flatDir.Unit
-	else
+	if flatDir.Magnitude < 0.001 then
 		flatDir = hrp.CFrame.LookVector
 	end
-	
-	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-	local full = (speed or 95) * speedMult
-	local total = (duration or 0.3) / speedMult
-	local frictionMode = opts.friction == true
-	local endRatio = opts.endRatio or 0.12
-	-- Blend in from the body's current velocity along the slide direction (negative when it is
-	-- moving the other way) over a few frames, instead of replacing the velocity in one. A
-	-- slide that only continues the current motion (refresh, landing skid) has no ramp.
-	local alongNow = hrp.AssemblyLinearVelocity:Dot(flatDir)
-	local startK = math.clamp(alongNow / math.max(full, 0.01), -1, 1)
-	local rampIn = 0
-	if not frictionMode and startK < 0.9 then
-		rampIn = math.min(0.05 + 0.05 * (1 - startK), total * 0.4)
-	end
-	lv.VectorVelocity = flatDir * (full * (rampIn > 0 and startK or 1))
 
-	-- Each call owns the mover through a token: a slide that is refreshed before it ends is
-	-- not cut off by the previous call's expiry (that produced an on/off pulse), and the
-	-- last 40% eases down instead of dropping from full speed to nothing in one frame.
-	local token = os.clock()
-	lv:SetAttribute("SlideToken", token)
-	local easeStart = total * 0.6
-	local conn
-	conn = RunService.Heartbeat:Connect(function()
-		if not lv.Parent or lv:GetAttribute("SlideToken") ~= token then
-			conn:Disconnect()
-			return
-		end
-		local t = os.clock() - token
-		if t >= total then
-			conn:Disconnect()
-			lv:Destroy()
-			if att.Parent then att:Destroy() end
-			return
-		end
-		local k = 1
-		if t < rampIn then
-			k = startK + (1 - startK) * (t / rampIn)
-		elseif frictionMode then
-			local p = 1 - t / total
-			k = endRatio + (1 - endRatio) * p * p
-		elseif t > easeStart then
-			local p = (t - easeStart) / math.max(total - easeStart, 0.01)
-			k = 1 - (1 - endRatio) * p * p
-		end
-		lv.VectorVelocity = flatDir * (full * k)
-	end)
+	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+	local friction = opts.friction == true
+	ImpulseModule.push(model, "slide", flatDir, (speed or 95) * speedMult, (duration or 0.3) / speedMult, {
+		profile = friction and "friction" or "hold",
+		endRatio = opts.endRatio or 0.12,
+		priority = Priority.SelfMotion,
+		maxForce = SLIDE_FORCE,
+		rampIn = friction and 0 or nil,
+	})
+end
+
+-- True while a slide / skid started through applySlide is still carrying the body
+function KnockbackModule.isSliding(model)
+	return ImpulseModule.isActive(model, "slide")
 end
 
 -- Wall bounce detection
@@ -316,44 +218,13 @@ function KnockbackModule.checkWallBounce(rootPart, direction, bounceDistance)
 	return false
 end
 
--- Apply tiny knockback without lifting them (flinch push)
+-- Flinch: the victim gives ground without leaving its feet, sliding `studs` back and bleeding off
 function KnockbackModule.applyMicroKnockback(targetModel, direction, studs)
-	local targetHRP = targetModel:FindFirstChild("HumanoidRootPart")
-	if not targetHRP then return end
-	
-	local weight = targetModel:GetAttribute("Weight") or 1.0
-	local resist = targetModel:GetAttribute("KnockbackResist") or 0.0
-	local pushPower = (studs / weight) * (1 - resist)
-	if pushPower <= 0 then return end
-	
-	local att = Instance.new("Attachment")
-	att.Name = "KB_MicroAtt"
-	att.Parent = targetHRP
-	
-	local lv = Instance.new("LinearVelocity")
-	lv.Name = "KB_MicroVelocity"
-	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
-	lv.MaxAxesForce = Vector3.new(18000, 0, 18000)
-	local dir = direction.Unit
-	local peak = pushPower * 6
-	lv.VectorVelocity = dir * peak
-	lv.Attachment0 = att
-	lv.Parent = targetHRP
-	
-	-- Same travel as the old 0.15s constant push, but it bleeds off instead of cutting out
-	local total = 0.28
-	local startClock = os.clock()
-	local conn
-	conn = RunService.Heartbeat:Connect(function()
-		local t = os.clock() - startClock
-		if t >= total or not lv.Parent then
-			conn:Disconnect()
-			if lv.Parent then lv:Destroy() end
-			if att.Parent then att:Destroy() end
-			return
-		end
-		lv.VectorVelocity = dir * (peak * (1 - t / total))
-	end)
+	local distance = resisted(targetModel, studs)
+	if distance <= 0 then return end
+	ImpulseModule.push(targetModel, "flinch", direction, ImpulseModule.speedForDistance(distance, FLINCH_TIME, "friction", 0), FLINCH_TIME, {
+		profile = "friction", endRatio = 0, priority = Priority.Reaction, rampIn = 0.03,
+	})
 end
 
 return KnockbackModule

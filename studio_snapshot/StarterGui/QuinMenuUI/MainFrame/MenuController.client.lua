@@ -250,7 +250,7 @@ makeScenarioBtn("Btn16v16", 280, "16 vs 16 ARENA WAR (32 Quins)", Color3.fromRGB
 makeScenarioBtn("BtnClean", 316, "RESET ARENA / CLEAR QUINS", Color3.fromRGB(50, 45, 50), "clean")
 
 -- ============================================================
--- INPUT BINDINGS (Q, E, F, M to toggle menu)
+-- INPUT BINDINGS (Q, E cycle; B releases tracking with the free camera; M toggles menu)
 -- ============================================================
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
@@ -259,7 +259,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		cycleQuin(-1)
 	elseif input.KeyCode == Enum.KeyCode.E then
 		cycleQuin(1)
-	elseif input.KeyCode == Enum.KeyCode.F then
+	elseif input.KeyCode == Enum.KeyCode.B then
 		setTrackedQuin(nil)
 	elseif input.KeyCode == Enum.KeyCode.M then
 		if mainFrame then

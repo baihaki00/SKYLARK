@@ -7,9 +7,18 @@ local Workspace = game:GetService("Workspace")
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-local humanoid = character:WaitForChild("Humanoid")
+-- The flown body is whatever the player currently is: the avatar, or the Quin worn through
+-- Play As Quin (the server swaps player.Character). Rebound on every character change.
+local character, humanoidRootPart, humanoid
+local animateScript
+local customWalkTrack
+local function bindCharacter(newCharacter)
+	character = newCharacter
+	humanoidRootPart = newCharacter:WaitForChild("HumanoidRootPart")
+	humanoid = newCharacter:WaitForChild("Humanoid")
+	animateScript = nil
+	customWalkTrack = nil
+end
 
 -- ✅ Admin Whitelist
 if player.Name ~= "Bai" and player.Name ~= "baiyyaki00" then
@@ -34,10 +43,8 @@ local levitateAnimId = "rbxassetid://104743532035705" -- 🌀 Idle Hover
 local flyAnimId = "rbxassetid://121350465480611" -- ⚡ Forward Flight
 local idleAnimTrack
 local flyAnimTrack
-local animateScript
 
 local customWalkAnimId = "rbxassetid://121387473958634"
-local customWalkTrack
 local customWalkEnabled = false
 
 -- ===== CONTROL STATE =====
@@ -107,9 +114,18 @@ local hoverConnection
 
 local function startFlying()
 	if flyEnabled then return end
+	if not character or not character.Parent or humanoid.Health <= 0 then return end
 	flyEnabled = true
+	currentVelocity = Vector3.zero
+	-- QuinCore reads this to stand down its own locomotion and jump / slide / dash inputs
+	character:SetAttribute("IsFlying", true)
 
-	disableAnimate()
+	-- A Quin body keeps its own animation (QuinCore shows the airborne pose); the avatar
+	-- gets the levitate clips
+	local isQuinBody = character:GetAttribute("IsCostume") == true
+	if not isQuinBody then
+		disableAnimate()
+	end
 
 	hoverGyro = Instance.new("BodyGyro")
 	hoverGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
@@ -122,7 +138,9 @@ local function startFlying()
 	hoverVelocity.Velocity = Vector3.zero
 	hoverVelocity.Parent = humanoidRootPart
 
-	playLevitate()
+	if not isQuinBody then
+		playLevitate()
+	end
 
 	hoverConnection = RunService.RenderStepped:Connect(function(dt)
 		if not flyEnabled then return end
@@ -141,7 +159,9 @@ local function startFlying()
 
 		-- === Animation Blending ===
 		local isMoving = move.X ~= 0 or move.Z ~= 0 or move.Y ~= 0
-		if isMoving then
+		if not flyAnimTrack or not idleAnimTrack then
+			-- Quin body: no levitate clips
+		elseif isMoving then
 			if not flyAnimTrack.IsPlaying then flyAnimTrack:Play(0.3) end
 			if idleAnimTrack.IsPlaying then idleAnimTrack:Stop(0.3) end
 		else
@@ -173,6 +193,9 @@ end
 
 local function stopFlying()
 	flyEnabled = false
+	if character then
+		character:SetAttribute("IsFlying", nil)
+	end
 
 	if hoverConnection then
 		hoverConnection:Disconnect()
@@ -193,9 +216,16 @@ local function stopFlying()
 	enableAnimate()
 end
 
+-- A new body (respawn, Play As Quin on / off) always starts on the ground
+bindCharacter(player.Character or player.CharacterAdded:Wait())
+player.CharacterAdded:Connect(function(newCharacter)
+	stopFlying()
+	bindCharacter(newCharacter)
+end)
+
 -- ===== INPUT HANDLERS =====
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
+	if gameProcessed or UserInputService:GetFocusedTextBox() then return end
 
 	-- 🪽 Fly Toggle (F)
 	if input.KeyCode == Enum.KeyCode.F then

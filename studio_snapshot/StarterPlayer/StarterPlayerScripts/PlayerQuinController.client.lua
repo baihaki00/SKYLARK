@@ -220,6 +220,10 @@ local function startControlSession(quin)
 			return
 		end
 
+		-- Fly mode (F, TheArchitectCode) owns the body until it is toggled off
+		if activeQuin:GetAttribute("IsFlying") == true then
+			return
+		end
 
 		-- A committed slide owns the body until it hands back to the gait
 		if LocomotionModule.isSliding(activeQuin) then
@@ -527,15 +531,11 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	-- Controls when actively piloting
 	if not activeQuin or not activeRootPart or not activeHumanoid then return end
 	if activeHumanoid.Health <= 0 then return end
+	-- No ground actions while flying (F toggles fly mode)
+	if activeQuin:GetAttribute("IsFlying") == true then return end
 
 	-- Mouse Click Attack (Left Click when not clicking UI)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 and not gp then
-		executePlayerAttack()
-		return
-	end
-
-	-- F Key: Light Attack / Punch Combo
-	if input.KeyCode == Enum.KeyCode.F and not gp then
 		executePlayerAttack()
 		return
 	end

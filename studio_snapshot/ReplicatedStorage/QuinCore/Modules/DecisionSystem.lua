@@ -113,8 +113,12 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	if isLastStand then
 		-- REJECT RETREAT: Escape probability collapsed; turn and fight to the death
 		scores["Retreat"] = 0
+		-- The desperate counter is the one strike thrown as the Quin turns to make its stand.
+		-- Armed on every evaluation, it replaced every attack for as long as the stand lasted.
+		if quinModel:GetAttribute("LastStandMode") ~= true then
+			quinModel:SetAttribute("DesperateCounter", true)
+		end
 		quinModel:SetAttribute("LastStandMode", true)
-		quinModel:SetAttribute("DesperateCounter", true)
 		scores["Attack"] = (scores["Attack"] or 50) * (1.6 + aggression * 0.6)
 		table.insert(decisionReasons, "Last Stand: escape futile, fighting to inflict maximum damage")
 	elseif reinforcingAllyApproaching then

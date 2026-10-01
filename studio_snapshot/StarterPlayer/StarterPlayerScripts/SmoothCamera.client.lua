@@ -258,8 +258,8 @@ end
 UserInputService.InputBegan:Connect(function(input, gp)
 	if UserInputService:GetFocusedTextBox() then return end
 
-	-- Hotkey F toggles Freefly mode from any state
-	if input.KeyCode == Enum.KeyCode.F and not gp then
+	-- Hotkey B toggles the free camera from any state (F flies the body: TheArchitectCode)
+	if input.KeyCode == Enum.KeyCode.B and not gp then
 		if cameraMode == "FREEFLY" then
 			cameraMode = "DEFAULT"
 			shared.SpectatorState.Mode = cameraMode

@@ -10,6 +10,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
+local KnockbackModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 
 local RecoveryState = { name = "Recovery" }
 
@@ -80,9 +81,9 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 		alignUpright(rootPart)
 	end
 
-	-- A landing skid (SlideLV) carries its own deceleration; cutting the velocity here only made
+	-- A landing skid carries its own deceleration; cutting the velocity here only made
 	-- it drop and then get pulled straight back up to the skid speed.
-	if not rootPart:FindFirstChild("SlideLV") then
+	if not KnockbackModule.isSliding(fighter) then
 		rootPart.AssemblyLinearVelocity = rootPart.AssemblyLinearVelocity * 0.15
 	end
 	rootPart.AssemblyAngularVelocity = Vector3.zero

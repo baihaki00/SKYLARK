@@ -377,4 +377,26 @@ CombatConfig.Chase_ArcRunOverlayEnabled = false
 -- then rear turns go through the facing gyro.
 CombatConfig.Turn180PivotClipEnabled = false
 
+-- === Melee hit outcomes (DamageModule.resolveOutcome, FightState) ===
+-- A landed strike makes the victim flinch and slide back on its feet. Finishers knock it back
+-- along the ground instead. Any of them can launch the victim into the air, by chance.
+CombatConfig.Combat_FinisherLaunchChance = 0.40        -- chance a combo finisher sends the victim flying
+CombatConfig.Combat_DevastatingBlowChance = 0.05       -- chance any other clean hit does (the one-punch launch)
+CombatConfig.Combat_CritLaunchMultiplier = 2.0         -- launch chance multiplier on a critical hit
+CombatConfig.Combat_BackAttackLaunchMultiplier = 1.5   -- ... on a hit from behind
+CombatConfig.Combat_BrokenPostureLaunchBonus = 0.8     -- ... up to +80% as the victim's posture runs out
+CombatConfig.Combat_LaunchMinForce = 60                -- launch force floor, so a jab that launches still throws
+CombatConfig.Combat_FlinchSlideStuds = 2.5             -- studs a flinching victim slides back
+CombatConfig.Combat_FlinchSlidePerComboStep = 0.4      -- extra studs per combo step
+CombatConfig.Combat_HeavyFlinchSlideBonus = 1.5        -- extra studs on a heavy hit
+CombatConfig.Combat_BlockSlideStuds = 1.5              -- studs a defender slides when its guard holds
+CombatConfig.Combat_CounterSlideStuds = 4.5            -- studs the victim of a counter-punch slides
+CombatConfig.Combat_GroundKnockbackMinStuds = 10       -- ground knockback skid distance range
+CombatConfig.Combat_GroundKnockbackMaxStuds = 18
+CombatConfig.Combat_GroundKnockbackTime = 0.6          -- seconds the skid takes
+CombatConfig.Combat_LungeStopDistance = 5.5            -- an attack lunge stops this far from the target (outside Melee_SweetSpotMin, inside hitbox reach)
+CombatConfig.Combat_GuardStrength = 0.70               -- chance a raised guard holds against a frontal strike
+CombatConfig.Combat_DesperateCounterCooldown = 6.0     -- seconds between a Quin's cornered counter-strikes
+CombatConfig.Combat_ComboBreakChance = 0.25            -- chance per incoming combo strike to get a guard up (scaled 0.5-1.5x by defense preference)
+
 return CombatConfig

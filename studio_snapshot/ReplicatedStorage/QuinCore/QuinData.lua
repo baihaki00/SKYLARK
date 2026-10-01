@@ -31,7 +31,7 @@ local QuinData = {
 
 		-- Recovery
 		ComboRecovery = 0.25,
-		BlockChance = 0.08,
+		BlockChance = 0.20, -- how often a Quin answers an incoming strike by raising its guard (CombatConfig.Combat_GuardStrength: how often the guard holds)
 		DodgeChance = 0.08,
 
 		-- Super
