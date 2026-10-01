@@ -296,7 +296,11 @@ closeCorner.Parent = closeBtn
 -- Every layer starts off.
 local LAYER_ROW_HEIGHT = 20
 local layerList = RuntimeVisualizer and RuntimeVisualizer.getLayers() or {}
-local LAYER_PANEL_HEIGHT = RuntimeVisualizer and (math.ceil((#layerList + 1) / 2) * LAYER_ROW_HEIGHT + 8) or 0
+-- Cognition switches (QuinCore.Cognition.Layers): take a layer of the Quins' perception out,
+-- for every Quin, to see what it contributes. The server owns the state; a toggle asks for it.
+local CognitionLayers = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Layers"))
+local toggleCount = #layerList + 1 + #CognitionLayers.Switchable
+local LAYER_PANEL_HEIGHT = RuntimeVisualizer and (math.ceil(toggleCount / 2) * LAYER_ROW_HEIGHT + 8) or 0
 
 local layerPanel = Instance.new("Frame")
 layerPanel.Name = "DebugLayerPanel"
@@ -333,6 +337,7 @@ local function addLayerToggle(index, text, isOn, toggle)
 		refresh()
 	end)
 	refresh()
+	return refresh
 end
 
 if RuntimeVisualizer then
@@ -346,6 +351,16 @@ if RuntimeVisualizer then
 	addLayerToggle(#layerList + 1, "All Quins (off: spectated only)", RuntimeVisualizer.isWatchingAll, function()
 		RuntimeVisualizer.setWatchAll(not RuntimeVisualizer.isWatchingAll())
 	end)
+
+	for offset, layer in ipairs(CognitionLayers.Switchable) do
+		local refresh = addLayerToggle(#layerList + 1 + offset, "AI: " .. layer.label, function()
+			return CognitionLayers.isEnabled(layer.id)
+		end, function()
+			CognitionLayers.request(layer.id, not CognitionLayers.isEnabled(layer.id))
+		end)
+		-- The switch shows the server's state once it has changed
+		Workspace:GetAttributeChangedSignal("Cognition_" .. layer.id):Connect(refresh)
+	end
 end
 
 -- Main Scrollable Card List Frame

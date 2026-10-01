@@ -6,6 +6,7 @@ local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local Cognition = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Cognition"))
 
 local TargetingModule = {}
 
@@ -279,7 +280,8 @@ function TargetingModule.getCommittedTarget(fighter, rootPart, maxRange)
 	return targetModel, dist
 end
 
--- Find nearest enemy Quin (not on same team, not dead) - Preserved for backward compatibility
+-- Find the nearest enemy this Quin knows about (its Cognition contacts: seen, heard, remembered
+-- or reported). Before its first cognition tick it falls back to every living Quin.
 function TargetingModule.getNearest(rootPart, maxRange)
 	maxRange = maxRange or 1000
 	local myModel = rootPart.Parent
@@ -294,8 +296,17 @@ function TargetingModule.getNearest(rootPart, maxRange)
 	-- Check committed target first
 	local committedModel, committedDist = TargetingModule.getCommittedTarget(myModel, rootPart, maxRange)
 	
-	local enemies = CollectionService:GetTagged("Quin")
-	if #enemies == 0 then
+	local enemies
+	local known = Cognition.knownEnemies(myModel)
+	if known then
+		enemies = {}
+		for _, contact in ipairs(known) do
+			table.insert(enemies, contact.model)
+		end
+	else
+		enemies = CollectionService:GetTagged("Quin")
+	end
+	if not known and #enemies == 0 then
 		local quinServer = workspace:FindFirstChild("QuinServer") or workspace
 		for _, child in ipairs(quinServer:GetChildren()) do
 			if child:IsA("Model") and child ~= myModel and child:FindFirstChild("HumanoidRootPart") and child:FindFirstChildOfClass("Humanoid") then

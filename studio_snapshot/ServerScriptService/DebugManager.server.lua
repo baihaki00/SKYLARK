@@ -1,7 +1,10 @@
 --// DebugManager.server.lua
 -- Handles global debug toggle requests from clients
 
-local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
+-- Loaded at server start so the Spectator HUD's debug layers and cognition switches are live
+-- before the first Quin spawns
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Cognition"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 

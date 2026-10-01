@@ -399,4 +399,34 @@ CombatConfig.Combat_GuardStrength = 0.70               -- chance a raised guard 
 CombatConfig.Combat_DesperateCounterCooldown = 6.0     -- seconds between a Quin's cornered counter-strikes
 CombatConfig.Combat_ComboBreakChance = 0.25            -- chance per incoming combo strike to get a guard up (scaled 0.5-1.5x by defense preference)
 
+-- === Cognition (QuinCore.Cognition) ===
+-- Senses / Attention / Memory are the layers that can be switched off for comparison; the
+-- value here is the default, the Spectator HUD changes it live (workspace Cognition_<Name>).
+CombatConfig.Cognition = {
+	Senses = true,                 -- vision cone + hearing + touch (off: every living enemy is noticed)
+	Attention = true,              -- limited focus (off: everything noticed is attended)
+	Memory = true,                 -- remember / forget / share (off: knows only what it attends this tick)
+
+	VisionRange = 260,             -- studs a Quin can see with a clear line of sight
+	VisionHalfAngle = 100,         -- degrees each side of its facing (200 degree field of view)
+	HearingRangeMin = 12,          -- studs it hears a noisy Quin at awareness 0
+	HearingRangeMax = 40,          -- ... at awareness 1
+	NoiseSpeed = 12,               -- studs/s above which a moving Quin can be heard
+	ProximityRange = 10,           -- studs within which a Quin is always felt
+
+	AttentionCapacityMin = 2,      -- enemies kept track of at awareness 0
+	AttentionCapacityMax = 6,      -- ... at awareness 1
+	AttentionEngagedPenalty = 2,   -- capacity lost while fighting, times aggression (tunnel vision)
+
+	MemoryRetentionMin = 4,        -- seconds for a track's confidence to fall to 37% at awareness 0
+	MemoryRetentionMax = 14,       -- ... at awareness 1
+	MemoryForgetConfidence = 0.15, -- a track below this is forgotten
+	MemoryPredictionHorizon = 1.5, -- seconds a lost enemy is assumed to keep moving as last seen
+	ReportRange = 60,              -- studs within which allies pass on what they see
+	ReportInterval = 0.5,          -- seconds between taking over allies' sightings
+	ReportConfidence = 0.7,        -- confidence of a second-hand sighting
+	RumourFallback = true,         -- with no contact at all, the team's rough idea of the nearest enemy
+	RumourConfidence = 0.3,
+}
+
 return CombatConfig

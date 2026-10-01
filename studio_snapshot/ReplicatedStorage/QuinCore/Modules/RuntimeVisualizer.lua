@@ -174,7 +174,7 @@ local textPool = newPool(function()
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "DebugText"
-	billboard.Size = UDim2.new(0, 300, 0, 64)
+	billboard.Size = UDim2.new(0, 340, 0, 110)
 	billboard.AlwaysOnTop = true
 	billboard.Adornee = anchor
 	billboard.Parent = getAnchor()
@@ -261,14 +261,17 @@ local clientLayers = {}
 -- State, health, energy, speed and what the Quin reports about obstacles
 function clientLayers.Label(fighter, rootPart)
 	local humanoid = fighter:FindFirstChildOfClass("Humanoid")
-	draw.text(rootPart.Position + Vector3.new(0, 5.2, 0), string.format("%s | %s\nHP %d | Mana %d | %.1f studs/s\n%s | %s",
+	draw.text(rootPart.Position + Vector3.new(0, 5.2, 0), string.format("%s | %s\nHP %d | Mana %d | %.1f studs/s\n%s | %s\nknows %d enemies (notices %d) | target via %s",
 		fighter.Name,
 		string.upper(fighter:GetAttribute("CurrentState") or "None"),
 		humanoid and math.round(humanoid.Health) or 0,
 		fighter:GetAttribute("Energy") or 100,
 		rootPart.AssemblyLinearVelocity.Magnitude,
 		fighter:GetAttribute("TacticalState") or "-",
-		fighter:GetAttribute("ObstacleAwareness") or "Clear"), COLOR.label)
+		fighter:GetAttribute("ObstacleAwareness") or "Clear",
+		fighter:GetAttribute("KnownEnemies") or 0,
+		fighter:GetAttribute("NoticedEnemies") or 0,
+		fighter:GetAttribute("TargetContact") or "-"), COLOR.label)
 end
 
 -- Eye-to-eye line to the current target: green with line of sight, red without
