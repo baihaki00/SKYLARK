@@ -67,20 +67,10 @@ function CirclingState.enter(fighter, humanoid, rootPart)
 	RuntimeTracer.checkpoint(fighter, string.format("Enter Circling (Tension=%s)", tension))
 	
 	AnimationModule.stop(humanoid, AnimationIds.Run)
-	AnimationModule.stop(humanoid, AnimationIds.Jump)
-	AnimationModule.stop(humanoid, AnimationIds.Fall)
-	AnimationModule.stopCategory(humanoid, "Attacks", 0)
-	AnimationModule.stopCategory(humanoid, "Reactions", 0)
-	
-	-- Strict Exclusivity: Immediately halt any lingering tracks with priority higher than Movement (Action, Action2, Action3, Action4)
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-	if animator then
-		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-			if track.Priority ~= Enum.AnimationPriority.Idle and track.Priority ~= Enum.AnimationPriority.Movement then
-				track:Stop(0)
-			end
-		end
-	end
+	AnimationModule.stop(humanoid, AnimationIds.Run, 0.15)
+	AnimationModule.stop(humanoid, AnimationIds.Jump, 0.15)
+	AnimationModule.stop(humanoid, AnimationIds.Fall, 0.15)
+	AnimationModule.stopCategory(humanoid, "Attacks", 0.1)
 	
 	-- Pick animation
 	local animId = AnimationIds.StrafeRightWalk
@@ -101,7 +91,8 @@ function CirclingState.enter(fighter, humanoid, rootPart)
 	local targetStrafeSpeed = speed * (tension == "run" and 0.6 or (tension == "walk" and STRAFE_SPEED_MULT or 0.2))
 	LocomotionModule.modulateSpeed(fighter, humanoid, targetStrafeSpeed, 0.05)
 	
-	-- Prevent Roblox from auto-rotating so we can control facing manually without jitter
+	-- Mark strafing active and disable AutoRotate so physics AlignOrientation controls facing without fighting
+	fighter:SetAttribute("IsStrafing", true)
 	humanoid.AutoRotate = false
 	
 	local alignOri = rootPart:FindFirstChild("CirclingGyro")
@@ -113,8 +104,8 @@ function CirclingState.enter(fighter, humanoid, rootPart)
 		att.Name = "RootAttachment"
 		alignOri.Attachment0 = att
 		alignOri.RigidityEnabled = false
-		alignOri.Responsiveness = 15 -- Gentle, physics-friendly rotation (was 40 -> caused spin-in-place fighting MoveTo)
-		alignOri.MaxTorque = 100000 -- Reduced from 1e6 to stop the AlignOrientation from whipping the rootPart around
+		alignOri.Responsiveness = 15 -- Gentle, physics-friendly rotation
+		alignOri.MaxTorque = 100000 -- Controlled torque
 		alignOri.CFrame = rootPart.CFrame
 		alignOri.Parent = rootPart
 	end
@@ -125,23 +116,15 @@ end
 
 function CirclingState.exit(fighter, humanoid, rootPart)
 	RuntimeTracer.checkpoint(fighter, "Exit Circling")
+	fighter:SetAttribute("IsStrafing", false)
 	local data = circlingData[fighter]
 	if data and data.currentAnim then
 		AnimationModule.stop(humanoid, data.currentAnim, 0.15)
 	end
+	humanoid.AutoRotate = true
 	local alignOri = rootPart:FindFirstChild("CirclingGyro")
 	if alignOri then
-		-- Smooth handoff: release gyro influence over 0.15s to eliminate abrupt snapping
-		task.delay(0.15, function()
-			if alignOri and alignOri.Parent then
-				alignOri:Destroy()
-			end
-			if humanoid and humanoid.Parent then
-				humanoid.AutoRotate = true
-			end
-		end)
-	else
-		humanoid.AutoRotate = true
+		alignOri:Destroy()
 	end
 	circlingData[fighter] = nil
 end
@@ -179,26 +162,23 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local recovery = (CombatConfig.EnergyRecovery_Walk or 15) * 0.1 * speedMult
 	fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recovery))
 	
-	local target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange)
-	
-	if not target or not target:FindFirstChild("HumanoidRootPart") then
-		return require(script.Parent:WaitForChild("IdleState"))
+	local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 60) * 1.5)
+	if not target then
+		target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange)
+		if target then
+			TargetingModule.setTarget(fighter, target)
+		else
+			TargetingModule.clearTarget(fighter)
+			return require(script.Parent:WaitForChild("IdleState"))
+		end
 	end
 	
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
 	local targetState = target:GetAttribute("CurrentState")
 	
-	-- Continuous track exclusivity: ensure only strafe and background idle can play
+	-- Maintain continuous strafe track smoothly without cutting off Action tracks (hit reactions, parries)
 	if data.currentAnim and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
 		AnimationModule.play(humanoid, data.currentAnim, Enum.AnimationPriority.Movement, true, 1.0, 0.2)
-	end
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-	if animator then
-		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-			if track.Priority ~= Enum.AnimationPriority.Idle and track.Priority ~= Enum.AnimationPriority.Movement then
-				track:Stop(0)
-			end
-		end
 	end
 	
 	-- Snap condition 0: Opponent broke the standoff to fight!
@@ -211,8 +191,8 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Snap condition 2: Enemy got too close (below minimum circling range) -> Engage FightState!
 	-- Snap condition 3: Enemy moved too far away (above max circling range) -> Re-enter ChaseState!
 	local minCircleRange = (CombatConfig.CombatRange or 8) * 0.7
-	local maxCircleRange = (CombatConfig.CombatRange or 8) * 4.5 -- Increased to allow wider circling (36 studs)
-	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne")
+	local maxCircleRange = (CombatConfig.CombatRange or 8) * 4.5 -- Allow wider circling (36 studs)
+	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true)
 	
 	if not TEST_MODE_ACTIVE and not isTargetDown then
 		local timeInCircle = tick() - data.enterTime
@@ -257,9 +237,9 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local toTarget = (targetHRP.Position - rootPart.Position)
 	local rightVector = toTarget:Cross(Vector3.new(0, 1, 0)).Unit * data.direction
 	
-	-- Stay roughly at ideal circling distance (scaled by personality)
+	-- Stay roughly at ideal circling distance (scaled by personality, clamped for pure orbit)
 	local idealDistance = isTargetDown and 25.0 or (data.idealRadius or STRAFE_RADIUS)
-	local distanceError = math.clamp((distance - idealDistance) * 0.1, -1.0, 1.0)
+	local distanceError = math.clamp((distance - idealDistance) * 0.05, -0.20, 0.20)
 	local inwardVector = toTarget.Unit * distanceError
 	
 	local moveDirection = (rightVector + inwardVector).Unit
@@ -393,39 +373,39 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	alignOri.CFrame = lookCF
 
 	-- Dynamic Strafe Angle Animation Matching:
-	-- Determine angle between actual travel direction and facing to play accurate locomotion
-	local lookFlat = Vector3.new(lookCF.LookVector.X, 0, lookCF.LookVector.Z)
-	lookFlat = (lookFlat.Magnitude > 0.01) and lookFlat.Unit or Vector3.new(0, 0, -1)
-	local moveFlat = Vector3.new(moveDirection.X, 0, moveDirection.Z)
-	moveFlat = (moveFlat.Magnitude > 0.01) and moveFlat.Unit or lookFlat
-	local rightFlat = Vector3.new(rootPart.CFrame.RightVector.X, 0, rootPart.CFrame.RightVector.Z)
-	rightFlat = (rightFlat.Magnitude > 0.01) and rightFlat.Unit or Vector3.new(1, 0, 0)
-
-	local forwardDot = lookFlat:Dot(moveFlat)
-	local rightDot = rightFlat:Dot(moveFlat)
+	-- Compute movement vector in rootPart's local space to determine exact physical direction
+	local localMove = rootPart.CFrame:VectorToObjectSpace(moveDirection)
+	local lateralMag = math.abs(localMove.X)
+	local longitudinalMag = math.abs(localMove.Z)
 
 	local desiredAnim = data.currentAnim
-	if math.abs(rightDot) > 0.40 then
-		-- Predominantly lateral strafe
-		if rightDot > 0 then
+	if lateralMag >= longitudinalMag * 0.75 then
+		-- Lateral strafe dominates
+		if localMove.X > 0 then
 			desiredAnim = (data.tension == "run") and AnimationIds.StrafeRightRun or AnimationIds.StrafeRightWalk
 		else
 			desiredAnim = (data.tension == "run") and AnimationIds.StrafeLeftRun or AnimationIds.StrafeLeftWalk
 		end
-	elseif forwardDot > 0.45 then
-		-- Advance / inward spiral pace
+	elseif localMove.Z < 0 then
+		-- Forward advance dominates
 		desiredAnim = AnimationIds.WalkConfident or AnimationIds.Walk
 	else
-		-- Backward retreat arc
-		desiredAnim = (rightDot > 0) and AnimationIds.ArcRun30RearRight or AnimationIds.ArcRun30RearLeft
+		-- Backward retreat arc dominates
+		desiredAnim = (localMove.X > 0) and AnimationIds.ArcRun30RearRight or AnimationIds.ArcRun30RearLeft
 	end
 
+	local animSpeed = math.clamp(targetStrafeSpeed / 16.0, 0.6, 1.4)
 	if desiredAnim and data.currentAnim ~= desiredAnim then
 		if data.currentAnim then
 			AnimationModule.stop(humanoid, data.currentAnim, 0.15)
 		end
 		data.currentAnim = desiredAnim
-		AnimationModule.play(humanoid, desiredAnim, Enum.AnimationPriority.Movement, true, 1.0, 0.15)
+		AnimationModule.play(humanoid, desiredAnim, Enum.AnimationPriority.Movement, true, animSpeed, 0.15)
+	elseif data.currentAnim then
+		local track = AnimationModule.getTrack(humanoid, data.currentAnim)
+		if track and track.IsPlaying then
+			track:AdjustSpeed(animSpeed)
+		end
 	end
 	
 	return CirclingState

@@ -23,7 +23,7 @@ local roundNumber = 0
 local totalRounds = CombatConfig.TournamentRounds or 3
 
 -- Available Quin types
-local ALL_TYPES = {"TypeA", "TypeB", "TypeC", "TypeD"}
+local ALL_TYPES = {"Male", "Female"}
 
 -- Listen for eliminations
 local elimEvent = ReplicatedStorage:FindFirstChild("QuinEliminated")

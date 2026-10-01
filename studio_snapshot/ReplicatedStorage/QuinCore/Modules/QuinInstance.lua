@@ -25,7 +25,15 @@ end
 function QuinInstance.create(spec)
 	spec = spec or {}
 
-	local qType = spec.Type or "TypeA"
+	local qType = spec.Type or "Standard"
+	local qGender = spec.Gender
+	if not qGender then
+		if qType == "Male" or qType == "Female" then
+			qGender = qType
+		else
+			qGender = (math.random() > 0.5 and "Female" or "Male")
+		end
+	end
 	local qElement = spec.Element or ElementData.getRandomElement()
 	local qOwnerId = spec.OwnerId or "SERVER"
 	local qQuinClass = spec.QuinClass or "Normal"     -- "Normal" or "Admin"
@@ -63,6 +71,7 @@ function QuinInstance.create(spec)
 		QuinId = spec.QuinId or generateQuinId(),
 		OwnerId = tostring(qOwnerId),
 		Type = qType,
+		Gender = qGender,
 		Element = qElement,
 		QuinClass = qQuinClass,
 		Archetype = qArchetype,
@@ -303,6 +312,7 @@ function QuinInstance.serialize(instance)
 		QuinId = instance.QuinId,
 		OwnerId = instance.OwnerId,
 		Type = instance.Type,
+		Gender = instance.Gender,
 		Element = instance.Element,
 		QuinClass = instance.QuinClass,
 		Archetype = instance.Archetype,
@@ -330,6 +340,7 @@ function QuinInstance.attachToModel(instance, model)
 	model:SetAttribute("QuinId", instance.QuinId)
 	model:SetAttribute("OwnerId", instance.OwnerId)
 	model:SetAttribute("QuinType", instance.Type)
+	model:SetAttribute("Gender", instance.Gender or "Male")
 	model:SetAttribute("Element", instance.Element)
 	model:SetAttribute("QuinClass", instance.QuinClass)
 	model:SetAttribute("Archetype", instance.Archetype)

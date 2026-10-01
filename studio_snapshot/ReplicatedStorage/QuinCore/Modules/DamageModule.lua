@@ -73,6 +73,11 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		end
 	end
 	
+	-- GET-UP PROTECTION: Fighters rising from a knockdown have temporary poise armor
+	if targetModel:GetAttribute("GetUpProtection") == true or targetModel:GetAttribute("CurrentState") == "Recovery" then
+		return false, false, "GetUpProtected"
+	end
+	
 	local isKnocked = targetModel:GetAttribute("CurrentState") == "Knockback" or targetModel:GetAttribute("CurrentState") == "Airborne"
 	local hrp = targetModel:FindFirstChild("HumanoidRootPart")
 	local attackerHRP = attackerModel:FindFirstChild("HumanoidRootPart")

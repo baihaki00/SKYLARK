@@ -77,33 +77,72 @@ local function applyStats(model, typeName)
 	end
 end
 
--- Spawn a single Quin with either a QuinInstance OR typeName
+-- Spawn a single Quin with either a QuinInstance OR typeName/gender
 function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElement, faceTargetPosition)
 	local quinInstance = nil
-	local typeName = "TypeA"
+	local selectedGender = nil
 
 	if type(typeNameOrInstance) == "table" and typeNameOrInstance.QuinId then
 		quinInstance = typeNameOrInstance
-		typeName = quinInstance.Type or "TypeA"
+		selectedGender = quinInstance.Gender or (math.random() > 0.5 and "Female" or "Male")
 	else
-		typeName = tostring(typeNameOrInstance or "TypeA")
+		local raw = tostring(typeNameOrInstance or "")
+		if raw == "Female" or raw == "QuinFemale" then
+			selectedGender = "Female"
+		elseif raw == "Male" or raw == "QuinMale" then
+			selectedGender = "Male"
+		else
+			-- Simplified: 50/50 randomized between male and female Quins
+			selectedGender = (math.random() > 0.5 and "Female" or "Male")
+		end
+
 		local element = optionalElement or ElementData.getRandomElement()
 		quinInstance = QuinInstance.create({
-			Type = typeName,
+			Type = "Standard",
+			Gender = selectedGender,
 			Element = element,
 			OwnerId = "SERVER",
 		})
 	end
 
 	local QuinTypeFolder = ReplicatedStorage:WaitForChild("QuinType")
-	local template = QuinTypeFolder:FindFirstChild("Quin" .. typeName)
+	local template = nil
+
+	if selectedGender == "Female" then
+		template = Workspace:FindFirstChild("QuinFemale")
+		if not template or #template:GetChildren() <= 1 then
+			template = QuinTypeFolder:FindFirstChild("QuinFemale") or QuinTypeFolder:FindFirstChild("QuinTypeB")
+		end
+	else
+		template = Workspace:FindFirstChild("QuinMale")
+		if not template or #template:GetChildren() <= 1 then
+			local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
+			template = arenaOne and arenaOne:FindFirstChild("QuinMale")
+		end
+		if not template or #template:GetChildren() <= 1 then
+			template = QuinTypeFolder:FindFirstChild("QuinMale") or QuinTypeFolder:FindFirstChild("QuinTypeA")
+		end
+	end
+
 	if not template then
-		warn("[QuinSpawner] Template not found: Quin" .. typeName)
+		warn("[QuinSpawner] Template not found for: " .. tostring(selectedGender))
 		return nil
 	end
 
 	local clone = template:Clone()
-	clone.Name = string.format("Quin_%s_%s", quinInstance.Type, quinInstance.QuinId:sub(-4))
+	clone.Name = string.format("Quin_%s_%s", selectedGender, quinInstance.QuinId:sub(-4))
+
+	-- Crucial Rig Sanitation: Ensure RootJoint Part0 and Part1 are strictly internal to the clone
+	local hrp = clone:FindFirstChild("HumanoidRootPart")
+	local surf = clone:FindFirstChild("Alpha_Surface") or clone:FindFirstChild("Beta_Surface") or clone:FindFirstChildWhichIsA("MeshPart")
+	if hrp and surf then
+		local rj = hrp:FindFirstChild("RootJoint")
+		if rj then
+			rj.Part0 = hrp
+			rj.Part1 = surf
+		end
+		clone.PrimaryPart = hrp
+	end
 
 	-- Ensure it goes into a server folder
 	local serverFolder = Workspace:FindFirstChild("QuinServer")
@@ -120,11 +159,12 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 		clone:PivotTo(CFrame.new(position))
 	end
 
-	-- Apply chassis stats from QuinData
-	applyStats(clone, typeName)
+	-- Apply unified fair baseline stats from QuinData
+	applyStats(clone, "Standard")
 
 	-- Attach persistent QuinInstance identity, personality, and records
 	QuinInstance.attachToModel(quinInstance, clone)
+	clone:SetAttribute("Gender", selectedGender)
 
 	-- Team
 	if teamTag then
@@ -273,8 +313,11 @@ function QuinSpawner.spawnTeam(typeNames, teamTag, count, spawnIndex, customBase
 		local offset = (rightDir * (col * spacing + stagger + jitterX)) - (forwardDir * (row * spacing + jitterZ))
 		local spawnPos = basePos + offset
 
+		-- Alternate male and female across the formation for balanced 50/50 visual presence
+		local teamGender = (i % 2 == 0) and "Female" or "Male"
+
 		-- Each spawned fighter faces the opponent directly
-		local quin = QuinSpawner.spawn(typeName, spawnPos, teamTag, nil, enemyCenter)
+		local quin = QuinSpawner.spawn(teamGender, spawnPos, teamTag, nil, enemyCenter)
 		if quin then
 			table.insert(spawned, quin)
 		end
@@ -284,27 +327,21 @@ function QuinSpawner.spawnTeam(typeNames, teamTag, count, spawnIndex, customBase
 	return spawned
 end
 
--- Clear all spawned Quins
+-- Clear all spawned AI Quins from the arena
 function QuinSpawner.cleanAll()
-	-- Cleanly release any player-controlled Quins so spectators are not left trapped in dead models
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p.Character and (p.Character:GetAttribute("IsPlayerControlled") or CollectionService:HasTag(p.Character, "Quin")) then
-			pcall(function()
-				p.ReplicationFocus = nil
-				p.Character = nil
-				p:LoadCharacter()
-			end)
+	local serverFolder = Workspace:FindFirstChild("QuinServer")
+	if serverFolder then
+		for _, child in ipairs(serverFolder:GetChildren()) do
+			LocomotionModule.cleanup(child)
+			child:Destroy()
 		end
 	end
 
-	local serverFolder = Workspace:FindFirstChild("QuinServer")
-	if serverFolder then
-		serverFolder:ClearAllChildren()
-	end
-
-	for _, quin in ipairs(CollectionService:GetTagged("Quin")) do
-		LocomotionModule.cleanup(quin)
-		quin:Destroy()
+	for _, quin in ipairs(CollectionService:GetTagged("AI_Fighter")) do
+		if quin.Parent and quin.Parent.Name == "QuinServer" then
+			LocomotionModule.cleanup(quin)
+			quin:Destroy()
+		end
 	end
 
 	local ghostFolder = Workspace:FindFirstChild("QuinGhost")
@@ -317,7 +354,7 @@ function QuinSpawner.cleanAll()
 		LSS.reset()
 	end
 
-	print("[QuinSpawner] Cleaned all Quins from arena")
+	print("[QuinSpawner] Cleaned all AI fighters from arena (player character untouched)")
 end
 
 _G.QuinSpawner = QuinSpawner

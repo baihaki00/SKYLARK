@@ -202,7 +202,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	-- If escape feasibility collapsed or fighter was set to LastStandMode, turn and make enemies pay!
 	local isLastStand = fighter:GetAttribute("LastStandMode")
 	local escapeFeas = fighter:GetAttribute("EscapeFeasibility") or 1.0
-	if isLastStand or (escapeFeas < (CombatConfig.EscapeFeasibilityThreshold or 0.20) and elapsed >= 0.20) then
+	if isLastStand or (escapeFeas < (CombatConfig.EscapeFeasibilityThreshold or 0.20) and elapsed >= minCommitDuration) then
 		BattleEventSystem.emit("LAST_STAND_TRIGGERED", {
 			QuinId = fighter:GetAttribute("QuinId") or fighter.Name,
 			Model = fighter,
@@ -211,8 +211,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		})
 		fighter:SetAttribute("LastStandMode", true)
 		fighter:SetAttribute("DesperateCounter", true)
-		fighter:SetAttribute("CurrentTarget", nearestThreat and nearestThreat.Name or "")
-		fighter:SetAttribute("TargetQuin", nearestThreat and nearestThreat.Name or "")
+		TargetingModule.setTarget(fighter, nearestThreat)
 		RuntimeTracer.checkpoint(fighter, "Escape suicidal -> Turn to Last Stand fight!")
 		return require(script.Parent:WaitForChild("FightState"))
 	end
@@ -229,7 +228,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	if nearestAllyDist > 16 and fighter:GetAttribute("ReinforcingAllyApproaching") == true and nearestThreatDist <= (CombatConfig.DefendDelayDistance or 35.0) and elapsed >= 0.20 then
+	if nearestAllyDist > 16 and fighter:GetAttribute("ReinforcingAllyApproaching") == true and nearestThreatDist <= (CombatConfig.DefendDelayDistance or 35.0) and elapsed >= minCommitDuration then
 		fighter:SetAttribute("IsGuarding", true)
 		RuntimeTracer.checkpoint(fighter, "Ally reinforcing -> Defend & Delay stance")
 		return require(script.Parent:WaitForChild("CirclingState"))
@@ -237,7 +236,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- TRANSITION 3: PURSUER OVEREXTENSION / WHIFF COUNTERATTACK
 	-- If pursuer swung and missed, or overshot past runner within 10 studs, seize initiative!
-	if nearestThreat and nearestThreatDist <= (CombatConfig.PursuerOverextendWhiffDistance or 10.0) and elapsed >= 0.30 then
+	if nearestThreat and nearestThreatDist <= (CombatConfig.PursuerOverextendWhiffDistance or 10.0) and elapsed >= minCommitDuration then
 		local threatAttacking = nearestThreat:GetAttribute("Attacking")
 		local threatWindupUntil = nearestThreat:GetAttribute("AttackWindupUntil") or 0
 		local hasWhiffed = threatAttacking and (now > threatWindupUntil)
@@ -259,8 +258,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 				Reason = hasWhiffed and "PursuerWhiff" or "PursuerOvershot",
 			})
 			fighter:SetAttribute("RetreatCounterattacked", true)
-			fighter:SetAttribute("CurrentTarget", nearestThreat.Name)
-			fighter:SetAttribute("TargetQuin", nearestThreat.Name)
+			TargetingModule.setTarget(fighter, nearestThreat)
 			RuntimeTracer.checkpoint(fighter, "Pursuer overextended -> Turn and Counterattack!")
 			return require(script.Parent:WaitForChild("FightState"))
 		end
@@ -284,8 +282,8 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	-- Outcome B: Reached Allies -> Turn and COUNTERATTACK! (Immediate as soon as squad reached)
-	if result.objective == "TO_ALLIES" and #allies >= 1 and elapsed >= 0.25 then
+	-- Outcome B: Reached Allies -> Turn and COUNTERATTACK! (Guaranteed commitment fulfilled)
+	if result.objective == "TO_ALLIES" and #allies >= 1 and elapsed >= minCommitDuration then
 		local allyDist = (result.targetPosition - rootPart.Position).Magnitude
 		if allyDist <= 16 then
 			-- We successfully pulled pursuer to allies! Turn and strike!
@@ -300,8 +298,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 				TargetName = nearestThreat and nearestThreat.Name or "Unknown",
 			})
 			fighter:SetAttribute("RetreatCounterattacked", true)
-			fighter:SetAttribute("CurrentTarget", nearestThreat and nearestThreat.Name or "")
-			fighter:SetAttribute("TargetQuin", nearestThreat and nearestThreat.Name or "")
+			TargetingModule.setTarget(fighter, nearestThreat)
 			RuntimeTracer.checkpoint(fighter, "Retreat reached allies -> COUNTERATTACK!")
 			return require(script.Parent:WaitForChild("FightState"))
 		end

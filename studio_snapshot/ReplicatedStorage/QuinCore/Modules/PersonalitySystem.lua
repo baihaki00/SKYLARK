@@ -78,7 +78,7 @@ local TYPE_BOUNDS = {
 
 -- Generate a persistent personality for a genuinely new Quin
 function PersonalitySystem.generate(typeName, customOverrides, rng)
-	local bounds = TYPE_BOUNDS[typeName] or TYPE_BOUNDS.TypeA
+	local bounds = TYPE_BOUNDS[typeName] or TYPE_BOUNDS.Standard or TYPE_BOUNDS.TypeA
 	local personality = {}
 
 	local randomFloat = function(min, max)

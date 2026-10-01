@@ -96,9 +96,12 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 
 	local initialAnim = "Movement.Run"
 	local pushOffAnim = nil
+	local planarVel = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
+	local actualPlanarSpeed = Vector3.new(planarVel.X, 0, planarVel.Z).Magnitude
+
 	if strategy == "ConfidentWalk" or strategy == "WalkThenSprint" then
 		initialAnim = "Movement.WalkConfident"
-	elseif initialSpeed < 10 then
+	elseif initialSpeed < 4 and actualPlanarSpeed < 4 then
 		pushOffAnim = (mobility > 0.55 or math.random() > 0.5) and "Movement.IdleToRun1" or "Movement.IdleToRun2"
 		initialAnim = pushOffAnim
 	end
@@ -106,6 +109,7 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 	chaseData[fighter] = {
 		lastStepTime = 0,
 		lastUpdateTime = now,
+		lastSlideCheckTime = now,
 		currentSpeed = initialSpeed,
 		isAccelerating = true,
 		isDecelerating = false,
@@ -595,27 +599,33 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Slide-under: low-overhead gap ahead -> athletic SlideState
 	local slideGap = SpatialModule.detectLowOverheadGap(rootPart, 8)
 	local energy = fighter:GetAttribute("Energy") or 100
+	local quirky = fighter:GetAttribute("Quirky") or "Balanced"
 	local lastSlide = fighter:GetAttribute("LastSlideTime") or 0
-	local slideCooldown = CombatConfig.SlideCooldown or 2.5
+	local slideCooldown = (quirky == "Charger") and 5.0 or (CombatConfig.SlideCooldown or 8.0)
 	local canSlide = (now - lastSlide) >= slideCooldown and energy >= (CombatConfig.SlideMinEnergy or 12)
 		and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 
 	if slideGap and canSlide and not inShowdown then
 		fighter:SetAttribute("ObstacleAwareness", "Sliding Under Gap")
+		fighter:SetAttribute("LastSlideTime", now)
 		LocomotionModule.slide(fighter, humanoid, rootPart)
 		return ChaseState
 	end
 
 	-- Tactical Gap-Close Slide (Phase 6): high mobility, Charger quirky, or close-range flank
-	local quirky = fighter:GetAttribute("Quirky") or "Balanced"
+	-- Gated check: evaluated at most once every 1.5s rather than rolling every frame at 20-60 Hz!
 	local qType = fighter:GetAttribute("QuinType") or "TypeA"
 	local isHighMobility = (qType == "TypeC" or quirky == "Charger")
 	if canSlide and distance >= 18 and distance <= 35 and (data.currentSpeed or 30) >= 24 and not inShowdown then
-		local slideChance = isHighMobility and 0.45 or 0.18
-		if math.random() < slideChance then
-			fighter:SetAttribute("ObstacleAwareness", "Tactical Slide Gap-Close")
-			LocomotionModule.slide(fighter, humanoid, rootPart)
-			return ChaseState
+		if (now - (data.lastSlideCheckTime or 0)) >= 1.5 then
+			data.lastSlideCheckTime = now
+			local slideChance = isHighMobility and 0.35 or 0.12
+			if math.random() < slideChance then
+				fighter:SetAttribute("ObstacleAwareness", "Tactical Slide Gap-Close")
+				fighter:SetAttribute("LastSlideTime", now)
+				LocomotionModule.slide(fighter, humanoid, rootPart)
+				return ChaseState
+			end
 		end
 	end
 

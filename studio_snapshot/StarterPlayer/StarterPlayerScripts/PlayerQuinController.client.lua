@@ -570,17 +570,12 @@ toggleQuinControl = function(desiredState, explicitTarget)
 			toggleBtn.Text = "⏳ Possessing..."
 		end
 
-		-- Resolve target: explicit > spectated > arena default
+		-- Target: explicit target > spectated quin > default arena quin
 		local targetName = explicitTarget
 		if not targetName or targetName == "" then
 			local spec = shared.SpectatedQuin or _G.SpectatedQuin
-			if spec and spec:IsA("Model") then
+			if spec and spec:IsA("Model") and spec ~= player.Character then
 				targetName = spec.Name
-			else
-				local specAttr = Workspace:GetAttribute("SpectatedQuin")
-				if specAttr and specAttr ~= "" then
-					targetName = specAttr
-				end
 			end
 		end
 
@@ -602,6 +597,10 @@ end
 -- Export to shared environment for QuinDebugHUD & other UI integration
 shared.ToggleQuinControl = toggleQuinControl
 _G.ToggleQuinControl = toggleQuinControl
+
+player.CharacterAdded:Connect(function(char)
+	task.defer(ensureButtonHierarchy)
+end)
 
 -- ============================================================================
 -- 3. KEYBIND LISTENERS (Jump, Slide, Dash, Attack, Toggle)

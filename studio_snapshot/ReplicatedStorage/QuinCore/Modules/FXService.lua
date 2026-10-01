@@ -28,14 +28,11 @@ function FXService.applyElementAppearance(model, elementName)
 	if oldHighlight then oldHighlight:Destroy() end
 
 	-- 3. Recolor the visible body (Alpha_Surface) to a solid element color.
-	-- The skin texture (rbxassetid://85394248927456) is cleared below so the color
-	-- reads clearly; to restore the skin, just remove the TextureID clearing.
+	-- Preserve skin textures
 	for _, part in ipairs(model:GetDescendants()) do
-		if part:IsA("BasePart") and (part.Name == "Alpha_Surface" or part.Name:find("Mesh") or part.Name == "Body") then
+		if part:IsA("BasePart") and (part.Name == "Alpha_Surface" or part.Name == "Beta_Surface" or part.Name:find("Surface") or part.Name:find("Mesh") or part.Name == "Body") then
 			part.Color = elem.BodyTint or elem.Color
-			if part:IsA("MeshPart") and part.TextureID and part.TextureID ~= "" then
-				part.TextureID = ""
-			end
+			
 		end
 	end
 

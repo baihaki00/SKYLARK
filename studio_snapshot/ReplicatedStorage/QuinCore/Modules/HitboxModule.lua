@@ -13,6 +13,10 @@ function HitboxModule.cast(cframe, size, ignoreModel)
 	overlapParams.FilterDescendantsInstances = ignoreModel and {ignoreModel} or {}
 	
 	local hitParts = Workspace:GetPartBoundsInBox(cframe, size, overlapParams)
+
+	-- Player costumes live outside the tournament: a hit only connects within the same
+	-- world (fighter -> fighter, costume -> costume). An attacker-less cast is a fighter cast.
+	local attackerIsCostume = ignoreModel ~= nil and ignoreModel:GetAttribute("IsCostume") == true
 	
 	-- Deduplicate by model
 	local hitModels = {}
@@ -20,7 +24,7 @@ function HitboxModule.cast(cframe, size, ignoreModel)
 	
 	for _, part in ipairs(hitParts) do
 		local model = part.Parent
-		if model and not seen[model] then
+		if model and not seen[model] and (model:GetAttribute("IsCostume") == true) == attackerIsCostume then
 			local hum = model:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
 				seen[model] = true
