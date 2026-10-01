@@ -18,19 +18,9 @@ local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitMo
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
 
--- Unreal Engine GASP Port Integration
-local GASPFolder = QuinCore:WaitForChild("GASP", 5)
-local GASPRuntime = GASPFolder and require(GASPFolder:WaitForChild("GASPRuntime"))
-local GASPDebug = GASPFolder and require(GASPFolder:WaitForChild("GASPDebug"))
-local GASPAssetMap = GASPFolder and require(GASPFolder:WaitForChild("GASPAssetMap"))
-local GASPAnimator = GASPFolder and require(GASPFolder:WaitForChild("GASPAnimator"))
-local GASPManifest = GASPFolder and require(GASPFolder:WaitForChild("GASPAnimationManifest"))
-
 local controlFunction = ReplicatedStorage:WaitForChild("PlayerQuinControlFunction", 10)
 
 -- State tracking
-local gaspRuntimeInstance = nil
-local gaspTelemetryEnabled = true
 local activeQuin = nil
 local activeHumanoid = nil
 local activeRootPart = nil
@@ -206,15 +196,6 @@ local function startControlSession(quin)
 		return contractQuin:GetAttribute("IsPlayerControlled") == true
 	end)
 
-	-- Initialize GASP Runtime & Telemetry overlay
-	if gaspTelemetryEnabled and GASPDebug and GASPRuntime and GASPAssetMap and GASPAssetMap.Enabled == true then
-		pcall(function()
-			GASPDebug.initHUD(player:FindFirstChild("PlayerGui"))
-			GASPDebug.initWorldVisuals(6)
-			gaspRuntimeInstance = GASPRuntime.new(activeQuin, activeRootPart)
-		end)
-	end
-
 	-- Update button UI
 	toggleBtn.Text = "⏹ Exit Quin Mode [P]"
 	toggleBtn.TextColor3 = Color3.fromRGB(255, 180, 60)
@@ -359,40 +340,11 @@ local function startControlSession(quin)
 			local rawTargetPosition = activeRootPart.Position + rawMoveDir * 15
 			LocomotionModule.steer(activeQuin, activeHumanoid, activeRootPart, rawTargetPosition, targetSpeed, dt)
 
-			-- Authoritative GASP Motion Matching Animation Driver
-			if gaspRuntimeInstance and GASPAssetMap and GASPAssetMap.Enabled and GASPAnimator and not isAirborne then
-				local gaspIntent = {
-					direction = rawMoveDir.Magnitude > 0.1 and rawMoveDir or nil,
-					sprint = isSprint,
-					run = not isSprint and rawMoveDir.Magnitude > 0.1,
-					jump = isAirborne,
-				}
-				local ok, gaspSnapshot = pcall(function()
-					return gaspRuntimeInstance:step(gaspIntent, dt)
-				end)
-
-				if ok and gaspSnapshot and gaspSnapshot.clip and gaspSnapshot.clip ~= "" then
-					local clipMeta = GASPManifest and GASPManifest.Metadata and GASPManifest.Metadata[gaspSnapshot.clip]
-					local nominalSpeed = clipMeta and clipMeta.speed or (isSprint and 32 or (curSpeed > 18 and 24 or 12))
-					local strideScale = 1.0
-					if nominalSpeed > 0 and curSpeed > 1.0 then
-						strideScale = math.clamp(curSpeed / nominalSpeed, 0.70, 1.35)
-					end
-
-					GASPAnimator.play(activeHumanoid, gaspSnapshot.clip, 0.20, strideScale)
-				end
-			else
-				-- Fallback to legacy QuinCore animation if GASP is disabled.
-				-- GaitModule self-gates: it never plays ground loops in the air or under a slide.
-				-- Clear stale GASP telemetry so the HUD cannot imply that a quarantined clip is active.
-				activeQuin:SetAttribute("GASPState", "LegacyFallback")
-				activeQuin:SetAttribute("GASPClip", "Legacy AnimationConfig")
-				activeQuin:SetAttribute("GASPSelectionScore", nil)
-				-- Shared QuinCore gait: synchronized Walk/Run blend space whose cadence is
-				-- derived from real ground speed, identical to the AI Quins.
-				if not AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun") then
-					GaitModule.update(activeHumanoid, activeRootPart, dt)
-				end
+			-- Shared QuinCore gait: synchronized Walk/Run blend space whose cadence is
+			-- derived from real ground speed, identical to the AI Quins. It self-gates:
+			-- it never plays ground loops in the air or under a slide.
+			if not AnimationModule.isPlaying(activeHumanoid, "Movement.StopRun") then
+				GaitModule.update(activeHumanoid, activeRootPart, dt)
 			end
 		else
 			smoothedMoveDir = Vector3.zero
@@ -413,42 +365,12 @@ local function startControlSession(quin)
 			activeQuin:SetAttribute("SprintStartTime", nil)
 
 			if not isAirborne then
-				if gaspRuntimeInstance and GASPAssetMap and GASPAssetMap.Enabled and GASPAnimator then
-					local gaspIntent = {
-						direction = nil,
-						sprint = false,
-						run = false,
-						jump = isAirborne,
-					}
-					local ok, gaspSnapshot = pcall(function()
-						return gaspRuntimeInstance:step(gaspIntent, dt)
-					end)
-					if ok and gaspSnapshot and gaspSnapshot.clip and gaspSnapshot.clip ~= "" then
-						GASPAnimator.play(activeHumanoid, gaspSnapshot.clip, 0.20, 1.0)
-					end
-				end
 				-- Authoritative QuinCore brake: smooth deceleration, slide follow-through, stops run, ensures idle
 				LocomotionModule.brake(activeQuin, activeHumanoid, activeRootPart, dt)
 			end
 		end
 
-		-- Update GASP Trajectory prediction and Telemetry overlay
-		if gaspRuntimeInstance and GASPDebug and GASPAssetMap and GASPAssetMap.Enabled == true then
-			local gaspIntent = {
-				direction = rawMoveDir.Magnitude > 0.1 and rawMoveDir or nil,
-				sprint = isSprint,
-				run = not isSprint and rawMoveDir.Magnitude > 0.1,
-				jump = isAirborne,
-			}
-			local ok, gaspSnapshot = pcall(function()
-				return gaspRuntimeInstance:step(gaspIntent, dt)
-			end)
-			if ok and gaspSnapshot then
-				pcall(function()
-					GASPDebug.update(activeQuin, activeRootPart, gaspSnapshot, dt)
-				end)
-			end
-		end
+
 
 	end)
 
@@ -479,18 +401,6 @@ local function stopControlSession()
 		LocomotionModule.resetGroundIntent(activeQuin)
 	end
 
-	if GASPAnimator and activeHumanoid then
-		GASPAnimator.cleanup(activeHumanoid)
-	end
-
-	if gaspRuntimeInstance then
-		gaspRuntimeInstance = nil
-	end
-	if GASPDebug then
-		pcall(function()
-			GASPDebug.cleanup()
-		end)
-	end
 
 	shared.PlayerControlledQuin = nil
 	_G.PlayerControlledQuin = nil
@@ -611,16 +521,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	-- Hotkey P toggles Quin mode
 	if input.KeyCode == Enum.KeyCode.P and not gp then
 		toggleQuinControl()
-		return
-	end
-
-	-- Hotkey F3 toggles UE5 GASP Telemetry Visuals
-	if input.KeyCode == Enum.KeyCode.F3 and not gp then
-		gaspTelemetryEnabled = not gaspTelemetryEnabled
-		if GASPDebug then
-			GASPDebug.setVisible(gaspTelemetryEnabled)
-		end
-		print(string.format("[PlayerQuinController] GASP Telemetry Visuals: %s", gaspTelemetryEnabled and "ENABLED" or "DISABLED"))
 		return
 	end
 

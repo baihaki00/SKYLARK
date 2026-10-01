@@ -62,6 +62,9 @@ local function flatUnit(vector, fallback)
 	return fallback
 end
 
+-- Fraction of the soft-landing clip spent absorbing the drop (the rest is the rise)
+local LANDING_ABSORB_RATIO = 0.55
+
 local function shortestAngleDelta(target, current)
 	return (target - current + math.pi) % (2 * math.pi) - math.pi
 end
@@ -177,6 +180,9 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 
 		frameDt = math.clamp(frameDt, 0.001, 0.05)
 		local target = data.steerSpeed or humanoid.WalkSpeed
+		if os.clock() < (data.landingHoldUntil or 0) then
+			target = 0 -- absorbing a landing: brake first, move on as the body rises
+		end
 		local speed = humanoid.WalkSpeed
 		if speed < target then
 			speed = math.min(speed + (CombatConfig.Locomotion_Acceleration or 80.0) * frameDt, target)
@@ -519,7 +525,8 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	data.lastJumpTime = now
 
 	local isVault = (jumpType == "vault")
-    local isDismount = (jumpType == "dismount")
+    -- Stepping off a height: planned drops and the ledge dive both land softly
+    local isDismount = (jumpType == "dismount" or jumpType == "leap_down")
     local isHop = (jumpType == "hop")
     local isLongJump = (jumpType == "longjump")
     local jumpAnim = isVault and "Parkour.VaultObstacle" or "Movement.Jump"
@@ -646,11 +653,18 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
         local traversalType = fighter:GetAttribute("TraversalType") or "None"
         local traversalHeight = fighter:GetAttribute("TraversalObstacleHeight") or 0
         if isDismount then
-            if traversalHeight >= 8 or impactSpeed > 55 then
-                AnimationModule.playConfig(humanoid, "Parkour.LandingSuperHero", 1.0, Enum.AnimationPriority.Action3, true)
-            -- Soft landing (also aliased as LedgeDropLanding) is intentionally not
-            -- played automatically: ordinary landings continue into the current gait.
-            end
+            -- A drop from a platform lands with the soft landing (the superhero landing is
+            -- kept for projectile-jump impacts)
+            -- The Quin absorbs the drop where it lands: it brakes through the crouch and the clip
+            -- is released as it rises, so it never glides at a sprint in a landing pose.
+            local absorb = AnimationModule.getEffectiveDuration(humanoid, "Parkour.LandingSoft", 1.0) * LANDING_ABSORB_RATIO
+            data.landingHoldUntil = os.clock() + absorb
+            AnimationModule.playConfig(humanoid, "Parkour.LandingSoft", 1.0, Enum.AnimationPriority.Action3, true)
+            task.delay(absorb, function()
+                if humanoid.Parent then
+                    AnimationModule.stopConfig(humanoid, "Parkour.LandingSoft", 0.25)
+                end
+            end)
         elseif traversalType == "None" and impactSpeed > 50 and airTime > 0.9 then
             AnimationModule.playConfig(humanoid, "Parkour.LandingHard", 1.0, Enum.AnimationPriority.Action3, true)
         end

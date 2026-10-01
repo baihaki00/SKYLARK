@@ -19,6 +19,9 @@ local GET_UP_HEAVY = "Reactions.GetUpGround"
 -- The state hands over slightly before the clip's last frame so its tail blends into the next pose
 local GET_UP_HANDOVER = 0.92
 
+-- Landing a projectile jump or smash: one of these plays on reaching the ground
+local SLAM_LANDINGS = { "Parkour.LandingSuperHero", "Parkour.LandingHard" }
+
 local UPRIGHT_ALIGN_NAME = "RecoveryUpright"
 local UPRIGHT_ATT_NAME = "RecoveryUprightAtt"
 
@@ -91,8 +94,14 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 		-- Light ground flinch, still on its feet
 		duration = 0.2
 	elseif kbType == "slam_landing" then
-		duration = 0.35
-		AnimationModule.playConfig(humanoid, "Attacks.Specials.SlamImpact", 1.0, Enum.AnimationPriority.Action4, false)
+		clipPath = SLAM_LANDINGS[math.random(1, #SLAM_LANDINGS)]
+		local track = AnimationModule.playConfig(humanoid, clipPath, 1.0, Enum.AnimationPriority.Action4, false)
+		if not track or track.Length <= 0 then
+			-- The asset has not loaded (or cannot): use the other landing rather than no pose at all
+			clipPath = SLAM_LANDINGS[1]
+			AnimationModule.playConfig(humanoid, clipPath, 1.0, Enum.AnimationPriority.Action4, false)
+		end
+		duration = AnimationModule.getEffectiveDuration(humanoid, clipPath, 1.0) * GET_UP_HANDOVER
 	else
 		clipPath = isHeavy and GET_UP_HEAVY or GET_UP_FAST
 		AnimationModule.playConfig(humanoid, clipPath, 1.0, Enum.AnimationPriority.Action4, false)
@@ -117,7 +126,6 @@ function RecoveryState.exit(fighter, humanoid, rootPart)
 	end
 
 	-- Purge residual reaction tracks
-	AnimationModule.stopConfig(humanoid, "Attacks.Specials.SlamImpact", 0.15)
 	AnimationModule.stop(humanoid, AnimationIds.FallAirKnockback, 0.1)
 	AnimationModule.stop(humanoid, AnimationIds.Knockback, 0.1)
 

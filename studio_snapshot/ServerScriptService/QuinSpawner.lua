@@ -85,6 +85,27 @@ end
 local COLLISION_BODY_SIZE = Vector3.new(2.4, 6.8, 1.8)
 local COLLISION_BODY_FLOOR_CLEARANCE = 0.5
 
+-- Ankle and toe joints sit this far above the sole (matches the foot IK's ankle height)
+local ANKLE_ABOVE_SOLE = 0.46
+local TOE_ABOVE_SOLE = 0.14
+
+-- Distance from the root's centre down to the soles in the rig's bind pose, or nil without foot bones
+local function soleDepthBelowRoot(model, hrp)
+	local depth = nil
+	local function consider(boneName, aboveSole)
+		local bone = model:FindFirstChild(boneName, true)
+		if bone and bone:IsA("Bone") then
+			local below = -hrp.CFrame:PointToObjectSpace(bone.WorldPosition).Y + aboveSole
+			depth = math.max(depth or below, below)
+		end
+	end
+	consider("mixamorig:LeftFoot", ANKLE_ABOVE_SOLE)
+	consider("mixamorig:RightFoot", ANKLE_ABOVE_SOLE)
+	consider("mixamorig:LeftToeBase", TOE_ABOVE_SOLE)
+	consider("mixamorig:RightToeBase", TOE_ABOVE_SOLE)
+	return depth
+end
+
 local function buildPhysicsBody(model)
 	local hrp = model:FindFirstChild("HumanoidRootPart")
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -105,6 +126,14 @@ local function buildPhysicsBody(model)
 		end
 		sounds.CFrame = hrp.CFrame
 		for _, w in ipairs(welds) do w.Enabled = true end
+	end
+
+	-- Stand the rig on its own soles. The clips put the planted foot ~5.4 studs below the root
+	-- (measured), while a HipHeight of 3.8 floated the root 5.1 above the floor: every planted
+	-- foot sat 0.3 studs inside the ground. HipHeight now comes from the rig's leg length.
+	local soleDepth = soleDepthBelowRoot(model, hrp)
+	if soleDepth then
+		humanoid.HipHeight = soleDepth - hrp.Size.Y / 2
 	end
 
 	local existing = model:FindFirstChild("CollisionBody")

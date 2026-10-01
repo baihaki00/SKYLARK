@@ -419,6 +419,10 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
 	if desiredAnim == "Movement.Run" then
 		-- Base gait: shared stride-matched Walk/Run blend driven by real ground speed
+		-- (the start overlay hands over here instead of playing out over the sprint)
+		if data.currentAnim and data.currentAnim ~= "Gait" then
+			AnimationModule.stopConfig(humanoid, data.currentAnim, 0.2)
+		end
 		data.currentAnim = "Gait"
 		if not isFreefall then
 			GaitModule.update(humanoid, rootPart, dt)

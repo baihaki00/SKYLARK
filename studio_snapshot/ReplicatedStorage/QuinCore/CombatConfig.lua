@@ -249,7 +249,7 @@ local CombatConfig = {
 	RetreatObstaclePenalty = 2.2,            -- Weight for obstacle collision avoidance in retreat
 
 	-- Locomotion & Physicality Parameters (Rule 2 & Rule 6)
-	Locomotion_Acceleration = 80.0,          -- studs/s^2 forward drive acceleration
+	Locomotion_Acceleration = 55.0,          -- studs/s^2 forward drive acceleration (rest to sprint in ~0.7s: three or four strides)
 	Locomotion_BrakingDeceleration = 95.0,    -- studs/s^2 smooth braking deceleration (natural 1-2 step decel plant)
 	Locomotion_TractionSlipFactor = 0.35,     -- slip traction multiplier during sharp 180° direction reversals
 	Locomotion_MaxTurnRate = 22.0,            -- rad/s maximum angular turn rate
@@ -280,14 +280,14 @@ local CombatConfig = {
 	-- normalized time of the left-foot plant). Re-measure if a clip or the rig scale changes.
 	Gait_WalkAuthoredSpeed = 6.90,           -- studs/s ground speed of Movement.WalkConfident at 1.0x
 	Gait_JogAuthoredSpeed = 8.4,             -- studs/s ground speed of Movement.Jog at 1.0x (calibrated in-game)
-	Gait_RunAuthoredSpeed = 26.8,            -- studs/s ground speed of Movement.Run at 1.0x (calibrated in-game)
+	Gait_RunAuthoredSpeed = 29.5,            -- studs/s ground speed of Movement.Run at 1.0x (stance-foot travel measured on the rig: 28.7-31.6)
 	Gait_WalkPlantPhase = 0.31,              -- normalized time of the left-foot plant in Walk
 	Gait_JogPlantPhase = 0.34,               -- normalized time of the left-foot plant in Jog
 	Gait_RunPlantPhase = 0.46,               -- normalized time of the left-foot plant in Run
 	Gait_WalkToJogStart = 7.5,               -- studs/s where Jog starts blending in over Walk
 	Gait_WalkToJogEnd = 10.0,                -- studs/s where the blend is fully Jog
-	Gait_JogToRunStart = 15.0,               -- studs/s where Run starts blending in over Jog
-	Gait_JogToRunEnd = 26.0,                 -- studs/s where the blend is fully Run
+	Gait_JogToRunStart = 11.0,               -- studs/s where Run starts blending in over Jog (Jog tops out near 12.6)
+	Gait_JogToRunEnd = 18.0,                 -- studs/s where the blend is fully Run (Run plays at ~0.67x there)
 	Gait_MinPlayRate = 0.60,                 -- cadence floor for the dominant clip (avoids slow-motion legs)
 	Gait_MaxPlayRate = 1.50,                 -- cadence ceiling for the dominant clip (above this the feet slide a little instead of flailing)
 	Gait_IdleBlendSpeed = 3.0,               -- studs/s by which the gait fully covers the idle pose underneath
@@ -295,7 +295,7 @@ local CombatConfig = {
 	-- Player pilot gait speeds (Z toggles walk, default jog, hold Shift to run)
 	Player_WalkSpeed = 7.5,                  -- studs/s walking (Walk clip ~1.1x)
 	Player_JogSpeed = 12.0,                  -- studs/s jogging (Jog clip ~1.43x)
-	Player_RunSpeed = 40.0,                  -- studs/s running (Run clip ~1.49x; above ~40 the feet start to slide)
+	Player_RunSpeed = 40.0,                  -- studs/s running (Run clip ~1.36x)
 
 	-- Run Slide (Movement.Slide). Times are in clip seconds at 1.0x, read from the clip's markers
 	-- and pose profile: run stride -> StartSlide drop -> low glide -> SlideStop rise -> run strides.
@@ -354,6 +354,15 @@ local CombatConfig = {
 	DebugVisualizers_Enabled = true,             -- enable 3D visualizer subsystem (toggled via HUD or 'V' key)
 	DebugVisualizers_ShowAllNearby = false,      -- true to show all nearby Quins; false for spectated Quin only
 }
+
+-- Strafe clips: ground speed of the planted foot at 1.0x, measured on the rig. Circling strafes
+-- at exactly these paces so the feet stay planted (it used 10 / 20 / 30 studs/s before).
+CombatConfig.Strafe_TiredPace = 0.65 -- a tired Quin strafes at this fraction of the walk-strafe clip's pace
+CombatConfig.Strafe_WalkAuthoredSpeed = 6.5
+CombatConfig.Strafe_RunAuthoredSpeed = 18.5
+CombatConfig.Strafe_MinPlayRate = 0.6
+CombatConfig.Strafe_MaxPlayRate = 1.35
+CombatConfig.Circling_MaxFacingBias = 35 -- degrees the body may turn off its target to keep a strafe exactly sideways
 
 -- Motion continuity (16v16 movement audit)
 CombatConfig.Knockback_MaxLaunchHorizontal = 110.0 -- studs/s cap on an air-knockback launch (uncapped finishers reached 220+ and threw victims out of the arena)

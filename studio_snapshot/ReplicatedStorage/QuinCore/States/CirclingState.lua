@@ -1,52 +1,122 @@
 --// CirclingState.lua
 -- The Standoff. Tension builds before a massive strike.
+--
+-- Locomotion contract: the legs always match the motion.
+--   * Strafe form  - the Quin faces its target and moves along the circle. Strafe clips only
+--     travel straight sideways, so the body is turned (by at most Circling_MaxFacingBias) until
+--     the real motion is exactly sideways, and the pace is the clip's own ground speed. The
+--     clip's play rate follows the measured sideways speed; a Quin that is not moving shows idle.
+--   * Travel form  - when the intended direction is not along the circle (retreating, rescuing,
+--     leaving an edge) the body faces where it is going and the shared gait carries it.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Debris = game:GetService("Debris")
+local CollectionService = game:GetService("CollectionService")
 
-local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TargetingModule"))
-local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
-local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
-local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
-local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
-local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
-local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
-local BattleEventSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
+local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
+local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
+local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+local AnimationIds = require(QuinCore:WaitForChild("AnimationIds"))
+local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
+local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 
 local CirclingState = { name = "Circling" }
 
--- ==========================================
--- 🛠️ ANIMATION TEST MODE CONFIGURATION 🛠️
--- ==========================================
-local TEST_MODE_ACTIVE = false -- Set to true to make them circle infinitely for debugging
-local STRAFE_RADIUS = 30.0    -- The ideal distance they try to maintain while circling
-local INWARD_PULL = 0.6       -- How strongly they pull inwards (0.0 = perfect circle, 1.0 = spiral inwards)
-local FACE_SPEED = 0.7        -- How fast they rotate to face each other (0.1 = slow, 1.0 = instant)
-local STRAFE_SPEED_MULT = 0.41 -- Physical speed multiplier (1.0 = sprint speed, 0.4 = walk)
--- ==========================================
+local TEST_MODE_ACTIVE = false -- true keeps them circling forever (animation debugging)
+local DEFAULT_RADIUS = 30.0
+
+-- Strafe clip per tension. `speed` is the clip's ground speed at 1.0x, measured on the rig
+-- (CombatConfig.Strafe_*AuthoredSpeed overrides it); the Quin strafes at `pace` times that.
+-- A tired Quin walks its strafe slowly: the StrafeTired clips drag both feet (3.5 studs of
+-- foot travel per cycle for under 1 stud of ground), so they slide at any pace.
+local STRAFE_CLIPS = {
+	tired = { left = "StrafeLeftWalk", right = "StrafeRightWalk", speedKey = "Strafe_WalkAuthoredSpeed", speed = 6.5, paceKey = "Strafe_TiredPace", pace = 0.65 },
+	walk = { left = "StrafeLeftWalk", right = "StrafeRightWalk", speedKey = "Strafe_WalkAuthoredSpeed", speed = 6.5 },
+	run = { left = "StrafeLeftRun", right = "StrafeRightRun", speedKey = "Strafe_RunAuthoredSpeed", speed = 18.5 },
+}
+
+-- A different strafe clip must stay wanted this long, and clips switch at most this often
+local CLIP_SWITCH_CONFIRM = 0.3
+local CLIP_SWITCH_INTERVAL = 0.6
+-- Below this fraction of the clip's ground speed the Quin is treated as standing
+local STANDING_SPEED_RATIO = 0.25
+-- A Quin that arrives faster than its strafe clip can step (carried sprint, a shove) runs the
+-- momentum off facing its travel; it squares up to strafe once it has slowed. Ratios are of the
+-- clip's fastest ground speed.
+local CARRY_ENTER_RATIO = 1.5
+local CARRY_EXIT_RATIO = 1.1
+
+local GYRO_NAME = "CirclingGyro"
 
 local circlingData = {}
 
+local function flatUnit(v, fallback)
+	local flat = Vector3.new(v.X, 0, v.Z)
+	return flat.Magnitude > 0.01 and flat.Unit or fallback
+end
+
+local function ensureGyro(rootPart)
+	local gyro = rootPart:FindFirstChild(GYRO_NAME)
+	if not gyro then
+		gyro = Instance.new("AlignOrientation")
+		gyro.Name = GYRO_NAME
+		gyro.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+		att.Name = "RootAttachment"
+		gyro.Attachment0 = att
+		gyro.RigidityEnabled = false
+		gyro.Responsiveness = 25
+		gyro.MaxTorque = 100000
+		gyro.CFrame = rootPart.CFrame
+		gyro.Parent = rootPart
+	end
+	return gyro
+end
+
+local function stopStrafeClip(humanoid, data, fade)
+	if data.currentAnim then
+		AnimationModule.stop(humanoid, data.currentAnim, fade)
+		data.currentAnim = nil
+	end
+end
+
+local function livingSides(fighter)
+	local myTeam = fighter:GetAttribute("Team")
+	local enemies, allies = {}, {}
+	for _, quin in ipairs(CollectionService:GetTagged("Quin")) do
+		if quin ~= fighter and quin.Parent and quin:FindFirstChild("HumanoidRootPart") then
+			local hum = quin:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				table.insert(quin:GetAttribute("Team") ~= myTeam and enemies or allies, quin)
+			end
+		end
+	end
+	return enemies, allies
+end
+
 function CirclingState.enter(fighter, humanoid, rootPart)
-	local dir = math.random() > 0.5 and 1 or -1
 	local tensionRoll = math.random()
 	local tension = "walk"
-	if tensionRoll > 0.8 then tension = "run"
-	elseif tensionRoll < 0.3 then tension = "tired" end
+	if tensionRoll > 0.8 then
+		tension = "run"
+	elseif tensionRoll < 0.3 then
+		tension = "tired"
+	end
 
 	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
 	local confidence = fighter:GetAttribute("Pers_Confidence") or 0.6
 
 	-- Personality-driven duration and radius
-	local duration = 3.0
-	local idealRadius = STRAFE_RADIUS
+	local duration, idealRadius
 	if aggression > 0.70 then
 		idealRadius = 16.0 + math.random() * 6.0 -- Tight circle (16 - 22)
-		duration = 1.4 + math.random() * 1.2    -- Quick snap (1.4 - 2.6s)
+		duration = 1.4 + math.random() * 1.2 -- Quick snap (1.4 - 2.6s)
 	elseif aggression < 0.45 or confidence < 0.45 then
 		idealRadius = 28.0 + math.random() * 8.0 -- Wide standoff (28 - 36)
-		duration = 3.5 + math.random() * 2.0    -- Long standoff (3.5 - 5.5s)
+		duration = 3.5 + math.random() * 2.0 -- Long standoff (3.5 - 5.5s)
 	else
 		idealRadius = 22.0 + math.random() * 8.0
 		duration = 2.2 + math.random() * 1.8
@@ -55,76 +125,38 @@ function CirclingState.enter(fighter, humanoid, rootPart)
 	local now = tick()
 	circlingData[fighter] = {
 		enterTime = now,
+		lastUpdateTime = now,
 		duration = duration,
-		direction = dir,
+		direction = math.random() > 0.5 and 1 or -1,
 		tension = tension,
-		hasSnapped = false,
 		currentAnim = nil,
 		idealRadius = idealRadius,
 		nextFeintTime = now + (1.2 + math.random() * 1.6),
 	}
-	
+
 	RuntimeTracer.checkpoint(fighter, string.format("Enter Circling (Tension=%s)", tension))
-	
-	AnimationModule.stop(humanoid, AnimationIds.Run)
-	AnimationModule.stop(humanoid, AnimationIds.Run, 0.15)
+
 	AnimationModule.stop(humanoid, AnimationIds.Jump, 0.15)
 	AnimationModule.stop(humanoid, AnimationIds.Fall, 0.15)
 	AnimationModule.stopCategory(humanoid, "Attacks", 0.1)
-	
-	-- Pick animation
-	local animId = AnimationIds.StrafeRightWalk
-	if dir == 1 then -- Right
-		if tension == "run" then animId = AnimationIds.StrafeRightRun
-		elseif tension == "walk" then animId = AnimationIds.StrafeRightWalk
-		else animId = AnimationIds.StrafeRightTired end
-	else -- Left
-		if tension == "run" then animId = AnimationIds.StrafeLeftRun
-		elseif tension == "walk" then animId = AnimationIds.StrafeLeftWalk
-		else animId = AnimationIds.StrafeLeftTired end
-	end
-	
-	circlingData[fighter].currentAnim = animId
-	circlingData[fighter].lastUpdateTime = now
-	
-	local speed = fighter:GetAttribute("Speed") or 40
-	local targetStrafeSpeed = speed * (tension == "run" and 0.6 or (tension == "walk" and STRAFE_SPEED_MULT or 0.2))
-	LocomotionModule.modulateSpeed(fighter, humanoid, targetStrafeSpeed, 0.05)
-	
-	-- Mark strafing active and disable AutoRotate so physics AlignOrientation controls facing without fighting
+
+	-- The gyro owns facing for the whole state (update picks the facing and the leg clip)
 	fighter:SetAttribute("IsStrafing", true)
 	humanoid.AutoRotate = false
-	
-	local alignOri = rootPart:FindFirstChild("CirclingGyro")
-	if not alignOri then
-		alignOri = Instance.new("AlignOrientation")
-		alignOri.Name = "CirclingGyro"
-		alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
-		att.Name = "RootAttachment"
-		alignOri.Attachment0 = att
-		alignOri.RigidityEnabled = false
-		alignOri.Responsiveness = 15 -- Gentle, physics-friendly rotation
-		alignOri.MaxTorque = 100000 -- Controlled torque
-		alignOri.CFrame = rootPart.CFrame
-		alignOri.Parent = rootPart
-	end
-	
-	-- Play guard/idle animation
-	AnimationModule.play(humanoid, animId, Enum.AnimationPriority.Movement, true, 1.0, 0.3)
+	ensureGyro(rootPart)
 end
 
 function CirclingState.exit(fighter, humanoid, rootPart)
 	RuntimeTracer.checkpoint(fighter, "Exit Circling")
 	fighter:SetAttribute("IsStrafing", false)
 	local data = circlingData[fighter]
-	if data and data.currentAnim then
-		AnimationModule.stop(humanoid, data.currentAnim, 0.15)
+	if data then
+		stopStrafeClip(humanoid, data, 0.15)
 	end
 	humanoid.AutoRotate = true
-	local alignOri = rootPart:FindFirstChild("CirclingGyro")
-	if alignOri then
-		alignOri:Destroy()
+	local gyro = rootPart:FindFirstChild(GYRO_NAME)
+	if gyro then
+		gyro:Destroy()
 	end
 	circlingData[fighter] = nil
 end
@@ -142,7 +174,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		humanoid.UseJumpPower = true
 		humanoid.JumpPower = 0
 		humanoid.JumpHeight = 0
-		local LeaderShowdownSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LeaderShowdownSystem"))
+		local LeaderShowdownSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("LeaderShowdownSystem"))
 		LeaderShowdownSystem.constrainToRing(rootPart)
 	end
 
@@ -150,18 +182,17 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	if not data then return require(script.Parent:WaitForChild("FightState")) end
 
 	-- Prone / Cockroach protection: if flat on ground, immediately recover
-	local upY = rootPart.CFrame.UpVector.Y
-	if upY < 0.6 and SpatialModule.isGrounded(rootPart) then
+	if rootPart.CFrame.UpVector.Y < 0.6 and SpatialModule.isGrounded(rootPart) then
 		fighter:SetAttribute("KnockbackType", "hard_ground")
 		return require(script.Parent:WaitForChild("RecoveryState"))
 	end
-	
-	-- Mana / Energy recovery while pacing & circling
+
+	-- Mana / Energy recovery while pacing & circling (two terms, as before: one scales with game speed)
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+	local recoveryRate = CombatConfig.EnergyRecovery_Walk or 15
 	local energy = fighter:GetAttribute("Energy") or 100
-	local recovery = (CombatConfig.EnergyRecovery_Walk or 15) * 0.1 * speedMult
-	fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recovery))
-	
+	fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recoveryRate * 0.1 * speedMult + recoveryRate * 0.1))
+
 	local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 60) * 1.5)
 	if not target then
 		target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange)
@@ -172,31 +203,26 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 			return require(script.Parent:WaitForChild("IdleState"))
 		end
 	end
-	
+
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
 	local targetState = target:GetAttribute("CurrentState")
-	
-	-- Maintain continuous strafe track smoothly without cutting off Action tracks (hit reactions, parries)
-	if data.currentAnim and not AnimationModule.isPlaying(humanoid, data.currentAnim) then
-		AnimationModule.play(humanoid, data.currentAnim, Enum.AnimationPriority.Movement, true, 1.0, 0.2)
-	end
-	
+
 	-- Snap condition 0: Opponent broke the standoff to fight!
 	if targetState == "Fight" or targetState == "Dash" or targetState == "Special" then
 		if DEBUG then print("[Circling] Opponent attacked! FIGHT!") end
 		return require(script.Parent:WaitForChild("FightState"))
 	end
-	
-	-- Snap condition 1: Time's up (tension snap)!
-	-- Snap condition 2: Enemy got too close (below minimum circling range) -> Engage FightState!
-	-- Snap condition 3: Enemy moved too far away (above max circling range) -> Re-enter ChaseState!
+
+	-- Snap condition 1: Time's up (tension snap)
+	-- Snap condition 2: Enemy got too close (below minimum circling range) -> FightState
+	-- Snap condition 3: Enemy moved too far away (above max circling range) -> ChaseState
 	local minCircleRange = (CombatConfig.CombatRange or 8) * 0.7
-	local maxCircleRange = (CombatConfig.CombatRange or 8) * 4.5 -- Allow wider circling (36 studs)
+	local maxCircleRange = (CombatConfig.CombatRange or 8) * 4.5
 	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true)
-	
+
+	local now = tick()
 	if not TEST_MODE_ACTIVE and not isTargetDown then
-		local timeInCircle = tick() - data.enterTime
-		if timeInCircle >= data.duration or distance < minCircleRange then
+		if now - data.enterTime >= data.duration or distance < minCircleRange then
 			-- Tension snapped at close quarters: dash/attack into FightState!
 			local dashMin = CombatConfig.DashMinDistance or 10
 			local dashMax = CombatConfig.DashMaxDistance or 28
@@ -205,65 +231,52 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 			end
 			return require(script.Parent:WaitForChild("FightState"))
 		elseif distance > maxCircleRange then
-			-- Target opened up a gap: pursuit resumes in ChaseState!
 			return require(script.Parent:WaitForChild("ChaseState"))
 		end
 	end
 
-	local now = tick()
-	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
-
-	-- Dynamic Strafe Reversals & Martial Arts Feints (Agile fighters change strafe direction)
+	-- Strafe reversals / feints (agile fighters change direction)
 	if data.nextFeintTime and now >= data.nextFeintTime and not isTargetDown then
+		local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
 		if mobility > 0.58 and math.random() < 0.65 then
 			data.direction = -data.direction
-			local oldAnim = data.currentAnim
-			local newAnim = (data.direction == 1)
-				and ((data.tension == "run") and AnimationIds.StrafeRightRun or ((data.tension == "walk") and AnimationIds.StrafeRightWalk or AnimationIds.StrafeRightTired))
-				or ((data.tension == "run") and AnimationIds.StrafeLeftRun or ((data.tension == "walk") and AnimationIds.StrafeLeftWalk or AnimationIds.StrafeLeftTired))
-			data.currentAnim = newAnim
-			if oldAnim and oldAnim ~= newAnim then
-				AnimationModule.stop(humanoid, oldAnim, 0.15)
-				AnimationModule.play(humanoid, newAnim, Enum.AnimationPriority.Movement, true, 1.0, 0.2)
-			end
 			data.nextFeintTime = now + (1.6 + math.random() * 2.2)
 			BattleEventSystem.emit("FeintStrafe", { Model = fighter, TargetName = target.Name })
 		else
 			data.nextFeintTime = now + (2.0 + math.random() * 2.0)
 		end
 	end
-	
-	-- Circling Math (Strafe around target)
-	local toTarget = (targetHRP.Position - rootPart.Position)
-	local rightVector = toTarget:Cross(Vector3.new(0, 1, 0)).Unit * data.direction
-	
-	-- Stay roughly at ideal circling distance (scaled by personality, clamped for pure orbit)
-	local idealDistance = isTargetDown and 25.0 or (data.idealRadius or STRAFE_RADIUS)
+
+	-- === Intended direction ===
+	local fallbackLook = flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1))
+	local targetDir = flatUnit(targetHRP.Position - rootPart.Position, fallbackLook)
+	local bodyRightFacingTarget = targetDir:Cross(Vector3.yAxis) -- the Quin's right when it faces the target
+	local tangent = bodyRightFacingTarget * data.direction
+
+	-- Orbit: along the circle, corrected toward the ideal radius
+	local idealDistance = isTargetDown and 25.0 or (data.idealRadius or DEFAULT_RADIUS)
 	local distanceError = math.clamp((distance - idealDistance) * 0.05, -0.20, 0.20)
-	local inwardVector = toTarget.Unit * distanceError
-	
-	local moveDirection = (rightVector + inwardVector).Unit
+	local moveDirection = (tangent + targetDir * distanceError).Unit
 
 	-- Tactical Flanking (Pincer Maneuver): if an ally is already engaging the target in front, flank around
 	local myTeam = fighter:GetAttribute("Team")
 	if myTeam then
-		local forwardDir = targetHRP.CFrame.LookVector
-		local toMe = (rootPart.Position - targetHRP.Position).Unit
-		if forwardDir:Dot(toMe) > 0.2 then
-			local allyCountInFront = 0
-			for _, otherQuin in ipairs(game:GetService("CollectionService"):GetTagged("Quin")) do
-				if otherQuin ~= fighter and otherQuin:GetAttribute("Team") == myTeam and otherQuin.Parent then
-					local oHRP = otherQuin:FindFirstChild("HumanoidRootPart")
-					if oHRP and (oHRP.Position - targetHRP.Position).Magnitude < 20 then
-						local allyToTarget = (oHRP.Position - targetHRP.Position).Unit
-						if forwardDir:Dot(allyToTarget) > 0.2 then
-							allyCountInFront = allyCountInFront + 1
-						end
+		local targetLook = targetHRP.CFrame.LookVector
+		local toMe = flatUnit(rootPart.Position - targetHRP.Position, -targetDir)
+		if targetLook:Dot(toMe) > 0.2 then
+			local allyInFront = false
+			for _, other in ipairs(CollectionService:GetTagged("Quin")) do
+				if other ~= fighter and other:GetAttribute("Team") == myTeam and other.Parent then
+					local oHRP = other:FindFirstChild("HumanoidRootPart")
+					if oHRP and (oHRP.Position - targetHRP.Position).Magnitude < 20
+						and targetLook:Dot((oHRP.Position - targetHRP.Position).Unit) > 0.2 then
+						allyInFront = true
+						break
 					end
 				end
 			end
-			if allyCountInFront >= 1 then
-				local flankOffset = rightVector * 1.5 - forwardDir * 0.8
+			if allyInFront then
+				local flankOffset = tangent * 1.5 - targetLook * 0.8
 				moveDirection = (moveDirection + flankOffset.Unit * 0.85).Unit
 			end
 		end
@@ -274,156 +287,132 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Tactical state modulation (Disengagement / Rescue / Reposition)
 	local tacticalState = fighter:GetAttribute("TacticalState")
 	if tacticalState == "RETREATING" then
-		-- Phase 3: Intelligent Safe Haven Retreat using radial evaluation
-		local CollectionService = game:GetService("CollectionService")
-		local myTeam = fighter:GetAttribute("Team")
-		local enemies = {}
-		local allies = {}
-		for _, quin in ipairs(CollectionService:GetTagged("Quin")) do
-			if quin ~= fighter and quin.Parent and quin:FindFirstChild("HumanoidRootPart") then
-				local qTeam = quin:GetAttribute("Team")
-				local qHum = quin:FindFirstChildOfClass("Humanoid")
-				if qHum and qHum.Health > 0 then
-					if qTeam ~= myTeam then
-						table.insert(enemies, quin)
-					else
-						table.insert(allies, quin)
-					end
-				end
-			end
-		end
-
+		-- Intelligent Safe Haven Retreat using radial evaluation
+		local enemies, allies = livingSides(fighter)
 		local retreatResult = SpatialModule.getSafeRetreatDirection(rootPart, enemies, allies, CombatConfig)
-		local safeDir = retreatResult.direction
-		local retreatScore = retreatResult.score
-		local isCornered = retreatResult.isCornered
+		fighter:SetAttribute("RetreatScore", math.round(retreatResult.score * 100) / 100)
+		fighter:SetAttribute("IsCornered", retreatResult.isCornered)
 
-		fighter:SetAttribute("RetreatScore", math.round(retreatScore * 100) / 100)
-		fighter:SetAttribute("IsCornered", isCornered)
-
-		if isCornered then
-			-- Cornered beast: no safe retreat available
+		if retreatResult.isCornered then
+			-- Cornered beast: an aggressive fighter with the enemy in reach counter-strikes instead
 			local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-			local corneredThreshold = CombatConfig.CorneredCounterThreshold or 0.65
 			local meleeRange = (CombatConfig.CombatRange or 8) * 2.0
-			if aggression >= corneredThreshold and distance <= meleeRange then
-				-- Aggressive fighter in melee proximity: desperate counter-strike instead of futile retreat
+			if aggression >= (CombatConfig.CorneredCounterThreshold or 0.65) and distance <= meleeRange then
 				fighter:SetAttribute("DesperateCounter", true)
 				return require(script.Parent:WaitForChild("FightState"))
 			end
-			-- Less aggressive or enemy too far: still try to move in best available direction
 		end
 
-		-- Blend safe haven direction with slight inward pull to maintain circling feel
-		moveDirection = (safeDir * 1.5 + (centerPull.Magnitude > 0.1 and centerPull.Unit or Vector3.zero) * 0.3).Unit
+		moveDirection = (retreatResult.direction * 1.5 + (centerPull.Magnitude > 0.1 and centerPull.Unit or Vector3.zero) * 0.3).Unit
 	elseif tacticalState == "RESCUING" then
-		local distAllyName = fighter:GetAttribute("DistressedAllyName")
-		if distAllyName and distAllyName ~= "" then
-			local dAlly = workspace:FindFirstChild(distAllyName) or (workspace:FindFirstChild("QuinServer") and workspace.QuinServer:FindFirstChild(distAllyName))
-			if dAlly and dAlly:FindFirstChild("HumanoidRootPart") then
-				local toAlly = (dAlly.HumanoidRootPart.Position - rootPart.Position).Unit
-				moveDirection = (toAlly * 1.4 + rightVector * 0.4).Unit
+		local allyName = fighter:GetAttribute("DistressedAllyName")
+		if allyName and allyName ~= "" then
+			local ally = workspace:FindFirstChild(allyName) or (workspace:FindFirstChild("QuinServer") and workspace.QuinServer:FindFirstChild(allyName))
+			local allyHRP = ally and ally:FindFirstChild("HumanoidRootPart")
+			if allyHRP then
+				moveDirection = ((allyHRP.Position - rootPart.Position).Unit * 1.4 + tangent * 0.4).Unit
 			end
 		end
 	end
-	
+
 	-- Edge detection & Center Bias
-	local nearEdge, awayDir = SpatialModule.isNearArenaEdge(rootPart, 15) -- Increased edge detection range
+	local nearEdge, awayDir = SpatialModule.isNearArenaEdge(rootPart, 15)
 	if nearEdge then
 		moveDirection = (moveDirection + awayDir * 1.5).Unit
 	end
-	
 	if centerPull.Magnitude > 0.1 then
 		moveDirection = (moveDirection + centerPull.Unit * 0.6).Unit
 	end
-	
-	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-	local speed = (fighter:GetAttribute("Speed") or 40) * speedMult
-	local lastUpdate = data.lastUpdateTime or (now - 0.05)
-	local dt = math.clamp(now - lastUpdate, 0.016, 0.25)
+	moveDirection = flatUnit(moveDirection, tangent)
+
+	-- === Locomotion form ===
+	-- side > 0: the motion is toward the Quin's right while it faces the target. The strafe
+	-- form applies while the motion is within Circling_MaxFacingBias of straight sideways.
+	local side = moveDirection:Dot(bodyRightFacingTarget)
+	local maxBias = math.rad(CombatConfig.Circling_MaxFacingBias or 35)
+	local clipSet = STRAFE_CLIPS[data.tension] or STRAFE_CLIPS.walk
+	local clipSpeed = CombatConfig[clipSet.speedKey] or clipSet.speed
+
+	local velocity = rootPart.AssemblyLinearVelocity
+	local planar = Vector3.new(velocity.X, 0, velocity.Z)
+	local strafeTopSpeed = clipSpeed * (CombatConfig.Strafe_MaxPlayRate or 1.35) * speedMult
+	if planar.Magnitude > strafeTopSpeed * CARRY_ENTER_RATIO then
+		data.carryingMomentum = true
+	elseif planar.Magnitude < strafeTopSpeed * CARRY_EXIT_RATIO then
+		data.carryingMomentum = false
+	end
+	-- Momentum that is not yet along the intended path (arriving head-on at the target) is run
+	-- off the same way: the strafe clips cannot step forward
+	local offPath = planar.Magnitude > clipSpeed * 0.5 and planar.Unit:Dot(moveDirection) < 0.5
+	local drifting = data.carryingMomentum or offPath
+	local strafing = math.abs(side) >= math.cos(maxBias) and not drifting
+	local travelSpeed = (data.tension == "run") and (CombatConfig.Player_JogSpeed or 12.0) or (CombatConfig.Player_WalkSpeed or 7.5)
+	local strafePace = clipSpeed * ((clipSet.paceKey and CombatConfig[clipSet.paceKey]) or clipSet.pace or 1)
+	local targetSpeed = (strafing and strafePace or travelSpeed) * speedMult
+
+	local dt = math.clamp(now - (data.lastUpdateTime or (now - 0.05)), 0.016, 0.25)
 	data.lastUpdateTime = now
+	LocomotionModule.steer(fighter, humanoid, rootPart, rootPart.Position + moveDirection * 15, targetSpeed, dt)
 
-	local targetStrafeSpeed = speed * (data.tension == "run" and 0.6 or (data.tension == "walk" and STRAFE_SPEED_MULT or 0.2))
-
-	-- Authoritative continuous vector steering (replaces stuttering humanoid:MoveTo)
-	local driveTarget = rootPart.Position + moveDirection * 15
-	LocomotionModule.steer(fighter, humanoid, rootPart, driveTarget, targetStrafeSpeed, dt)
-	
-	-- Energy recovery during circling
-	local energy = fighter:GetAttribute("Energy") or 100
-	local recovery = (CombatConfig.EnergyRecovery_Walk or 4) * 0.1
-	fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recovery))
-	
-	-- Face the target smoothly via AlignOrientation (Authoritative physics torque, zero CFrame snapping)
-	local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
-	local alignOri = rootPart:FindFirstChild("CirclingGyro")
-	if not alignOri then
-		alignOri = Instance.new("AlignOrientation")
-		alignOri.Name = "CirclingGyro"
-		alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
-		att.Name = "RootAttachment"
-		alignOri.Attachment0 = att
-		alignOri.RigidityEnabled = false
-		alignOri.Responsiveness = 25
-		alignOri.MaxTorque = 50000
-		alignOri.CFrame = rootPart.CFrame
-		alignOri.Parent = rootPart
+	-- Facing follows the real motion once the body is moving, so the legs match what the body
+	-- is actually doing rather than what was asked of it a moment ago
+	local motion = moveDirection
+	if planar.Magnitude > 2.0 and (drifting or planar.Unit:Dot(moveDirection) > 0.5) then
+		motion = planar.Unit
 	end
-	alignOri.CFrame = lookCF
 
-	-- Dynamic Strafe Angle Animation Matching:
-	-- Compute movement vector in rootPart's local space to determine exact physical direction
-	local localMove = rootPart.CFrame:VectorToObjectSpace(moveDirection)
-	local lateralMag = math.abs(localMove.X)
-	local longitudinalMag = math.abs(localMove.Z)
+	local look
+	if strafing then
+		-- Turn the body so that the motion is exactly along its right (or left) axis
+		look = side > 0 and Vector3.new(motion.Z, 0, -motion.X) or Vector3.new(-motion.Z, 0, motion.X)
+	else
+		look = motion
+	end
+	ensureGyro(rootPart).CFrame = CFrame.lookAt(Vector3.zero, look)
 
-	local desiredAnim = data.currentAnim
-	if lateralMag >= longitudinalMag * 0.75 then
-		-- Lateral strafe dominates
-		if localMove.X > 0 then
-			desiredAnim = (data.tension == "run") and AnimationIds.StrafeRightRun or AnimationIds.StrafeRightWalk
+	-- === Legs ===
+	if strafing then
+		if GaitModule.isActive(humanoid) then
+			GaitModule.stop(humanoid, 0.2)
+		end
+
+		local desiredAnim = AnimationIds[side > 0 and clipSet.right or clipSet.left]
+		local lateralSpeed = math.abs(planar:Dot(rootPart.CFrame.RightVector))
+
+		if lateralSpeed < clipSpeed * STANDING_SPEED_RATIO then
+			-- Not actually moving (blocked, turning around): no stepping in place
+			stopStrafeClip(humanoid, data, 0.2)
+			data.pendingAnim = nil
+			AnimationModule.ensureBaseIdle(humanoid)
 		else
-			desiredAnim = (data.tension == "run") and AnimationIds.StrafeLeftRun or AnimationIds.StrafeLeftWalk
+			if data.currentAnim and desiredAnim ~= data.currentAnim then
+				-- Hold: the other clip has to stay wanted briefly before the legs switch
+				if data.pendingAnim ~= desiredAnim then
+					data.pendingAnim = desiredAnim
+					data.pendingSince = now
+				end
+				local confirmed = (now - data.pendingSince) >= CLIP_SWITCH_CONFIRM
+					and (now - (data.lastAnimSwitch or 0)) >= CLIP_SWITCH_INTERVAL
+				if confirmed then
+					stopStrafeClip(humanoid, data, 0.25)
+				end
+			else
+				data.pendingAnim = nil
+			end
+
+			if not data.currentAnim then
+				data.currentAnim = desiredAnim
+				data.lastAnimSwitch = now
+			end
+			local rate = math.clamp(lateralSpeed / clipSpeed, CombatConfig.Strafe_MinPlayRate or 0.6, CombatConfig.Strafe_MaxPlayRate or 1.35)
+			AnimationModule.play(humanoid, data.currentAnim, Enum.AnimationPriority.Movement, true, rate / speedMult, 0.25)
 		end
-	elseif localMove.Z < 0 then
-		-- Forward advance dominates
-		desiredAnim = AnimationIds.WalkConfident or AnimationIds.Walk
 	else
-		-- Backward retreat arc dominates
-		desiredAnim = (localMove.X > 0) and AnimationIds.ArcRun30RearRight or AnimationIds.ArcRun30RearLeft
+		stopStrafeClip(humanoid, data, 0.2)
+		data.pendingAnim = nil
+		GaitModule.update(humanoid, rootPart, dt)
 	end
 
-	local animSpeed = math.clamp(targetStrafeSpeed / 16.0, 0.6, 1.4)
-	-- Hold: a different clip has to stay wanted for 0.3s, and clips switch at most every 0.6s.
-	-- The move direction hovers around the strafe / advance / retreat boundaries, and switching
-	-- on every tick restarted the leg clip about twice a second.
-	if desiredAnim ~= data.currentAnim then
-		if data.pendingAnim ~= desiredAnim then
-			data.pendingAnim = desiredAnim
-			data.pendingSince = now
-		end
-	else
-		data.pendingAnim = nil
-	end
-	local canSwitchAnim = data.pendingAnim ~= nil
-		and (now - (data.pendingSince or now)) >= 0.3
-		and (now - (data.lastAnimSwitch or 0)) >= 0.6
-	if desiredAnim and data.currentAnim ~= desiredAnim and canSwitchAnim then
-		if data.currentAnim then
-			AnimationModule.stop(humanoid, data.currentAnim, 0.25)
-		end
-		data.currentAnim = desiredAnim
-		data.pendingAnim = nil
-		data.lastAnimSwitch = now
-		AnimationModule.play(humanoid, desiredAnim, Enum.AnimationPriority.Movement, true, animSpeed, 0.25)
-	elseif data.currentAnim then
-		local track = AnimationModule.getTrack(humanoid, data.currentAnim)
-		if track and track.IsPlaying then
-			track:AdjustSpeed(animSpeed)
-		end
-	end
-	
 	return CirclingState
 end
 

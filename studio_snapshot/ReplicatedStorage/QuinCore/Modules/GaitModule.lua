@@ -48,6 +48,8 @@ local GAIT_ORPHAN_TIME = 0.35 -- seconds without a driver before the gait is rel
 local LAUNCH_WINDOW = 0.3 -- after a deliberate jump the Humanoid can still read Running for a frame or two
 local AUTO_DRIVE_INTERVAL = 0.05 -- base-layer fill rate (20 Hz per Quin)
 local AUTO_DRIVE_MIN_SPEED = 1.5 -- studs/s of planar motion before the base layer is filled
+local SPEED_FOLLOW_RATE = 25 -- 1/s; how tightly the gait speed follows the measured velocity
+local STANDSTILL_SPEED = 0.4 -- studs/s below which the Quin is standing: no ground loop plays at all
 -- States that own the whole body (reactions, scripted flight) or select their own
 -- locomotion clips (Circling strafes) are never filled automatically.
 local AUTO_DRIVE_EXCLUDED_STATES = {
@@ -109,8 +111,8 @@ end
 local function blendWeights(speed)
 	local walkEnd = CombatConfig.Gait_WalkToJogStart or 7.5
 	local jogFull = CombatConfig.Gait_WalkToJogEnd or 10.0
-	local jogEnd = CombatConfig.Gait_JogToRunStart or 15.0
-	local runFull = CombatConfig.Gait_JogToRunEnd or 26.0
+	local jogEnd = CombatConfig.Gait_JogToRunStart or 11.0
+	local runFull = CombatConfig.Gait_JogToRunEnd or 18.0
 	local toJog = smoothstep(walkEnd, jogFull, speed)
 	local toRun = smoothstep(jogEnd, runFull, speed)
 	return { 1 - toJog, toJog * (1 - toRun), toRun }
@@ -220,8 +222,9 @@ function GaitModule.update(humanoid, rootPart, dt)
 	st.lastDriven = os.clock()
 	local vel = rootPart.AssemblyLinearVelocity
 	local planarSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
-	-- Light smoothing filters contact-solver noise without visible lag
-	st.speed += (planarSpeed - st.speed) * (1 - math.exp(-12 * dt))
+	-- Light smoothing filters contact-solver noise. The rate has to keep up with a sprint start
+	-- (80 studs/s^2): at 12 the legs trailed the body by ~8 studs/s through every acceleration.
+	st.speed += (planarSpeed - st.speed) * (1 - math.exp(-SPEED_FOLLOW_RATE * dt))
 	local speed = st.speed
 
 	local weights = blendWeights(speed)
@@ -242,11 +245,19 @@ function GaitModule.update(humanoid, rootPart, dt)
 	cadence = math.clamp(cadence, minRate / lens[lead], maxRate / lens[lead])
 
 	-- Fade the whole gait layer over the idle pose near standstill
-	local locoWeight = smoothstep(0.4, CombatConfig.Gait_IdleBlendSpeed or 3.0, speed)
+	local locoWeight = smoothstep(STANDSTILL_SPEED, CombatConfig.Gait_IdleBlendSpeed or 3.0, speed)
 
 	local anyActive = false
 	for _, track in ipairs(tracks) do
 		if isActive(track) then anyActive = true break end
+	end
+	if speed < STANDSTILL_SPEED then
+		-- Standing: the legs belong to the idle pose, not to a loop stepping in place
+		if anyActive then
+			releaseGroundLoops(humanoid, 0.2)
+		end
+		AnimationModule.ensureBaseIdle(humanoid)
+		return nil
 	end
 	if not anyActive then
 		clearForeignMovementTracks(humanoid, own)
@@ -389,7 +400,10 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 				if not AUTO_DRIVE_EXCLUDED_STATES[stateName] and not humanoid.PlatformStand
 					and not hasLocomotionAction(humanoid) and humanoid.WalkSpeed > 0.5 then
 					local v = rootPart.AssemblyLinearVelocity
-					if Vector3.new(v.X, 0, v.Z).Magnitude > AUTO_DRIVE_MIN_SPEED and not GaitModule.hasForeignLocomotion(humanoid) then
+					-- A live gait keeps following the real velocity down to a standstill, so a Quin
+					-- that stops does not keep running in place until the orphan timer fires
+					local moving = Vector3.new(v.X, 0, v.Z).Magnitude > AUTO_DRIVE_MIN_SPEED
+					if (moving or GaitModule.isActive(humanoid)) and not GaitModule.hasForeignLocomotion(humanoid) then
 						GaitModule.update(humanoid, rootPart, fillDt)
 					end
 				end

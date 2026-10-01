@@ -476,12 +476,18 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Evaluate Pacing Strategy (WalkThenSprint, AlternatingPace, ConfidentWalk, ContinuousSprint)
 	-- When energy drops below FatigueThreshold (25 mana), force walk/circle to regenerate mana
+	-- paceReason records why this Quin is walking (PaceReason attribute, for the HUD):
+	-- out of breath, strolling up to an opponent it has put on the ground, or stalking from range.
 	local shouldWalk = false
+	local paceReason = "Sprint"
 	if energy < (CombatConfig.FatigueThreshold or 25) then
 		shouldWalk = true
-	elseif targetState == "Knockback" or targetState == "Airborne" then
+		paceReason = "Fatigue"
+	elseif targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" then
 		shouldWalk = true
+		paceReason = "TargetDown"
 	else
+		paceReason = "Stalk:" .. (data.pacingStrategy or "ContinuousSprint")
 		local strat = data.pacingStrategy or "ContinuousSprint"
 		if strat == "WalkThenSprint" then
 			shouldWalk = (distance > 65)
@@ -510,6 +516,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	elseif shouldWalk then
 		data.wasWalking = true
 	end
+	fighter:SetAttribute("PaceReason", shouldWalk and paceReason or "Sprint")
 
 	-- 4. Long Athletic Dash (Requires minimum 25 mana, cooldown 14-20s, never spammed)
 	local lastDash = fighter:GetAttribute("LastDashTime") or 0
@@ -622,20 +629,21 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		return ChaseState
 	end
 
-	-- Tactical Gap-Close Slide (Phase 6): high mobility, Charger quirky, or close-range flank
-	-- Gated check: evaluated at most once every 1.5s rather than rolling every frame at 20-60 Hz!
-	local qType = fighter:GetAttribute("QuinType") or "TypeA"
-	local isHighMobility = (qType == "TypeC" or quirky == "Charger")
-	if canSlide and distance >= 18 and distance <= 35 and (data.currentSpeed or 30) >= 24 and not inShowdown then
-		if (now - (data.lastSlideCheckTime or 0)) >= 1.5 then
-			data.lastSlideCheckTime = now
-			local slideChance = isHighMobility and 0.35 or 0.12
-			if math.random() < slideChance then
-				fighter:SetAttribute("ObstacleAwareness", "Tactical Slide Gap-Close")
-				fighter:SetAttribute("LastSlideTime", now)
-				LocomotionModule.slide(fighter, humanoid, rootPart)
-				return ChaseState
-			end
+	-- Tactical Gap-Close Slide: one decision per approach, taken as the Quin comes into slide
+	-- range at running speed, so the slide ends in striking distance. (It used to be re-rolled
+	-- every 1.5s, and the range is crossed in under half a second, so it almost never fired.)
+	if distance > 45 then
+		data.slideDecided = false
+	end
+	if canSlide and not data.slideDecided and distance >= 18 and distance <= 35 and (data.currentSpeed or 30) >= 24 and not inShowdown then
+		data.slideDecided = true
+		local mobilityPref = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+		local slideChance = (quirky == "Charger") and 0.6 or math.clamp(0.10 + 0.5 * mobilityPref, 0.10, 0.45)
+		if math.random() < slideChance then
+			fighter:SetAttribute("ObstacleAwareness", "Tactical Slide Gap-Close")
+			fighter:SetAttribute("LastSlideTime", now)
+			LocomotionModule.slide(fighter, humanoid, rootPart)
+			return ChaseState
 		end
 	end
 
@@ -755,7 +763,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- This keeps locomotion grounded and makes every jump read as deliberate.
 	
 	local speed = fighter:GetAttribute("Speed") or 40
-	local targetSpeed = (shouldWalk and 16 or speed) * speedMult
+	-- Walking is the Walk clip's own pace. It used to be 16 studs/s, which is a hard jog: the
+	-- legs were over-cranked and it never read as a walk.
+	local targetSpeed = (shouldWalk and (CombatConfig.Player_WalkSpeed or 7.5) or speed) * speedMult
 	-- Brake into the engagement: cap the pace by what the braking rate can shed over the
 	-- remaining gap. At a full sprint the stopping distance (~13 studs) is longer than the
 	-- hand-over range to Fight, so a sprinting Quin ran through its target and was shoved back.
@@ -825,7 +835,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- cut / arc overlays could start in mid-air)
 	local isFreefallState = isFreefall or humanoid:GetState() == Enum.HumanoidStateType.Jumping
 	if desiredAnim == "Movement.Run" or desiredAnim == "Movement.WalkConfident" then
-		-- Base gait: shared stride-matched Walk/Run blend driven by real ground speed
+		-- Base gait: shared stride-matched Walk/Run blend driven by real ground speed.
+		-- A start overlay hands over here: left to play out, it covered the legs for its full
+		-- length while the body was already at a sprint.
+		if data.currentAnim and data.currentAnim ~= "Gait" then
+			AnimationModule.stopConfig(humanoid, data.currentAnim, 0.2)
+		end
 		data.currentAnim = "Gait"
 		if not isFreefall then
 			GaitModule.update(humanoid, rootPart, dt)

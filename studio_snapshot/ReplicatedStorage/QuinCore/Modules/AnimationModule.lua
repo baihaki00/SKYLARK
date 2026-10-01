@@ -10,236 +10,136 @@ local AnimationModule = {}
 -- Cache: animationTracks[humanoid][animId] = AnimationTrack
 local animationTracks = {}
 
--- Verified track lengths (seconds) to eliminate 0-length race conditions on initial frame
+-- Clip lengths in seconds, measured on the Quin rig for every clip in AnimationConfig. Used only
+-- until a track reports its own Length (an unloaded track reports 0). Regenerate when a clip changes.
 local KNOWN_TRACK_LENGTHS = {
-	["rbxassetid://133242293786083"] = 2.50,
-	["rbxassetid://101323140399164"] = 4.00,
-	["rbxassetid://94283730931120"] = 3.60,
-	["rbxassetid://115475064380723"] = 2.00,
-	["rbxassetid://138637295967600"] = 2.17,
-	["rbxassetid://85020175845135"] = 2.00,
-	["rbxassetid://125263783852636"] = 1.60,
-	["rbxassetid://131409314701475"] = 3.43,
-	["rbxassetid://123663421729965"] = 4.70,
-	["rbxassetid://140081550582670"] = 2.00,
-	["rbxassetid://77240991154105"] = 2.53,
-	["rbxassetid://131464428102564"] = 2.17,
-	["rbxassetid://87533858487954"] = 3.37,
-	["rbxassetid://106745386153032"] = 3.40,
-	["rbxassetid://131253594617114"] = 10.00,
-	["rbxassetid://117292668985031"] = 3.43,
-	["rbxassetid://119446545898467"] = 2.10,
-	["rbxassetid://131253594617114"] = 10.00, -- GASP_Stand_Idle_Loop
-	["rbxassetid://101323140399164"] = 4.00,  -- GASP_Walk_Loop_F
-	["rbxassetid://133242293786083"] = 2.50,  -- GASP_Run_Loop_F
-	["rbxassetid://125082865893030"]  = 2.00,  -- GASP_Sprint_Loop_F
-	["rbxassetid://77240991154105"] = 2.53,  -- GASP_Run_Start_FL_Lfoot
-	["rbxassetid://131409314701475"]  = 3.43,  -- GASP_Run_Stop_FL_Lfoot
-	["rbxassetid://71811460366345"] = 3.60,  -- GASP_Run_Stop_FR_Rfoot
-	["rbxassetid://103278781171229"] = 4.70,  -- GASP_Sprint_Stop_FL_Lfoot
-	["rbxassetid://119446545898467"]  = 2.10,  -- GASP_Jump_F_Start_Across_Lfoot
-	["rbxassetid://90339651554826"] = 1.60,  -- GASP_Jump_F_Off_Run_Lfoot
-	["rbxassetid://95738750547624"] = 3.37,  -- GASP_Jump_F_Land_Roll_Lfoot
-	["rbxassetid://117292668985031"]  = 3.43,  -- GASP_Run_Turn_L_180_Lfoot
-	["rbxassetid://109286179249450"]  = 3.40,  -- GASP_Run_Turn_R_180_Rfoot
-	["rbxassetid://122264635889625"] = 2.00,  -- GASP_Stand_Turn_090_L
-	["rbxassetid://95034338406821"] = 2.00,  -- GASP_Stand_Turn_090_R
-	["rbxassetid://96096798693924"] = 2.17,  -- GASP_Stand_Turn_180_L
-	["rbxassetid://80951359231171"]  = 2.17,  -- GASP_Stand_Turn_180_R
-
-	["rbxassetid://109837817595150"] = 3.867, -- Movement.Idle / Reactions.Block
+	["rbxassetid://84162023451491"] = 1.167, -- Attacks.Kicks.HighKick
+	["rbxassetid://71573540671127"] = 1.133, -- Attacks.Kicks.LowKick
+	["rbxassetid://87872094663324"] = 0.933, -- Attacks.Kicks.PowerKick, Attacks.Special.Special1, Attacks.Specials.RivalFinisher
+	["rbxassetid://89487629068473"] = 1.233, -- Attacks.Kicks.WheelDrive, Attacks.Special.Slam
+	["rbxassetid://79937990476934"] = 1.000, -- Attacks.Punches.CrossLeft
+	["rbxassetid://99362983788110"] = 1.000, -- Attacks.Punches.CrossRight
+	["rbxassetid://135206101877204"] = 1.200, -- Attacks.Punches.Hook, Tactics.DesperateCounter
+	["rbxassetid://113219639247452"] = 0.833, -- Attacks.Punches.Punch1, Attacks.Punches.Uppercut, Attacks.Specials.Slam, Attacks.Specials.SlamImpact, Attacks.Specials.Special1, Attacks.Specials.Uppercut
+	["rbxassetid://109837817595150"] = 3.867, -- Attacks.Specials.BeamStruggle, Idles.CombatIdle, Idles.FightIdle, Idles.SurveyIdle, Transition.AssessTarget
+	["rbxassetid://131548528642488"] = 2.733, -- Attacks.Specials.ProceduralSmackDown
+	["rbxassetid://79207866638803"] = 3.200, -- Attacks.Specials.SlamRecovery, Reactions.GetUpGround
+	["rbxassetid://98616724907377"] = 4.033, -- Awareness.LookingBehind, Awareness.RearThreatGlance
+	["rbxassetid://129355316172688"] = 0.667, -- Awareness.Turn180Pivot, Movement.RunTurn180, Movement.RunTurn180Left, Movement.RunTurn180Right, Movement.RunTurn90Left, Movement.RunTurn90Right
+	["rbxassetid://81038616654818"] = 8.333, -- Idles.DefaultIdle, Movement.Idle
+	["rbxassetid://123350689285769"] = 1.950, -- Idles.ReadyStance
+	["rbxassetid://89227245782124"] = 0.767, -- Movement.ArcRun30Rear, Movement.ArcRun30RearLeft, Movement.ArcRun30RearRight
+	["rbxassetid://83869147275692"] = 1.367, -- Movement.BrakingStop, Reactions.HitLight, Reactions.Knockback
+	["rbxassetid://133182359318358"] = 0.100, -- Movement.Dash
+	["rbxassetid://79340771026707"] = 0.767, -- Movement.Fall
+	["rbxassetid://88475997278069"] = 2.567, -- Movement.FallAirKnockback, Reactions.FallAirKnockback, Reactions.KnockbackAir, Reactions.SlammedDown
+	["rbxassetid://80583167665730"] = 1.567, -- Movement.FallStraight
+	["rbxassetid://113571639405597"] = 0.800, -- Movement.IdleToRun1, Movement.IdleToRun2, Movement.StartRun, Movement.StartSprint
+	["rbxassetid://91301995989516"] = 0.833, -- Movement.Jog
+	["rbxassetid://85622241844167"] = 0.933, -- Movement.Jump, Parkour.VaultObstacle
 	["rbxassetid://109090784752055"] = 0.467, -- Movement.Run
-	["rbxassetid://91301995989516"]  = 0.833, -- Movement.Jog
-	["rbxassetid://115642161658755"] = 1.533, -- Movement.Slide (run -> slide -> run)
-	["rbxassetid://133182359318358"] = 0.500, -- Movement.Dash
-	["rbxassetid://74552125029304"]  = 1.033, -- Movement.WalkConfident (Legacy)
-	["rbxassetid://101323140399164"] = 1.033, -- Movement.WalkConfident / WalkThug
-	["rbxassetid://85622241844167"]  = 0.933, -- Movement.Jump
-	["rbxassetid://79340771026707"]  = 0.767, -- Movement.Fall
-	["rbxassetid://88475997278069"]  = 2.567, -- Movement.FallAirKnockback
-	["rbxassetid://113219639247452"] = 0.833, -- Attacks.Punches.Punch1 / Uppercut / Specials
-	["rbxassetid://79937990476934"]  = 1.000, -- Attacks.Punches.CrossLeft
-	["rbxassetid://99362983788110"]  = 1.000, -- Attacks.Punches.CrossRight
-	["rbxassetid://135206101877204"] = 1.200, -- Attacks.Punches.Hook
-	["rbxassetid://84162023451491"]  = 1.167, -- Attacks.Kicks.HighKick
-	["rbxassetid://71573540671127"]  = 1.133, -- Attacks.Kicks.LowKick
-	["rbxassetid://87872094663324"]  = 0.933, -- Attacks.Kicks.PowerKick / Special1
-	["rbxassetid://89487629068473"]  = 1.233, -- Attacks.Kicks.WheelDrive / Slam
-	["rbxassetid://83869147275692"]  = 1.367, -- Reactions.HitLight / Reactions.Knockback
-	["rbxassetid://82096408080514"]  = 1.300, -- Reactions.HitHeavy
-	["rbxassetid://79207866638803"]  = 3.200, -- Reactions.GetUpGround
-	["rbxassetid://94622148200646"]  = 1.033, -- Strafe.StrafeRightWalk
-	["rbxassetid://71421932655009"]  = 1.033, -- Strafe.StrafeLeftWalk
-	["rbxassetid://107962284182266"] = 0.667, -- Strafe.StrafeRightRun
-	["rbxassetid://123318024844911"] = 0.667, -- Strafe.StrafeLeftRun
-	["rbxassetid://110691224052109"] = 1.467, -- Strafe.StrafeRightTired
-	["rbxassetid://91032818959845"]  = 1.467, -- Strafe.StrafeLeftTired
-	["rbxassetid://81580688159305"]  = 1.000, -- Reactions.BlockFront
-	["rbxassetid://71555510097974"]  = 1.000, -- Reactions.BlockLeft
-	["rbxassetid://81446994688965"]  = 1.000, -- Reactions.BlockRight
-	["rbxassetid://80496269227852"]  = 1.500, -- Reactions.Death
-	["rbxassetid://122802842451487"] = 1.600, -- Reactions.DeathOnTheSpot
-	["rbxassetid://129355316172688"] = 0.800, -- Movement.RunTurn180
-	["rbxassetid://113556439462127"] = 0.900, -- Movement.IdleToRun1
-	["rbxassetid://77240991154105"] = 0.900, -- Movement.IdleToRun2
-	["rbxassetid://89227245782124"]  = 0.850, -- Movement.ArcRun30Rear
-	["rbxassetid://80583167665730"]  = 1.100, -- Movement.FallStraight
-	["rbxassetid://100662167599815"] = 1.000, -- Parkour.SkidOverOB
-	["rbxassetid://90546747503310"]  = 0.950, -- Parkour.ProceduralJump1
-	["rbxassetid://73976796270777"]  = 1.100, -- Parkour.ProceduralSlide1
-	["rbxassetid://101210294612380"] = 1.100, -- Parkour.ProceduralSlide2
-	["rbxassetid://131563762426355"] = 0.900, -- Tactics.ProceduralEvade1
-	["rbxassetid://135253684509200"] = 0.900, -- Tactics.ProceduralEvade2
-	["rbxassetid://131344167080457"] = 1.200, -- Reactions.KnockdownBehind
-	["rbxassetid://131548528642488"] = 1.400, -- Attacks.Specials.ProceduralSmackDown
-	["rbxassetid://136234480688142"] = 1.100, -- Parkour.LandingSoft
+	["rbxassetid://115642161658755"] = 1.533, -- Movement.Slide
+	["rbxassetid://89237107000987"] = 0.900, -- Movement.StopRun
+	["rbxassetid://117985748552966"] = 1.033, -- Movement.WalkConfident, Movement.WalkThug
 	["rbxassetid://110436967972328"] = 1.250, -- Parkour.LandingHard
-	["rbxassetid://140160268770373"] = 1.350, -- Parkour.LandingSuperHero
-	["rbxassetid://128158227118276"] = 1.800, -- Reactions.GetUpBackSlow
-	["rbxassetid://95406088712190"]  = 1.000, -- Reactions.GetUpBackFast
-	["rbxassetid://108624065264351"] = 1.200, -- Reactions.GetUpFromCrouch
-	["rbxassetid://98616724907377"]  = 1.000, -- Awareness.LookingBehind
-	["rbxassetid://81038616654818"]  = 8.333, -- IDLE_DEFAULT
-	["rbxassetid://123350689285769"] = 1.950, -- IDLEREADY_STANCE
-	["rbxassetid://109837817595150"] = 3.867, -- IDLEFIGHT_STANCE
-	["rbxassetid://77240991154105"] = 0.800, -- START RUN
-	["rbxassetid://131409314701475"]  = 0.900, -- STOP RUN
-	["rbxassetid://94804914683754"]  = 0.883, -- SUPERHERO LANDING
-	["rbxassetid://129355316172688"] = 0.667, -- 180 TURN
+	["rbxassetid://136234480688142"] = 1.667, -- Parkour.LandingSoft, Parkour.LedgeDropLanding
+	["rbxassetid://94804914683754"] = 0.883, -- Parkour.LandingSuperHero
+	["rbxassetid://90546747503310"] = 3.700, -- Parkour.ProceduralJump1
+	["rbxassetid://73976796270777"] = 1.533, -- Parkour.ProceduralSlide1
+	["rbxassetid://101210294612380"] = 1.433, -- Parkour.ProceduralSlide2
+	["rbxassetid://100662167599815"] = 1.200, -- Parkour.SkidOverOB
+	["rbxassetid://81580688159305"] = 1.000, -- Reactions.Block, Reactions.BlockFront
+	["rbxassetid://71555510097974"] = 1.000, -- Reactions.BlockLeft
+	["rbxassetid://81446994688965"] = 1.000, -- Reactions.BlockRight
+	["rbxassetid://80496269227852"] = 4.667, -- Reactions.Death, Reactions.DeathCollapse
+	["rbxassetid://122802842451487"] = 4.500, -- Reactions.DeathOnTheSpot
+	["rbxassetid://95406088712190"] = 2.033, -- Reactions.GetUpBackFast
+	["rbxassetid://128158227118276"] = 8.267, -- Reactions.GetUpBackSlow
+	["rbxassetid://108624065264351"] = 2.767, -- Reactions.GetUpFromCrouch
+	["rbxassetid://82096408080514"] = 1.300, -- Reactions.HitHeavy
+	["rbxassetid://131344167080457"] = 2.533, -- Reactions.KnockdownBehind
+	["rbxassetid://123318024844911"] = 0.667, -- Strafe.StrafeLeftRun
+	["rbxassetid://91032818959845"] = 1.467, -- Strafe.StrafeLeftTired
+	["rbxassetid://71421932655009"] = 1.033, -- Strafe.StrafeLeftWalk, Tactics.RetreatBackstep
+	["rbxassetid://107962284182266"] = 0.667, -- Strafe.StrafeRightRun
+	["rbxassetid://110691224052109"] = 1.467, -- Strafe.StrafeRightTired
+	["rbxassetid://82291519563301"] = 1.033, -- Strafe.StrafeRightWalk
+	["rbxassetid://131563762426355"] = 2.500, -- Tactics.ProceduralEvade1
+	["rbxassetid://135253684509200"] = 3.700, -- Tactics.ProceduralEvade2
 }
 
+-- Display names for trace output (first AnimationConfig path that uses the asset)
 local KNOWN_NAMES = {
-	["rbxassetid://131253594617114"] = "GASP_Stand_Idle_Loop",
-	["rbxassetid://101323140399164"] = "GASP_Walk_Loop_F",
-	["rbxassetid://133242293786083"] = "GASP_Run_Loop_F",
-	["rbxassetid://125082865893030"]  = "GASP_Sprint_Loop_F",
-	["rbxassetid://77240991154105"] = "GASP_Run_Start_FL_Lfoot",
-	["rbxassetid://131409314701475"]  = "GASP_Run_Stop_FL_Lfoot",
-	["rbxassetid://71811460366345"] = "GASP_Run_Stop_FR_Rfoot",
-	["rbxassetid://103278781171229"] = "GASP_Sprint_Stop_FL_Lfoot",
-	["rbxassetid://119446545898467"]  = "GASP_Jump_F_Start_Across_Lfoot",
-	["rbxassetid://90339651554826"] = "GASP_Jump_F_Off_Run_Lfoot",
-	["rbxassetid://95738750547624"] = "GASP_Jump_F_Land_Roll_Lfoot",
-	["rbxassetid://117292668985031"]  = "GASP_Run_Turn_L_180_Lfoot",
-	["rbxassetid://109286179249450"]  = "GASP_Run_Turn_R_180_Rfoot",
-	["rbxassetid://122264635889625"] = "GASP_Stand_Turn_090_L",
-	["rbxassetid://95034338406821"] = "GASP_Stand_Turn_090_R",
-	["rbxassetid://96096798693924"] = "GASP_Stand_Turn_180_L",
-	["rbxassetid://80951359231171"]  = "GASP_Stand_Turn_180_R",
-
-	["rbxassetid://109837817595150"] = "Idle",
-	["rbxassetid://109090784752055"] = "Run",
-	["rbxassetid://91301995989516"]  = "Jog",
-	["rbxassetid://115642161658755"] = "Slide",
-	["rbxassetid://133182359318358"] = "Dash",
-	["rbxassetid://74552125029304"]  = "WalkConfident",
-	["rbxassetid://101323140399164"] = "WalkThug",
-	["rbxassetid://85622241844167"]  = "Jump",
-	["rbxassetid://79340771026707"]  = "Fall",
-	["rbxassetid://88475997278069"]  = "FallAirKnockback",
-	["rbxassetid://113219639247452"] = "Punch1",
-	["rbxassetid://79937990476934"]  = "CrossLeft",
-	["rbxassetid://99362983788110"]  = "CrossRight",
+	["rbxassetid://84162023451491"] = "HighKick",
+	["rbxassetid://71573540671127"] = "LowKick",
+	["rbxassetid://87872094663324"] = "PowerKick",
+	["rbxassetid://89487629068473"] = "WheelDrive",
+	["rbxassetid://79937990476934"] = "CrossLeft",
+	["rbxassetid://99362983788110"] = "CrossRight",
 	["rbxassetid://135206101877204"] = "Hook",
-	["rbxassetid://84162023451491"]  = "HighKick",
-	["rbxassetid://71573540671127"]  = "LowKick",
-	["rbxassetid://87872094663324"]  = "PowerKick",
-	["rbxassetid://89487629068473"]  = "WheelDrive",
-	["rbxassetid://83869147275692"]  = "HitLight",
-	["rbxassetid://82096408080514"]  = "HitHeavy",
-	["rbxassetid://79207866638803"]  = "GetUpGround",
-	["rbxassetid://94622148200646"]  = "StrafeRightWalk",
-	["rbxassetid://71421932655009"]  = "StrafeLeftWalk",
-	["rbxassetid://107962284182266"] = "StrafeRightRun",
-	["rbxassetid://123318024844911"] = "StrafeLeftRun",
-	["rbxassetid://110691224052109"] = "StrafeRightTired",
-	["rbxassetid://91032818959845"]  = "StrafeLeftTired",
-	["rbxassetid://81580688159305"]  = "BlockFront",
-	["rbxassetid://71555510097974"]  = "BlockLeft",
-	["rbxassetid://81446994688965"]  = "BlockRight",
-	["rbxassetid://80496269227852"]  = "Death",
-	["rbxassetid://122802842451487"] = "DeathOnTheSpot",
-	["rbxassetid://129355316172688"] = "RunTurn180",
-	["rbxassetid://113556439462127"] = "IdleToRun1",
-	["rbxassetid://77240991154105"] = "IdleToRun2",
-	["rbxassetid://89227245782124"]  = "ArcRun30Rear",
-	["rbxassetid://80583167665730"]  = "FallStraight",
-	["rbxassetid://100662167599815"] = "SkidOverOB",
-	["rbxassetid://90546747503310"]  = "ProceduralJump1",
-	["rbxassetid://73976796270777"]  = "ProceduralSlide1",
+	["rbxassetid://113219639247452"] = "Punch1",
+	["rbxassetid://109837817595150"] = "BeamStruggle",
+	["rbxassetid://131548528642488"] = "ProceduralSmackDown",
+	["rbxassetid://79207866638803"] = "SlamRecovery",
+	["rbxassetid://98616724907377"] = "LookingBehind",
+	["rbxassetid://129355316172688"] = "Turn180Pivot",
+	["rbxassetid://81038616654818"] = "DefaultIdle",
+	["rbxassetid://123350689285769"] = "ReadyStance",
+	["rbxassetid://89227245782124"] = "ArcRun30Rear",
+	["rbxassetid://83869147275692"] = "BrakingStop",
+	["rbxassetid://133182359318358"] = "Dash",
+	["rbxassetid://79340771026707"] = "Fall",
+	["rbxassetid://88475997278069"] = "FallAirKnockback",
+	["rbxassetid://80583167665730"] = "FallStraight",
+	["rbxassetid://113571639405597"] = "IdleToRun1",
+	["rbxassetid://91301995989516"] = "Jog",
+	["rbxassetid://85622241844167"] = "Jump",
+	["rbxassetid://109090784752055"] = "Run",
+	["rbxassetid://115642161658755"] = "Slide",
+	["rbxassetid://89237107000987"] = "StopRun",
+	["rbxassetid://117985748552966"] = "WalkConfident",
+	["rbxassetid://110436967972328"] = "LandingHard",
+	["rbxassetid://136234480688142"] = "LandingSoft",
+	["rbxassetid://94804914683754"] = "LandingSuperHero",
+	["rbxassetid://90546747503310"] = "ProceduralJump1",
+	["rbxassetid://73976796270777"] = "ProceduralSlide1",
 	["rbxassetid://101210294612380"] = "ProceduralSlide2",
+	["rbxassetid://100662167599815"] = "SkidOverOB",
+	["rbxassetid://81580688159305"] = "Block",
+	["rbxassetid://71555510097974"] = "BlockLeft",
+	["rbxassetid://81446994688965"] = "BlockRight",
+	["rbxassetid://80496269227852"] = "Death",
+	["rbxassetid://122802842451487"] = "DeathOnTheSpot",
+	["rbxassetid://95406088712190"] = "GetUpBackFast",
+	["rbxassetid://128158227118276"] = "GetUpBackSlow",
+	["rbxassetid://108624065264351"] = "GetUpFromCrouch",
+	["rbxassetid://82096408080514"] = "HitHeavy",
+	["rbxassetid://131344167080457"] = "KnockdownBehind",
+	["rbxassetid://123318024844911"] = "StrafeLeftRun",
+	["rbxassetid://91032818959845"] = "StrafeLeftTired",
+	["rbxassetid://71421932655009"] = "StrafeLeftWalk",
+	["rbxassetid://107962284182266"] = "StrafeRightRun",
+	["rbxassetid://110691224052109"] = "StrafeRightTired",
+	["rbxassetid://82291519563301"] = "StrafeRightWalk",
 	["rbxassetid://131563762426355"] = "ProceduralEvade1",
 	["rbxassetid://135253684509200"] = "ProceduralEvade2",
-	["rbxassetid://131344167080457"] = "KnockdownBehind",
-	["rbxassetid://131548528642488"] = "ProceduralSmackDown",
-	["rbxassetid://136234480688142"] = "LandingSoft",
-	["rbxassetid://110436967972328"] = "LandingHard",
-	["rbxassetid://140160268770373"] = "LandingSuperHero",
-	["rbxassetid://128158227118276"] = "GetUpBackSlow",
-	["rbxassetid://95406088712190"]  = "GetUpBackFast",
-	["rbxassetid://108624065264351"] = "GetUpFromCrouch",
-	["rbxassetid://98616724907377"]  = "LookingBehind",
-	["rbxassetid://81038616654818"]  = "IDLE_DEFAULT",
-	["rbxassetid://123350689285769"] = "IDLEREADY_STANCE",
-	["rbxassetid://109837817595150"] = "IDLEFIGHT_STANCE",
-	["rbxassetid://77240991154105"] = "START RUN",
-	["rbxassetid://131409314701475"]  = "STOP RUN",
-	["rbxassetid://94804914683754"]  = "SUPERHERO LANDING",
-	["rbxassetid://129355316172688"] = "180 TURN",
 }
 
-local LOCOMOTION_OVERLAY_IDS = {
-	["rbxassetid://115642161658755"] = true, -- Slide (run -> slide -> run)
-	["rbxassetid://77240991154105"] = true, -- Start
-	["rbxassetid://131409314701475"]  = true, -- Stop
-	["rbxassetid://71811460366345"] = true, -- Stop FR
-	["rbxassetid://103278781171229"] = true, -- Sprint Stop
-	["rbxassetid://119446545898467"]  = true, -- Jump Start
-	["rbxassetid://90339651554826"] = true, -- Jump Fall
-	["rbxassetid://95738750547624"] = true, -- Jump Land
-	["rbxassetid://117292668985031"]  = true, -- Turn 180 L
-	["rbxassetid://109286179249450"]  = true, -- Turn 180 R
-	["rbxassetid://122264635889625"] = true, -- Turn 90 L
-	["rbxassetid://95034338406821"] = true, -- Turn 90 R
-	["rbxassetid://96096798693924"] = true, -- Turn 180 L
-	["rbxassetid://80951359231171"]  = true, -- Turn 180 R
+-- Clip groups are declared by AnimationConfig path and resolved to asset ids on use, so a
+-- hot-swapped clip stays in its group (hard-coded id lists had drifted out of date).
 
-	["rbxassetid://85622241844167"] = true, -- Jump / VaultObstacle
-	["rbxassetid://79340771026707"] = true, -- Fall
-	["rbxassetid://80583167665730"] = true, -- FallStraight
-	["rbxassetid://88475997278069"] = true, -- FallAirKnockback
-	["rbxassetid://83869147275692"] = true, -- BrakingStop / Slide
-	["rbxassetid://129355316172688"] = true, -- RunTurn180 / Turn180Pivot
-	["rbxassetid://131409314701475"]  = true, -- StopRun (CORRECT)
-	["rbxassetid://77240991154105"] = true, -- StartRun / IdleToRun
-	["rbxassetid://94804914683754"]  = true, -- Superhero Landing
-	["rbxassetid://89227245782124"] = true, -- ArcRun30Rear
-	["rbxassetid://113556439462127"] = true, -- IdleToRun1 / StartSprint
-	["rbxassetid://136234480688142"] = true, -- LandingSoft / LedgeDropLanding
-	["rbxassetid://110436967972328"] = true, -- LandingHard
-	["rbxassetid://140160268770373"] = true, -- LandingSuperHero
-	["rbxassetid://90546747503310"] = true, -- ProceduralJump1
-	["rbxassetid://73976796270777"] = true, -- ProceduralSlide1
-	["rbxassetid://101210294612380"] = true, -- ProceduralSlide2
-	["rbxassetid://100662167599815"] = true, -- SkidOverOB
-	["rbxassetid://98616724907377"] = true, -- RearThreatGlance / LookingBehind
+-- Temporary locomotion overlays (turns, vaults, slides, stops, falls, landings)
+local LOCOMOTION_OVERLAY_PATHS = {
+	"Movement.Slide", "Movement.StartRun", "Movement.StopRun", "Movement.Jump", "Movement.Fall",
+	"Movement.FallStraight", "Movement.FallAirKnockback", "Movement.RunTurn180", "Movement.ArcRun30Rear",
+	"Parkour.LandingSoft", "Parkour.LandingHard", "Parkour.LandingSuperHero", "Parkour.ProceduralJump1",
+	"Parkour.ProceduralSlide1", "Parkour.ProceduralSlide2", "Parkour.SkidOverOB", "Awareness.RearThreatGlance",
 }
 
--- Cyclical locomotion tracks whose gait cycle phase is synchronized across transitions
-local PHASE_LOCKED_TRACK_IDS = {
-	["rbxassetid://101323140399164"] = true,
-	["rbxassetid://133242293786083"] = true,
-	["rbxassetid://125082865893030"] = true,
-
-	["rbxassetid://109090784752055"] = true, -- Movement.Run
-	["rbxassetid://91301995989516"]  = true, -- Movement.Jog
-	["rbxassetid://74552125029304"]  = true, -- Movement.WalkConfident
-	["rbxassetid://101323140399164"] = true, -- Movement.WalkThug
-	["rbxassetid://89227245782124"]  = true, -- Movement.ArcRun30Rear / Left / Right
-	["rbxassetid://123318024844911"] = true, -- Strafe.StrafeLeftRun
-	["rbxassetid://107962284182266"] = true, -- Strafe.StrafeRightRun
-	["rbxassetid://71421932655009"]  = true, -- Strafe.StrafeLeftWalk
-	["rbxassetid://94622148200646"]  = true, -- Strafe.StrafeRightWalk
+-- Cyclical locomotion clips whose gait phase is carried across a transition between them
+local PHASE_LOCKED_PATHS = {
+	"Movement.WalkConfident", "Movement.Jog", "Movement.Run", "Movement.ArcRun30Rear",
+	"Strafe.StrafeLeftWalk", "Strafe.StrafeRightWalk", "Strafe.StrafeLeftRun", "Strafe.StrafeRightRun",
 }
 
 local function resolveAnimFriendlyName(animIdOrPath)
@@ -265,6 +165,25 @@ local function getAnimationConfig()
 		end
 	end
 	return _AnimationConfig
+end
+
+-- Asset-id sets for the clip groups above, rebuilt at most once a second
+local groupCache = {}
+local function clipGroup(paths)
+	local cached = groupCache[paths]
+	if cached and os.clock() - cached.builtAt < 1.0 then
+		return cached.ids
+	end
+	local ac = getAnimationConfig()
+	local ids = {}
+	if ac then
+		for _, path in ipairs(paths) do
+			local entry = ac.get(path)
+			if entry and entry.id then ids[entry.id] = true end
+		end
+		groupCache[paths] = { ids = ids, builtAt = os.clock() }
+	end
+	return ids
 end
 
 -- Lazy-load RuntimeTracer for execution logging
@@ -547,7 +466,7 @@ function AnimationModule.stopLocomotionOverlays(humanoid, fadeOut)
 	if not humanoid or not animationTracks[humanoid] then return end
 	local fade = fadeOut or 0.12
 	for animId, track in pairs(animationTracks[humanoid]) do
-		if track.IsPlaying and (LOCOMOTION_OVERLAY_IDS[animId] or track:GetAttribute("IsLocomotionOverlay")) then
+		if track.IsPlaying and (clipGroup(LOCOMOTION_OVERLAY_PATHS)[animId] or track:GetAttribute("IsLocomotionOverlay")) then
 			track:Stop(fade)
 		end
 	end
@@ -584,9 +503,9 @@ function AnimationModule.play(humanoid, animIdOrPath, priority, looped, speed, f
 	-- capture the normalized gait phase of the retiring track so the new track can resume
 	-- at the exact matching footfall phase, completely eliminating leg hitching or foot swapping.
 	local activeGaitPhase = nil
-	if PHASE_LOCKED_TRACK_IDS[animId] and animationTracks[humanoid] then
+	if clipGroup(PHASE_LOCKED_PATHS)[animId] and animationTracks[humanoid] then
 		for otherId, otherTrack in pairs(animationTracks[humanoid]) do
-			if otherId ~= animId and otherTrack.IsPlaying and PHASE_LOCKED_TRACK_IDS[otherId] then
+			if otherId ~= animId and otherTrack.IsPlaying and clipGroup(PHASE_LOCKED_PATHS)[otherId] then
 				local rawLen = otherTrack.Length > 0 and otherTrack.Length or 0.8
 				activeGaitPhase = (otherTrack.TimePosition % rawLen) / rawLen
 				break
@@ -610,7 +529,7 @@ function AnimationModule.play(humanoid, animIdOrPath, priority, looped, speed, f
 				elseif newPrioVal == Enum.AnimationPriority.Movement.Value and otherPrioVal == Enum.AnimationPriority.Movement.Value then
 					-- Competing movement (e.g. walk replacing strafe) -> stop old movement
 					otherTrack:Stop(fadeIn or 0.1)
-				elseif newPrioVal == Enum.AnimationPriority.Movement.Value and LOCOMOTION_OVERLAY_IDS[otherId] then
+				elseif newPrioVal == Enum.AnimationPriority.Movement.Value and clipGroup(LOCOMOTION_OVERLAY_PATHS)[otherId] then
 					-- Locomotion base running/walking resuming: only clear finished or near-finished locomotion overlays, or lower-priority overlays
 					if (not otherTrack.Looped and otherTrack.Length > 0 and otherTrack.TimePosition >= (otherTrack.Length - 0.12)) or (otherPrioVal <= Enum.AnimationPriority.Movement.Value) then
 						otherTrack:Stop(fadeIn or 0.1)
@@ -658,7 +577,7 @@ end
 function AnimationModule.getGaitPhase(humanoid)
 	if not humanoid or not animationTracks[humanoid] then return 0 end
 	for id, track in pairs(animationTracks[humanoid]) do
-		if track.IsPlaying and PHASE_LOCKED_TRACK_IDS[id] then
+		if track.IsPlaying and clipGroup(PHASE_LOCKED_PATHS)[id] then
 			local len = track.Length > 0 and track.Length or 0.8
 			return (track.TimePosition % len) / len
 		end

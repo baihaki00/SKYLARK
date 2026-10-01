@@ -10,7 +10,7 @@ local QuinData = {
 		-- Base Stats
 		Health = 1000,
 		Damage = 12,
-		Speed = 50,
+		Speed = 40, -- top run speed. The Run clip covers 26 studs/s at 1.0x and stays planted up to ~1.5x; at 50 the feet slid a fifth of the distance
 
 		-- Combat Stats
 		AttackSpeed = 1.0,
