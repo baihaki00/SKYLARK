@@ -2,7 +2,7 @@
 -- Holding a high platform.
 -- A Quin that finds itself on high ground with nobody within reach uses the place: it walks the
 -- edge on the side its enemies are on, stops and looks down at them (Cognition.Gaze points its
--- eyes down from high ground, and up at the sky now and then), and gets its breath back.
+-- head down from high ground, and up at the sky now and then), and gets its breath back.
 -- It leaves when it has a reason to:
 --   an enemy is up here with it          -> fight it here
 --   it sees a jumper high in the air     -> go up after it (AirInterceptModule)

@@ -3,7 +3,7 @@
 -- through (nil = not noticed):
 --   team     allies are always known (the team talks)
 --   sight    inside the vision cone and range, with a clear line of sight. The cone is 200
---            degrees wide and VisionVerticalHalfAngle above and below where the eyes point
+--            degrees wide and VisionVerticalHalfAngle above and below where the head points
 --            (gazePitch, from Cognition.Gaze)
 --   hearing  close enough to hear, and making noise (running, attacking, being thrown)
 --   touch    within arm's reach, or the Quin that just hit it

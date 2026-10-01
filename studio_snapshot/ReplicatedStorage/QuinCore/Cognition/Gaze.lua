@@ -1,5 +1,6 @@
 --// Cognition.Gaze
--- Where the Quin's eyes point, up or down. Sight has a vertical field of view around this
+-- Where the Quin's head points, up or down. Quins have no eyes (mannequin heads): the head
+-- is the sensor. Sight has a vertical field of view around this
 -- pitch (Senses), so what is high above - a jumper, a Quin on a platform - or far below a
 -- platform is only seen when the Quin is looking that way:
 --   following  it watches its target wherever the target goes

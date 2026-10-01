@@ -103,7 +103,7 @@ local function drawDebug(quinModel, rootPart, board, sensesOn)
 				local edge = (rootPart.CFrame * CFrame.Angles(0, math.rad(cfg.VisionHalfAngle) * side, 0)).LookVector
 				DebugDraw.line("Vision", quinModel, eye, eye + Vector3.new(edge.X, 0, edge.Z).Unit * reach, Color3.fromRGB(90, 160, 255))
 			end
-			-- Where the eyes point (up / level / down)
+			-- Where the head points (up / level / down)
 			if board.gaze then
 				local look = rootPart.CFrame.LookVector
 				local flat = Vector3.new(look.X, 0, look.Z).Unit

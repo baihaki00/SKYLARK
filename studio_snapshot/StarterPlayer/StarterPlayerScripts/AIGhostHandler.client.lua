@@ -169,8 +169,10 @@ if renderMode == "Direct" then
 				model:SetAttribute("ReactionRoll", math.round(math.deg(reaction.currentRoll) * 10) / 10)
 				model:SetAttribute("BankRoll", math.round(math.deg(reaction.currentBankRoll or 0) * 10) / 10)
 				model:SetAttribute("LookMode", entry.look.gazeMode)
-				model:SetAttribute("GazeYaw", math.round(math.deg(entry.look.currentYaw)))
-				model:SetAttribute("GazePitch", math.round(math.deg(entry.look.currentPitch)))
+				-- The head's shown angles. Not GazePitch: that is the server's gaze target, which
+				-- LookController reads; writing the shown pitch over it froze the head near level.
+				model:SetAttribute("LookYaw", math.round(math.deg(entry.look.currentYaw)))
+				model:SetAttribute("LookPitch", math.round(math.deg(entry.look.currentPitch)))
 			end
 		end
 	end)
@@ -489,8 +491,8 @@ elseif enableghostmode then
 				if lookCtrl and not isDead then
 					lookCtrl:update(dt)
 					ghost:SetAttribute("LookMode", lookCtrl.gazeMode)
-					ghost:SetAttribute("GazeYaw", math.round(math.deg(lookCtrl.currentYaw)))
-					ghost:SetAttribute("GazePitch", math.round(math.deg(lookCtrl.currentPitch)))
+					ghost:SetAttribute("LookYaw", math.round(math.deg(lookCtrl.currentYaw)))
+					ghost:SetAttribute("LookPitch", math.round(math.deg(lookCtrl.currentPitch)))
 				end
 			end
 		end

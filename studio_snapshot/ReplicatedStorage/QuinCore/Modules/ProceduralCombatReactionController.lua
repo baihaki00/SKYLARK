@@ -596,14 +596,76 @@ function ProceduralCombatReactionController:update(dt)
 		self.currentTurnDampen = (self.currentTurnDampen or 1.0) + (rawTurnDampen - (self.currentTurnDampen or 1.0)) * (1 - math.exp(-8.0 * dt))
 		local turnDampen = self.currentTurnDampen
 
-		-- 3. Physically Accurate Anatomical Terrain Solver:
-		-- Pure forward (X, Z) stride is authored by animation; IK strictly conforms vertical (Y) terrain adaptation
-		local function solveFoot(footBone, isLeft)
-			if not footBone then return nil, 0, false, 0 end
+		-- 3. Foot placement.
+		-- Pure forward (X, Z) stride is authored by animation; this conforms the foot height to
+		-- the ground and (FootIK_Plant) holds a foot that is down where it touched the ground.
+		--
+		-- Planting: the clips move the feet at their own pace, the body moves at its own, so a
+		-- foot on the ground used to skate (median 12.6 studs/s while moving, measured). A foot
+		-- that comes down is pinned to that spot until the clip lifts it. If the clip drags it
+		-- more than FootIK_PlantMaxDrift away, or the leg would have to stretch past its reach,
+		-- it lets go (and waits for the next lift before planting again) and fades back to the
+		-- clip from the pinned spot instead of snapping. Not while the body is being pushed or
+		-- skids out of a landing: then the feet are meant to slide.
+		--
+		-- Stepping: some clips never lift a foot while the body moves (the fight stance played
+		-- through Circling and Fight footwork: the body glided on still feet). When a pinned foot
+		-- falls behind and the clip does not lift it, it takes a short arc step to a spot just
+		-- ahead of where the body is going and plants there. One foot steps at a time.
+		--
+		-- The legs are solved here (two bones, in the plane the clip bends the knee in) and
+		-- written into the bone Transforms, not through IKControl: IKControl writes its result
+		-- into Bone.Transform, so once it was on the clip's own foot position was gone and a
+		-- pinned foot looked still forever - it could not tell when the clip lifted it.
+		local plantSwitch = workspace:GetAttribute("FootPlant") -- live A/B switch
+		local plantOn = plantSwitch == true or (plantSwitch == nil and CombatConfig.FootIK_Plant ~= false)
+		local stepOn = plantOn and CombatConfig.FootIK_Step ~= false
+		local stepLead = CombatConfig.FootIK_StepLead or 0.1
+		local now = os.clock()
+		local plantContact = CombatConfig.FootIK_PlantContact or 0.15
+		local plantLift = CombatConfig.FootIK_PlantLift or 0.35
+		local plantMaxDrift = CombatConfig.FootIK_PlantMaxDrift or 1.4
 
-			-- Read authoritative animated world position of the foot bone
-			local animFootPos = footBone.TransformedWorldCFrame.Position
-			
+		local impulse = self.rootPart:FindFirstChild("ImpulseLV")
+		local pushed = impulse ~= nil and impulse:IsA("LinearVelocity") and impulse.MaxAxesForce.X > 0
+		local footsFree = self.wasAirborne or serverState == "Recovery" or serverState == "Knockback"
+			or (self.humanoid and self.humanoid.PlatformStand)
+			or (serverModel and serverModel:GetAttribute("LandingSlide") == true)
+
+		self.plant = self.plant or {}
+		self.plantArmed = self.plantArmed or { Left = true, Right = true }
+		self.plantFade = self.plantFade or {}
+		self.legWeight = self.legWeight or { Left = 0, Right = 0 }
+		self.step = self.step or {}
+
+		-- Where a procedural step has the foot at this moment (eased along, arced up)
+		local function stepPosition(step)
+			local s = math.clamp((now - step.t0) / step.duration, 0, 1)
+			local eased = s * s * (3 - 2 * s)
+			return step.from:Lerp(step.to, eased) + Vector3.new(0, step.arc * math.sin(math.pi * s), 0)
+		end
+
+		-- Clip pose of one leg: hip, knee and ankle positions and the reach of the leg
+		local function clipLeg(isLeft)
+			local up = isLeft and self.leftUpLegBone or self.rightUpLegBone
+			local leg = isLeft and self.leftLegBone or self.rightLegBone
+			local foot = isLeft and self.leftFootBone or self.rightFootBone
+			if not (up and leg and foot) then return nil end
+			local hipW, kneeW, footW = up.TransformedWorldCFrame, leg.TransformedWorldCFrame, foot.TransformedWorldCFrame
+			local reach = (kneeW.Position - hipW.Position).Magnitude + (footW.Position - kneeW.Position).Magnitude
+			return { up = up, leg = leg, foot = foot, hipW = hipW, kneeW = kneeW, footW = footW, reach = reach }
+		end
+
+		local function solveFoot(isLeft)
+			local side = isLeft and "Left" or "Right"
+			local leg = clipLeg(isLeft)
+			if not leg then return nil, 0, false, 0, false, nil end
+
+			-- Where the clip puts the ankle this frame
+			local animFootPos = leg.footW.Position
+			local hipPos = leg.hipW.Position
+			local maxReach = leg.reach * 0.98 -- just short of a locked knee
+
 			-- Cast ray straight down from above the animated foot
 			local rayOrigin = Vector3.new(animFootPos.X, hrpPos.Y + 0.5, animFootPos.Z)
 			local hit = Workspace:Raycast(rayOrigin, -upVec * rayDist, self.ikRayParams)
@@ -612,100 +674,210 @@ function ProceduralCombatReactionController:update(dt)
 			local targetWeight = 0
 			local isLedge = false
 			local elevDelta = 0
+			local planted = false
 
-			if hit then
+			if hit and not footsFree then
 				local floorY = hit.Position.Y
 				-- Vertical clearance of animated foot above detected surface
 				local liftAboveSurface = animFootPos.Y - (floorY + ankleHeight)
-				
+
 				-- Elevation difference between actual terrain surface and nominal character floor level
 				local nominalGroundY = hrpPos.Y - nominalFloorDist
 				elevDelta = floorY - nominalGroundY
+				local reachable = elevDelta >= -maxStepDown and elevDelta <= maxStepUp
 
-				-- A. Flat Ground Deadzone (Preserve Pure Author Animation):
-				-- On flat ground (|elevDelta| <= 0.25 and normal >= 0.94), the author animation is already
-				-- calibrated to floor level. Zero IK interference on flat ground completely eliminates leg contortions!
-				local flatTolerance = speed > 15.0 and 0.35 or 0.22
-				local isFlatFloor = (hit.Normal.Y >= 0.94 and math.abs(elevDelta) <= flatTolerance)
-
-				local chainRoot = isLeft and self.leftUpLegBone or self.rightUpLegBone
-				local hipPos = chainRoot and chainRoot.TransformedWorldCFrame.Position or hrpPos
-
-				if isFlatFloor then
-					-- Flat turf: 100% pure author animation, zero IK distortion
-					targetPos = animFootPos
-					targetWeight = 0.0
-				elseif elevDelta >= -maxStepDown and elevDelta <= maxStepUp then
-					-- Uneven ground, slopes, stairs, rocks, or platform steps!
-					-- Anatomical Stride Phase Rule:
-					-- Only engage IK when the foot is near ground contact (liftAboveSurface <= 0.35 studs).
-					-- If foot is in forward swing phase (liftAboveSurface > 0.35), swing freely!
-					if liftAboveSurface <= 0.35 then
-						-- Conformed target: Keep the animated X and Z stride! Only conform Y (height)
-						targetPos = Vector3.new(animFootPos.X, floorY + ankleHeight, animFootPos.Z)
-
-						-- Anatomical Extension Soft Limit (Joint Constraint):
-						-- Leg length is ~4.6 studs. Prevent overextension / knee locking beyond 4.2 studs
-						local legVec = targetPos - hipPos
-						local legDist = legVec.Magnitude
-						if legDist > 4.2 then
-							targetPos = hipPos + legVec.Unit * 4.2
+				-- Plant
+				local lock = self.plant[side]
+				local step = self.step[side]
+				if plantOn and not pushed and reachable and hit.Normal.Y >= 0.7 then
+					if liftAboveSurface > plantLift then
+						-- The clip lifts the foot: it walks by itself
+						self.plantFade[side] = (step and stepPosition(step)) or lock or self.plantFade[side]
+						lock, step = nil, nil
+						self.plantArmed[side] = true
+					elseif step then
+						if now - step.t0 >= step.duration then
+							lock, step = step.to, nil -- landed: planted there
 						end
-
-						local contactWeight = math.clamp(1.0 - (liftAboveSurface / 0.35), 0.0, 1.0)
-						targetWeight = contactWeight * turnDampen
-					else
-						targetWeight = 0.0
+					elseif lock then
+						local drift = Vector3.new(animFootPos.X - lock.X, 0, animFootPos.Z - lock.Z).Magnitude
+						local overreach = (lock - hipPos).Magnitude > maxReach
+						if drift > plantMaxDrift or overreach then
+							local other = isLeft and "Right" or "Left"
+							local landing = nil
+							if stepOn and not self.step[other] then
+								-- Just ahead of where the clip has the foot, as far as the leg reaches
+								local hipHeight = hipPos.Y - (floorY + ankleHeight)
+								local reachFlat = math.sqrt(math.max(maxReach * maxReach - hipHeight * hipHeight, 0)) * 0.85
+								local duration = math.clamp((CombatConfig.FootIK_StepDuration or 0.28) - speed * 0.006, 0.14, 0.3)
+								local aim = Vector3.new(animFootPos.X, 0, animFootPos.Z) + flatVel * (duration * 0.5 + stepLead)
+								local fromHip = aim - Vector3.new(hipPos.X, 0, hipPos.Z)
+								if fromHip.Magnitude > reachFlat then
+									aim = Vector3.new(hipPos.X, 0, hipPos.Z) + fromHip.Unit * reachFlat
+								end
+								local landHit = Workspace:Raycast(Vector3.new(aim.X, hrpPos.Y + 0.5, aim.Z), -upVec * rayDist, self.ikRayParams)
+								if landHit and landHit.Normal.Y >= 0.7 and math.abs(landHit.Position.Y - floorY) <= maxStepUp then
+									local to = Vector3.new(aim.X, landHit.Position.Y + ankleHeight, aim.Z)
+									local length = (to - lock).Magnitude
+									landing = { from = lock, to = to, t0 = now, duration = duration, arc = math.clamp(0.25 + 0.12 * length, 0.25, 0.7) }
+								end
+							end
+							if landing then
+								step, lock = landing, nil
+							elseif overreach or drift > plantMaxDrift * 2 then
+								-- No step possible (the other foot is up, nowhere to land): let go
+								self.plantFade[side] = lock
+								lock = nil
+								self.plantArmed[side] = false
+							end
+							-- otherwise it holds a moment longer, until the other foot is down
+						end
+					elseif self.plantArmed[side] and liftAboveSurface <= plantContact then
+						lock = Vector3.new(animFootPos.X, floorY + ankleHeight, animFootPos.Z)
+						self.plantArmed[side] = false
+						self.plantFade[side] = nil
 					end
 				else
-					targetWeight = 0.0
-					if elevDelta < -maxStepDown then
+					self.plantFade[side] = (step and stepPosition(step)) or lock or self.plantFade[side]
+					lock, step = nil, nil
+				end
+				self.plant[side] = lock
+				self.step[side] = step
+
+				if step then
+					targetPos = stepPosition(step)
+					targetWeight = turnDampen
+					planted = true
+				elseif lock then
+					targetPos = lock
+					targetWeight = turnDampen
+					planted = true
+				else
+					-- A foot that is not planted on flat ground follows the clip untouched
+					local flatTolerance = speed > 15.0 and 0.35 or 0.22
+					local isFlatFloor = (hit.Normal.Y >= 0.94 and math.abs(elevDelta) <= flatTolerance)
+
+					if isFlatFloor then
+						targetWeight = 0.0
+					elseif reachable then
+						-- Uneven ground, slopes, stairs, rocks, or platform steps: conform the
+						-- height near ground contact; a foot in its swing swings freely.
+						if liftAboveSurface <= 0.35 then
+							targetPos = Vector3.new(animFootPos.X, floorY + ankleHeight, animFootPos.Z)
+							local contactWeight = math.clamp(1.0 - (liftAboveSurface / 0.35), 0.0, 1.0)
+							targetWeight = contactWeight * turnDampen
+						end
+					elseif elevDelta < -maxStepDown then
 						isLedge = true
 					end
 				end
 			else
-				targetWeight = 0.0
+				-- In the air, thrown, getting up or on PlatformStand: the clip has the feet at
+				-- once (a foot left pinned to the floor would stretch the leg as the body leaves)
+				self.plant[side] = nil
+				self.step[side] = nil
+				self.plantFade[side] = nil
+				self.plantArmed[side] = true
+				self.legWeight[side] = 0
 			end
 
-			-- Disable during airborne, knockback, ragdoll, and the get-up (its clip moves the feet
-			-- from a lying body; planting them on the floor bent the legs through the clip)
-			if self.wasAirborne or serverState == "Recovery" or (self.humanoid and self.humanoid.PlatformStand) then
-				targetWeight = 0.0
+			-- A released plant fades from where it was pinned (no snap to the clip)
+			if not planted and targetWeight <= 0 and self.plantFade[side] then
+				if self.legWeight[side] > 0.02 then
+					targetPos = self.plantFade[side]
+				else
+					self.plantFade[side] = nil
+				end
 			end
 
-			return targetPos, targetWeight, isLedge, elevDelta
+			return targetPos, targetWeight, isLedge, elevDelta, planted, leg
 		end
 
-		local lPos, lWeight, lLedge, lDelta = solveFoot(self.leftFootBone, true)
-		local rPos, rWeight, rLedge, rDelta = solveFoot(self.rightFootBone, false)
-
-		-- Always update target attachment transforms to avoid stale offsets
-		if lPos then
-			self.leftFootAtt.WorldPosition = lPos
+		-- Shortest rotation taking direction a onto direction b
+		local function rotationBetween(a, b)
+			local ua, ub = a.Unit, b.Unit
+			local axis = ua:Cross(ub)
+			local dot = math.clamp(ua:Dot(ub), -1, 1)
+			if axis.Magnitude < 1e-5 then
+				return CFrame.identity
+			end
+			return CFrame.fromAxisAngle(axis.Unit, math.acos(dot))
 		end
-		if rPos then
-			self.rightFootAtt.WorldPosition = rPos
+
+		-- Two-bone solve: put the ankle on goal, knee in the plane the clip bends it in, the
+		-- foot keeping the clip's orientation. Writes the three Transforms.
+		local function applyLeg(leg, goal)
+			local H, K, A = leg.hipW.Position, leg.kneeW.Position, leg.footW.Position
+			local L1, L2 = (K - H).Magnitude, (A - K).Magnitude
+			local toGoal = goal - H
+			if toGoal.Magnitude < 1e-3 or L1 < 1e-3 or L2 < 1e-3 then return end
+			local d = math.clamp(toGoal.Magnitude, math.abs(L1 - L2) + 0.01, L1 + L2 - 0.01)
+			local dir = toGoal.Unit
+			-- The knee bends the way the clip bends it; when the clip leg is nearly straight
+			-- that direction is noise, and knees bend forward
+			local forward = lookVec - dir * lookVec:Dot(dir)
+			local bend = (K - H) - dir * (K - H):Dot(dir)
+			if bend.Magnitude < 0.2 or (forward.Magnitude > 1e-3 and bend:Dot(forward) < 0) then
+				bend = forward.Magnitude > 1e-3 and forward or lookVec
+			end
+			bend = bend.Unit
+			local along = (L1 * L1 + d * d - L2 * L2) / (2 * d)
+			local out = math.sqrt(math.max(L1 * L1 - along * along, 0))
+			local newKnee = H + dir * along + bend * out
+			local newAnkle = H + dir * d
+
+			-- Thigh
+			local hipRot = leg.hipW - H
+			local newHipW = CFrame.new(H) * rotationBetween(K - H, newKnee - H) * hipRot
+			local parentW = leg.up.Parent:IsA("Bone") and leg.up.Parent.TransformedWorldCFrame or leg.up.Parent.CFrame
+			leg.up.Transform = (parentW * leg.up.CFrame):Inverse() * newHipW
+			-- Shin (as the thigh carried it, then turned onto the ankle)
+			local kneeAfter = newHipW * (leg.hipW:Inverse() * leg.kneeW)
+			local ankleAfter = kneeAfter * (leg.kneeW:Inverse() * leg.footW)
+			local kneeRot = kneeAfter - kneeAfter.Position
+			local newKneeW = CFrame.new(kneeAfter.Position) * rotationBetween(ankleAfter.Position - kneeAfter.Position, newAnkle - kneeAfter.Position) * kneeRot
+			leg.leg.Transform = (newHipW * leg.leg.CFrame):Inverse() * newKneeW
+			-- Foot: the clip's orientation at the new ankle
+			local newFootW = CFrame.new(newAnkle) * (leg.footW - leg.footW.Position)
+			leg.foot.Transform = (newKneeW * leg.foot.CFrame):Inverse() * newFootW
 		end
 
-		-- Responsive weight interpolation (fast attack, smooth release)
-		local weightSpeed = (lWeight > self.leftIK.Weight and 24.0 or 14.0) * dt
-		self.leftIK.Weight = self.leftIK.Weight + (lWeight - self.leftIK.Weight) * math.clamp(weightSpeed, 0, 1)
+		local lPos, lWeight, lLedge, lDelta, lPlanted, lLeg = solveFoot(true)
+		local rPos, rWeight, rLedge, rDelta, rPlanted, rLeg = solveFoot(false)
 
-		local rWeightSpeed = (rWeight > self.rightIK.Weight and 24.0 or 14.0) * dt
-		self.rightIK.Weight = self.rightIK.Weight + (rWeight - self.rightIK.Weight) * math.clamp(rWeightSpeed, 0, 1)
+		-- Weight: a plant takes hold at once (a running stance lasts ~0.12 s), everything else
+		-- attacks fast and releases smoothly
+		local function blendWeight(side, target, isPlanted)
+			local current = self.legWeight[side]
+			local rate = isPlanted and 40.0 or (target > current and 24.0 or (self.plantFade[side] and 20.0 or 14.0))
+			current = current + (target - current) * math.clamp(rate * dt, 0, 1)
+			if current < 0.005 and target <= 0 then current = 0 end
+			self.legWeight[side] = current
+			return current
+		end
+		local lW = blendWeight("Left", lWeight, lPlanted)
+		local rW = blendWeight("Right", rWeight, rPlanted)
+		if lLeg and lPos and lW > 0 then applyLeg(lLeg, lLeg.footW.Position:Lerp(lPos, lW)) end
+		if rLeg and rPos and rW > 0 then applyLeg(rLeg, rLeg.footW.Position:Lerp(rPos, rW)) end
+		self.leftPlanted = lPlanted
+		self.rightPlanted = rPlanted
 
-		-- CRITICAL ENGINE GUARD: Disable IKControl when Weight <= 0.005.
-		-- In Roblox C++, when IKControl.Enabled == true, the engine zeroes out EndEffector.Transform
-		-- to identity even if Weight == 0! Setting Enabled = false completely unhooks the solver,
-		-- letting author-keyed ankle dorsiflexion/plantarflexion play with 100% purity.
-		self.leftIK.Enabled = (self.leftIK.Weight > 0.005)
-		self.rightIK.Enabled = (self.rightIK.Weight > 0.005)
+		-- The IKControls stay off (see above); their Weight carries the solver's weight for the
+		-- telemetry and the Animation Lab readout
+		self.leftIK.Enabled = false
+		self.rightIK.Enabled = false
+		self.leftIK.Weight = lW
+		self.rightIK.Weight = rW
+		if lPos then self.leftFootAtt.WorldPosition = lPos end
+		if rPos then self.rightFootAtt.WorldPosition = rPos end
 
-		-- Pelvis Dip Offset (sink hips when stepping down on uneven ground to prevent hyperextension)
+		-- Pelvis Dip Offset: sink the hips when one foot stands lower (a step, the edge of a
+		-- platform) so that foot reaches its ground instead of hanging in the air
 		local hipsDipScale = CombatConfig.FootIK_HipsDipScale or 0.35
+		local maxHipsDip = CombatConfig.FootIK_MaxHipsDip or 0.6
 		local lowestDelta = math.min(lDelta or 0, rDelta or 0)
-		if lowestDelta < -0.30 then
-			local targetDip = math.clamp(lowestDelta * hipsDipScale, -0.15, 0.0)
+		if lowestDelta < -0.30 and not footsFree then
+			local targetDip = math.clamp(lowestDelta * hipsDipScale, -maxHipsDip, 0.0)
 			self.hipsDipOffset = (self.hipsDipOffset or 0) + (targetDip - (self.hipsDipOffset or 0)) * math.clamp(8.0 * dt, 0, 1)
 		else
 			self.hipsDipOffset = (self.hipsDipOffset or 0) * math.exp(-10.0 * dt)

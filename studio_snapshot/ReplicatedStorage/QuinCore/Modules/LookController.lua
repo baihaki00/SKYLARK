@@ -74,7 +74,7 @@ function LookController:resolveTargetPosition()
 		end
 
 		-- Scanning (Cognition.Gaze): a glance at the sky, or looking down over the edge of
-		-- high ground. The head goes where the eyes point, straight ahead of the body.
+		-- high ground. The head pitches to the gaze, straight ahead of the body.
 		local gazeMode = serverModel:GetAttribute("GazeMode")
 		local gazePitch = math.rad(serverModel:GetAttribute("GazePitch") or 0)
 		if not isPlayer and (gazeMode == "glance" or gazeMode == "resting") and math.abs(gazePitch) > math.rad(5) and self.rootPart then

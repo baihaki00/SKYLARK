@@ -328,6 +328,14 @@ local CombatConfig = {
 	FootIK_GaitModulation = true,            -- modulate IK weight during sprint/walk swing phases
 	FootIK_ToeFlexion = true,                -- procedural anti-penetration toe roll/flexion on ground contact
 	FootIK_ToeSoleThickness = 0.14,          -- studs sole thickness below toe bone (prevents toe clipping)
+	FootIK_Plant = true,                     -- hold a foot that is down where it touched the ground until the clip lifts it (no skating)
+	FootIK_PlantContact = 0.15,              -- studs above its rest height at which a foot counts as down
+	FootIK_PlantLift = 0.35,                 -- ... and as lifted again
+	FootIK_PlantMaxDrift = 1.4,              -- studs the clip may pull a planted foot away before it lets go
+	FootIK_MaxHipsDip = 0.6,                 -- studs the pelvis may sink so the lower foot reaches its ground
+	FootIK_Step = true,                      -- a pinned foot the clip does not lift steps after the body (arc step); workspace FootPlant=false switches plant+step off
+	FootIK_StepDuration = 0.28,              -- seconds a step takes at a walk (shorter when faster, 0.14 at least)
+	FootIK_StepLead = 0.1,                   -- seconds of body travel a step lands ahead of the clip's foot
 	VisualGhostHeightOffset = 0.02,          -- vertical calibration offset (studs) ensuring visual shoe sole rests flush on terrain without bone deformation
 
 	-- Active Muscle Ragdoll & Spectacle Knockback (Step 4)
@@ -468,7 +476,7 @@ CombatConfig.MidAirClash_SmashSpeed = 260               -- studs/s the loser is 
 
 -- === Sky intercept (Modules/AirInterceptModule) ===
 CombatConfig.Intercept_MinHeight = 40          -- studs an airborne enemy must be above the Quin
-CombatConfig.Intercept_MaxRange = 300          -- studs
+CombatConfig.Intercept_MaxRange = 200          -- studs
 CombatConfig.Intercept_ChanceBase = 0.03       -- chance to go up after a jumper it has seen
 CombatConfig.Intercept_ChanceAggression = 0.15 -- ... plus this times aggression
 CombatConfig.Intercept_RollInterval = 3.0      -- seconds before the same Quin is considered again
@@ -503,8 +511,8 @@ CombatConfig.Cognition = {
 	HearingRangeMax = 40,          -- ... at awareness 1
 	NoiseSpeed = 12,               -- studs/s above which a moving Quin can be heard
 	ProximityRange = 10,           -- studs within which a Quin is always felt
-	VisionVerticalHalfAngle = 35,  -- degrees above and below where the eyes point (Cognition.Gaze)
-	GazeMaxPitch = 75,             -- degrees the eyes can follow a target up or down
+	VisionVerticalHalfAngle = 35,  -- degrees above and below where the head points (Cognition.Gaze)
+	GazeMaxPitch = 75,             -- degrees the head can follow a target up or down
 	GazeSkyPitch = 45,             -- degrees up for a glance at the sky
 	GazeDownPitch = -35,           -- degrees down when looking over the edge of high ground
 	GazeHighGround = 12,           -- studs above the arena floor from which a Quin looks down
