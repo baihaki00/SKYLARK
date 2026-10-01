@@ -973,7 +973,7 @@ function SpatialModule.findNearbyPlatforms(rootPart, maxDist, minHeight, maxHeig
 	for i = 0, NUM_RAYS - 1 do
 		local angle = (i / NUM_RAYS) * math.pi * 2
 		local dir = Vector3.new(math.sin(angle), 0, math.cos(angle))
-		for _, d in ipairs({ 12, 22, 35, maxDist }) do
+		for d = 12, maxDist, 14 do
 			local probe = pos + dir * d
 			local rayOrigin = Vector3.new(probe.X, pos.Y + maxHeight + 4, probe.Z)
 			local hit = DebugDraw.raycast(rootPart, rayOrigin, Vector3.new(0, -(maxHeight + 8), 0), params)
@@ -1009,11 +1009,20 @@ function SpatialModule.findCoverPositions(rootPart, enemyPos, maxDist)
 	params.FilterDescendantsInstances = exclude
 	params.FilterType = Enum.RaycastFilterType.Exclude
 
-	local NUM_SAMPLES = 8
+	-- Rings out to maxDist (a 3-ring search left a 100-stud hole when the range grew with the arena)
+	local rings = { 10, 20 }
+	for d = 35, maxDist, 25 do
+		table.insert(rings, d)
+	end
+	if rings[#rings] < maxDist then
+		table.insert(rings, maxDist)
+	end
+
+	local NUM_SAMPLES = 12
 	for i = 0, NUM_SAMPLES - 1 do
 		local angle = (i / NUM_SAMPLES) * math.pi * 2
 		local dir = Vector3.new(math.sin(angle), 0, math.cos(angle))
-		for _, d in ipairs({ 10, 20, maxDist }) do
+		for _, d in ipairs(rings) do
 			local samplePos = myPos + dir * d
 			local groundHit = DebugDraw.raycast(rootPart, Vector3.new(samplePos.X, myPos.Y + 3, samplePos.Z), Vector3.new(0, -10, 0), params)
 			if groundHit then

@@ -98,16 +98,19 @@ local function livingSides(fighter)
 end
 
 function CirclingState.enter(fighter, humanoid, rootPart)
-	local tensionRoll = math.random()
-	local tension = "walk"
-	if tensionRoll > 0.8 then
-		tension = "run"
-	elseif tensionRoll < 0.3 then
-		tension = "tired"
-	end
-
 	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
 	local confidence = fighter:GetAttribute("Pers_Confidence") or 0.6
+	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+
+	-- The pace of the standoff says how the Quin is doing: spent Quins drag, eager or nimble
+	-- ones prowl fast, the rest walk it.
+	local energyRatio = (fighter:GetAttribute("Energy") or 100) / (CombatConfig.MaxEnergy or 100)
+	local tension = "walk"
+	if energyRatio < (CombatConfig.Circling_TiredEnergyRatio or 0.35) then
+		tension = "tired"
+	elseif math.max(aggression, mobility) >= (CombatConfig.Circling_ProwlThreshold or 0.6) then
+		tension = "run"
+	end
 
 	-- Personality-driven duration and radius
 	local duration, idealRadius
@@ -126,7 +129,7 @@ function CirclingState.enter(fighter, humanoid, rootPart)
 	circlingData[fighter] = {
 		enterTime = now,
 		lastUpdateTime = now,
-		duration = duration,
+		duration = duration * (CombatConfig.Circling_DurationScale or 0.7),
 		direction = math.random() > 0.5 and 1 or -1,
 		tension = tension,
 		currentAnim = nil,
@@ -232,6 +235,22 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 			return require(script.Parent:WaitForChild("FightState"))
 		elseif distance > maxCircleRange then
 			return require(script.Parent:WaitForChild("ChaseState"))
+		end
+	end
+
+	-- An opening ends the standoff early: the target has turned its back (it is busy with
+	-- someone else, or walking away) and is within a dash. Aggressive Quins take it sooner.
+	if not TEST_MODE_ACTIVE and not isTargetDown and (now - data.enterTime) >= (CombatConfig.Circling_OpeningMinTime or 0.5) then
+		local toMe = flatUnit(rootPart.Position - targetHRP.Position, nil)
+		local targetFacing = flatUnit(targetHRP.CFrame.LookVector, nil)
+		local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
+		if toMe and targetFacing and targetFacing:Dot(toMe) < -0.2 and distance <= (CombatConfig.DashMaxDistance or 28)
+			and math.random() < aggression * (CombatConfig.Circling_OpeningChancePerTick or 0.35) then
+			fighter:SetAttribute("ObstacleAwareness", "Opening: target's back is turned")
+			if distance >= (CombatConfig.DashMinDistance or 10) then
+				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
+			end
+			return require(script.Parent:WaitForChild("FightState"))
 		end
 	end
 

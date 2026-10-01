@@ -23,12 +23,15 @@ local RetreatTacticsModule = require(QuinCore:WaitForChild("Modules"):WaitForChi
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
+local Cognition = require(QuinCore:WaitForChild("Cognition"))
 
 local RetreatState = { name = "Retreat" }
 local retreatData = setmetatable({}, { __mode = "k" })
 
 -- JumpHandler routed through authoritative LocomotionModule (Rule 4 & Rule 6)
 local JumpHandler = LocomotionModule
+
+local THREAT_RANGE = 160 -- studs within which a known enemy counts as a threat to get away from
 
 local function gatherSides(fighter)
 	local myTeam = fighter:GetAttribute("Team") or "None"
@@ -45,12 +48,14 @@ local function gatherSides(fighter)
 					if dist <= 250 then
 						table.insert(allies, q)
 					end
-				else
-					if dist <= 120 then
-						table.insert(enemies, q)
-					end
 				end
 			end
+		end
+	end
+	-- It runs from the enemies it knows about (seen, heard, remembered or reported)
+	for _, contact in ipairs(Cognition.knownEnemies(fighter) or {}) do
+		if contact.distance <= THREAT_RANGE and contact.model.Parent then
+			table.insert(enemies, contact.model)
 		end
 	end
 	return enemies, allies
@@ -165,7 +170,12 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	-- ============================================================
 	-- 1. TACTICAL EVALUATION VIA RETREAT TACTICS MODULE
 	-- ============================================================
-	local result = RetreatTacticsModule.evaluate(fighter, enemies, allies)
+	local board = Cognition.Blackboard.peek(fighter)
+	local result = RetreatTacticsModule.evaluate(fighter, enemies, allies, {
+		plan = data.plan,
+		stalled = board ~= nil and board.self ~= nil and board.self.stalledFor > 0.6,
+	})
+	data.plan = result.plan
 	fighter:SetAttribute("RetreatObjective", result.objective)
 	fighter:SetAttribute("RetreatScore", math.round(result.score * 100) / 100)
 	fighter:SetAttribute("IsCornered", result.isCornered)
@@ -270,10 +280,20 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	-- Outcome A: Safe Haven Reached (threat dropped or out of pursuit range)
-	local safeDist = CombatConfig.RetreatSafeDistance or 85.0
+	-- Outcome A: got away. Either far enough across the arena, or the pursuer has not had a
+	-- line of sight for a while (it lost them).
+	local safeDist = math.max(CombatConfig.RetreatSafeDistance or 85.0, SpatialModule.getArenaBounds().radius * (CombatConfig.Retreat_SafeDistanceRatio or 0.4))
 	local minRetreatDur = CombatConfig.RetreatMinDuration or 2.5
-	if #enemies == 0 or nearestThreatDist >= safeDist then
+	local threatRoot = nearestThreat and nearestThreat:FindFirstChild("HumanoidRootPart")
+	if threatRoot and not SpatialModule.checkLineOfSight(SpatialModule.getEyePosition(threatRoot), SpatialModule.getEyePosition(rootPart), { fighter, nearestThreat }) then
+		data.unseenSince = data.unseenSince or now
+	else
+		data.unseenSince = nil
+	end
+	local lostThem = data.unseenSince ~= nil and (now - data.unseenSince) >= (CombatConfig.Retreat_LostSightTime or 2.5)
+		and nearestThreatDist >= (CombatConfig.Retreat_LostSightMinDistance or 40)
+	fighter:SetAttribute("RetreatUnseen", data.unseenSince ~= nil)
+	if #enemies == 0 or nearestThreatDist >= safeDist or lostThem then
 		if elapsed >= minRetreatDur then
 			BattleEventSystem.emit("RETREAT_SURVIVED", {
 				QuinId = fighter:GetAttribute("QuinId") or fighter.Name,
@@ -282,7 +302,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 				DistanceGained = (rootPart.Position - data.initialPos).Magnitude,
 				Objective = result.objective,
 			})
-			RuntimeTracer.checkpoint(fighter, "Retreat reached safety")
+			RuntimeTracer.checkpoint(fighter, lostThem and "Retreat: lost the pursuer" or "Retreat reached safety")
 			-- Regroup & hold defensive standoff with energy recovery; do NOT dead-stop into IdleState
 			return require(script.Parent:WaitForChild("CirclingState"))
 		end

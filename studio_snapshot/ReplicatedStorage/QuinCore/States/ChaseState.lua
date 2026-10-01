@@ -13,6 +13,7 @@ local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitF
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local AnimationConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationConfig"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local Cognition = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Cognition"))
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local BattleEventSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
@@ -127,7 +128,7 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 		arcChangeTime = now + math.random(2, 5),
 		nextJumpTime = now + (8 - mobility * 4) + math.random(1, 3),
 		nextDashCheckTime = now + math.random(5, 9),
-		nextPJCheckTime = now + math.random(6, 12),
+		nextPJCheckTime = now + (CombatConfig.ProjectileJump_ChaseFirstCheck or 2.0) * (0.7 + math.random() * 0.6),
 		pacingStrategy = strategy,
 		isPacingWalk = (strategy == "ConfidentWalk" or strategy == "WalkThenSprint"),
 		enterTime = now,
@@ -325,6 +326,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.targetLKP = targetHRP.Position
 		data.lastLoSTime = now
 		data.surveyingAtLKP = nil
+		data.searchLeg = nil
 		fighter:SetAttribute("TargetHasLoS", true)
 		fighter:SetAttribute("LastSeenTargetPosition", targetHRP.Position)
 		fighter:SetAttribute("TimeLastSeen", now)
@@ -333,9 +335,34 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local savedLKP = fighter:GetAttribute("LastSeenTargetPosition")
 		data.targetLKP = data.targetLKP or savedLKP or targetHRP.Position
 
+		-- The hunt goes on from memory: head for where the target is believed to be, and from
+		-- there search on along the way it was last moving, for as long as the track is worth
+		-- following. A persistent hunter follows a fainter trail.
+		local contact = Cognition.contactFor(fighter, target)
+		local trailWorth = contact ~= nil and not contact.visible
+			and contact.confidence >= (CombatConfig.Chase_TrailGiveUpConfidence or 0.6) - (fighter:GetAttribute("Pers_TargetPersistence") or 0.6) * 0.5
+		if trailWorth and not data.searchLeg then
+			data.targetLKP = contact.position
+		end
+
 		-- Check if arrived at LKP without sighting target (target escaped behind obstacle)
 		local distToLKP = (data.targetLKP - rootPart.Position).Magnitude
-		if distToLKP <= 7.0 then
+		if distToLKP <= 7.0 and trailWorth then
+			local heading = Vector3.new(contact.velocity.X, 0, contact.velocity.Z)
+			if heading.Magnitude < 1 then
+				heading = Vector3.new(data.targetLKP.X - rootPart.Position.X, 0, data.targetLKP.Z - rootPart.Position.Z)
+			end
+			if heading.Magnitude > 0.1 then
+				data.searchLeg = (data.searchLeg or 0) + 1
+				local arena = SpatialModule.getArenaBounds()
+				local nextPoint = data.targetLKP + heading.Unit * (CombatConfig.Chase_SearchLegDistance or 45)
+				data.targetLKP = Vector3.new(
+					math.clamp(nextPoint.X, arena.center.X - arena.halfX + 20, arena.center.X + arena.halfX - 20),
+					nextPoint.Y,
+					math.clamp(nextPoint.Z, arena.center.Z - arena.halfZ + 20, arena.center.Z + arena.halfZ - 20))
+				fighter:SetAttribute("ObstacleAwareness", "Searching for " .. target.Name)
+			end
+		elseif distToLKP <= 7.0 then
 			if not data.surveyingAtLKP then
 				data.surveyingAtLKP = now
 				AnimationModule.playConfig(humanoid, "Idles.SurveyIdle", 1.2, Enum.AnimationPriority.Action2, false)
@@ -368,6 +395,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Opportunistic Distraction: If another enemy crosses within close melee (<= 13 studs), brawl with them!
 	-- "MY QUIN GAVE UP CHASING THAT GUY, BECAUSE HE GOT CAUGHT UP IN ANOTHER FIGHT!"
+	-- A hunter still committed to its target only turns on a passer-by that is itself after it.
+	local looselyCommitted = commitment < (CombatConfig.Chase_DistractionCommitment or 0.6)
 	if not inShowdown and persistence < 0.85 then
 		local myTeam = fighter:GetAttribute("Team") or "None"
 		local nearestDistraction = nil
@@ -377,7 +406,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				local qHum = q:FindFirstChildOfClass("Humanoid")
 				if qHum and qHum.Health > 0 and q:GetAttribute("Team") ~= myTeam then
 					local d = (q.HumanoidRootPart.Position - rootPart.Position).Magnitude
-					if d < nearestDistractionDist then
+					local afterMe = (q:GetAttribute("CurrentTarget") or q:GetAttribute("TargetQuin")) == fighter.Name
+					if d < nearestDistractionDist and (looselyCommitted or afterMe) then
 						nearestDistractionDist = d
 						nearestDistraction = q
 					end
@@ -539,20 +569,21 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	-- 5. Dynamic Projectile Jump (Requires 40 mana, cooldown 20-30s, rare impactful tactical commitment)
+	-- 5. Projectile jump: the way to close on a distant target (energy cost, cooldown, and a
+	-- chance per check that grows with aggression and mobility; CombatConfig.ProjectileJump_*)
 	local pjEnabled = not inShowdown and (CombatConfig.EnableProjectileJump ~= false) and (fighter:GetAttribute("EnableProjectileJump") ~= false)
 	local lastPJ = fighter:GetAttribute("LastProjectileJumpTime") or 0
 	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
 	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
 	local minPJMana = CombatConfig.ProjectileJumpMinEnergy or 40
-	local pjCooldown = math.max(6.0, ((aggression > 0.7) and 20.0 or 30.0) / speedMult)
+	local pjCooldown = math.max(6.0, (CombatConfig.ProjectileJump_Cooldown or 14.0) * ((aggression > 0.7) and 0.75 or 1.0) / speedMult)
 	local isPJOnCooldown = (now - lastPJ) < pjCooldown
 
 	if pjEnabled and not isPJOnCooldown and energy >= minPJMana and distance >= 40 and distance <= (CombatConfig.ProjectileJumpMaxDistance or 800) then
 		local triggerPJ = false
 		if now >= (data.nextPJCheckTime or 0) then
-			data.nextPJCheckTime = now + (((aggression > 0.7 and math.random(16, 24) or math.random(24, 35))) / speedMult)
-			local pjChance = (aggression * 0.12) + (mobility * 0.08)
+			data.nextPJCheckTime = now + (CombatConfig.ProjectileJump_ChaseCheckInterval or 4.0) * (0.7 + math.random() * 0.6) / speedMult
+			local pjChance = aggression * (CombatConfig.ProjectileJump_ChanceAggression or 0.30) + mobility * (CombatConfig.ProjectileJump_ChanceMobility or 0.20)
 			if recAction == "ProjectileJump" or math.random() < pjChance then
 				triggerPJ = true
 			end
@@ -560,7 +591,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 		if triggerPJ then
 			fighter:SetAttribute("LastProjectileJumpTime", now)
-			data.nextPJCheckTime = now + (((aggression > 0.7 and math.random(18, 25) or math.random(25, 38))) / speedMult)
+			data.nextPJCheckTime = now + pjCooldown
 
 			-- Dynamic selection across all 7 projectile jump styles (Style 1 Parabolic Arc, Style 5 Bezier, etc.)
 			local stylePool = { 1, 1, 2, 3, 4, 5, 5, 6, 7 }

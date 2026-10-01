@@ -175,7 +175,15 @@ function TargetingModule.selectTarget(quinModel, localState)
 				tauntScore = 60 * (1 + (aggression - 0.5) * 0.8)
 			end
 
-			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore
+			-- 12. Being hunted: the enemy that is closing on this Quin and has it as its target is
+			-- worth turning on, the more so the more aware the Quin is. (Without it A chased B
+			-- while B chased C while C chased A, round and round on the same spot.)
+			local huntedScore = 0
+			if localState and localState.PrimaryPursuer == model and not isCurrent then
+				huntedScore = (CombatConfig.Targeting_HuntedScore or 60) * (quinModel:GetAttribute("Pers_Awareness") or 0.65)
+			end
+
+			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore
 
 			if utility > bestUtility then
 				bestUtility = utility
@@ -193,6 +201,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				if isCurrent then table.insert(reasons, "Target persistence") end
 				if dist <= 15 then table.insert(reasons, string.format("Close range (%.1f studs)", dist)) end
 				if rearThreatScore > 15 then table.insert(reasons, "Immediate rear threat") end
+				if huntedScore > 0 then table.insert(reasons, "It is hunting me") end
 				if riskScore > 15 then table.insert(reasons, "High risk penalty") end
 				if threatScore > 15 then table.insert(reasons, "High counter-threat") end
 				if #reasons == 0 then table.insert(reasons, "Optimal utility score") end

@@ -448,6 +448,15 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 
+	-- Two jumpers that come together in the air clash there, whatever phase either is in.
+	-- (Checked only at impact, a clash needed the target to still be airborne when the jump
+	-- ended: it practically never happened.)
+	if data.phase ~= "Init" and standGap >= (CombatConfig.MidAirClash_MinHeight or 12)
+		and target:GetAttribute("CurrentState") == "ProjectileJump"
+		and distToTarget <= (CombatConfig.MidAirClash_TriggerDistance or 40) then
+		return require(script.Parent:WaitForChild("MidAirClashState"))
+	end
+
 	if data.phase == "Init" then
 		if data.style == 1 or data.style == 7 then
 			local dir = (targetPos - rootPart.Position)

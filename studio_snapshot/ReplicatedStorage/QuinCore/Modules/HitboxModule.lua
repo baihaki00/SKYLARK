@@ -6,13 +6,20 @@ local Workspace = game:GetService("Workspace")
 
 local HitboxModule = {}
 
+-- Every Quin is hit as the same upright body around its root, whatever its mesh. (The parts
+-- themselves are no measure: the skinned mesh part is a T-pose bounding box 8 studs wide and
+-- 1.4-1.6 deep that differs per rig, so reach used to depend on the target's build and angle.)
+local BODY_RADIUS = 1.5
+local BODY_HALF_HEIGHT = 3.5
+
 -- Create a hitbox at a position and return all hit models
 function HitboxModule.cast(cframe, size, ignoreModel)
 	local overlapParams = OverlapParams.new()
 	overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 	overlapParams.FilterDescendantsInstances = ignoreModel and {ignoreModel} or {}
 	
-	local hitParts = Workspace:GetPartBoundsInBox(cframe, size, overlapParams)
+	local reach = Vector3.new(BODY_RADIUS, BODY_HALF_HEIGHT, BODY_RADIUS)
+	local hitParts = Workspace:GetPartBoundsInBox(cframe, size + reach * 2, overlapParams)
 
 	-- Player costumes live outside the tournament: a hit only connects within the same
 	-- world (fighter -> fighter, costume -> costume). An attacker-less cast is a fighter cast.
@@ -25,10 +32,14 @@ function HitboxModule.cast(cframe, size, ignoreModel)
 	for _, part in ipairs(hitParts) do
 		local model = part.Parent
 		if model and not seen[model] and (model:GetAttribute("IsCostume") == true) == attackerIsCostume then
+			seen[model] = true
 			local hum = model:FindFirstChildOfClass("Humanoid")
-			if hum and hum.Health > 0 then
-				seen[model] = true
-				table.insert(hitModels, model)
+			local root = model:FindFirstChild("HumanoidRootPart")
+			if hum and hum.Health > 0 and root then
+				local offset = cframe:PointToObjectSpace(root.Position)
+				if math.abs(offset.X) <= size.X / 2 + reach.X and math.abs(offset.Y) <= size.Y / 2 + reach.Y and math.abs(offset.Z) <= size.Z / 2 + reach.Z then
+					table.insert(hitModels, model)
+				end
 			end
 		end
 	end

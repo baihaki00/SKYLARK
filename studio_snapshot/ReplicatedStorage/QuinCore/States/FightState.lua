@@ -128,6 +128,12 @@ local function decideAction(fighter, target, distance, data)
 		local lastReaction = fighter:GetAttribute("LastReactionTime") or 0
 		if now - lastReaction > 1.5 then
 			fighter:SetAttribute("LastReactionTime", now)
+			-- A bold Quin with the energy for it goes up to meet the jumper instead
+			local canJump = CombatConfig.EnableProjectileJump ~= false and fighter:GetAttribute("EnableProjectileJump") ~= false
+				and (fighter:GetAttribute("Energy") or 100) >= (CombatConfig.ProjectileJumpMinEnergy or 35)
+			if canJump and math.random() < aggression * (CombatConfig.Combat_MeetJumpChance or 0.5) then
+				return "answer_jump"
+			end
 			local reactionRoll = math.random()
 			if reactionRoll < 0.55 then
 				return "block"
@@ -289,8 +295,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		
 	-- Step into the strike with momentum, but only as far as the gap: the attacker closes to
 	-- striking distance and never drives into (or through) its target
-	local lungeSpeed = 20 + (moveData.step * 7)
-	if moveData.isLaunch or moveData.isFinisher then lungeSpeed = 45 end
+	local lungeSpeed = CombatConfig.Combat_LungeMaxSpeed or 60
 	local lungeTime = math.min(effectiveDuration * 0.4, 0.35)
 	local lungeRoom = dist - (CombatConfig.Combat_LungeStopDistance or 5.5)
 	if lungeRoom > 0.25 then
@@ -546,7 +551,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	local pjCooldown = ((aggression > 0.7) and 14.0 or 18.0) / speedMult
 	local isPJOnCooldown = (now - lastPJ) < pjCooldown
 	local energy = fighter:GetAttribute("Energy") or 100
-	local pjChance = fighter:GetAttribute("ProjectileJumpChance") or 0.08
+	local pjChance = fighter:GetAttribute("ProjectileJumpChance") or CombatConfig.ProjectileJumpChance or 0.08
 
 	if not inShowdown and (forcedAction == "projectile_jump" or (pjEnabled and not isPJOnCooldown and energy >= minPJMana and distance >= minDist and distance <= maxDist and roll < pjChance)) then
 		fighter:SetAttribute("LastProjectileJumpTime", now)
@@ -669,6 +674,12 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	-- DECIDE ACTION
 	local action = decideAction(fighter, target, distance, data)
+
+	-- A strike is only thrown at a target the step-in can reach. Out of reach the Quin keeps
+	-- closing (the approach above) instead of swinging at air and losing its combo.
+	if (action == "light" or action == "heavy") and distance > (CombatConfig.Combat_StrikeRange or 10.0) then
+		return FightState
+	end
 	data.lastAttackTime = now
 	
 	-- Energy drain per attack
@@ -720,6 +731,11 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 		return FightState
 		
+	elseif action == "answer_jump" then
+		-- Taken up by the projectile-jump check at the top of the next tick
+		fighter:SetAttribute("ForceAction", "projectile_jump")
+		return FightState
+
 	elseif action == "anticipate" then
 		data.currentAction = "anticipate"
 		data.actionEndTime = now + (0.3 / speedMult)

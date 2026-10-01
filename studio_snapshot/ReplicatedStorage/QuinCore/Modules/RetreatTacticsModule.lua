@@ -1,11 +1,15 @@
 --// RetreatTacticsModule.lua
--- Multi-candidate tactical disengagement evaluator for Quins
--- Evaluates 4 distinct escape objectives:
--- 1. TO_ALLIES (Pulling enemies into an ally ambush / pair hunting)
--- 2. TO_HIGH_GROUND (Elevated platforms / rooftops for vertical escape)
--- 3. BREAK_LOS (Obstacle cover to break visual pursuit)
--- 4. OPEN_GROUND (Pure distance evasion away from threat centroid)
--- Biased by Personality, Class, Quirks, and Owner-Family Bonds (Master Project Plan Sections 28-31, 41, 51)
+-- Where a Quin that has decided to get away runs to.
+-- It makes an escape plan - one objective and one destination - and commits to it; it only
+-- plans again when the destination is reached, the pursuer has cut the route, it is stuck, or
+-- the plan has gone stale. Distances scale with the arena, so an escape is a run across the
+-- field and not a loop around the fight.
+-- Objectives, scored by the Quin's condition and personality:
+--   BREAK_LOS       get behind something the pursuer cannot see through
+--   TO_HIGH_GROUND  get onto a platform
+--   TO_ALLIES       reach friends who are not already in this fight
+--   OPEN_GROUND     put distance between it and the threat
+-- A destination that means running at the pursuer is never chosen.
 
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local Workspace = game:GetService("Workspace")
@@ -56,14 +60,11 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 	local myPosFlat = Vector3.new(myPos.X, 0, myPos.Z)
 
 	-- Personality & Trait attributes
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
 	local confidence = fighter:GetAttribute("CurrentConfidence") or (fighter:GetAttribute("Pers_Confidence") or 0.6)
 	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
 	local protectiveness = fighter:GetAttribute("Pers_Protectiveness") or 0.5
-	local retreatTendency = fighter:GetAttribute("Pers_RetreatTendency") or 0.3
 	local quirky = fighter:GetAttribute("Quirky") or "Balanced"
 	local ownerId = fighter:GetAttribute("OwnerId") or "SERVER"
-	local qType = fighter:GetAttribute("QuinType") or "TypeA"
 
 	-- Threat centroid (flat XZ)
 	local enemyCentroid = Vector3.zero
@@ -186,227 +187,183 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 		end
 	end
 
-	local candidateScores = {}
-
 	-- ============================================================
-	-- 1. CANDIDATE: TO_ALLIES (Ambush trap / Sibling bond regroup)
+	-- ESCAPE PLAN
 	-- ============================================================
-	local allyScore = -100
-	local bestAllyPos = nil
-	if allies and #allies > 0 then
-		local allyCentroid = Vector3.zero
-		local validAllies = 0
-		local hasSameOwnerAlly = false
-		local nearestAllyDist = math.huge
+	local arena = SpatialModule.getArenaBounds()
+	local escapeDistance = math.clamp(arena.radius * (CombatConfig.Retreat_EscapeDistanceRatio or 0.5), 60, 220)
+	local searchRange = math.clamp(arena.radius * (CombatConfig.Retreat_SearchRangeRatio or 0.4), 40, 160)
+	local pursuerPos = primaryPursuerHRP and primaryPursuerHRP.Position or (enemyCount > 0 and Vector3.new(enemyCentroid.X, myPos.Y, enemyCentroid.Z) or nil)
 
-		for _, ally in ipairs(allies) do
-			local aHRP = getEntityHRP(ally)
-			if aHRP then
-				local aPos = aHRP.Position
-				local aDist = (aPos - myPos).Magnitude
-				if aDist < nearestAllyDist then nearestAllyDist = aDist end
+	-- Keep destinations on the arena floor area
+	local function insideArena(position)
+		local margin = 20
+		return Vector3.new(
+			math.clamp(position.X, arena.center.X - arena.halfX + margin, arena.center.X + arena.halfX - margin),
+			position.Y,
+			math.clamp(position.Z, arena.center.Z - arena.halfZ + margin, arena.center.Z + arena.halfZ - margin))
+	end
 
-				allyCentroid = allyCentroid + aPos
-				validAllies = validAllies + 1
+	-- Running there must not mean running at the pursuer
+	local function leadsAway(position)
+		if not pursuerPos then return true end
+		local toPlace = Vector3.new(position.X - myPos.X, 0, position.Z - myPos.Z)
+		local toPursuer = Vector3.new(pursuerPos.X - myPos.X, 0, pursuerPos.Z - myPos.Z)
+		if toPlace.Magnitude < 1 or toPursuer.Magnitude < 1 then return true end
+		return toPlace.Unit:Dot(toPursuer.Unit) < 0.3
+	end
 
-				-- Check same-owner sibling bond
-				local aModel = typeof(ally) == "Instance" and ally or ally.model
-				if aModel and aModel:GetAttribute("OwnerId") == ownerId and ownerId ~= "SERVER" then
-					hasSameOwnerAlly = true
+	local openGroundResult = SpatialModule.getSafeRetreatDirection(rootPart, enemies, allies,
+		setmetatable({ RetreatSearchRadius = CombatConfig.Retreat_OpenGroundProbe or 60 }, { __index = CombatConfig }))
+
+	local plan = context.plan
+	local planExpired = true
+	if plan then
+		local toGoal = Vector3.new(plan.position.X - myPos.X, 0, plan.position.Z - myPos.Z)
+		local cut = false
+		if pursuerPos and toGoal.Magnitude > 1 then
+			local toPursuer = Vector3.new(pursuerPos.X - myPos.X, 0, pursuerPos.Z - myPos.Z)
+			cut = toPursuer.Magnitude < toGoal.Magnitude and toPursuer.Magnitude > 1 and toGoal.Unit:Dot(toPursuer.Unit) > 0.5
+		end
+		planExpired = toGoal.Magnitude <= (CombatConfig.Retreat_ArriveDistance or 10)
+			or cut or context.stalled == true
+			or (now - plan.time) >= (CombatConfig.Retreat_PlanHold or 4.0)
+	end
+
+	local candidateScores = plan and plan.scores or {}
+	if planExpired then
+		candidateScores = {}
+		local options = {}
+
+		-- BREAK_LOS: the nearest spot in each direction that hides it from the pursuer
+		if pursuerPos then
+			local best, bestValue = nil, -math.huge
+			for _, cover in ipairs(SpatialModule.findCoverPositions(rootPart, pursuerPos, searchRange)) do
+				if leadsAway(cover) then
+					local value = (cover - pursuerPos).Magnitude - (cover - myPos).Magnitude * 0.6
+					if value > bestValue then best, bestValue = cover, value end
 				end
 			end
-		end
-
-		if validAllies > 0 then
-			allyCentroid = allyCentroid / validAllies
-			bestAllyPos = allyCentroid
-
-			-- Base ally score: increases with ally count and healthy proximity (15 to 180 studs)
-			local countBonus = math.min(validAllies * 18, 45)
-			local distFactor = math.clamp(1.0 - (nearestAllyDist / 220), 0.15, 1.0) * 35
-			allyScore = countBonus + distFactor + (protectiveness * 20)
-
-			-- Quirky & Bond modulations
-			if hasSameOwnerAlly then
-				allyScore = allyScore + 35 -- Sibling bond: "Look at my two Quins working together!"
-			end
-			if quirky == "Follower" or quirky == "Wingman" then
-				allyScore = allyScore + 30
-			elseif quirky == "Bodyguard" or quirky == "Guardian" or quirky == "Safekeeper" then
-				allyScore = allyScore + 25
-			elseif quirky == "PackLeader" then
-				allyScore = allyScore + 15
-			elseif quirky == "LoneWolf" or quirky == "Egoist" then
-				allyScore = allyScore - 30 -- Prefers solo escape
-			end
-
-			-- Tactical trap bonus: if pursuer is outnumbered when we reach allies
-			if enemyCount == 1 and validAllies >= 2 then
-				allyScore = allyScore + 20 -- 1v1 becomes 3v1 ambush
-			end
-		end
-	end
-	candidateScores["TO_ALLIES"] = allyScore
-
-	-- ============================================================
-	-- 2. CANDIDATE: TO_HIGH_GROUND (Elevated platform / rooftop)
-	-- ============================================================
-	local highGroundScore = -100
-	local bestPlatformPos = nil
-	local platforms = SpatialModule.findNearbyPlatforms(rootPart, 50, 4.0, 26.0)
-	if platforms and #platforms > 0 then
-		local bestPlat = nil
-		local bestPlatVal = -math.huge
-		for _, plat in ipairs(platforms) do
-			local pDist = (plat.position - myPos).Magnitude
-			local heightAdv = plat.heightDiff
-			-- Prefer platforms between 6 and 18 studs high that are reachable within 12-40 studs
-			local val = (heightAdv * 2.0) - (pDist * 0.8)
-			if val > bestPlatVal then
-				bestPlatVal = val
-				bestPlat = plat
+			if best then
+				local score = 45 + (mobility * 20) + (1.0 - confidence) * 15
+				if quirky == "Ghost" or quirky == "Evasive" or quirky == "Ambusher" then
+					score += 35
+				elseif quirky == "Opportunist" or quirky == "Survivor" then
+					score += 20
+				end
+				table.insert(options, { objective = "BREAK_LOS", position = best, score = score })
 			end
 		end
 
-		if bestPlat then
-			bestPlatformPos = bestPlat.position
-			highGroundScore = 25 + (bestPlat.heightDiff * 1.8) + (mobility * 25)
-
-			-- Quirky & Class modulations
-			if quirky == "HighGround" or quirky == "Observer" or quirky == "Watcher" then
-				highGroundScore = highGroundScore + 40
-			elseif quirky == "Parkourist" or quirky == "Nuke" then
-				highGroundScore = highGroundScore + 30
-			elseif qType == "TypeC" then -- Assassin: loves vertical shortcuts
-				highGroundScore = highGroundScore + 25
-			elseif qType == "TypeB" then -- Tanker: heavy, less vertical
-				highGroundScore = highGroundScore - 15
+		-- TO_HIGH_GROUND: a platform within reach of a run
+		do
+			local best, bestValue = nil, -math.huge
+			for _, platform in ipairs(SpatialModule.findNearbyPlatforms(rootPart, searchRange, 4.0, 26.0)) do
+				if leadsAway(platform.position) then
+					local value = (platform.heightDiff * 2.0) - (platform.distance * 0.4)
+					if value > bestValue then best, bestValue = platform, value end
+				end
 			end
-
-			-- High ground is a lifesaver when heavily pressured or low HP
-			local hpRatio = 1.0
-			local hum = fighter:FindFirstChildOfClass("Humanoid")
-			if hum then hpRatio = hum.Health / hum.MaxHealth end
-			if hpRatio < 0.30 then
-				highGroundScore = highGroundScore + 25
-			end
-		end
-	end
-	candidateScores["TO_HIGH_GROUND"] = highGroundScore
-
-	-- ============================================================
-	-- 3. CANDIDATE: BREAK_LOS (Obstacle cover / Corner break)
-	-- ============================================================
-	local coverScore = -100
-	local bestCoverPos = nil
-	local coverPositions = SpatialModule.findCoverPositions(rootPart, enemyCentroid, 35)
-	if coverPositions and #coverPositions > 0 then
-		local bestCov = nil
-		local bestCovVal = -math.huge
-		for _, cov in ipairs(coverPositions) do
-			local cDist = (cov - myPos).Magnitude
-			-- Reward close cover that is away from enemy centroid
-			local awayFromEnemy = (cov - enemyCentroid).Magnitude
-			local val = awayFromEnemy - (cDist * 0.6)
-			if val > bestCovVal then
-				bestCovVal = val
-				bestCov = cov
+			if best then
+				local score = 25 + (best.heightDiff * 1.8) + (mobility * 25)
+				if quirky == "HighGround" or quirky == "Observer" or quirky == "Watcher" then
+					score += 40
+				elseif quirky == "Parkourist" or quirky == "Nuke" then
+					score += 30
+				end
+				local humanoid = fighter:FindFirstChildOfClass("Humanoid")
+				if humanoid and humanoid.Health / humanoid.MaxHealth < 0.30 then
+					score += 25 -- high ground is a lifesaver when nearly down
+				end
+				table.insert(options, { objective = "TO_HIGH_GROUND", position = best.position, score = score })
 			end
 		end
 
-		if bestCov then
-			bestCoverPos = bestCov
-			coverScore = 30 + (mobility * 20) + (1.0 - confidence) * 15
-
-			-- Quirky modulations
-			if quirky == "Ghost" or quirky == "Evasive" or quirky == "Ambusher" then
-				coverScore = coverScore + 35
-			elseif quirky == "Opportunist" or quirky == "Survivor" then
-				coverScore = coverScore + 20
+		-- TO_ALLIES: friends who are somewhere else. Allies standing in this same fight are not
+		-- an escape (running to them was a lap around the brawl).
+		do
+			local minDistance = CombatConfig.Retreat_AllyMinDistance or 40
+			local nearestFar, nearestFarDist = nil, math.huge
+			for _, ally in ipairs(allies or {}) do
+				local allyRoot = getEntityHRP(ally)
+				if allyRoot then
+					local distance = (allyRoot.Position - myPos).Magnitude
+					if distance >= minDistance and distance < nearestFarDist and leadsAway(allyRoot.Position) then
+						nearestFar, nearestFarDist = allyRoot, distance
+					end
+				end
+			end
+			if nearestFar then
+				local group = 0
+				local hasSameOwnerAlly = false
+				for _, ally in ipairs(allies) do
+					local allyRoot = getEntityHRP(ally)
+					if allyRoot and (allyRoot.Position - nearestFar.Position).Magnitude <= 30 then
+						group += 1
+						local allyModel = typeof(ally) == "Instance" and ally or ally.model
+						if allyModel and allyModel:GetAttribute("OwnerId") == ownerId and ownerId ~= "SERVER" then
+							hasSameOwnerAlly = true
+						end
+					end
+				end
+				local score = math.min(group * 18, 45) + math.clamp(1.0 - (nearestFarDist / 220), 0.15, 1.0) * 35 + (protectiveness * 20)
+				if hasSameOwnerAlly then score += 35 end
+				if quirky == "Follower" or quirky == "Wingman" then
+					score += 30
+				elseif quirky == "Bodyguard" or quirky == "Guardian" or quirky == "Safekeeper" then
+					score += 25
+				elseif quirky == "PackLeader" then
+					score += 15
+				elseif quirky == "LoneWolf" or quirky == "Egoist" then
+					score -= 30 -- prefers to get away alone
+				end
+				if enemyCount == 1 and group >= 2 then
+					score += 20 -- the pursuer runs into three
+				end
+				table.insert(options, { objective = "TO_ALLIES", position = nearestFar.Position, score = score })
 			end
 		end
-	end
-	candidateScores["BREAK_LOS"] = coverScore
 
-	-- ============================================================
-	-- 4. CANDIDATE: OPEN_GROUND (Distance gain away from threat)
-	-- ============================================================
-	local openGroundResult = SpatialModule.getSafeRetreatDirection(rootPart, enemies, allies, CombatConfig)
-	local openGroundScore = (openGroundResult.score or 0.5) * 45
-	if openGroundResult.isCornered then
-		openGroundScore = openGroundScore - 40
-	end
-	if quirky == "SpeedDemon" or quirky == "Momentum" then
-		openGroundScore = openGroundScore + 20
-	end
-	candidateScores["OPEN_GROUND"] = openGroundScore
+		-- OPEN_GROUND: straight distance along the safest direction
+		do
+			local score = (openGroundResult.score or 0.5) * 45
+			if openGroundResult.isCornered then score -= 40 end
+			if quirky == "SpeedDemon" or quirky == "Momentum" then score += 20 end
+			table.insert(options, { objective = "OPEN_GROUND", position = myPos + openGroundResult.direction * escapeDistance, score = score })
+		end
 
-	-- ============================================================
-	-- TACTICAL ARBITRATION: PICK HIGHEST-SCORING OBJECTIVE
-	-- ============================================================
-	local bestObj = "OPEN_GROUND"
-	local bestVal = openGroundScore
-	local targetPos = myPos + (openGroundResult.direction * 35)
-
-	if highGroundScore > bestVal and bestPlatformPos then
-		bestVal = highGroundScore
-		bestObj = "TO_HIGH_GROUND"
-		targetPos = bestPlatformPos
-	end
-
-	if allyScore > bestVal and bestAllyPos then
-		bestVal = allyScore
-		bestObj = "TO_ALLIES"
-		targetPos = bestAllyPos
-	end
-
-	if coverScore > bestVal and bestCoverPos then
-		bestVal = coverScore
-		bestObj = "BREAK_LOS"
-		targetPos = bestCoverPos
-	end
-
-	-- Compute steering direction towards targetPos
-	local steerDir = (targetPos - myPos)
-	local steerFlat = Vector3.new(steerDir.X, 0, steerDir.Z)
-	if steerFlat.Magnitude > 0.1 then
-		steerDir = steerFlat.Unit
-	else
-		steerDir = openGroundResult.direction
-	end
-
-	-- Check if completely cornered
-	local isCornered = openGroundResult.isCornered or (bestVal < 10 and (not bestAllyPos) and (not bestPlatformPos) and (not bestCoverPos))
-
-	-- Debug: every escape objective with its score; the chosen one in green
-	if DebugDraw.isActive("Retreat", fighter) then
-		local options = {
-			{ name = "OPEN_GROUND", position = myPos + (openGroundResult.direction * 35), score = openGroundScore },
-			{ name = "TO_HIGH_GROUND", position = bestPlatformPos, score = highGroundScore },
-			{ name = "TO_ALLIES", position = bestAllyPos, score = allyScore },
-			{ name = "BREAK_LOS", position = bestCoverPos, score = coverScore },
-		}
+		local best = nil
 		for _, option in ipairs(options) do
-			if option.position then
-				local color = option.name == bestObj and Color3.fromRGB(80, 255, 140) or Color3.fromRGB(255, 190, 80)
-				DebugDraw.line("Retreat", fighter, myPos, option.position, color)
-				DebugDraw.sphere("Retreat", fighter, option.position, 1.0, color)
-				DebugDraw.text("Retreat", fighter, option.position + Vector3.new(0, 2.5, 0), string.format("%s %.0f", option.name, option.score or 0), color)
-			end
+			option.position = insideArena(option.position)
+			candidateScores[option.objective] = option.score
+			if not best or option.score > best.score then best = option end
 		end
+		plan = { objective = best.objective, position = best.position, score = best.score, scores = candidateScores, options = options, time = now }
 	end
 
-	-- If actively juking, steer toward the lateral juke vector
-	local finalSteerDir = (isCurrentlyJuking and jukeDirection) and jukeDirection or steerDir
+	local toGoal = Vector3.new(plan.position.X - myPos.X, 0, plan.position.Z - myPos.Z)
+	local steerDir = toGoal.Magnitude > 0.1 and toGoal.Unit or openGroundResult.direction
+	local isCornered = openGroundResult.isCornered and plan.objective == "OPEN_GROUND"
+
+	-- Debug: every escape option of the current plan with its score; the chosen one in green
+	if DebugDraw.isActive("Retreat", fighter) then
+		for _, option in ipairs(plan.options) do
+			local color = option.objective == plan.objective and Color3.fromRGB(80, 255, 140) or Color3.fromRGB(255, 190, 80)
+			DebugDraw.line("Retreat", fighter, myPos, option.position, color)
+			DebugDraw.sphere("Retreat", fighter, option.position, 1.2, color)
+			DebugDraw.text("Retreat", fighter, option.position + Vector3.new(0, 2.5, 0), string.format("%s %.0f", option.objective, option.score), color)
+		end
+	end
 
 	return {
-		objective = bestObj,
-		targetPosition = targetPos,
-		steerDirection = finalSteerDir,
-		score = math.clamp(bestVal / 80.0, 0.05, 1.0),
+		objective = plan.objective,
+		targetPosition = plan.position,
+		steerDirection = (isCurrentlyJuking and jukeDirection) and jukeDirection or steerDir,
+		score = math.clamp(plan.score / 80.0, 0.05, 1.0),
 		isCornered = isCornered,
-		reason = isCornered and "CORNERED_DEAD_END" or bestObj,
+		reason = isCornered and "CORNERED_DEAD_END" or plan.objective,
 		candidateScores = candidateScores,
+		plan = plan,
 		distanceThreatPhase = distanceThreatPhase,
 		closingSpeed = closingSpeed,
 		nearestEnemyDist = nearestEnemyDist,

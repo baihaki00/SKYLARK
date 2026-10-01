@@ -162,6 +162,17 @@ function Cognition.update(quinModel, targetModel)
 	return board.situation
 end
 
+-- What this Quin believes about one enemy (position, velocity, confidence, channel), or nil
+-- when it does not know about it
+function Cognition.contactFor(quinModel, enemyModel)
+	local board = Blackboard.peek(quinModel)
+	if not board then return nil end
+	for _, contact in ipairs(board.contacts.enemies) do
+		if contact.model == enemyModel then return contact end
+	end
+	return nil
+end
+
 -- The enemies this Quin currently knows about (contacts), or nil before its first update
 function Cognition.knownEnemies(quinModel)
 	local board = Blackboard.peek(quinModel)
