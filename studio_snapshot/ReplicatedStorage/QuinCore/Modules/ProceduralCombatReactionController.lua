@@ -568,6 +568,51 @@ function ProceduralCombatReactionController:update(dt)
 		self.hipsBone.Transform = self.hipsBone.Transform * CFrame.new(totalHipsX, totalHipsY, 0) * CFrame.Angles(hipsPitch, hipsYaw, hipsRoll)
 	end
 
+	-- 4c. Whole-body tilt (Tales Runner / Watch Dogs style): the body leans from the feet
+	-- into the acceleration it is under - into a curve, forward driving off, back braking -
+	-- by the physical lean angle atan(a / g), scaled and capped, plus a forward run lean
+	-- that grows with speed. The whole body turns about a point on the ground under the root,
+	-- so the feet stay where they are (the foot solver below plants them).
+	local tiltSwitch = workspace:GetAttribute("BodyTilt") -- live A/B switch
+	local tiltOn = tiltSwitch == true or (tiltSwitch == nil and CombatConfig.BodyTilt_Enabled ~= false)
+	local tiltStates = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, BeamStruggle = true }
+	local tiltTarget = Vector3.zero
+	if tiltOn and not isAirborne and not tiltStates[serverState] and not (self.humanoid and self.humanoid.PlatformStand) then
+		local gravity = Workspace.Gravity
+		local scale = CombatConfig.BodyTilt_Scale or 0.6
+		local accel = self.leanAcceleration or Vector3.zero
+		local flatAccel = Vector3.new(accel.X, 0, accel.Z)
+		local maxTilt = math.rad(CombatConfig.BodyTilt_MaxDegrees or 16)
+		if flatAccel.Magnitude > 1 then
+			local angle = math.min(math.atan(flatAccel.Magnitude / gravity) * scale, maxTilt)
+			tiltTarget += flatAccel.Unit * angle
+		end
+		-- Forward run lean with speed (none at a walk)
+		local runLean = math.rad(CombatConfig.BodyTilt_RunLeanDegrees or 7)
+		local leanSpeed = CombatConfig.BodyTilt_RunLeanFullSpeed or 40
+		if speed > 8 then
+			tiltTarget += flatVel.Unit * runLean * math.clamp((speed - 8) / (leanSpeed - 8), 0, 1)
+		end
+		if tiltTarget.Magnitude > maxTilt then
+			tiltTarget = tiltTarget.Unit * maxTilt
+		end
+		-- fade out near a standstill (idle sway is the clip's)
+		tiltTarget *= math.clamp(speed / 4, 0, 1)
+	end
+	self.bodyTilt = self.bodyTilt or Vector3.zero
+	self.bodyTilt = self.bodyTilt:Lerp(tiltTarget, 1 - math.exp(-(CombatConfig.BodyTilt_Response or 7) * dt))
+	if self.hipsBone and self.bodyTilt.Magnitude > math.rad(0.3) then
+		local axis = Vector3.yAxis:Cross(self.bodyTilt.Unit) -- the top of the body moves toward the tilt
+		if axis.Magnitude > 1e-4 then
+			local pivot = self.rootPart.Position - Vector3.new(0, self.standHeight, 0)
+			local rotation = CFrame.new(pivot) * CFrame.fromAxisAngle(axis.Unit, self.bodyTilt.Magnitude) * CFrame.new(-pivot)
+			local hipsW = self.hipsBone.TransformedWorldCFrame
+			local parent = self.hipsBone.Parent
+			local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame
+			self.hipsBone.Transform = (parentW * self.hipsBone.CFrame):Inverse() * (rotation * hipsW)
+		end
+	end
+
 	if self.spineBone then
 		self.spineBone.Transform = self.spineBone.Transform * CFrame.Angles(s0Pitch, s0Yaw, s0Roll)
 	end
@@ -672,10 +717,15 @@ function ProceduralCombatReactionController:update(dt)
 		local stepMaxSpeed = CombatConfig.FootIK_StepMaxSpeed or 12
 
 		local impulse = self.rootPart:FindFirstChild("ImpulseLV")
+		-- Only a knockback (ImpulseModule priority 3: a 10-18 stud skid) slides the feet. The
+		-- body's own pushes (lunge, spacing step back) and a hit flinch (2-5 studs) are stepped:
+		-- the feet used to glide backwards through every spacing correction and every flinch
 		local pushed = impulse ~= nil and impulse:IsA("LinearVelocity") and impulse.MaxAxesForce.X > 0
+			and (impulse:GetAttribute("Priority") or 3) >= 3
 		local footsFree = self.wasAirborne or serverState == "Recovery" or serverState == "Knockback"
 			or (self.humanoid and self.humanoid.PlatformStand)
 			or (serverModel and serverModel:GetAttribute("LandingSlide") == true)
+			or (serverModel and serverModel:GetAttribute("LocomotionAction") ~= nil) -- a run slide, a dash: the clip has the feet
 
 		self.plant = self.plant or {}
 		self.plantArmed = self.plantArmed or { Left = true, Right = true }

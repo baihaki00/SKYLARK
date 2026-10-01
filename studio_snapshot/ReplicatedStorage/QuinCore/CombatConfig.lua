@@ -374,7 +374,7 @@ CombatConfig.Strafe_WalkAuthoredSpeed = 6.5
 CombatConfig.Strafe_RunAuthoredSpeed = 18.5
 CombatConfig.Strafe_MinPlayRate = 0.6
 CombatConfig.Strafe_MaxPlayRate = 1.35
-CombatConfig.Circling_MaxFacingBias = 35 -- degrees the body may turn off its target to keep a strafe exactly sideways
+CombatConfig.Circling_MaxFacingBias = 60 -- degrees the body may turn off its target to keep a strafe exactly sideways (35 limited strafes to a narrow band of directions)
 
 -- Motion continuity (16v16 movement audit)
 CombatConfig.Knockback_MaxLaunchHorizontal = 110.0 -- studs/s cap on an air-knockback launch (uncapped finishers reached 220+ and threw victims out of the arena)
@@ -457,6 +457,20 @@ CombatConfig.Locomotion_ForceLeanFullAcceleration = 60 -- studs/s^2 at which the
 CombatConfig.Locomotion_ForceLeanPitchDegrees = 14     -- forward / back lean at full acceleration
 CombatConfig.Locomotion_ForceLeanRollDegrees = 12      -- sideways lean at full acceleration
 CombatConfig.ProceduralStyle_Enabled = false           -- experiment: each Quin leans / twists / carries weight a little differently (HUD switch overrides)
+
+-- === Whole-body tilt (ProceduralCombatReactionController): lean from the feet into acceleration ===
+-- === Directional gait (GaitModule): strafe and backpedal when moving off the facing ===
+CombatConfig.Gait_Directional = true
+CombatConfig.Gait_StrafeAngle = 50       -- degrees off the facing from which the strafe clips play
+CombatConfig.Gait_BackpedalAngle = 130   -- degrees from which the forward cycle plays in reverse
+CombatConfig.Gait_StrafeRunSpeed = 10    -- studs/s above which the run strafe is used
+
+CombatConfig.BodyTilt_Enabled = true            -- workspace attribute BodyTilt overrides (A/B)
+CombatConfig.BodyTilt_Scale = 0.6               -- share of the physical lean angle atan(a / g)
+CombatConfig.BodyTilt_MaxDegrees = 16           -- cap
+CombatConfig.BodyTilt_RunLeanDegrees = 7        -- forward lean at full run speed
+CombatConfig.BodyTilt_RunLeanFullSpeed = 40     -- studs/s at which the run lean is full
+CombatConfig.BodyTilt_Response = 7              -- 1/s smoothing
 
 -- === Secondary motion (ProceduralCombatReactionController): the arms carry a little weight ===
 CombatConfig.SecondaryMotion_Enabled = true          -- workspace attribute SecondaryMotion overrides (A/B)

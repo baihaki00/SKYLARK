@@ -22,6 +22,7 @@ local BattleEventSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):Wai
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
 
 local function findModelByName(name)
 	if not name or name == "" then return nil end
@@ -668,14 +669,18 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 	
+	-- Close only counts when it can be reached: a wall or a platform edge between them is not
+	-- a fight (they used to stand facing each other through it for the rest of the match)
+	local reachable = NavigationModule.isReachable(rootPart, targetHRP)
+
 	-- Mirroring: If they are circling, we circle!
-	if targetState == "Circling" and distance < (CombatConfig.CombatRange or 7) * 4.0 then
+	if reachable and targetState == "Circling" and distance < (CombatConfig.CombatRange or 7) * 4.0 then
 		if math.random() > 0.8 then
 			return require(script.Parent:WaitForChild("CirclingState"))
 		end
 	end
 	
-	if distance <= (CombatConfig.CombatRange or 7) * 1.5 then
+	if reachable and distance <= (CombatConfig.CombatRange or 7) * 1.5 then
 		if math.random() > 0.7 then
 			return require(script.Parent:WaitForChild("CirclingState"))
 		else
@@ -688,7 +693,37 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local obstacleSteer = nil
 	if obsInfo.hasObstacle and not inShowdown then
 		local isJumpSuppressed = LocomotionModule.isJumpSuppressed(fighter, humanoid)
-		if obsInfo.canVault and not isJumpSuppressed and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+		-- Takeoff timing: a runner leaves the ground so the top of its arc is over the obstacle,
+		-- i.e. speed x time-to-apex before it (about 7 studs for a 2-stud hurdle at 40 studs/s,
+		-- 12 for an 8-stud one). It used to jump as soon as the 22-stud look-ahead saw anything:
+		-- a 2-stud hurdle from 19 studs out, and a taller one was refused until the Quin ran
+		-- into it, stopped dead and hopped up from a standstill.
+		local flatVelNow = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z)
+		local speedNow = flatVelNow.Magnitude
+		local faceDistance = obsInfo.hitPosition and Vector3.new(obsInfo.hitPosition.X - rootPart.Position.X, 0, obsInfo.hitPosition.Z - rootPart.Position.Z).Magnitude or 0
+		local clearRise = math.clamp((obsInfo.height or 0) + 0.8, 3, 14)
+		local timeToApex = math.sqrt(2 * clearRise / Workspace.Gravity)
+		local takeoffDistance = math.max(2.5, speedNow * timeToApex)
+		-- Thin (a hurdle, a low wall) or deep (a box, a platform): probe the top beyond the face
+		local isThin = false
+		if obsInfo.hitPosition and obsInfo.topSurfaceY then
+			local dirFlat = (targetHRP.Position - rootPart.Position) * Vector3.new(1, 0, 1)
+			dirFlat = dirFlat.Magnitude > 0.1 and dirFlat.Unit or Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z).Unit
+			local probeParams = RaycastParams.new()
+			probeParams.FilterType = Enum.RaycastFilterType.Exclude
+			probeParams.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
+			local beyond = obsInfo.hitPosition + dirFlat * 7 + Vector3.new(0, 1, 0)
+			local down = Workspace:Raycast(Vector3.new(beyond.X, obsInfo.topSurfaceY + 3, beyond.Z), Vector3.new(0, -(obsInfo.topSurfaceY + 3 - rootPart.Position.Y + 8), 0), probeParams)
+			isThin = not down or down.Position.Y < obsInfo.topSurfaceY - 1.5
+		end
+		local readyToJump = isThin and faceDistance <= takeoffDistance + 1
+			or (not isThin and faceDistance <= 4 + speedNow * 0.16)
+		if obsInfo.canVault and not readyToJump then
+			fighter:SetAttribute("ObstacleAwareness", "Approaching Obstacle")
+		elseif obsInfo.canVault and isThin and not isJumpSuppressed and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+			fighter:SetAttribute("ObstacleAwareness", "Hurdling")
+			JumpHandler.performJump(humanoid, rootPart, clearRise, speedNow, "hurdle")
+		elseif obsInfo.canVault and not isJumpSuppressed and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
 			local soundPart = fighter:FindFirstChild("Sounds")
 			if soundPart then
 				local jumpSound = soundPart:FindFirstChild("jump")
@@ -1088,6 +1123,15 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.currentAnim = arcAnim
 		
 		AnimationModule.playConfig(humanoid, arcAnim, 1.20, Enum.AnimationPriority.Action, false)
+	end
+
+	-- Not reachable in a straight line: follow a path round (PathfindingService)
+	if not reachable and not inShowdown then
+		local waypoint = NavigationModule.detourWaypoint(fighter, rootPart, targetHRP.Position)
+		if waypoint then
+			arcTarget = waypoint
+			fighter:SetAttribute("ObstacleAwareness", "Going round")
+		end
 	end
 
 	-- Authoritative single-driver steering & speed modulation

@@ -90,7 +90,7 @@ AnimationConfig.Registry = {
 		ProceduralJump1 = { id = "rbxassetid://90546747503310", speed = 1.25, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Procedural Jump / Evade 01" },
 		ProceduralSlide1 = { id = "rbxassetid://73976796270777", speed = 1.30, fadeTime = 0.08, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Procedural Slide 01" },
 		ProceduralSlide2 = { id = "rbxassetid://101210294612380", speed = 1.30, fadeTime = 0.08, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Procedural Slide 02" },
-		SkidOverOB = { id = "rbxassetid://100662167599815", speed = 1.30, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Skid Over Obstacle 5x3" },
+		SkidOverOB = { id = "rbxassetid://82934009896094", speed = 1.30, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Skid Over Obstacle 5x3" },
 		VaultObstacle = { id = "rbxassetid://85622241844167", speed = 1.25, fadeTime = 0.06, priority = "Action", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Obstacle Hurdle Vault" },
 	},
 	Reactions = {

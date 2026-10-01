@@ -189,6 +189,12 @@ end
 function SpatialModule.getArenaBounds()
 	local arenaRoot = Workspace:FindFirstChild("argoniaonion")
 	local arenaGround = arenaRoot and arenaRoot:FindFirstChild("ArenaGround", true)
+	-- The movement test course is its own arena (the safety net used to fling Quins spawned
+	-- there back into the main arena)
+	if Workspace:GetAttribute("CurrentMode") == "MovementTestArena" then
+		local course = Workspace:FindFirstChild("MovementTestArena")
+		arenaGround = (course and course:FindFirstChild("ArenaGroundMovementTest", true)) or arenaGround
+	end
 	local size = arenaGround and arenaGround.Size or Vector3.new(600, 4, 600)
 	local center = arenaGround and arenaGround.Position or Vector3.zero
 	local halfX = size.X / 2

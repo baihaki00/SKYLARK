@@ -84,13 +84,20 @@ local function step()
 		else
 			local velocity = Vector3.zero
 			local force = 0
+			local topPriority = 0
 			for tag, request in pairs(body.requests) do
 				if now - request.startTime >= request.duration then
 					body.requests[tag] = nil
 				else
 					velocity += request.direction * (request.speed * requestFactor(request, now))
 					force = math.max(force, request.maxForce)
+					topPriority = math.max(topPriority, request.priority or 1)
 				end
+			end
+			-- Published for the client's foot placement: the body's own moves (a lunge, a
+			-- spacing step back) are stepped, being shoved (flinch, knockback) is slid
+			if body.mover:GetAttribute("Priority") ~= topPriority then
+				body.mover:SetAttribute("Priority", topPriority)
 			end
 			if next(body.requests) == nil then
 				release(model)

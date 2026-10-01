@@ -144,6 +144,11 @@ local function releaseGroundLoops(humanoid, fade)
 	end
 	if st then
 		st.rates, st.weights = {}, {}
+		if st.strafeTrack then
+			st.strafeTrack:Stop(fade or 0.2)
+			st.strafeTrack = nil
+		end
+		st.dirMode = nil
 	end
 end
 
@@ -164,7 +169,11 @@ local function applyAirborne(humanoid)
 		end
 	end
 	local st = states[humanoid]
-	if st then st.rates, st.weights = {}, {} end
+	if st then
+		st.rates, st.weights = {}, {}
+		st.strafeTrack = nil -- (stopped above with the other looped Movement tracks)
+		st.dirMode = nil
+	end
 	local fall = AnimationModule.getTrack(humanoid, FALL_PATH)
 	if fall and not isActive(fall) then
 		fall.Priority = Enum.AnimationPriority.Movement
@@ -178,7 +187,10 @@ local function drive(track, weight, rate, st, key, startPhase)
 	if not isActive(track) then
 		track.Priority = Enum.AnimationPriority.Movement
 		track.Looped = true
-		track:Play(START_FADE, weight, rate)
+		track:Play(START_FADE, weight, math.abs(rate))
+		if rate < 0 then
+			track:AdjustSpeed(rate) -- backpedal: the cycle played in reverse
+		end
 		if startPhase and track.Length > 0 then
 			track.TimePosition = startPhase * track.Length
 		end
@@ -268,6 +280,75 @@ function GaitModule.update(humanoid, rootPart, dt)
 		AnimationModule.ensureBaseIdle(humanoid)
 	end
 
+	-- Direction of travel against the facing. A body that faces its opponent while it moves
+	-- sideways or backwards (fight footwork, a step back, a sidestep) used to run its forward
+	-- cycle crabwise. 50-130 degrees off the facing it strafes (the left/right strafe clips,
+	-- walk or run by speed); past 130 it backpedals (the forward cycle played in reverse - there
+	-- are no backward clips). 10 degrees of hysteresis between bands.
+	local mode = "forward"
+	local look = rootPart.CFrame.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+	local planarVel = Vector3.new(vel.X, 0, vel.Z)
+	-- (Circling plays the same strafe clips itself: there it owns them)
+	local owner = humanoid.Parent and humanoid.Parent:GetAttribute("CurrentState")
+	local directionalSwitch = workspace:GetAttribute("GaitDirectional") -- live A/B switch
+	local directionalOn = directionalSwitch == true or (directionalSwitch == nil and CombatConfig.Gait_Directional ~= false)
+	if directionalOn and owner ~= "Circling" and flatLook.Magnitude > 0.01 and planarVel.Magnitude > 1 then
+		local angle = math.deg(math.acos(math.clamp(flatLook.Unit:Dot(planarVel.Unit), -1, 1)))
+		local sideStart = CombatConfig.Gait_StrafeAngle or 50
+		local backStart = CombatConfig.Gait_BackpedalAngle or 130
+		if st.dirMode == "strafe" then
+			sideStart -= 10
+			backStart += 10
+		elseif st.dirMode == "back" then
+			backStart -= 10
+		end
+		if angle >= backStart then
+			mode = "back"
+		elseif angle >= sideStart then
+			mode = "strafe"
+		end
+	end
+	st.dirMode = mode
+
+	if mode == "strafe" then
+		local right = rootPart.CFrame.RightVector
+		local flatRight = Vector3.new(right.X, 0, right.Z)
+		local lateral = flatRight.Magnitude > 0.01 and planarVel:Dot(flatRight.Unit) or 0
+		local useRun = speed > (CombatConfig.Gait_StrafeRunSpeed or 10)
+		local path = lateral > 0 and (useRun and "Strafe.StrafeRightRun" or "Strafe.StrafeRightWalk")
+			or (useRun and "Strafe.StrafeLeftRun" or "Strafe.StrafeLeftWalk")
+		local authored = useRun and (CombatConfig.Strafe_RunAuthoredSpeed or 18.5) or (CombatConfig.Strafe_WalkAuthoredSpeed or 6.5)
+		local rate = math.clamp(math.abs(lateral) / authored, CombatConfig.Strafe_MinPlayRate or 0.6, 1.6)
+		-- the forward loops fade out underneath (kept alive at ~0 so their phase is not lost)
+		for i, track in ipairs(tracks) do
+			if isActive(track) then
+				drive(track, 0.001, st.rates[i] or 1, st, i)
+			end
+		end
+		local strafe = AnimationModule.getTrack(humanoid, path)
+		if st.strafeTrack and st.strafeTrack ~= strafe then
+			st.strafeTrack:Stop(0.2)
+		end
+		if strafe then
+			strafe.Priority = Enum.AnimationPriority.Movement
+			strafe.Looped = true
+			if not strafe.IsPlaying or strafe.WeightTarget < 0.5 then
+				strafe:Play(0.2, math.max(locoWeight, 0.001), rate)
+			else
+				strafe:AdjustSpeed(rate)
+				strafe:AdjustWeight(math.max(locoWeight, 0.001), 0.1)
+			end
+			st.strafeTrack = strafe
+		end
+		return { speed = speed, mode = mode, locoWeight = locoWeight }
+	end
+	if st.strafeTrack then
+		st.strafeTrack:Stop(0.2)
+		st.strafeTrack = nil
+	end
+	local direction = mode == "back" and -1 or 1
+
 	-- Canonical phase: the dominant live clip leads; a fresh start uses the handed-off
 	-- entry phase (e.g. from a slide exit) or the previous phase-locked cycle.
 	local phase = trackPhase(tracks[lead], plants[lead])
@@ -283,7 +364,7 @@ function GaitModule.update(humanoid, rootPart, dt)
 
 	for i, track in ipairs(tracks) do
 		local clipPhase = (phase + plants[i]) % 1
-		drive(track, weights[i] * locoWeight, cadence * lens[i], st, i, clipPhase)
+		drive(track, weights[i] * locoWeight, direction * cadence * lens[i], st, i, clipPhase)
 		if i ~= lead and isActive(track) and track.Length > 0 then
 			local current = (track.TimePosition % track.Length) / track.Length
 			if math.abs(wrappedPhaseDelta(clipPhase, current)) > PHASE_TOLERANCE then
@@ -298,6 +379,7 @@ function GaitModule.update(humanoid, rootPart, dt)
 		locoWeight = locoWeight,
 		cadence = cadence,
 		phase = phase,
+		mode = mode,
 	}
 end
 
@@ -335,8 +417,9 @@ function GaitModule.hasForeignLocomotion(humanoid)
 	if not animator then return false end
 	local gaitIds = clipIds()
 	local fallEntry = AnimationConfig.get(FALL_PATH)
+	local ownStrafe = states[humanoid] and states[humanoid].strafeTrack
 	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-		if track.Priority == Enum.AnimationPriority.Movement and track.WeightTarget > 0 then
+		if track ~= ownStrafe and track.Priority == Enum.AnimationPriority.Movement and track.WeightTarget > 0 then
 			local id = track.Animation and track.Animation.AnimationId
 			if not gaitIds[id] and not (fallEntry and id == fallEntry.id) then
 				return true

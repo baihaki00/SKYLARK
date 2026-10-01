@@ -20,6 +20,7 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 
 -- Dynamic combat animation pools: directly hot-swappable via AnimationConfig!
@@ -583,6 +584,18 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	if distance > (CombatConfig.CombatRange or 7) * 2.5 then
 		if DEBUG then print("[Fight] Target too far -> Chase") end
 		return require(script.Parent:WaitForChild("ChaseState"))
+	end
+
+	-- Close but out of reach (a wall or a platform edge between them): Chase finds the way
+	-- round. Half a second of grace so a body passing between them does not end the fight.
+	if NavigationModule.isReachable(rootPart, targetHRP) then
+		data.unreachableSince = nil
+	else
+		data.unreachableSince = data.unreachableSince or now
+		if now - data.unreachableSince > 0.5 then
+			data.unreachableSince = nil
+			return require(script.Parent:WaitForChild("ChaseState"))
+		end
 	end
 	
 	-- Face target smoothly via physics torque AlignOrientation (Zero CFrame snapping / yaw pop)

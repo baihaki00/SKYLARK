@@ -641,8 +641,13 @@ function GameModeManager.startMovementTestInArena()
 	Workspace:SetAttribute("MatchStarted", true)
 	
 	task.wait(0.2)
-	local p1 = Vector3.new(30.5, 5.0, 568.5) -- runandjumpcheckpoint1
-	local p2 = Vector3.new(24.5, 5.0, 1038.5) -- runandjumpcheckpoint2
+	-- The course's own checkpoints (the arena was moved; fixed coordinates spawned the Quins
+	-- off the ground)
+	local course = Workspace:FindFirstChild("MovementTestArena")
+	local c1 = course and course:FindFirstChild("runandjumpcheckpoint1", true)
+	local c2 = course and course:FindFirstChild("runandjumpcheckpoint2", true)
+	local p1 = c1 and (c1.Position + Vector3.new(0, 5, 0)) or Vector3.new(418, 7, 122)
+	local p2 = c2 and (c2.Position + Vector3.new(0, 5, 0)) or Vector3.new(412, 7, 592)
 	
 	local quinA = QuinSpawner.spawn("TypeA", p1, "TeamAlpha")
 	local quinB = QuinSpawner.spawn("TypeB", p2, "TeamBeta")
@@ -669,6 +674,12 @@ function GameModeManager.startMovementTestInArena()
 		
 		quinB:SetAttribute("IsSparringPartner", true)
 		quinB:SetAttribute("ForceState", "Idle")
+		-- A fixed finish line: WalkSpeed 0 alone did not hold it (its states raise the speed
+		-- again), so the runner ended up chasing it round the maze instead of running the course
+		if hrpB then
+			hrpB.Anchored = true
+		end
+		quinB:SetAttribute("EnableProjectileJump", false)
 		
 		-- Configure QuinA to sprint towards QuinB across progressive hurdles
 		quinA:SetAttribute("TargetQuin", "QuinB_Target")

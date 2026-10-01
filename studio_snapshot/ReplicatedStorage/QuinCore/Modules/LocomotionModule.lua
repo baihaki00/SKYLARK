@@ -610,6 +610,10 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	end
 
 	local currentHVel = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Magnitude
+	-- A hurdle is cleared along the way the body is travelling (the facing can lag a turn)
+	if jumpType == "hurdle" and currentHVel > 4 then
+		flatLook = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Unit
+	end
 	local fwdSpeed = forwardImpulse
 	if fwdSpeed == nil then
 		fwdSpeed = (currentHVel > 2.0) and currentHVel or 0.0
@@ -656,7 +660,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	align.Name = "Loco_JumpAlign"
 	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
 	align.RigidityEnabled = false
-	align.Responsiveness = 80
+	align.Responsiveness = 30 -- (80 locked the facing for the whole flight)
 	align.MaxTorque = 300000
 	align.MaxAngularVelocity = 20
 	local alignLook = plannedHorizontal.Magnitude > 0.01 and plannedHorizontal.Unit or flatLook
