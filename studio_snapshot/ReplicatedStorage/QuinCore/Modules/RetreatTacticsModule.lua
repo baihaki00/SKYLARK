@@ -7,6 +7,7 @@
 -- 4. OPEN_GROUND (Pure distance evasion away from threat centroid)
 -- Biased by Personality, Class, Quirks, and Owner-Family Bonds (Master Project Plan Sections 28-31, 41, 51)
 
+local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -164,8 +165,8 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 						rayParams.FilterDescendantsInstances = { fighter, primaryPursuerHRP.Parent }
 						rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-						local rayL = Workspace:Raycast(myPos + Vector3.new(0, 1.5, 0), cutL * 15, rayParams)
-						local rayR = Workspace:Raycast(myPos + Vector3.new(0, 1.5, 0), cutR * 15, rayParams)
+						local rayL = DebugDraw.raycast(fighter, myPos + Vector3.new(0, 1.5, 0), cutL * 15, rayParams)
+						local rayR = DebugDraw.raycast(fighter, myPos + Vector3.new(0, 1.5, 0), cutR * 15, rayParams)
 						local distL = rayL and (rayL.Position - myPos).Magnitude or 15
 						local distR = rayR and (rayR.Position - myPos).Magnitude or 15
 
@@ -376,6 +377,24 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 
 	-- Check if completely cornered
 	local isCornered = openGroundResult.isCornered or (bestVal < 10 and (not bestAllyPos) and (not bestPlatformPos) and (not bestCoverPos))
+
+	-- Debug: every escape objective with its score; the chosen one in green
+	if DebugDraw.isActive("Retreat", fighter) then
+		local options = {
+			{ name = "OPEN_GROUND", position = myPos + (openGroundResult.direction * 35), score = openGroundScore },
+			{ name = "TO_HIGH_GROUND", position = bestPlatformPos, score = highGroundScore },
+			{ name = "TO_ALLIES", position = bestAllyPos, score = allyScore },
+			{ name = "BREAK_LOS", position = bestCoverPos, score = coverScore },
+		}
+		for _, option in ipairs(options) do
+			if option.position then
+				local color = option.name == bestObj and Color3.fromRGB(80, 255, 140) or Color3.fromRGB(255, 190, 80)
+				DebugDraw.line("Retreat", fighter, myPos, option.position, color)
+				DebugDraw.sphere("Retreat", fighter, option.position, 1.0, color)
+				DebugDraw.text("Retreat", fighter, option.position + Vector3.new(0, 2.5, 0), string.format("%s %.0f", option.name, option.score or 0), color)
+			end
+		end
+	end
 
 	-- If actively juking, steer toward the lateral juke vector
 	local finalSteerDir = (isCurrentlyJuking and jukeDirection) and jukeDirection or steerDir

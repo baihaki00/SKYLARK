@@ -1,27 +1,87 @@
 --// RuntimeVisualizer.lua
--- 3D Debug Visualizers for Quin combat AI, spatial reasoning, and kinematics:
--- 1. Line-of-Sight (LoS) 3D Tether: Neon Green when clear, Crimson Red when occluded + hit point
--- 2. Last Known Position (LKP): Pulsing floor ring + vertical beacon marker
--- 3. Ballistic Trajectory Curve: Real-time physics projection arc + landing impact reticle
--- 4. Platform & Ledge Intent: Visual navigation vectors for high-ground dive and climb
--- 5. Overhead Tactical HUD Billboard: State, obstacle awareness, speed, mana, and IK telemetry
+-- 3D debug overlay for the Quins, drawn on the spectator's client.
+--
+-- The overlay is a set of layers, each switched on or off from the Spectator HUD
+-- (DebugDraw.Layers lists them). Two kinds of layer:
+--   * client layers  - computed here from replicated state (attributes, velocity): overhead
+--     label, target / line of sight, last seen position, velocity + facing, flight prediction;
+--   * server layers  - submitted by the Quins' own reasoning code through DebugDraw (raycasts,
+--     steering, pursuit, jump plans, retreat options, decision scores) and only drawn here.
+-- Everything is drawn immediate-mode from pools: each frame the active layers ask for lines,
+-- spheres, rings and text; whatever was not asked for is hidden.
 
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Debris = game:GetService("Debris")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local DebugDraw = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugDraw"))
 
 local RuntimeVisualizer = {}
-RuntimeVisualizer.__index = RuntimeVisualizer
 
 local GRAVITY = Vector3.new(0, -Workspace.Gravity, 0)
 local VISUALIZER_FOLDER_NAME = "QuinDebugVisualizers"
 
+local COLOR = {
+	clear = Color3.fromRGB(0, 255, 128),
+	blocked = Color3.fromRGB(255, 45, 65),
+	memory = Color3.fromRGB(255, 170, 0),
+	velocity = Color3.fromRGB(0, 220, 255),
+	facing = Color3.fromRGB(245, 245, 255),
+	rise = Color3.fromRGB(0, 220, 255),
+	apex = Color3.fromRGB(255, 230, 80),
+	fall = Color3.fromRGB(255, 120, 30),
+	impact = Color3.fromRGB(0, 255, 220),
+	label = Color3.fromRGB(240, 245, 255),
+}
+
+-- ============================================================
+-- State: master switch, layers, scope
+-- ============================================================
+local isEnabled = CombatConfig.DebugVisualizers_Enabled ~= false
+local layerEnabled = {} -- [layerId] = true; every layer starts off
+local watchAll = false -- false: only the spectated Quin; true: every Quin
+
+function RuntimeVisualizer.isEnabled()
+	return isEnabled
+end
+
+function RuntimeVisualizer.setEnabled(value)
+	isEnabled = value
+	if not isEnabled then
+		RuntimeVisualizer.clear()
+	end
+end
+
+function RuntimeVisualizer.toggle()
+	RuntimeVisualizer.setEnabled(not isEnabled)
+	return isEnabled
+end
+
+function RuntimeVisualizer.getLayers()
+	return DebugDraw.Layers
+end
+
+function RuntimeVisualizer.isLayerEnabled(layerId)
+	return layerEnabled[layerId] == true
+end
+
+function RuntimeVisualizer.setLayerEnabled(layerId, value)
+	layerEnabled[layerId] = value and true or nil
+end
+
+function RuntimeVisualizer.isWatchingAll()
+	return watchAll
+end
+
+function RuntimeVisualizer.setWatchAll(value)
+	watchAll = value == true
+end
+
+-- ============================================================
+-- Pools (immediate-mode drawing)
+-- ============================================================
 local container = nil
 local function getContainer()
 	if not container or not container.Parent then
@@ -35,528 +95,293 @@ local function getContainer()
 	return container
 end
 
--- Line Adornment Pool
-local linePool = {}
-local function getLineAdornment(index)
-	if not linePool[index] then
-		local line = Instance.new("LineHandleAdornment")
-		line.Name = "DebugLine_" .. tostring(index)
-		line.ZIndex = 5
-		line.AlwaysOnTop = true
-		line.Thickness = 3
-		line.Adornee = Workspace.Terrain
-		line.Parent = getContainer()
-		linePool[index] = line
+-- Anchor for the pools: an invisible part kept just in front of the camera. Adornments are
+-- culled with the part they adorn, so one left at the world origin (or Terrain) draws nothing
+-- from across the arena. Everything is positioned relative to it (anchorOrigin).
+local anchorPart = nil
+local anchorOrigin = Vector3.zero
+local function getAnchor()
+	if not anchorPart or not anchorPart.Parent then
+		anchorPart = Instance.new("Part")
+		anchorPart.Name = "DebugDrawAnchor"
+		anchorPart.Size = Vector3.new(1, 1, 1)
+		anchorPart.CFrame = CFrame.identity
+		anchorPart.Anchored = true
+		anchorPart.Transparency = 1
+		anchorPart.CanCollide = false
+		anchorPart.CanQuery = false
+		anchorPart.CanTouch = false
+		anchorPart.Parent = getContainer()
 	end
-	linePool[index].Visible = true
-	return linePool[index]
+	return anchorPart
 end
 
-local function hideUnusedLines(usedCount)
-	for i = usedCount + 1, #linePool do
-		if linePool[i] then
-			linePool[i].Visible = false
-		end
+local function newPool(create, hide)
+	return { items = {}, used = 0, create = create, hide = hide }
+end
+
+local function take(pool)
+	pool.used += 1
+	local item = pool.items[pool.used]
+	if not item or not item.Parent then
+		item = pool.create()
+		pool.items[pool.used] = item
 	end
+	return item
 end
 
--- Visualizer State
-local isEnabled = CombatConfig.DebugVisualizers_Enabled ~= false
-local activeTargetBeam = nil
-local activeTargetAtt0 = nil
-local activeTargetAtt1 = nil
-local lkpMarker = nil
-local impactReticle = nil
-local overheadBillboard = nil
-local platformArrow = nil
-
-function RuntimeVisualizer.isEnabled()
-	return isEnabled
-end
-
-function RuntimeVisualizer.setEnabled(val)
-	isEnabled = val
-	if not isEnabled then
-		RuntimeVisualizer.clear()
+local function finishPool(pool)
+	for i = pool.used + 1, #pool.items do
+		pool.hide(pool.items[i])
 	end
+	pool.used = 0
 end
 
-function RuntimeVisualizer.toggle()
-	RuntimeVisualizer.setEnabled(not isEnabled)
-	return isEnabled
+local function newAdornment(className)
+	local adornment = Instance.new(className)
+	-- ZIndex is left at its default: with any other value an AlwaysOnTop adornment is not drawn
+	adornment.AlwaysOnTop = true
+	adornment.Adornee = getAnchor()
+	adornment.Parent = getAnchor()
+	return adornment
 end
 
--- Clear all active 3D debug visualizer instances
+local function hideAdornment(adornment)
+	adornment.Visible = false
+end
+
+local linePool = newPool(function()
+	local line = newAdornment("LineHandleAdornment")
+	line.Thickness = 3
+	return line
+end, hideAdornment)
+
+local spherePool = newPool(function()
+	return newAdornment("SphereHandleAdornment")
+end, hideAdornment)
+
+local ringPool = newPool(function()
+	local ring = newAdornment("CylinderHandleAdornment")
+	ring.Height = 0.15
+	ring.Transparency = 0.45
+	return ring
+end, hideAdornment)
+
+local textPool = newPool(function()
+	local anchor = Instance.new("Attachment")
+	anchor.Name = "DebugTextAnchor"
+	anchor.Parent = getAnchor()
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "DebugText"
+	billboard.Size = UDim2.new(0, 300, 0, 64)
+	billboard.AlwaysOnTop = true
+	billboard.Adornee = anchor
+	billboard.Parent = getAnchor()
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 11
+	label.TextYAlignment = Enum.TextYAlignment.Bottom
+	label.TextStrokeTransparency = 0.2
+	label.TextStrokeColor3 = Color3.new(0, 0, 0)
+	label.Parent = billboard
+	return billboard
+end, function(billboard)
+	billboard.Enabled = false
+end)
+
+local draw = {}
+
+function draw.line(from, to, color, thickness)
+	local delta = to - from
+	if delta.Magnitude < 0.01 then return end
+	local line = take(linePool)
+	line.CFrame = CFrame.lookAt(from - anchorOrigin, to - anchorOrigin)
+	line.Length = delta.Magnitude
+	line.Color3 = color
+	line.Thickness = thickness or 3
+	line.Visible = true
+end
+
+function draw.sphere(position, radius, color)
+	local sphere = take(spherePool)
+	sphere.CFrame = CFrame.new(position - anchorOrigin)
+	sphere.Radius = radius
+	sphere.Color3 = color
+	sphere.Visible = true
+end
+
+-- Flat ring on the ground
+function draw.ring(position, radius, color)
+	local ring = take(ringPool)
+	ring.CFrame = CFrame.new(position - anchorOrigin) * CFrame.Angles(math.rad(90), 0, 0)
+	ring.Radius = radius
+	ring.InnerRadius = radius * 0.8
+	ring.Color3 = color
+	ring.Visible = true
+end
+
+function draw.text(position, text, color)
+	local billboard = take(textPool)
+	billboard.Adornee.WorldPosition = position
+	billboard.Label.Text = text
+	billboard.Label.TextColor3 = color
+	billboard.Enabled = true
+end
+
+local function finishFrame()
+	finishPool(linePool)
+	finishPool(spherePool)
+	finishPool(ringPool)
+	finishPool(textPool)
+end
+
+-- Remove everything the overlay has drawn
 function RuntimeVisualizer.clear()
-	hideUnusedLines(0)
-	if container and container.Parent then
-		container:ClearAllChildren()
-	end
-	activeTargetBeam = nil
-	activeTargetAtt0 = nil
-	activeTargetAtt1 = nil
-	lkpMarker = nil
-	impactReticle = nil
-	overheadBillboard = nil
-	platformArrow = nil
+	finishFrame()
+	DebugDraw.clearLive()
 end
 
 -- ============================================================
--- 1. LINE-OF-SIGHT (LoS) TETHER
+-- Client layers
 -- ============================================================
-local function updateLoSTether(fighter, target, hasLoS, occludedPoint)
-	local folder = getContainer()
-	if not activeTargetBeam or not activeTargetBeam.Parent then
-		local part0 = Instance.new("Part")
-		part0.Name = "LoS_AttPart0"
-		part0.Size = Vector3.new(0.2, 0.2, 0.2)
-		part0.Transparency = 1
-		part0.Anchored = true
-		part0.CanCollide = false
-		part0.Parent = folder
-
-		local part1 = Instance.new("Part")
-		part1.Name = "LoS_AttPart1"
-		part1.Size = Vector3.new(0.2, 0.2, 0.2)
-		part1.Transparency = 1
-		part1.Anchored = true
-		part1.CanCollide = false
-		part1.Parent = folder
-
-		local att0 = Instance.new("Attachment")
-		att0.Parent = part0
-		local att1 = Instance.new("Attachment")
-		att1.Parent = part1
-
-		local beam = Instance.new("Beam")
-		beam.Name = "LoS_Beam"
-		beam.Attachment0 = att0
-		beam.Attachment1 = att1
-		beam.Width0 = 0.4
-		beam.Width1 = 0.4
-		beam.FaceCamera = true
-		beam.LightEmission = 1.0
-		beam.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.1),
-			NumberSequenceKeypoint.new(0.5, 0.0),
-			NumberSequenceKeypoint.new(1, 0.1),
-		})
-		beam.Parent = folder
-
-		activeTargetAtt0 = att0
-		activeTargetAtt1 = att1
-		activeTargetBeam = beam
-	end
-
-	local fHRP = fighter:FindFirstChild("HumanoidRootPart")
-	local tHRP = target and target:FindFirstChild("HumanoidRootPart")
-	if not fHRP or not tHRP then
-		activeTargetBeam.Enabled = false
-		return
-	end
-
-	local startPos = SpatialModule.getEyePosition(fHRP)
-	local endPos = SpatialModule.getEyePosition(tHRP)
-
-	activeTargetAtt0.Parent.Position = startPos
-	activeTargetAtt1.Parent.Position = endPos
-	activeTargetBeam.Enabled = true
-
-	if hasLoS then
-		-- Clear Line of Sight: Neon Emerald Green
-		local green = Color3.fromRGB(0, 255, 128)
-		activeTargetBeam.Color = ColorSequence.new(green)
-		activeTargetBeam.Width0 = 0.35
-		activeTargetBeam.Width1 = 0.35
-	else
-		-- Occluded: Neon Crimson Red
-		local red = Color3.fromRGB(255, 45, 65)
-		activeTargetBeam.Color = ColorSequence.new(red)
-		activeTargetBeam.Width0 = 0.50
-		activeTargetBeam.Width1 = 0.50
-	end
+local function findTarget(fighter)
+	local targetName = fighter:GetAttribute("CurrentTarget") or fighter:GetAttribute("TargetQuin")
+	if not targetName or targetName == "" then return nil end
+	local quinServer = Workspace:FindFirstChild("QuinServer") or Workspace
+	return quinServer:FindFirstChild(targetName) or Workspace:FindFirstChild(targetName)
 end
 
--- ============================================================
--- 2. LAST KNOWN POSITION (LKP) MARKER
--- ============================================================
-local function updateLKPMarker(fighter, target, hasLoS)
-	local folder = getContainer()
-	local lkpPos = fighter:GetAttribute("LastSeenTargetPosition")
-	if hasLoS or not lkpPos then
-		if lkpMarker and lkpMarker.Parent then
-			lkpMarker.Transparency = 1
-			local bb = lkpMarker:FindFirstChildOfClass("BillboardGui")
-			if bb then bb.Enabled = false end
-		end
-		return
-	end
+local clientLayers = {}
 
-	if not lkpMarker or not lkpMarker.Parent then
-		local part = Instance.new("Part")
-		part.Name = "LKP_Marker"
-		part.Shape = Enum.PartType.Cylinder
-		part.Size = Vector3.new(0.4, 6.0, 6.0)
-		part.Orientation = Vector3.new(0, 0, 90)
-		part.Material = Enum.Material.Neon
-		part.Color = Color3.fromRGB(255, 170, 0)
-		part.Transparency = 0.4
-		part.Anchored = true
-		part.CanCollide = false
-		part.Parent = folder
-
-		local bb = Instance.new("BillboardGui")
-		bb.Size = UDim2.new(0, 140, 0, 30)
-		bb.StudsOffset = Vector3.new(0, 2.5, 0)
-		bb.AlwaysOnTop = true
-		bb.Parent = part
-
-		local txt = Instance.new("TextLabel")
-		txt.Name = "LKP_Label"
-		txt.Size = UDim2.new(1, 0, 1, 0)
-		txt.BackgroundTransparency = 1
-		txt.TextColor3 = Color3.fromRGB(255, 200, 50)
-		txt.Font = Enum.Font.GothamBold
-		txt.TextSize = 13
-		txt.TextStrokeTransparency = 0.2
-		txt.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-		txt.Parent = bb
-
-		lkpMarker = part
-	end
-
-	local timeLastSeen = fighter:GetAttribute("TimeLastSeen") or os.clock()
-	local age = math.max(0, math.round((os.clock() - timeLastSeen) * 10) / 10)
-
-	lkpMarker.Position = lkpPos + Vector3.new(0, 0.2, 0)
-	lkpMarker.Transparency = 0.35 + math.sin(os.clock() * 6) * 0.15
-
-	local bb = lkpMarker:FindFirstChildOfClass("BillboardGui")
-	if bb then
-		bb.Enabled = true
-		local lbl = bb:FindFirstChild("LKP_Label")
-		if lbl then
-			local tgtName = target and target.Name or "Target"
-			lbl.Text = string.format("👁️ LKP (%s) [-%0.1fs]", tgtName, age)
-		end
-	end
+-- State, health, energy, speed and what the Quin reports about obstacles
+function clientLayers.Label(fighter, rootPart)
+	local humanoid = fighter:FindFirstChildOfClass("Humanoid")
+	draw.text(rootPart.Position + Vector3.new(0, 5.2, 0), string.format("%s | %s\nHP %d | Mana %d | %.1f studs/s\n%s | %s",
+		fighter.Name,
+		string.upper(fighter:GetAttribute("CurrentState") or "None"),
+		humanoid and math.round(humanoid.Health) or 0,
+		fighter:GetAttribute("Energy") or 100,
+		rootPart.AssemblyLinearVelocity.Magnitude,
+		fighter:GetAttribute("TacticalState") or "-",
+		fighter:GetAttribute("ObstacleAwareness") or "Clear"), COLOR.label)
 end
 
--- ============================================================
--- 3. BALLISTIC TRAJECTORY PREDICTION CURVE & IMPACT RETICLE
--- ============================================================
-local function updateTrajectoryCurve(fighter, rootPart)
-	local folder = getContainer()
-	local vel = rootPart.AssemblyLinearVelocity
-	local isAirborne = false
+-- Eye-to-eye line to the current target: green with line of sight, red without
+function clientLayers.Target(fighter, rootPart, target)
+	local targetRoot = target and target:FindFirstChild("HumanoidRootPart")
+	if not targetRoot then return end
+	local hasLoS = fighter:GetAttribute("TargetHasLoS") == true
+	draw.line(SpatialModule.getEyePosition(rootPart), SpatialModule.getEyePosition(targetRoot), hasLoS and COLOR.clear or COLOR.blocked, hasLoS and 3 or 5)
+end
+
+-- Where the Quin last saw its target, while it cannot see it
+function clientLayers.Memory(fighter, rootPart, target)
+	local lastSeen = fighter:GetAttribute("LastSeenTargetPosition")
+	if not lastSeen or fighter:GetAttribute("TargetHasLoS") == true then return end
+	draw.ring(lastSeen + Vector3.new(0, 0.2, 0), 3, COLOR.memory)
+	draw.line(rootPart.Position, lastSeen, COLOR.memory, 2)
+	draw.text(lastSeen + Vector3.new(0, 2.5, 0), "last seen: " .. (target and target.Name or "target"), COLOR.memory)
+end
+
+-- Velocity (half a second of travel) and facing
+function clientLayers.Velocity(fighter, rootPart)
+	local origin = rootPart.Position
+	draw.line(origin, origin + rootPart.AssemblyLinearVelocity * 0.5, COLOR.velocity, 4)
+	draw.line(origin, origin + rootPart.CFrame.LookVector * 5, COLOR.facing, 2)
+end
+
+-- Ballistic prediction of a body in flight, with the landing point
+function clientLayers.Trajectory(fighter, rootPart)
+	local velocity = rootPart.AssemblyLinearVelocity
 	local state = fighter:GetAttribute("CurrentState") or ""
-	if state == "Airborne" or state == "Knockback" or state == "ProjectileJump" or math.abs(vel.Y) > 10 or vel.Magnitude > 32 then
-		isAirborne = true
-	end
-
-	if not isAirborne then
-		hideUnusedLines(0)
-		if impactReticle and impactReticle.Parent then
-			impactReticle.Transparency = 1
-			local bb = impactReticle:FindFirstChildOfClass("BillboardGui")
-			if bb then bb.Enabled = false end
-		end
-		return
-	end
+	local inFlight = state == "Airborne" or state == "Knockback" or state == "ProjectileJump"
+		or math.abs(velocity.Y) > 10
+	if not inFlight then return end
 
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = { fighter, getContainer(), Workspace:FindFirstChild("QuinGhost") }
+	rayParams.FilterDescendantsInstances = { fighter, getContainer(), Workspace:FindFirstChild("QuinServer") }
 
-	local startPos = rootPart.Position
-	local currentPos = startPos
-	local currentVel = vel
-	local dt = 0.05
-	local maxSteps = 35
-
-	local lineIndex = 0
-	local hitPos = nil
-	local impactTime = 0
-
-	for step = 1, maxSteps do
-		local nextVel = currentVel + GRAVITY * dt
-		local nextPos = currentPos + currentVel * dt + 0.5 * GRAVITY * (dt * dt)
-
-		-- Raycast segment
-		local segRay = Workspace:Raycast(currentPos, nextPos - currentPos, rayParams)
-		local endPos = segRay and segRay.Position or nextPos
-
-		lineIndex = lineIndex + 1
-		local line = getLineAdornment(lineIndex)
-		line.Length = (endPos - currentPos).Magnitude
-		line.CFrame = CFrame.lookAt(currentPos, endPos)
-		
-		-- Color arc: Cyan on rise, Amber on apex, Orange on descent
-		if currentVel.Y > 5 then
-			line.Color3 = Color3.fromRGB(0, 220, 255)
-		elseif currentVel.Y > -10 then
-			line.Color3 = Color3.fromRGB(255, 230, 80)
-		else
-			line.Color3 = Color3.fromRGB(255, 120, 30)
+	local position = rootPart.Position
+	local step = 0.05
+	for i = 1, 35 do
+		local nextPosition = position + velocity * step + 0.5 * GRAVITY * (step * step)
+		local hit = Workspace:Raycast(position, nextPosition - position, rayParams)
+		local color = velocity.Y > 5 and COLOR.rise or (velocity.Y > -10 and COLOR.apex or COLOR.fall)
+		draw.line(position, hit and hit.Position or nextPosition, color)
+		if hit then
+			draw.ring(hit.Position + Vector3.new(0, 0.1, 0), 2.5, COLOR.impact)
+			draw.text(hit.Position + Vector3.new(0, 1.8, 0), string.format("lands in %.2fs", i * step), COLOR.impact)
+			return
 		end
-		line.Visible = true
-
-		if segRay then
-			hitPos = segRay.Position
-			impactTime = step * dt
-			break
-		end
-
-		currentPos = nextPos
-		currentVel = nextVel
-	end
-
-	hideUnusedLines(lineIndex)
-
-	-- Impact Ground Reticle
-	if hitPos then
-		if not impactReticle or not impactReticle.Parent then
-			local ring = Instance.new("Part")
-			ring.Name = "ImpactReticle"
-			ring.Shape = Enum.PartType.Cylinder
-			ring.Size = Vector3.new(0.2, 5.0, 5.0)
-			ring.Orientation = Vector3.new(0, 0, 90)
-			ring.Material = Enum.Material.Neon
-			ring.Color = Color3.fromRGB(0, 255, 220)
-			ring.Transparency = 0.35
-			ring.Anchored = true
-			ring.CanCollide = false
-			ring.Parent = folder
-
-			local bb = Instance.new("BillboardGui")
-			bb.Size = UDim2.new(0, 120, 0, 24)
-			bb.StudsOffset = Vector3.new(0, 1.8, 0)
-			bb.AlwaysOnTop = true
-			bb.Parent = ring
-
-			local lbl = Instance.new("TextLabel")
-			lbl.Name = "ImpactLabel"
-			lbl.Size = UDim2.new(1, 0, 1, 0)
-			lbl.BackgroundTransparency = 1
-			lbl.TextColor3 = Color3.fromRGB(0, 255, 220)
-			lbl.Font = Enum.Font.GothamBold
-			lbl.TextSize = 12
-			lbl.TextStrokeTransparency = 0.2
-			lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-			lbl.Parent = bb
-
-			impactReticle = ring
-		end
-
-		impactReticle.Position = hitPos + Vector3.new(0, 0.1, 0)
-		impactReticle.Transparency = 0.35 + math.sin(os.clock() * 10) * 0.15
-
-		local bb = impactReticle:FindFirstChildOfClass("BillboardGui")
-		if bb then
-			bb.Enabled = true
-			local lbl = bb:FindFirstChild("ImpactLabel")
-			if lbl then
-				lbl.Text = string.format("🎯 Impact: %0.2fs", impactTime)
-			end
-		end
+		position = nextPosition
+		velocity += GRAVITY * step
 	end
 end
 
--- ============================================================
--- 4. PLATFORM INTENT & LEDGE NAVIGATION ARROWS
--- ============================================================
-local function updatePlatformIntent(fighter, rootPart)
-	local folder = getContainer()
-	local obsAware = fighter:GetAttribute("ObstacleAwareness") or ""
-	local isPerched = (obsAware:find("Ledge") ~= nil or obsAware:find("Platform") ~= nil)
-
-	if not isPerched then
-		if platformArrow and platformArrow.Parent then
-			platformArrow.Transparency = 1
-			local bb = platformArrow:FindFirstChildOfClass("BillboardGui")
-			if bb then bb.Enabled = false end
-		end
-		return
-	end
-
-	if not platformArrow or not platformArrow.Parent then
-		local arrow = Instance.new("Part")
-		arrow.Name = "PlatformIntentArrow"
-		arrow.Size = Vector3.new(1.2, 0.2, 6.0)
-		arrow.Material = Enum.Material.Neon
-		arrow.Color = Color3.fromRGB(255, 90, 200)
-		arrow.Transparency = 0.3
-		arrow.Anchored = true
-		arrow.CanCollide = false
-		arrow.Parent = folder
-
-		local bb = Instance.new("BillboardGui")
-		bb.Size = UDim2.new(0, 150, 0, 24)
-		bb.StudsOffset = Vector3.new(0, 2.0, 0)
-		bb.AlwaysOnTop = true
-		bb.Parent = arrow
-
-		local lbl = Instance.new("TextLabel")
-		lbl.Name = "IntentLabel"
-		lbl.Size = UDim2.new(1, 0, 1, 0)
-		lbl.BackgroundTransparency = 1
-		lbl.TextColor3 = Color3.fromRGB(255, 120, 220)
-		lbl.Font = Enum.Font.GothamBold
-		lbl.TextSize = 12
-		lbl.TextStrokeTransparency = 0.2
-		lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-		lbl.Parent = bb
-
-		platformArrow = arrow
-	end
-
-	local fwd = rootPart.CFrame.LookVector
-	local flatFwd = Vector3.new(fwd.X, 0, fwd.Z)
-	flatFwd = flatFwd.Magnitude > 0.01 and flatFwd.Unit or Vector3.new(0, 0, -1)
-
-	platformArrow.CFrame = CFrame.lookAt(rootPart.Position + flatFwd * 4.0 - Vector3.new(0, 2.5, 0), rootPart.Position + flatFwd * 8.0 - Vector3.new(0, 2.5, 0))
-	platformArrow.Transparency = 0.25 + math.sin(os.clock() * 8) * 0.15
-
-	local bb = platformArrow:FindFirstChildOfClass("BillboardGui")
-	if bb then
-		bb.Enabled = true
-		local lbl = bb:FindFirstChild("IntentLabel")
-		if lbl then
-			lbl.Text = string.format("⚡ %s", obsAware)
-		end
-	end
-end
-
--- ============================================================
--- 5. OVERHEAD TACTICAL HUD BILLBOARD
--- ============================================================
-local function updateOverheadBillboard(fighter, rootPart)
-	local folder = getContainer()
-	if not overheadBillboard or not overheadBillboard.Parent then
-		local bb = Instance.new("BillboardGui")
-		bb.Name = "FighterDebugBillboard"
-		bb.Size = UDim2.new(0, 220, 0, 60)
-		bb.StudsOffset = Vector3.new(0, 5.2, 0)
-		bb.AlwaysOnTop = true
-		bb.Parent = folder
-
-		local bg = Instance.new("Frame")
-		bg.Name = "Bg"
-		bg.Size = UDim2.new(1, 0, 1, 0)
-		bg.BackgroundColor3 = Color3.fromRGB(12, 16, 24)
-		bg.BackgroundTransparency = 0.25
-		bg.Parent = bb
-
-		local uic = Instance.new("UICorner")
-		uic.CornerRadius = UDim.new(0, 6)
-		uic.Parent = bg
-
-		local uis = Instance.new("UIStroke")
-		uis.Color = Color3.fromRGB(0, 200, 255)
-		uis.Thickness = 1.2
-		uis.Parent = bg
-
-		local line1 = Instance.new("TextLabel")
-		line1.Name = "Line1"
-		line1.Size = UDim2.new(1, -8, 0, 18)
-		line1.Position = UDim2.new(0, 4, 0, 3)
-		line1.BackgroundTransparency = 1
-		line1.TextColor3 = Color3.fromRGB(240, 245, 255)
-		line1.Font = Enum.Font.GothamBold
-		line1.TextSize = 11
-		line1.TextXAlignment = Enum.TextXAlignment.Left
-		line1.Parent = bg
-
-		local line2 = Instance.new("TextLabel")
-		line2.Name = "Line2"
-		line2.Size = UDim2.new(1, -8, 0, 16)
-		line2.Position = UDim2.new(0, 4, 0, 22)
-		line2.BackgroundTransparency = 1
-		line2.TextColor3 = Color3.fromRGB(0, 230, 255)
-		line2.Font = Enum.Font.Gotham
-		line2.TextSize = 10
-		line2.TextXAlignment = Enum.TextXAlignment.Left
-		line2.Parent = bg
-
-		local line3 = Instance.new("TextLabel")
-		line3.Name = "Line3"
-		line3.Size = UDim2.new(1, -8, 0, 16)
-		line3.Position = UDim2.new(0, 4, 0, 39)
-		line3.BackgroundTransparency = 1
-		line3.TextColor3 = Color3.fromRGB(180, 200, 225)
-		line3.Font = Enum.Font.Gotham
-		line3.TextSize = 9
-		line3.TextXAlignment = Enum.TextXAlignment.Left
-		line3.Parent = bg
-
-		overheadBillboard = bb
-	end
-
-	overheadBillboard.Adornee = rootPart
-	overheadBillboard.Enabled = true
-
-	local bg = overheadBillboard:FindFirstChild("Bg")
-	if bg then
-		local state = fighter:GetAttribute("CurrentState") or "None"
-		local obsAware = fighter:GetAttribute("ObstacleAwareness") or "Clear"
-		local speed = math.round(rootPart.AssemblyLinearVelocity.Magnitude * 10) / 10
-		local energy = fighter:GetAttribute("Energy") or 100
-		local hum = fighter:FindFirstChildOfClass("Humanoid")
-		local hp = hum and math.round(hum.Health) or 100
-
-		local l1 = bg:FindFirstChild("Line1")
-		if l1 then
-			l1.Text = string.format("%s | %s", fighter.Name, state:upper())
-		end
-
-		local l2 = bg:FindFirstChild("Line2")
-		if l2 then
-			l2.Text = string.format("HP: %d | Mana: %d | Spd: %0.1f s/s", hp, energy, speed)
-		end
-
-		local l3 = bg:FindFirstChild("Line3")
-		if l3 then
-			l3.Text = string.format("Intent: %s", obsAware)
-		end
-	end
-end
-
--- ============================================================
--- MAIN UPDATE TICK (Invoked from QuinDebugHUD or RenderStepped)
--- ============================================================
-function RuntimeVisualizer.update(spectatedFighter)
-	if not isEnabled then return end
-	if not spectatedFighter or not spectatedFighter.Parent then
-		RuntimeVisualizer.clear()
-		return
-	end
-
-	local rootPart = spectatedFighter:FindFirstChild("HumanoidRootPart")
+local function drawClientLayers(fighter)
+	local rootPart = fighter:FindFirstChild("HumanoidRootPart")
 	if not rootPart then return end
+	local target = findTarget(fighter)
+	for _, layer in ipairs(DebugDraw.Layers) do
+		if layer.source == "client" and layerEnabled[layer.id] then
+			clientLayers[layer.id](fighter, rootPart, target)
+		end
+	end
+end
 
-	-- Find active target
-	local targetName = spectatedFighter:GetAttribute("CurrentTarget") or spectatedFighter:GetAttribute("TargetQuin")
-	local target = nil
-	if targetName and targetName ~= "" then
-		local quinServer = Workspace:FindFirstChild("QuinServer") or Workspace
-		target = quinServer:FindFirstChild(targetName) or Workspace:FindFirstChild(targetName)
+-- ============================================================
+-- Server layers: draw what the Quins submitted
+-- ============================================================
+local function drawServerPrimitive(primitive)
+	if not layerEnabled[DebugDraw.Layers[primitive[2]].id] then return end
+	local kind = primitive[1]
+	if kind == DebugDraw.Kind.Line then
+		draw.line(primitive[3], primitive[4], primitive[5], 2)
+	elseif kind == DebugDraw.Kind.Sphere then
+		draw.sphere(primitive[3], primitive[4], primitive[5])
+	else
+		draw.text(primitive[3], primitive[7], primitive[5])
+	end
+end
+
+-- ============================================================
+-- Frame update (called by the Spectator HUD while it is open)
+-- ============================================================
+function RuntimeVisualizer.update(spectatedFighter, allFighters)
+	if not isEnabled then
+		DebugDraw.configure({}, false, nil)
+		return
 	end
 
-	-- 1. LoS Tether
-	local hasLoS = spectatedFighter:GetAttribute("TargetHasLoS") == true
-	updateLoSTether(spectatedFighter, target, hasLoS)
+	local spectatedName = spectatedFighter and spectatedFighter.Parent and spectatedFighter.Name or nil
+	DebugDraw.configure(layerEnabled, watchAll, spectatedName)
 
-	-- 2. LKP Marker
-	updateLKPMarker(spectatedFighter, target, hasLoS)
+	local cameraFrame = Workspace.CurrentCamera.CFrame
+	anchorOrigin = cameraFrame.Position + cameraFrame.LookVector * 12
+	getAnchor().CFrame = CFrame.new(anchorOrigin)
 
-	-- 3. Trajectory Curve & Impact Reticle
-	updateTrajectoryCurve(spectatedFighter, rootPart)
+	if watchAll and allFighters then
+		for _, fighter in ipairs(allFighters) do
+			if fighter.Parent then drawClientLayers(fighter) end
+		end
+	elseif spectatedName then
+		drawClientLayers(spectatedFighter)
+	end
 
-	-- 4. Platform Intent Navigation Vector
-	updatePlatformIntent(spectatedFighter, rootPart)
+	DebugDraw.forEachLive(drawServerPrimitive)
+	finishFrame()
+end
 
-	-- 5. Overhead Tactical HUD Billboard
-	updateOverheadBillboard(spectatedFighter, rootPart)
+-- The HUD closed: stop the server sending and take everything off screen
+function RuntimeVisualizer.stop()
+	DebugDraw.configure({}, false, nil)
+	RuntimeVisualizer.clear()
 end
 
 return RuntimeVisualizer

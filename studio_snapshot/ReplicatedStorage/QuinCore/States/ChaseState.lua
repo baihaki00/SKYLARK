@@ -2,6 +2,7 @@
 -- Intelligent pathfinding chase with obstacle jumping and smooth lean
 -- Single Source of Truth: ReplicatedStorage.QuinCore.AnimationConfig
 
+local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
@@ -877,7 +878,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			leadRayParams.FilterDescendantsInstances = { fighter, target }
 			leadRayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-			local leadRay = Workspace:Raycast(rootPart.Position + Vector3.new(0, 1.5, 0), (testIntercept - rootPart.Position), leadRayParams)
+			local leadRay = DebugDraw.raycast(rootPart, rootPart.Position + Vector3.new(0, 1.5, 0), (testIntercept - rootPart.Position), leadRayParams)
 			if not leadRay then
 				interceptPos = testIntercept
 				fighter:SetAttribute("InterceptionLeadTime", math.round(leadTime * 100) / 100)
@@ -951,6 +952,17 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		arcTarget = rootPart.Position + platformDismountDir * (CombatConfig.PlatformDismountRayRange or 12)
 	end
 	
+	-- Debug: where the target is expected to be (magenta) and where this Quin is actually heading (white)
+	if DebugDraw.isActive("Pursuit", fighter) then
+		local origin = rootPart.Position
+		DebugDraw.line("Pursuit", fighter, origin, interceptPos, Color3.fromRGB(255, 80, 220))
+		DebugDraw.sphere("Pursuit", fighter, interceptPos, 0.8, Color3.fromRGB(255, 80, 220))
+		DebugDraw.line("Pursuit", fighter, origin, arcTarget, Color3.fromRGB(235, 235, 255))
+		DebugDraw.text("Pursuit", fighter, arcTarget + Vector3.new(0, 2, 0),
+			string.format("%s%s", tostring(fighter:GetAttribute("PaceReason") or "chase"), hasLoS and "" or " | no sight: going to last seen"),
+			Color3.fromRGB(235, 235, 255))
+	end
+
 	-- Determine flat direction to the actual target/heading
 	local steerDiff = arcTarget - rootPart.Position
 	if steerDiff.Magnitude > 0.1 then

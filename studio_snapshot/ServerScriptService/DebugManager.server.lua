@@ -1,6 +1,7 @@
 --// DebugManager.server.lua
 -- Handles global debug toggle requests from clients
 
+local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 

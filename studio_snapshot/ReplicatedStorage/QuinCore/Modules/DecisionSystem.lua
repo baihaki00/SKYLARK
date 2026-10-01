@@ -2,6 +2,7 @@
 -- Single general Quin decision engine: evaluates candidate actions based on
 -- situational usefulness + tactical battlefield state + individual personality preferences.
 
+local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 
@@ -316,6 +317,24 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	local debugEnabled = workspace:GetAttribute("TacticalDebugEnabled") or quinModel:GetAttribute("TacticalDebug")
 	if debugEnabled then
 		DecisionSystem.logTacticalTelemetry(quinModel, tacticalContext, bestAction, tacticalState, decisionReasons)
+	end
+
+	-- Debug: the three best-scoring options and the one taken
+	if DebugDraw.isActive("Decision", quinModel) then
+		local root = quinModel:FindFirstChild("HumanoidRootPart")
+		if root then
+			local ranked = {}
+			for action, score in pairs(scores) do
+				table.insert(ranked, { action = action, score = score })
+			end
+			table.sort(ranked, function(a, b) return a.score > b.score end)
+			local parts = {}
+			for i = 1, math.min(3, #ranked) do
+				table.insert(parts, string.format("%s %.0f", ranked[i].action, ranked[i].score))
+			end
+			DebugDraw.text("Decision", quinModel, root.Position + Vector3.new(0, 8.5, 0),
+				string.format("%s -> %s\n%s", tacticalState, bestAction, table.concat(parts, "  ")), Color3.fromRGB(150, 220, 255))
+		end
 	end
 
 	return bestAction, tacticalState, scores

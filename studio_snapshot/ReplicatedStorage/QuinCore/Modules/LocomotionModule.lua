@@ -3,6 +3,7 @@
 -- Adheres strictly to the 6 Immutable Ground Rules (README.md)
 -- Single Source of Truth: ReplicatedStorage.QuinCore.CombatConfig
 
+local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -324,6 +325,14 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		humanoid.AutoRotate = true
 	end
 	humanoid:Move(driveDirection, false)
+
+	-- Debug: where it is told to go (yellow), where its turn-limited heading points (orange)
+	if DebugDraw.isActive("Steer", fighter) then
+		local origin = rootPart.Position
+		DebugDraw.line("Steer", fighter, origin, targetPosition, Color3.fromRGB(255, 225, 60))
+		DebugDraw.line("Steer", fighter, origin, origin + driveDirection * 8, Color3.fromRGB(255, 140, 40))
+		DebugDraw.text("Steer", fighter, targetPosition + Vector3.new(0, 2, 0), string.format("goal %.0f studs/s", targetSpeed), Color3.fromRGB(255, 225, 60))
+	end
 	-- Note: Footstep audio is driven authoritatively by animation keyframe markers via AnimationModule
 	return driveDirection
 end
@@ -586,6 +595,24 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
         plannedHorizontal = flatLook * fwdSpeed
     end
     rootPart.AssemblyLinearVelocity = plannedHorizontal + Vector3.new(0, upImpulse, 0)
+
+    -- Debug: the arc this jump was launched on, until it comes back down to launch height
+    if DebugDraw.isActive("Jump", fighter) then
+        local launchVelocity = plannedHorizontal + Vector3.new(0, upImpulse, 0)
+        local airTime = 2 * upImpulse / gravity
+        local showFor = airTime + 0.6
+        local color = Color3.fromRGB(200, 120, 255)
+        local from = rootPart.Position
+        local segments = 14
+        for i = 1, segments do
+            local t = airTime * i / segments
+            local to = rootPart.Position + launchVelocity * t + Vector3.new(0, -0.5 * gravity * t * t, 0)
+            DebugDraw.line("Jump", fighter, from, to, color, showFor)
+            from = to
+        end
+        DebugDraw.sphere("Jump", fighter, from, 0.9, color, showFor)
+        DebugDraw.text("Jump", fighter, from + Vector3.new(0, 2, 0), string.format("%s: %.0f up, %.0f across", tostring(jumpType or "jump"), targetHeight, plannedHorizontal.Magnitude * airTime), color, showFor)
+    end
 	rootPart.AssemblyAngularVelocity = Vector3.zero
 
 	-- Modern AlignOrientation to prevent mid-air tumbling

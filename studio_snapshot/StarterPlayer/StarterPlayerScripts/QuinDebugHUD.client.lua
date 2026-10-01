@@ -292,10 +292,66 @@ local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 4)
 closeCorner.Parent = closeBtn
 
+-- Debug layer panel: one checkbox per overlay layer (RuntimeVisualizer) and the scope switch.
+-- Every layer starts off.
+local LAYER_ROW_HEIGHT = 20
+local layerList = RuntimeVisualizer and RuntimeVisualizer.getLayers() or {}
+local LAYER_PANEL_HEIGHT = RuntimeVisualizer and (math.ceil((#layerList + 1) / 2) * LAYER_ROW_HEIGHT + 8) or 0
+
+local layerPanel = Instance.new("Frame")
+layerPanel.Name = "DebugLayerPanel"
+layerPanel.Size = UDim2.new(1, 0, 0, LAYER_PANEL_HEIGHT)
+layerPanel.Position = UDim2.new(0, 0, 0, 30)
+layerPanel.BackgroundColor3 = Color3.fromRGB(14, 18, 27)
+layerPanel.BackgroundTransparency = 0.2
+layerPanel.BorderSizePixel = 0
+layerPanel.Parent = outerFrame
+
+local function addLayerToggle(index, text, isOn, toggle)
+	local button = Instance.new("TextButton")
+	button.Name = "Layer_" .. tostring(index)
+	button.Size = UDim2.new(0.5, -9, 0, LAYER_ROW_HEIGHT - 3)
+	button.Position = UDim2.new(((index - 1) % 2) * 0.5, 6, 0, 4 + math.floor((index - 1) / 2) * LAYER_ROW_HEIGHT)
+	button.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
+	button.BorderSizePixel = 0
+	button.Font = Enum.Font.Gotham
+	button.TextSize = 10
+	button.TextXAlignment = Enum.TextXAlignment.Left
+	button.Parent = layerPanel
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 3)
+	corner.Parent = button
+
+	local function refresh()
+		local on = isOn()
+		button.Text = (on and "  [x] " or "  [  ] ") .. text
+		button.TextColor3 = on and Color3.fromRGB(120, 255, 190) or Color3.fromRGB(170, 185, 210)
+	end
+	button.MouseButton1Click:Connect(function()
+		toggle()
+		refresh()
+	end)
+	refresh()
+end
+
+if RuntimeVisualizer then
+	for index, layer in ipairs(layerList) do
+		addLayerToggle(index, layer.label, function()
+			return RuntimeVisualizer.isLayerEnabled(layer.id)
+		end, function()
+			RuntimeVisualizer.setLayerEnabled(layer.id, not RuntimeVisualizer.isLayerEnabled(layer.id))
+		end)
+	end
+	addLayerToggle(#layerList + 1, "All Quins (off: spectated only)", RuntimeVisualizer.isWatchingAll, function()
+		RuntimeVisualizer.setWatchAll(not RuntimeVisualizer.isWatchingAll())
+	end)
+end
+
 -- Main Scrollable Card List Frame
 local scrollFrame = Instance.new("ScrollingFrame")
-scrollFrame.Size = UDim2.new(1, 0, 1, -34)
-scrollFrame.Position = UDim2.new(0, 0, 0, 34)
+scrollFrame.Size = UDim2.new(1, 0, 1, -(34 + LAYER_PANEL_HEIGHT))
+scrollFrame.Position = UDim2.new(0, 0, 0, 34 + LAYER_PANEL_HEIGHT)
 scrollFrame.BackgroundTransparency = 0.35
 scrollFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
 scrollFrame.BorderSizePixel = 0
@@ -762,10 +818,10 @@ RunService.Heartbeat:Connect(function()
 	-- Only while the Spectator HUD is open: closed, nothing is drawn over the Quins
 	if RuntimeVisualizer then
 		if isHudVisible and not hideOverride then
-			RuntimeVisualizer.update(curSpectated or quins[1])
+			RuntimeVisualizer.update(curSpectated or quins[1], quins)
 			visualizerDrawn = true
 		elseif visualizerDrawn then
-			RuntimeVisualizer.clear()
+			RuntimeVisualizer.stop()
 			visualizerDrawn = false
 		end
 	end

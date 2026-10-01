@@ -4,6 +4,7 @@
 -- climb to the run height, hold distance to the wall); the presentation layer leans the body away
 -- from the wall (CombatConfig.WallRunTiltDegrees, read from the WallRunSide attribute).
 
+local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
@@ -129,10 +130,10 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 	local checkParams = RaycastParams.new()
 	checkParams.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
 	checkParams.FilterType = Enum.RaycastFilterType.Exclude
-	local wallHit = Workspace:Raycast(rootPart.Position, -data.normal * WALL_PROBE_DISTANCE, checkParams)
+	local wallHit = DebugDraw.raycast(rootPart, rootPart.Position, -data.normal * WALL_PROBE_DISTANCE, checkParams)
 	local wallLost = wallHit == nil
 	-- A corner or obstacle in the lane ends the run before the body hits it
-	local laneBlocked = Workspace:Raycast(rootPart.Position, data.tangent * (data.wallRunSpeed * 0.15), checkParams) ~= nil
+	local laneBlocked = DebugDraw.raycast(rootPart, rootPart.Position, data.tangent * (data.wallRunSpeed * 0.15), checkParams) ~= nil
 
 	local target, dist = TargetingModule.getNearest(rootPart, 18)
 	local interceptTarget = target ~= nil and dist ~= nil and dist <= 14.0 and elapsed >= MIN_COMMIT_TIME

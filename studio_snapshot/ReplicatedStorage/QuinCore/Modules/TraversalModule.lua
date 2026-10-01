@@ -2,6 +2,7 @@
 -- Shared spatial probe and parkour planner for player and AI Quins.
 -- The module only plans physically continuous trajectories; LocomotionModule applies them.
 
+local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local Workspace = game:GetService("Workspace")
 
 local TraversalModule = {}
@@ -55,7 +56,7 @@ end
 local function groundAt(point, rootPart, castHeight)
     local params = rayParams(rootPart)
     local origin = Vector3.new(point.X, point.Y + (castHeight or 22), point.Z)
-    local hit = Workspace:Raycast(origin, Vector3.new(0, -(castHeight or 22) - 28, 0), params)
+    local hit = DebugDraw.raycast(rootPart, origin, Vector3.new(0, -(castHeight or 22) - 28, 0), params)
     if hit and hit.Instance and hit.Instance.CanCollide and hit.Normal.Y >= TraversalModule.Config.MinLandingNormalY then
         return hit
     end
@@ -65,7 +66,7 @@ end
 local function hasClearance(point, rootPart, height)
     local params = rayParams(rootPart)
     local origin = point + Vector3.new(0, 0.35, 0)
-    local hit = Workspace:Raycast(origin, Vector3.new(0, height, 0), params)
+    local hit = DebugDraw.raycast(rootPart, origin, Vector3.new(0, height, 0), params)
     return hit == nil
 end
 
@@ -118,12 +119,12 @@ function TraversalModule.probe(rootPart, desiredDirection, requestedDistance)
     local distance = requestedDistance or math.clamp(4 + speed * 0.16, 6, TraversalModule.Config.ProbeDistance + 8)
 
     local chestOrigin = rootPart.Position + Vector3.new(0, math.max(1.5, height * 0.42), 0) + dir * math.max(0.25, radius * 0.35)
-    local obstacle = Workspace:Raycast(chestOrigin, dir * distance, params)
+    local obstacle = DebugDraw.raycast(rootPart, chestOrigin, dir * distance, params)
     -- Low sweep catches short parkour obstacles that sit below the chest ray.
     local lowOrigin = rootPart.Position - Vector3.new(0, height * 0.25, 0) + dir * math.max(0.25, radius * 0.35)
-    local lowObstacle = Workspace:Raycast(lowOrigin, dir * distance, params)
+    local lowObstacle = DebugDraw.raycast(rootPart, lowOrigin, dir * distance, params)
     local shinOrigin = rootPart.Position - Vector3.new(0, height * 0.45, 0) + dir * math.max(0.25, radius * 0.35)
-    local shinObstacle = Workspace:Raycast(shinOrigin, dir * distance, params)
+    local shinObstacle = DebugDraw.raycast(rootPart, shinOrigin, dir * distance, params)
     if lowObstacle and (not obstacle or lowObstacle.Distance < obstacle.Distance) then
         obstacle = lowObstacle
     end
@@ -179,7 +180,7 @@ function TraversalModule.probe(rootPart, desiredDirection, requestedDistance)
     end
 
     local topOrigin = obstacle.Position + Vector3.new(0, TraversalModule.Config.MaxTraversalHeight + height, 0)
-    local topHit = Workspace:Raycast(topOrigin, Vector3.new(0, -(TraversalModule.Config.MaxTraversalHeight + height * 1.5), 0), params)
+    local topHit = DebugDraw.raycast(rootPart, topOrigin, Vector3.new(0, -(TraversalModule.Config.MaxTraversalHeight + height * 1.5), 0), params)
     if not topHit or not topHit.Instance or not topHit.Instance.CanCollide or topHit.Normal.Y < TraversalModule.Config.MinLandingNormalY then
         return {kind = "Blocked", reason = "NoWalkableTop", direction = dir, bodyHeight = height, radius = radius}
     end
@@ -191,7 +192,7 @@ function TraversalModule.probe(rootPart, desiredDirection, requestedDistance)
     local landingPoint = topHit.Position + dir * (radius + TraversalModule.Config.LandingMargin)
     local landing = landingAt(landingPoint, rootPart, height)
     local overheadOrigin = rootPart.Position + Vector3.new(0, height * 0.72, 0)
-    local overhead = Workspace:Raycast(overheadOrigin, dir * math.max(2, distance * 0.65), params)
+    local overhead = DebugDraw.raycast(rootPart, overheadOrigin, dir * math.max(2, distance * 0.65), params)
 
     if obstacleHeight <= TraversalModule.Config.StepHeight and landing then
         return {

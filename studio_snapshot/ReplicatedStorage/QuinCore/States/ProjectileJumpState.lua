@@ -1,4 +1,5 @@
 --// ProjectileJumpState.lua
+local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
@@ -117,7 +118,7 @@ local function calculateCombatAimPoint(rootPart, targetHRP, dashSpeed, humanoid,
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	rayParams.FilterDescendantsInstances = {rootPart.Parent, targetHRP.Parent}
-	local floorRay = workspace:Raycast(leadPos + Vector3.new(0, 10, 0), Vector3.new(0, -35, 0), rayParams)
+	local floorRay = DebugDraw.raycast(rootPart, leadPos + Vector3.new(0, 10, 0), Vector3.new(0, -35, 0), rayParams)
 	if floorRay then
 		groundY = floorRay.Position.Y + (humanoid and humanoid.HipHeight or 2.0) + (rootPart.Size.Y / 2)
 	end
@@ -218,7 +219,7 @@ local function heightAboveStand(rootPart, humanoid)
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { rootPart.Parent, Workspace:FindFirstChild("QuinServer") }
 	params.RespectCanCollide = true
-	local hit = Workspace:Raycast(rootPart.Position + Vector3.new(0, 2, 0), Vector3.new(0, -1000, 0), params)
+	local hit = DebugDraw.raycast(rootPart, rootPart.Position + Vector3.new(0, 2, 0), Vector3.new(0, -1000, 0), params)
 	if not hit then return math.huge end
 	local standY = hit.Position.Y + (humanoid.HipHeight or 2.0) + (rootPart.Size.Y / 2)
 	return rootPart.Position.Y - standY
@@ -711,7 +712,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			local rayDist = rayDir.Magnitude
 
 			if rayDist > 0.01 then
-				local hit = workspace:Raycast(rootPart.Position, rayDir.Unit * rayDist, rayParams)
+				local hit = DebugDraw.raycast(rootPart, rootPart.Position, rayDir.Unit * rayDist, rayParams)
 				if hit then
 					-- Path blocked: Impact brings the body down from here (it used to be teleported
 					-- onto the hit point, up to a full update of travel away, with its facing reset)

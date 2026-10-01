@@ -1,47 +1,11 @@
 --// SpatialModule.lua
 -- Environment awareness: obstacle detection, edge detection, intercept prediction
 
+local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
 
 local SpatialModule = {}
-
-local function drawDebugRay(origin, direction, hitResult)
-	if not Workspace:GetAttribute("Debug_Rays") then return end
-	local part = Instance.new("Part")
-	part.Name = "DebugRay"
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.Material = Enum.Material.Neon
-	
-	local distance = hitResult and (origin - hitResult.Position).Magnitude or direction.Magnitude
-	part.Size = Vector3.new(0.15, 0.15, distance)
-	-- LookAt can error if direction is 0,0,0 but direction shouldn't be
-	if direction.Magnitude > 0.001 then
-		part.CFrame = CFrame.lookAt(origin, origin + direction) * CFrame.new(0, 0, -distance/2)
-	end
-	
-	if hitResult then
-		part.Color = Color3.new(1, 0, 0) -- Extra red when it touches
-		part.Transparency = 0.0 
-	else
-		part.Color = Color3.new(0, 1, 0) -- Green when missing
-		part.Transparency = 0.5 -- Visible enough to see it
-	end
-	
-	local highlight = Instance.new("Highlight")
-	highlight.Adornee = part
-	highlight.FillColor = part.Color
-	highlight.OutlineColor = Color3.new(1, 1, 1)
-	highlight.FillTransparency = part.Transparency
-	highlight.OutlineTransparency = 0
-	highlight.Parent = part
-	
-	part.Parent = Workspace
-	Debris:AddItem(part, 0.1)
-end
 
 -- Raycast forward from rootPart to detect obstacles
 function SpatialModule.raycastForward(rootPart, distance)
@@ -52,8 +16,7 @@ function SpatialModule.raycastForward(rootPart, distance)
 	
 	local origin = rootPart.Position
 	local direction = rootPart.CFrame.LookVector * distance
-	local result = Workspace:Raycast(origin, direction, params)
-	drawDebugRay(origin, direction, result)
+	local result = DebugDraw.raycast(rootPart, origin, direction, params)
 	
 	if result then
 		return true, result.Position, result.Normal, result.Instance
@@ -68,7 +31,7 @@ function SpatialModule.raycastDown(rootPart, maxDistance)
 	params.FilterDescendantsInstances = {rootPart.Parent}
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	
-	local result = Workspace:Raycast(rootPart.Position, Vector3.new(0, -maxDistance, 0), params)
+	local result = DebugDraw.raycast(rootPart, rootPart.Position, Vector3.new(0, -maxDistance, 0), params)
 	if result then
 		local groundDist = (rootPart.Position - result.Position).Magnitude
 		return true, groundDist, result.Position, result.Normal
@@ -93,10 +56,10 @@ function SpatialModule.isNearArenaEdge(rootPart, threshold, allowPlatformDrop)
 	
 	for _, offset in ipairs(checkDirs) do
 		local checkPos = rootPart.Position + offset
-		local shallowHit = Workspace:Raycast(checkPos, Vector3.new(0, -20, 0), params)
+		local shallowHit = DebugDraw.raycast(rootPart, checkPos, Vector3.new(0, -20, 0), params)
 		if not shallowHit then
 			-- No shallow ground found at this offset. Check if this is a platform ledge or true void
-			local deepHit = Workspace:Raycast(checkPos, Vector3.new(0, -250, 0), params)
+			local deepHit = DebugDraw.raycast(rootPart, checkPos, Vector3.new(0, -250, 0), params)
 			if not deepHit then
 				-- True void! No ground anywhere below = lethal arena boundary!
 				return true, -offset.Unit
@@ -127,7 +90,7 @@ function SpatialModule.getObstacleAvoidanceDirection(rootPart, checkDistance)
 	local waistOrigin = rootPart.Position - Vector3.new(0, 2.0, 0)
 
 	-- Check direct forward
-	local fwdHit = Workspace:Raycast(waistOrigin, flatFwd * checkDistance, params)
+	local fwdHit = DebugDraw.raycast(rootPart, waistOrigin, flatFwd * checkDistance, params)
 	if not fwdHit then
 		return flatFwd -- Clear ahead
 	end
@@ -138,7 +101,7 @@ function SpatialModule.getObstacleAvoidanceDirection(rootPart, checkDistance)
 		local tangent = flatFwd - (flatFwd:Dot(flatNorm) * flatNorm)
 		if tangent.Magnitude > 0.05 then
 			local tangentDir = (tangent.Unit + flatNorm * 0.35).Unit
-			local tHit = Workspace:Raycast(waistOrigin, tangentDir * (checkDistance * 0.85), params)
+			local tHit = DebugDraw.raycast(rootPart, waistOrigin, tangentDir * (checkDistance * 0.85), params)
 			if not tHit then
 				return tangentDir
 			end
@@ -150,7 +113,7 @@ function SpatialModule.getObstacleAvoidanceDirection(rootPart, checkDistance)
 	for _, ang in ipairs(angles) do
 		local rot = CFrame.Angles(0, math.rad(ang), 0)
 		local testDir = (rot * flatFwd).Unit
-		local hit = Workspace:Raycast(waistOrigin, testDir * (checkDistance * 0.85), params)
+		local hit = DebugDraw.raycast(rootPart, waistOrigin, testDir * (checkDistance * 0.85), params)
 		if not hit then
 			return testDir
 		end
@@ -197,7 +160,7 @@ function SpatialModule.isGrounded(rootPart)
 		checkDistance = halfHeight + hipHeight + 0.8
 	end
 	
-	local result = Workspace:Raycast(rootPart.Position, Vector3.new(0, -checkDistance, 0), params)
+	local result = DebugDraw.raycast(rootPart, rootPart.Position, Vector3.new(0, -checkDistance, 0), params)
 	return result ~= nil
 end
 
@@ -288,7 +251,7 @@ function SpatialModule.analyzeObstacleAhead(rootPart, targetPos, checkDistance)
 	local hit = nil
 	local rayOrigins = { footOrigin, waistOrigin, chestOrigin }
 	for _, rOrigin in ipairs(rayOrigins) do
-		local rHit = Workspace:Raycast(rOrigin, dir * checkDistance, params)
+		local rHit = DebugDraw.raycast(rootPart, rOrigin, dir * checkDistance, params)
 		if rHit and rHit.Instance and rHit.Instance.CanCollide then
 			local pName = rHit.Instance.Name
 			if pName ~= "ArenaGround" and pName ~= "Baseplate" and pName ~= "Floor" then
@@ -308,12 +271,12 @@ function SpatialModule.analyzeObstacleAhead(rootPart, targetPos, checkDistance)
 	-- Measure height of obstacle by casting down from above hit position
 	local maxCheckH = 80
 	local upRayOrigin = hit.Position + Vector3.new(0, maxCheckH, 0)
-	local downHit = Workspace:Raycast(upRayOrigin, Vector3.new(0, -maxCheckH * 1.5, 0), params)
+	local downHit = DebugDraw.raycast(rootPart, upRayOrigin, Vector3.new(0, -maxCheckH * 1.5, 0), params)
 
 	local topY = downHit and downHit.Position.Y or (hit.Position.Y + 2.0)
 	-- Actual ground level beneath the Quin (raycast, matching isGrounded's skin calibration;
 	-- a fixed -2.5 offset under-measured low OBs and caused "stuck on feet")
-	local groundRay = Workspace:Raycast(rootPart.Position, Vector3.new(0, -20, 0), params)
+	local groundRay = DebugDraw.raycast(rootPart, rootPart.Position, Vector3.new(0, -20, 0), params)
 	local groundY = groundRay and groundRay.Position.Y or (rootPart.Position.Y - 5.4)
 	local obstacleHeight = math.max(0, topY - groundY)
 
@@ -328,7 +291,7 @@ function SpatialModule.analyzeObstacleAhead(rootPart, targetPos, checkDistance)
 	for _, ang in ipairs(angles) do
 		local rotCFrame = CFrame.Angles(0, math.rad(ang), 0)
 		local testDir = (rotCFrame * Vector3.new(dir.X, 0, dir.Z)).Unit
-		local testHit = Workspace:Raycast(waistOrigin, testDir * (checkDistance * 0.9), params)
+		local testHit = DebugDraw.raycast(rootPart, waistOrigin, testDir * (checkDistance * 0.9), params)
 		if not testHit then
 			local dot = testDir:Dot(dir)
 			if dot > bestDot then
@@ -344,7 +307,7 @@ function SpatialModule.analyzeObstacleAhead(rootPart, targetPos, checkDistance)
 		local proj = dir - (dir:Dot(flatNorm) * flatNorm)
 		if proj.Magnitude > 0.05 then
 			local tangentCandidate = (proj.Unit + flatNorm * 0.35).Unit
-			local tHit = Workspace:Raycast(waistOrigin, tangentCandidate * (checkDistance * 0.85), params)
+			local tHit = DebugDraw.raycast(rootPart, waistOrigin, tangentCandidate * (checkDistance * 0.85), params)
 			if not tHit then
 				bestSteerDir = tangentCandidate
 			end
@@ -375,7 +338,7 @@ function SpatialModule.detectElevatedPlatform(rootPart, targetPos)
 	if not rootPart or not targetPos then return { isElevated = false } end
 	local yDiff = targetPos.Y - rootPart.Position.Y
 	if yDiff > 6.0 then
-		local hit = Workspace:Raycast(targetPos + Vector3.new(0, 2, 0), Vector3.new(0, -10, 0))
+		local hit = DebugDraw.raycast(rootPart, targetPos + Vector3.new(0, 2, 0), Vector3.new(0, -10, 0))
 		local onOB = hit and (hit.Instance.Name == "OB" or hit.Instance.Name:find("OB") ~= nil)
 		return {
 			isElevated = true,
@@ -413,7 +376,7 @@ function SpatialModule.findReachableOverheadPlatform(rootPart, maxReach, minReac
 	for _, off in ipairs(offsets) do
 		local probeXZ = pos + off
 		local upOrigin = Vector3.new(probeXZ.X, pos.Y + maxReach + 2, probeXZ.Z)
-		local hit = Workspace:Raycast(upOrigin, Vector3.new(0, -(maxReach + 4), 0), params)
+		local hit = DebugDraw.raycast(rootPart, upOrigin, Vector3.new(0, -(maxReach + 4), 0), params)
 		if hit then
 			local topY = hit.Position.Y
 			-- Must be above us (not the ground below) and within [minReach, maxReach] jump range
@@ -446,7 +409,7 @@ function SpatialModule.detectLowOverheadGap(rootPart, forwardDist)
 	-- Ray forward at upper-body height to catch a low ceiling the Quin would hit its head on
 	local origin = Vector3.new(pos.X, pos.Y - 1.0, pos.Z)
 	local dir = rootPart.CFrame.LookVector * forwardDist
-	local hit = Workspace:Raycast(origin, dir, params)
+	local hit = DebugDraw.raycast(rootPart, origin, dir, params)
 	if not hit or not hit.Instance then return nil end
 
 	local part = hit.Instance
@@ -475,14 +438,14 @@ local function measureWallRunway(origin, tangent, flatNormal, wallDistance, para
 	local reach = wallDistance + 2.5
 	local runway = 0
 	for d = WALL_RUNWAY_STEP, WALL_RUNWAY_MAX, WALL_RUNWAY_STEP do
-		local wallHit = Workspace:Raycast(origin + tangent * d, -flatNormal * reach, params)
+		local wallHit = DebugDraw.raycast(rootPart, origin + tangent * d, -flatNormal * reach, params)
 		if not wallHit or math.abs(wallHit.Normal.Y) >= 0.25 then
 			break
 		end
 		runway = d
 	end
 	-- Something standing in the lane (a corner, another wall) ends the run early
-	local blocked = Workspace:Raycast(origin, tangent * math.max(runway, WALL_RUNWAY_STEP), params)
+	local blocked = DebugDraw.raycast(rootPart, origin, tangent * math.max(runway, WALL_RUNWAY_STEP), params)
 	if blocked then
 		runway = math.min(runway, math.max(0, blocked.Distance - 2))
 	end
@@ -521,7 +484,7 @@ function SpatialModule.detectWallRunSurface(rootPart, checkDist, minRunway)
 	}
 
 	for _, probe in ipairs(candidates) do
-		local hit = Workspace:Raycast(origin, probe.dir, params)
+		local hit = DebugDraw.raycast(rootPart, origin, probe.dir, params)
 		if hit and hit.Instance and hit.Normal then
 			-- Surface must be nearly vertical (Normal.Y near 0)
 			local normal = hit.Normal
@@ -545,8 +508,7 @@ function SpatialModule.detectWallRunSurface(rootPart, checkDist, minRunway)
 						local wallDistance = (hit.Position - origin):Dot(-flatNormal)
 						local runway = isObstacle and measureWallRunway(origin, tangent, flatNormal, wallDistance, params) or 0
 						if isObstacle and runway >= (minRunway or 0) then
-							drawDebugRay(origin, probe.dir, hit)
-							return {
+								return {
 								runway = runway,
 								wallDistance = wallDistance,
 								hitPart = hit.Instance,
@@ -723,7 +685,7 @@ function SpatialModule.getSafeRetreatDirection(rootPart, enemies, allies, config
 		end
 
 		-- Also check edge: raycast down at candidate position for ground
-		local edgeCheck = Workspace:Raycast(
+		local edgeCheck = DebugDraw.raycast(rootPart, 
 			Vector3.new(candidateTarget.X, myPos.Y + 2, candidateTarget.Z),
 			Vector3.new(0, -20, 0),
 			params
@@ -734,7 +696,7 @@ function SpatialModule.getSafeRetreatDirection(rootPart, enemies, allies, config
 		end
 
 		-- 4. Obstacle Clearance: raycast in candidate direction for blocking geometry
-		local obstacleHit = Workspace:Raycast(myPos, candidateDir * searchRadius, params)
+		local obstacleHit = DebugDraw.raycast(rootPart, myPos, candidateDir * searchRadius, params)
 		if obstacleHit then
 			local obstacleDist = (obstacleHit.Position - myPos).Magnitude
 			if obstacleDist < searchRadius * 0.5 then
@@ -780,6 +742,22 @@ function SpatialModule.getSafeRetreatDirection(rootPart, enemies, allies, config
 		isCornered = false
 	end
 
+	-- Debug: the eight candidates, longer and greener the better they scored
+	if DebugDraw.isActive("Retreat", rootPart) then
+		local topScore = math.max(enemyRepulsionWeight + allyAttractionWeight + centerBiasWeight, 0.01)
+		for i = 0, NUM_RAYS - 1 do
+			local angle = (i / NUM_RAYS) * math.pi * 2
+			local candidateDir = Vector3.new(math.sin(angle), 0, math.cos(angle))
+			local quality = math.clamp(scores[i] / topScore, 0, 1)
+			DebugDraw.line("Retreat", rootPart, myPos, myPos + candidateDir * (4 + quality * searchRadius),
+				candidateDir == bestDir and Color3.fromRGB(80, 255, 140) or Color3.fromRGB(255, 90 + math.floor(quality * 150), 60))
+		end
+		if bestDir then
+			DebugDraw.text("Retreat", rootPart, myPos + bestDir * (4 + normalizedScore * searchRadius) + Vector3.new(0, 2, 0),
+				string.format("retreat %.2f%s", normalizedScore, isCornered and " CORNERED" or ""), Color3.fromRGB(80, 255, 140))
+		end
+	end
+
 	if not bestDir then
 		-- Absolute fallback: away from enemy centroid or toward center
 		if enemyCount > 0 then
@@ -823,7 +801,7 @@ function SpatialModule.isOnElevatedPlatform(rootPart, threshold)
 	params.FilterType = Enum.RaycastFilterType.Exclude
 
 	-- Surface directly beneath the Quin's feet
-	local hit = Workspace:Raycast(pos + Vector3.new(0, 0.5, 0), Vector3.new(0, -60, 0), params)
+	local hit = DebugDraw.raycast(rootPart, pos + Vector3.new(0, 0.5, 0), Vector3.new(0, -60, 0), params)
 	if not hit then return false, nil end
 
 	local surfacePart = hit.Instance
@@ -836,7 +814,7 @@ function SpatialModule.isOnElevatedPlatform(rootPart, threshold)
 	local gapParams = RaycastParams.new()
 	gapParams.FilterDescendantsInstances = { rootPart.Parent, surfacePart }
 	gapParams.FilterType = Enum.RaycastFilterType.Exclude
-	local floorHit = Workspace:Raycast(Vector3.new(pos.X, surfaceY - 0.5, pos.Z), Vector3.new(0, -300, 0), gapParams)
+	local floorHit = DebugDraw.raycast(rootPart, Vector3.new(pos.X, surfaceY - 0.5, pos.Z), Vector3.new(0, -300, 0), gapParams)
 	local floorY = floorHit and floorHit.Position.Y or surfaceY
 	local elevation = surfaceY - floorY
 
@@ -897,7 +875,7 @@ function SpatialModule.getPlatformDismountDirection(rootPart, targetPos)
 		local edgeDist = nil
 		for _, d in ipairs({ 2, 4, 6, 8, 10, 14, 18, 22 }) do
 			local probe = pos + dir * d
-			local hit = Workspace:Raycast(Vector3.new(probe.X, pos.Y + 1, probe.Z), Vector3.new(0, -40, 0), params)
+			local hit = DebugDraw.raycast(rootPart, Vector3.new(probe.X, pos.Y + 1, probe.Z), Vector3.new(0, -40, 0), params)
 			if (not hit) or (hit.Instance ~= platformPart) then
 				edgeDist = d
 				break
@@ -962,7 +940,7 @@ function SpatialModule.checkLineOfSight(posA, posB, ignoreInstances)
 	params.FilterDescendantsInstances = exclude
 	params.FilterType = Enum.RaycastFilterType.Exclude
 
-	local hit = Workspace:Raycast(posA, diff, params)
+	local hit = DebugDraw.raycast(rootPart, posA, diff, params)
 	if hit then
 		if hit.Instance and hit.Instance.CanCollide and hit.Instance.Transparency < 0.9 then
 			local hitName = hit.Instance.Name
@@ -998,7 +976,7 @@ function SpatialModule.findNearbyPlatforms(rootPart, maxDist, minHeight, maxHeig
 		for _, d in ipairs({ 12, 22, 35, maxDist }) do
 			local probe = pos + dir * d
 			local rayOrigin = Vector3.new(probe.X, pos.Y + maxHeight + 4, probe.Z)
-			local hit = Workspace:Raycast(rayOrigin, Vector3.new(0, -(maxHeight + 8), 0), params)
+			local hit = DebugDraw.raycast(rootPart, rayOrigin, Vector3.new(0, -(maxHeight + 8), 0), params)
 			if hit and hit.Instance and hit.Instance.CanCollide and not seenInstances[hit.Instance] then
 				local heightDiff = hit.Position.Y - pos.Y
 				if heightDiff >= minHeight and heightDiff <= maxHeight and hit.Normal.Y > 0.7 then
@@ -1037,17 +1015,17 @@ function SpatialModule.findCoverPositions(rootPart, enemyPos, maxDist)
 		local dir = Vector3.new(math.sin(angle), 0, math.cos(angle))
 		for _, d in ipairs({ 10, 20, maxDist }) do
 			local samplePos = myPos + dir * d
-			local groundHit = Workspace:Raycast(Vector3.new(samplePos.X, myPos.Y + 3, samplePos.Z), Vector3.new(0, -10, 0), params)
+			local groundHit = DebugDraw.raycast(rootPart, Vector3.new(samplePos.X, myPos.Y + 3, samplePos.Z), Vector3.new(0, -10, 0), params)
 			if groundHit then
 				local standPos = groundHit.Position + Vector3.new(0, 3, 0)
 				local toEnemy = (enemyPos - standPos)
-				local enemySight = Workspace:Raycast(standPos, toEnemy, params)
+				local enemySight = DebugDraw.raycast(rootPart, standPos, toEnemy, params)
 				if enemySight and enemySight.Instance and enemySight.Instance.CanCollide and enemySight.Instance.Transparency < 0.9 then
 					local hitName = enemySight.Instance.Name
 					if hitName ~= "ArenaGround" and hitName ~= "Baseplate" and hitName ~= "Floor" then
 						-- Ensure the Quin can actually reach this cover position from its current position
 						local toCover = (standPos - myPos)
-						local pathBlocked = Workspace:Raycast(myPos, toCover, params)
+						local pathBlocked = DebugDraw.raycast(rootPart, myPos, toCover, params)
 						if not pathBlocked then
 							table.insert(coverPositions, standPos)
 							break

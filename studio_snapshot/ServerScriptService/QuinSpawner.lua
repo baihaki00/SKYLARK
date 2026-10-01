@@ -198,23 +198,12 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 	end
 
 	local QuinTypeFolder = ReplicatedStorage:WaitForChild("QuinType")
-	local template = nil
+	local template
 
-	if selectedGender == "Female" then
-		template = Workspace:FindFirstChild("QuinFemale")
-		if not template or #template:GetChildren() <= 1 then
-			template = QuinTypeFolder:FindFirstChild("QuinFemale")
-		end
-	else
-		template = Workspace:FindFirstChild("QuinMale")
-		if not template or #template:GetChildren() <= 1 then
-			local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
-			template = arenaOne and arenaOne:FindFirstChild("QuinMale")
-		end
-		if not template or #template:GetChildren() <= 1 then
-			template = QuinTypeFolder:FindFirstChild("QuinMale")
-		end
-	end
+	-- Templates live in ReplicatedStorage.QuinType only. They used to be taken from rigs standing
+	-- in the Workspace: live, unanimated, unanchored bodies that the physics engine moved around
+	-- in a T-pose where spectators could see them.
+	template = QuinTypeFolder:FindFirstChild(selectedGender == "Female" and "QuinFemale" or "QuinMale")
 
 	if not template then
 		warn("[QuinSpawner] Template not found for: " .. tostring(selectedGender))
