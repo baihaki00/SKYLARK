@@ -637,6 +637,7 @@ function ProceduralCombatReactionController:update(dt)
 		self.plantFade = self.plantFade or {}
 		self.legWeight = self.legWeight or { Left = 0, Right = 0 }
 		self.step = self.step or {}
+		self.footNormal = self.footNormal or {}
 
 		-- Where a procedural step has the foot at this moment (eased along, arced up)
 		local function stepPosition(step)
@@ -669,6 +670,7 @@ function ProceduralCombatReactionController:update(dt)
 			-- Cast ray straight down from above the animated foot
 			local rayOrigin = Vector3.new(animFootPos.X, hrpPos.Y + 0.5, animFootPos.Z)
 			local hit = Workspace:Raycast(rayOrigin, -upVec * rayDist, self.ikRayParams)
+			self.footNormal[side] = hit and hit.Normal or Vector3.yAxis
 
 			local targetPos = animFootPos
 			local targetWeight = 0
@@ -806,20 +808,53 @@ function ProceduralCombatReactionController:update(dt)
 
 		-- Two-bone solve: put the ankle on goal, knee in the plane the clip bends it in, the
 		-- foot keeping the clip's orientation. Writes the three Transforms.
-		local function applyLeg(leg, goal)
+		local function applyLeg(leg, goal, normal, weight)
 			local H, K, A = leg.hipW.Position, leg.kneeW.Position, leg.footW.Position
 			local L1, L2 = (K - H).Magnitude, (A - K).Magnitude
 			local toGoal = goal - H
 			if toGoal.Magnitude < 1e-3 or L1 < 1e-3 or L2 < 1e-3 then return end
-			local d = math.clamp(toGoal.Magnitude, math.abs(L1 - L2) + 0.01, L1 + L2 - 0.01)
+			-- Soft reach: near a straight leg a hair of distance swings the knee tens of degrees
+			-- (it popped 172 -> 136 -> 172 between frames). Past 92% of the leg the distance is
+			-- eased toward full length instead of clamped, so the knee straightens smoothly and
+			-- the foot falls a little short of a goal it could only reach with a locked knee.
+			local full = L1 + L2
+			local soft = full * 0.92
+			local hard = full * 0.995
+			local dist = toGoal.Magnitude
+			if dist > soft then
+				dist = soft + (hard - soft) * (1 - math.exp(-(dist - soft) / (hard - soft)))
+			end
+			local d = math.clamp(dist, math.abs(L1 - L2) + 0.01, hard)
 			local dir = toGoal.Unit
-			-- The knee bends the way the clip bends it; when the clip leg is nearly straight
-			-- that direction is noise, and knees bend forward
+			-- The knee bends the way the clip bends it, biased forward: a nearly straight clip
+			-- leg has no clear bend direction, and switching to "forward" outright when it got
+			-- small flipped the thigh between frames
 			local forward = lookVec - dir * lookVec:Dot(dir)
 			local bend = (K - H) - dir * (K - H):Dot(dir)
-			if bend.Magnitude < 0.2 or (forward.Magnitude > 1e-3 and bend:Dot(forward) < 0) then
-				bend = forward.Magnitude > 1e-3 and forward or lookVec
+			if forward.Magnitude > 1e-3 then
+				bend = bend + forward.Unit * 0.35
 			end
+			if bend.Magnitude < 1e-3 then
+				bend = lookVec
+			end
+			-- Smoothed over time per leg: the clip's bend and the body's facing both turn fast
+			-- in fight footwork, and the knee plane flipped with them between frames
+			local key = leg.up
+			self.bendDir = self.bendDir or {}
+			self.bendTime = self.bendTime or {}
+			-- (a smoothing left from an earlier solve is stale: start from the clip again)
+			local previous = (now - (self.bendTime[key] or 0) < 0.1) and self.bendDir[key] or nil
+			self.bendTime[key] = now
+			bend = bend.Unit
+			if previous then
+				bend = previous:Lerp(bend, math.clamp(18 * dt, 0, 1))
+				if bend.Magnitude < 1e-3 then bend = previous end
+				bend = bend.Unit
+			end
+			self.bendDir[key] = bend
+			-- Perpendicular to the hip-goal line again (the smoothing leaves a small tilt)
+			bend = bend - dir * bend:Dot(dir)
+			if bend.Magnitude < 1e-3 then bend = forward.Magnitude > 1e-3 and forward or lookVec end
 			bend = bend.Unit
 			local along = (L1 * L1 + d * d - L2 * L2) / (2 * d)
 			local out = math.sqrt(math.max(L1 * L1 - along * along, 0))
@@ -837,8 +872,19 @@ function ProceduralCombatReactionController:update(dt)
 			local kneeRot = kneeAfter - kneeAfter.Position
 			local newKneeW = CFrame.new(kneeAfter.Position) * rotationBetween(ankleAfter.Position - kneeAfter.Position, newAnkle - kneeAfter.Position) * kneeRot
 			leg.leg.Transform = (newHipW * leg.leg.CFrame):Inverse() * newKneeW
-			-- Foot: the clip's orientation at the new ankle
-			local newFootW = CFrame.new(newAnkle) * (leg.footW - leg.footW.Position)
+			-- Foot: the clip's orientation at the new ankle, tilted onto the surface it stands on
+			-- (FootIK_AnkleAlignment): the clips are authored on flat ground, so the turn from
+			-- flat to this surface is laid over the clip's own heel-strike and toe-off angles.
+			-- Flat ground leaves the clip untouched.
+			local footRot = leg.footW - leg.footW.Position
+			if ankleConform and normal and normal.Y > 0.5 and normal.Y < 0.999 then
+				local tilt = math.acos(math.clamp(normal.Y, -1, 1))
+				local axis = Vector3.yAxis:Cross(normal)
+				if axis.Magnitude > 1e-4 then
+					footRot = CFrame.fromAxisAngle(axis.Unit, tilt * math.clamp(weight or 1, 0, 1)) * footRot
+				end
+			end
+			local newFootW = CFrame.new(newAnkle) * footRot
 			leg.foot.Transform = (newKneeW * leg.foot.CFrame):Inverse() * newFootW
 		end
 
@@ -857,8 +903,51 @@ function ProceduralCombatReactionController:update(dt)
 		end
 		local lW = blendWeight("Left", lWeight, lPlanted)
 		local rW = blendWeight("Right", rWeight, rPlanted)
-		if lLeg and lPos and lW > 0 then applyLeg(lLeg, lLeg.footW.Position:Lerp(lPos, lW)) end
-		if rLeg and rPos and rW > 0 then applyLeg(rLeg, rLeg.footW.Position:Lerp(rPos, rW)) end
+		if lLeg and lPos and lW > 0 then applyLeg(lLeg, lLeg.footW.Position:Lerp(lPos, lW), self.footNormal.Left, lW) end
+		if rLeg and rPos and rW > 0 then applyLeg(rLeg, rLeg.footW.Position:Lerp(rPos, rW), self.footNormal.Right, rW) end
+
+		-- Toe flex (FootIK_ToeFlexion): a toe whose tip would go through the ground bends up at
+		-- the ball of the foot, as a real toe does when the heel rises (push-off, a foot planted
+		-- on a step edge, a tilted foot). The clips never bend the toe, so the tip used to sink
+		-- into the floor. Runs on the final foot pose, solved or not.
+		if CombatConfig.FootIK_ToeFlexion ~= false then
+			local sole = CombatConfig.FootIK_ToeSoleThickness or 0.14
+			local maxFlex = math.rad(CombatConfig.FootIK_ToeMaxFlexDegrees or 50)
+			self.toeFlexSmoothed = self.toeFlexSmoothed or { Left = 0, Right = 0 }
+			for _, side in ipairs({ "Left", "Right" }) do
+				local toe = side == "Left" and self.leftToeBone or self.rightToeBone
+				local target = 0
+				local axis = nil
+				if toe and not footsFree then
+					local toeW = toe.TransformedWorldCFrame
+					local length = toe.CFrame.Position.Magnitude * 0.7 -- toe segment, about 70% of foot-to-ball
+					local tipDir = toeW.UpVector -- bones point along their +Y
+					local tip = toeW.Position + tipDir * length
+					local floorHit = Workspace:Raycast(tip + Vector3.new(0, 1.5, 0), Vector3.new(0, -3, 0), self.ikRayParams)
+					if floorHit then
+						local depth = (floorHit.Position.Y + sole) - tip.Y
+						local across = tipDir:Cross(Vector3.yAxis)
+						if depth > 0 and across.Magnitude > 1e-3 then
+							target = math.min(math.asin(math.clamp(depth / length, 0, 1)), maxFlex)
+							axis = across.Unit
+						end
+					end
+				end
+				local current = self.toeFlexSmoothed[side]
+				current = current + (target - current) * math.clamp((target > current and 35 or 12) * dt, 0, 1)
+				self.toeFlexSmoothed[side] = current
+				if toe and current > 0.005 then
+					local toeW = toe.TransformedWorldCFrame
+					axis = axis or toeW.UpVector:Cross(Vector3.yAxis)
+					if axis.Magnitude > 1e-3 then
+						local newToeW = CFrame.new(toeW.Position) * CFrame.fromAxisAngle(axis.Unit, current) * (toeW - toeW.Position)
+						local parentW = toe.Parent:IsA("Bone") and toe.Parent.TransformedWorldCFrame or toe.Parent.CFrame
+						toe.Transform = (parentW * toe.CFrame):Inverse() * newToeW
+					end
+				end
+				if side == "Left" then self.leftToeFlex = current else self.rightToeFlex = current end
+			end
+		end
 		self.leftPlanted = lPlanted
 		self.rightPlanted = rPlanted
 
@@ -886,9 +975,6 @@ function ProceduralCombatReactionController:update(dt)
 		self.leftLedgeGrip = lLedge
 		self.rightLedgeGrip = rLedge
 
-		-- Clean, uncorrupted toe tracking (preserves author animation without artificial spatula bending)
-		self.leftToeFlex = 0
-		self.rightToeFlex = 0
 	else
 		if self.leftIK then self.leftIK.Weight = 0; self.leftIK.Enabled = false end
 		if self.rightIK then self.rightIK.Weight = 0; self.rightIK.Enabled = false end
@@ -897,12 +983,127 @@ function ProceduralCombatReactionController:update(dt)
 		self.rightToeFlex = 0
 	end
 
+	-- 8. Secondary motion: the arms follow the clip with a little weight of their own
+	local smSwitch = workspace:GetAttribute("SecondaryMotion") -- live A/B switch
+	local smOn = smSwitch == true or (smSwitch == nil and CombatConfig.SecondaryMotion_Enabled ~= false)
+	-- (not in a mid-air clash: that state places the body by CFrame every tick, and the arms
+	-- whipped after every jump)
+	if smOn and serverState ~= "MidAirClash" then
+		self:updateSecondaryMotion(dt)
+	else
+		self.smState = nil
+	end
+
 	-- Attribute telemetry for diagnostics
 	if math.abs(self.currentPitch) < 0.005 and math.abs(self.velocityPitch) < 0.05
 		and math.abs(self.currentRoll) < 0.005 and math.abs(self.velocityRoll) < 0.05
 		and not isAirborne
 		and math.abs(self.hipsOffset) < 0.008 and math.abs(self.hipsVelocity) < 0.05 then
 		self.activeReactionType = "NONE"
+	end
+end
+
+-- Secondary motion (overlap and follow-through) for the arms.
+-- Each upper arm and forearm tip follows where the clip puts it through a damped spring that
+-- is also fed the clip's own velocity: steady motion (running, a steady turn) is followed
+-- with no lag, and only a change - the body starting, stopping, turning, being hit - leaves
+-- the arm trailing for a moment and settling with a slight overshoot. The offset is capped
+-- per bone, and it fades out while the clip itself moves the arm fast relative to the body
+-- (a punch), so strikes stay as authored.
+local ARM_CHAIN = {
+	{ "LeftArm", "LeftForeArm", "upper" },
+	{ "LeftForeArm", "LeftHand", "fore" },
+	{ "RightArm", "RightForeArm", "upper" },
+	{ "RightForeArm", "RightHand", "fore" },
+}
+
+function ProceduralCombatReactionController:updateSecondaryMotion(dt)
+	if not self.smBones then
+		self.smBones = {}
+		for _, link in ipairs(ARM_CHAIN) do
+			local bone = self.ghostModel and self.ghostModel:FindFirstChild("mixamorig:" .. link[1], true)
+			local child = self.ghostModel and self.ghostModel:FindFirstChild("mixamorig:" .. link[2], true)
+			if bone and child then
+				table.insert(self.smBones, { bone = bone, child = child, kind = link[3] })
+			end
+		end
+	end
+	if #self.smBones == 0 or not self.rootPart then return end
+
+	local frequency = CombatConfig.SecondaryMotion_Frequency or 6
+	local zeta = CombatConfig.SecondaryMotion_Damping or 0.75
+	local maxUpper = math.rad(CombatConfig.SecondaryMotion_MaxUpperArmDegrees or 14)
+	local maxFore = math.rad(CombatConfig.SecondaryMotion_MaxForearmDegrees or 20)
+	local fastClip = CombatConfig.SecondaryMotion_FastClipSpeed or 12 -- studs/s of a tip relative to the body
+	local omega = 2 * math.pi * frequency
+	local rootVelocity = self.rootPart.AssemblyLinearVelocity
+	-- A body placed by CFrame (a teleport, a snap) moves further than its velocity explains:
+	-- the springs start again from the clip instead of whipping after it
+	local rootPosition = self.rootPart.Position
+	if self.smRootPos and ((rootPosition - self.smRootPos) - rootVelocity * dt).Magnitude > 1.0 then
+		self.smState = nil
+	end
+	self.smRootPos = rootPosition
+	self.smState = self.smState or {}
+
+	-- The clip's tips, before any bone here is turned
+	local tips = {}
+	for i, entry in ipairs(self.smBones) do
+		tips[i] = entry.child.TransformedWorldCFrame.Position
+	end
+
+	-- Springs (sub-stepped: a 6 Hz spring at a 20 fps frame is past stable for one step)
+	local steps = math.max(1, math.ceil(dt / (1 / 120)))
+	local h = dt / steps
+	local weights = {}
+	for i, tip in ipairs(tips) do
+		local s = self.smState[i]
+		if not s or (tip - s.x).Magnitude > 4 then
+			s = { x = tip, v = Vector3.zero, prevTip = tip }
+			self.smState[i] = s
+		end
+		-- Low-passed: far Quins have their animation stepped at a lower rate, and the raw
+		-- per-frame velocity alternated between 0 and double
+		local rawVelocity = (tip - s.prevTip) / dt
+		s.prevTip = tip
+		s.cv = s.cv and s.cv:Lerp(rawVelocity, math.clamp(25 * dt, 0, 1)) or rawVelocity
+		local clipVelocity = s.cv
+		for _ = 1, steps do
+			local acceleration = (tip - s.x) * (omega * omega) + (clipVelocity - s.v) * (2 * zeta * omega)
+			s.v += acceleration * h
+			s.x += s.v * h
+		end
+		-- Fade out while the clip moves the arm fast; rate-limited (a per-frame weight from a
+		-- per-frame speed flickered and turned the arm up to 20 degrees between frames)
+		local relativeSpeed = (clipVelocity - rootVelocity).Magnitude
+		local targetWeight = math.clamp(1 - (relativeSpeed - fastClip) / fastClip, 0, 1)
+		local current = s.weight or targetWeight
+		local rate = targetWeight < current and 14 or 4
+		current = current + (targetWeight - current) * math.clamp(rate * dt, 0, 1)
+		s.weight = current
+		weights[i] = current
+	end
+
+	-- Turn each bone from where its tip is toward where the spring has it (parents first)
+	for i, entry in ipairs(self.smBones) do
+		local weight = weights[i]
+		if weight > 0.01 then
+			local boneW = entry.bone.TransformedWorldCFrame
+			local current = entry.child.TransformedWorldCFrame.Position - boneW.Position
+			local wanted = self.smState[i].x - boneW.Position
+			if current.Magnitude > 1e-3 and wanted.Magnitude > 1e-3 then
+				local cu, wu = current.Unit, wanted.Unit
+				local axis = cu:Cross(wu)
+				if axis.Magnitude > 1e-5 then
+					local angle = math.acos(math.clamp(cu:Dot(wu), -1, 1))
+					angle = math.min(angle, entry.kind == "upper" and maxUpper or maxFore) * weight
+					local newW = CFrame.new(boneW.Position) * CFrame.fromAxisAngle(axis.Unit, angle) * (boneW - boneW.Position)
+					local parent = entry.bone.Parent
+					local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame
+					entry.bone.Transform = (parentW * entry.bone.CFrame):Inverse() * newW
+				end
+			end
+		end
 	end
 end
 

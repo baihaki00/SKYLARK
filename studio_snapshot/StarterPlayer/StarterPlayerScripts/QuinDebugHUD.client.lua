@@ -8,6 +8,7 @@ pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false) end)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local CollectionService = game:GetService("CollectionService")

@@ -328,6 +328,7 @@ local CombatConfig = {
 	FootIK_GaitModulation = true,            -- modulate IK weight during sprint/walk swing phases
 	FootIK_ToeFlexion = true,                -- procedural anti-penetration toe roll/flexion on ground contact
 	FootIK_ToeSoleThickness = 0.14,          -- studs sole thickness below toe bone (prevents toe clipping)
+	FootIK_ToeMaxFlexDegrees = 50,           -- most the toe bends up at the ball of the foot
 	FootIK_Plant = true,                     -- hold a foot that is down where it touched the ground until the clip lifts it (no skating)
 	FootIK_PlantContact = 0.15,              -- studs above its rest height at which a foot counts as down
 	FootIK_PlantLift = 0.35,                 -- ... and as lifted again
@@ -453,6 +454,14 @@ CombatConfig.Locomotion_ForceLeanFullAcceleration = 60 -- studs/s^2 at which the
 CombatConfig.Locomotion_ForceLeanPitchDegrees = 14     -- forward / back lean at full acceleration
 CombatConfig.Locomotion_ForceLeanRollDegrees = 12      -- sideways lean at full acceleration
 CombatConfig.ProceduralStyle_Enabled = false           -- experiment: each Quin leans / twists / carries weight a little differently (HUD switch overrides)
+
+-- === Secondary motion (ProceduralCombatReactionController): the arms carry a little weight ===
+CombatConfig.SecondaryMotion_Enabled = true          -- workspace attribute SecondaryMotion overrides (A/B)
+CombatConfig.SecondaryMotion_Frequency = 6           -- Hz of the spring each arm tip follows the clip with
+CombatConfig.SecondaryMotion_Damping = 0.75          -- below 1: a slight overshoot as it settles (0.55 whipped at every run-cycle swing)
+CombatConfig.SecondaryMotion_MaxUpperArmDegrees = 14 -- most an upper arm trails its clip pose
+CombatConfig.SecondaryMotion_MaxForearmDegrees = 20  -- ... a forearm
+CombatConfig.SecondaryMotion_FastClipSpeed = 12      -- studs/s of clip arm motion relative to the body above which it fades out (strikes)
 
 -- === Ground VFX (VfxModule) ===
 CombatConfig.Vfx_LandingDust = true                    -- smoke burst where a body lands (jumps, knockdowns, projectile-jump impacts)
