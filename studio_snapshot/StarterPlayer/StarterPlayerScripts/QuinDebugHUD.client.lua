@@ -300,7 +300,7 @@ local layerList = RuntimeVisualizer and RuntimeVisualizer.getLayers() or {}
 -- Cognition switches (QuinCore.Cognition.Layers): take a layer of the Quins' perception out,
 -- for every Quin, to see what it contributes. The server owns the state; a toggle asks for it.
 local CognitionLayers = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Layers"))
-local toggleCount = #layerList + 2 + #CognitionLayers.Switchable
+local toggleCount = #layerList + 4 + #CognitionLayers.Switchable -- layers, scope, 3 motion switches, AI layers
 local LAYER_PANEL_HEIGHT = RuntimeVisualizer and (math.ceil(toggleCount / 2) * LAYER_ROW_HEIGHT + 8) or 0
 
 local layerPanel = Instance.new("Frame")
@@ -361,8 +361,20 @@ if RuntimeVisualizer then
 		Workspace:SetAttribute("ProceduralStyle", Workspace:GetAttribute("ProceduralStyle") ~= true)
 	end)
 
+	-- Whole-body tilt and foot planting (client presentation; on unless switched off here)
+	addLayerToggle(#layerList + 3, "Motion: body tilt", function()
+		return Workspace:GetAttribute("BodyTilt") ~= false
+	end, function()
+		Workspace:SetAttribute("BodyTilt", Workspace:GetAttribute("BodyTilt") == false)
+	end)
+	addLayerToggle(#layerList + 4, "Motion: foot planting", function()
+		return Workspace:GetAttribute("FootPlant") ~= false
+	end, function()
+		Workspace:SetAttribute("FootPlant", Workspace:GetAttribute("FootPlant") == false)
+	end)
+
 	for offset, layer in ipairs(CognitionLayers.Switchable) do
-		local refresh = addLayerToggle(#layerList + 2 + offset, "AI: " .. layer.label, function()
+		local refresh = addLayerToggle(#layerList + 4 + offset, "AI: " .. layer.label, function()
 			return CognitionLayers.isEnabled(layer.id)
 		end, function()
 			CognitionLayers.request(layer.id, not CognitionLayers.isEnabled(layer.id))
