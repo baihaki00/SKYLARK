@@ -4,6 +4,10 @@
 
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 
 local function cleanupMovers(hrp)
 	for _, child in ipairs(hrp:GetChildren()) do
@@ -96,7 +100,11 @@ function KnockbackModule.applyKnockback(targetModel, direction, force, duration)
 		local clampedForce = math.min(effectiveForce, 24)
 		targetHRP.AssemblyLinearVelocity = flatDirection * clampedForce + Vector3.new(0, 6, 0)
 	else
-		targetHRP.AssemblyLinearVelocity = flatDirection * (effectiveForce * 1.5) + Vector3.new(0, effectiveForce * 1.5, 0)
+		-- Capped launch: finisher-tier forces otherwise reach 220+ studs/s on both axes, which
+		-- reads as a teleport and carries the victim out of the arena
+		local launchH = math.min(effectiveForce * 1.5, CombatConfig.Knockback_MaxLaunchHorizontal or 110)
+		local launchV = math.min(effectiveForce * 1.5, CombatConfig.Knockback_MaxLaunchVertical or 75)
+		targetHRP.AssemblyLinearVelocity = flatDirection * launchH + Vector3.new(0, launchV, 0)
 	end
 
 	-- Procedural Combat Reaction Telemetry
@@ -182,29 +190,44 @@ function KnockbackModule.applyLunge(model, direction, speed, duration)
 	lv.Name = "KB_LungeVelocity"
 	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
 	lv.MaxAxesForce = Vector3.new(18000, 0, 18000)
-	lv.VectorVelocity = direction.Unit * (speed or 25)
+	local dir = direction.Unit
+	local peak = speed or 25
+	lv.VectorVelocity = dir * (peak * 0.3)
 	lv.Attachment0 = att
 	lv.Parent = hrp
 	
-	-- Decay to simulate stopping inertia
-	local steps = 6
-	local stepTime = (duration or 0.25) / steps
-	task.spawn(function()
-		for i = 1, steps do
-			task.wait(stepTime)
-			if lv.Parent then
-				lv.VectorVelocity = lv.VectorVelocity * 0.6
-			end
+	-- Per-frame envelope: short ramp in, then a continuous ease-out to rest (the old
+	-- 6-step staircase changed speed in visible jumps)
+	local total = duration or 0.25
+	local rampIn = math.min(0.06, total * 0.25)
+	local startClock = os.clock()
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		local t = os.clock() - startClock
+		if t >= total or not lv.Parent then
+			conn:Disconnect()
+			if lv.Parent then lv:Destroy() end
+			if att.Parent then att:Destroy() end
+			return
 		end
-		if lv and lv.Parent then lv:Destroy() end
-		if att and att.Parent then att:Destroy() end
+		local k
+		if t < rampIn then
+			k = 0.3 + 0.7 * (t / rampIn)
+		else
+			local p = (t - rampIn) / math.max(total - rampIn, 0.01)
+			k = (1 - p) * (1 - p)
+		end
+		lv.VectorVelocity = dir * (peak * k)
 	end)
 end
 
 -- Dash/slide movement for the attacker (modern LinearVelocity with full authority)
-function KnockbackModule.applySlide(model, direction, speed, duration)
+-- opts (optional): { friction = true } decays from full speed over the whole duration (a body
+-- skidding to rest); { endRatio = n } sets the fraction of speed left at the end.
+function KnockbackModule.applySlide(model, direction, speed, duration, opts)
 	local hrp = model:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
+	opts = opts or {}
 	
 	local att = hrp:FindFirstChild("SlideAtt")
 	if not att then
@@ -231,11 +254,51 @@ function KnockbackModule.applySlide(model, direction, speed, duration)
 	end
 	
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-	lv.VectorVelocity = flatDir * ((speed or 95) * speedMult)
-	
-	task.delay((duration or 0.3) / speedMult, function()
-		if lv and lv.Parent then lv:Destroy() end
-		if att and att.Parent then att:Destroy() end
+	local full = (speed or 95) * speedMult
+	local total = (duration or 0.3) / speedMult
+	local frictionMode = opts.friction == true
+	local endRatio = opts.endRatio or 0.12
+	-- Blend in from the body's current velocity along the slide direction (negative when it is
+	-- moving the other way) over a few frames, instead of replacing the velocity in one. A
+	-- slide that only continues the current motion (refresh, landing skid) has no ramp.
+	local alongNow = hrp.AssemblyLinearVelocity:Dot(flatDir)
+	local startK = math.clamp(alongNow / math.max(full, 0.01), -1, 1)
+	local rampIn = 0
+	if not frictionMode and startK < 0.9 then
+		rampIn = math.min(0.05 + 0.05 * (1 - startK), total * 0.4)
+	end
+	lv.VectorVelocity = flatDir * (full * (rampIn > 0 and startK or 1))
+
+	-- Each call owns the mover through a token: a slide that is refreshed before it ends is
+	-- not cut off by the previous call's expiry (that produced an on/off pulse), and the
+	-- last 40% eases down instead of dropping from full speed to nothing in one frame.
+	local token = os.clock()
+	lv:SetAttribute("SlideToken", token)
+	local easeStart = total * 0.6
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		if not lv.Parent or lv:GetAttribute("SlideToken") ~= token then
+			conn:Disconnect()
+			return
+		end
+		local t = os.clock() - token
+		if t >= total then
+			conn:Disconnect()
+			lv:Destroy()
+			if att.Parent then att:Destroy() end
+			return
+		end
+		local k = 1
+		if t < rampIn then
+			k = startK + (1 - startK) * (t / rampIn)
+		elseif frictionMode then
+			local p = 1 - t / total
+			k = endRatio + (1 - endRatio) * p * p
+		elseif t > easeStart then
+			local p = (t - easeStart) / math.max(total - easeStart, 0.01)
+			k = 1 - (1 - endRatio) * p * p
+		end
+		lv.VectorVelocity = flatDir * (full * k)
 	end)
 end
 
@@ -271,12 +334,26 @@ function KnockbackModule.applyMicroKnockback(targetModel, direction, studs)
 	lv.Name = "KB_MicroVelocity"
 	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
 	lv.MaxAxesForce = Vector3.new(18000, 0, 18000)
-	lv.VectorVelocity = direction.Unit * (pushPower * 6)
+	local dir = direction.Unit
+	local peak = pushPower * 6
+	lv.VectorVelocity = dir * peak
 	lv.Attachment0 = att
 	lv.Parent = targetHRP
 	
-	Debris:AddItem(lv, 0.15)
-	Debris:AddItem(att, 0.15)
+	-- Same travel as the old 0.15s constant push, but it bleeds off instead of cutting out
+	local total = 0.28
+	local startClock = os.clock()
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		local t = os.clock() - startClock
+		if t >= total or not lv.Parent then
+			conn:Disconnect()
+			if lv.Parent then lv:Destroy() end
+			if att.Parent then att:Destroy() end
+			return
+		end
+		lv.VectorVelocity = dir * (peak * (1 - t / total))
+	end)
 end
 
 return KnockbackModule

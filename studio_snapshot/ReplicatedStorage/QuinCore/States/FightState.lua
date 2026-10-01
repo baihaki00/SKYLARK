@@ -371,8 +371,10 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Check hit stun
 	local stunEndTime = fighter:GetAttribute("StunEndTime") or 0
 	if now < stunEndTime then
-		humanoid.WalkSpeed = 0
-		rootPart.AssemblyLinearVelocity = Vector3.new(0, rootPart.AssemblyLinearVelocity.Y, 0)
+		-- Hard but continuous stop: the drive drops to zero within ~0.15s. Zeroing the velocity
+		-- on every tick froze a running body in one frame and kept cancelling the hit push,
+		-- which showed as a stutter during the flinch.
+		humanoid.WalkSpeed = math.max(0, humanoid.WalkSpeed - 30)
 		return FightState
 	end
 
@@ -545,17 +547,31 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	local idealRange = CombatConfig.CombatRange or 8
 	local locoDt = math.clamp(now - (data.lastLocoTime or (now - 0.05)), 1 / 60, 0.25)
 	data.lastLocoTime = now
-	if distance > idealRange + 1.5 then
-		-- Close the gap through the shared locomotion path (acceleration, turn rate, gait)
-		LocomotionModule.steer(fighter, humanoid, rootPart, targetHRP.Position, fighter:GetAttribute("Speed") or 40, locoDt)
+	-- Hysteresis on the approach: start closing past idealRange + 2, keep closing until just
+	-- outside idealRange. A single threshold flipped between step-in and brake every few ticks
+	-- whenever the target shuffled around it, restarting the legs each time.
+	if distance > idealRange + 2.0 then
+		data.closingGap = true
+	elseif distance <= idealRange + 0.3 then
+		data.closingGap = false
+	end
+	if data.closingGap then
+		-- Close the gap through the shared locomotion path (acceleration, turn rate, gait).
+		-- Approach pace scales with the gap so a 2-stud correction is a step, not a sprint burst.
+		local maxApproach = fighter:GetAttribute("Speed") or 40
+		local approachSpeed = math.clamp(8 + (distance - idealRange) * 4, 10, maxApproach)
+		LocomotionModule.steer(fighter, humanoid, rootPart, targetHRP.Position, approachSpeed, locoDt)
 		GaitModule.update(humanoid, rootPart, locoDt)
 	elseif distance < (CombatConfig.Melee_SweetSpotMin or 4.5) then
 		-- Point blank overlap: smooth physics micro-slide with momentum continuity & spacing animation
 		LocomotionModule.brake(fighter, humanoid, rootPart, locoDt)
 		local awayDir = (rootPart.Position - targetHRP.Position)
 		local awayFlat = Vector3.new(awayDir.X, 0, awayDir.Z)
-		if awayFlat.Magnitude > 0.01 then
-			KnockbackModule.applySlide(fighter, awayFlat.Unit, CombatConfig.Melee_SlideSpeed or 10, 0.12)
+		-- Only once the body has shed its own speed: the spacing mover has full authority, so
+		-- applied to a Quin still running in it reversed 40-50 studs/s in a single frame.
+		local ownVel = rootPart.AssemblyLinearVelocity
+		if awayFlat.Magnitude > 0.01 and Vector3.new(ownVel.X, 0, ownVel.Z).Magnitude < 16 then
+			KnockbackModule.applySlide(fighter, awayFlat.Unit, CombatConfig.Melee_SlideSpeed or 10, 0.3) -- refreshed each tick; eases out once spacing is restored
 			if not AnimationModule.isPlaying(humanoid, AnimationIds.RetreatBackstep) then
 				AnimationModule.play(humanoid, AnimationIds.RetreatBackstep, Enum.AnimationPriority.Movement, false, 1.2, 0.1)
 			end
@@ -699,8 +715,18 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		if rearThreatModel and rearThreatModel:FindFirstChild("HumanoidRootPart") then
 			local rHRP = rearThreatModel.HumanoidRootPart
 			local turnLook = CFrame.lookAt(rootPart.Position, Vector3.new(rHRP.Position.X, rootPart.Position.Y, rHRP.Position.Z))
-			rootPart.CFrame = turnLook
-			AnimationModule.playConfig(humanoid, "Awareness.Turn180Pivot", 1.5, Enum.AnimationPriority.Action4, false)
+			-- Fast turn through the facing gyro instead of an instant 180 degree CFrame flip.
+			local facingGyro = rootPart:FindFirstChild("FightGyro")
+			if facingGyro then
+				facingGyro.Responsiveness = 45
+				facingGyro.CFrame = turnLook
+			else
+				rootPart.CFrame = turnLook
+			end
+			-- The pivot clip carries its own 177 degree hip rotation (see CombatConfig.Turn180PivotClipEnabled)
+			if CombatConfig.Turn180PivotClipEnabled == true then
+				AnimationModule.playConfig(humanoid, "Awareness.Turn180Pivot", 1.5, Enum.AnimationPriority.Action4, false)
+			end
 			
 			fighter:SetAttribute("CurrentTarget", rearThreatModel.Name)
 			fighter:SetAttribute("TargetQuin", rearThreatModel.Name)

@@ -1,88 +1,137 @@
 --// RecoveryState.lua
--- Dedicated state for getting back up from a stun, knockdown, or prone tumble
--- Restores physical upright orientation, engages GettingUp humanoid state, and plays get-up animation
+-- Getting back up from a stun, knockdown, or prone tumble: restores the upright orientation,
+-- plays the get-up that matches the knockdown, and hands back to combat when it finishes.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
-local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
-local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
-local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
+local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+local AnimationIds = require(QuinCore:WaitForChild("AnimationIds"))
+local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 
 local RecoveryState = { name = "Recovery" }
 
+-- Get-up clips. A heavy knockdown rises slowly from the back; everything else kips up.
+local GET_UP_FAST = "Reactions.GetUpBackFast"
+local GET_UP_HEAVY = "Reactions.GetUpGround"
+-- The state hands over slightly before the clip's last frame so its tail blends into the next pose
+local GET_UP_HANDOVER = 0.92
+
+local UPRIGHT_ALIGN_NAME = "RecoveryUpright"
+local UPRIGHT_ATT_NAME = "RecoveryUprightAtt"
+
 local recoveryData = {}
+
+local function removeUprightAlign(rootPart)
+	local align = rootPart:FindFirstChild(UPRIGHT_ALIGN_NAME)
+	if align then align:Destroy() end
+	local att = rootPart:FindFirstChild(UPRIGHT_ATT_NAME)
+	if att then att:Destroy() end
+end
+
+local function flatLookOf(rootPart)
+	local look = rootPart.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.05 then
+		local up = rootPart.CFrame.UpVector
+		flat = Vector3.new(-up.X, 0, -up.Z)
+	end
+	return flat.Magnitude > 0.05 and flat.Unit or Vector3.new(0, 0, -1)
+end
+
+-- Rotate a tipped body upright over a few frames with a torque constraint (assigning the upright
+-- CFrame directly flipped it to vertical in a single frame)
+local function alignUpright(rootPart)
+	removeUprightAlign(rootPart)
+	local att = Instance.new("Attachment")
+	att.Name = UPRIGHT_ATT_NAME
+	att.Parent = rootPart
+	local align = Instance.new("AlignOrientation")
+	align.Name = UPRIGHT_ALIGN_NAME
+	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	align.RigidityEnabled = false
+	align.Responsiveness = 35
+	align.MaxTorque = 1000000
+	align.MaxAngularVelocity = 18
+	align.CFrame = CFrame.lookAt(Vector3.zero, flatLookOf(rootPart))
+	align.Attachment0 = att
+	align.Parent = rootPart
+end
 
 function RecoveryState.enter(fighter, humanoid, rootPart)
 	local kbType = fighter:GetAttribute("KnockbackType") or "ground"
-	
-	LocomotionModule.brake(fighter, humanoid, rootPart, 0.05)
+	local isHeavy = kbType == "hard_ground" or fighter:GetAttribute("KnockdownHeavy") == true
+
+	-- Stop driving the body. Its remaining speed here is knockback carry, not a run, so the
+	-- locomotion brake (run cycle, stop-run plant) does not apply.
+	LocomotionModule.cancelSteer(fighter)
+	humanoid:Move(Vector3.zero, false)
 	humanoid.WalkSpeed = 0
 	humanoid.PlatformStand = false
 	fighter:SetAttribute("GetUpProtection", true)
 
-	-- Physical Upright Alignment (ground-relative, zero artificial vertical CFrame pop)
 	local upY = rootPart.CFrame.UpVector.Y
 	if upY < 0.85 then
-		local lookFlat = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
-		if lookFlat.Magnitude < 0.05 then
-			lookFlat = Vector3.new(-rootPart.CFrame.UpVector.X, 0, -rootPart.CFrame.UpVector.Z)
-			if lookFlat.Magnitude < 0.05 then
-				lookFlat = Vector3.new(0, 0, -1)
-			end
-		end
-		lookFlat = lookFlat.Unit
-		-- Smoothly re-orient upright without popping position
-		rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + lookFlat, Vector3.new(0, 1, 0))
+		alignUpright(rootPart)
 	end
 
-	rootPart.AssemblyLinearVelocity = rootPart.AssemblyLinearVelocity * 0.15
+	-- A landing skid (SlideLV) carries its own deceleration; cutting the velocity here only made
+	-- it drop and then get pulled straight back up to the skid speed.
+	if not rootPart:FindFirstChild("SlideLV") then
+		rootPart.AssemblyLinearVelocity = rootPart.AssemblyLinearVelocity * 0.15
+	end
 	rootPart.AssemblyAngularVelocity = Vector3.zero
 	humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 
-	-- Pick animation: prioritize GetUpGround / GetUpAir
-	local animId = AnimationIds.GetUpGround or AnimationIds.GetUpAir
-	local duration = 1.2
-
-	-- Fast recovery for light ground flinches where Quin is already upright
+	local clipPath = nil
+	local duration
 	if kbType == "ground" and upY >= 0.85 then
-		animId = nil
+		-- Light ground flinch, still on its feet
 		duration = 0.2
 	elseif kbType == "slam_landing" then
-		animId = nil
 		duration = 0.35
 		AnimationModule.playConfig(humanoid, "Attacks.Specials.SlamImpact", 1.0, Enum.AnimationPriority.Action4, false)
+	else
+		clipPath = isHeavy and GET_UP_HEAVY or GET_UP_FAST
+		AnimationModule.playConfig(humanoid, clipPath, 1.0, Enum.AnimationPriority.Action4, false)
+		-- The state lasts as long as the clip: a fixed 1.2s cut the get-up off mid-rise
+		duration = AnimationModule.getEffectiveDuration(humanoid, clipPath, 1.0) * GET_UP_HANDOVER
 	end
 
 	recoveryData[fighter] = {
 		enterTime = tick(),
-		animId = animId,
-		duration = duration
+		clipPath = clipPath,
+		duration = duration,
 	}
-	
-	RuntimeTracer.checkpoint(fighter, string.format("Enter Recovery (Type=%s, ProneUpY=%.2f)", kbType, upY))
-	
-	if animId then
-		AnimationModule.play(humanoid, animId, Enum.AnimationPriority.Action4, false, 1.0, 0.15)
-	end
+
+	RuntimeTracer.checkpoint(fighter, string.format("Enter Recovery (Type=%s, Heavy=%s, UpY=%.2f, %.2fs)", kbType, tostring(isHeavy), upY, duration))
 end
 
 function RecoveryState.exit(fighter, humanoid, rootPart)
 	RuntimeTracer.checkpoint(fighter, "Recovery Complete → Return to Combat")
 	local data = recoveryData[fighter]
-	if data and data.animId then
-		AnimationModule.stop(humanoid, data.animId, 0.2)
+	if data and data.clipPath then
+		AnimationModule.stopConfig(humanoid, data.clipPath, 0.2)
 	end
-	
+
 	-- Purge residual reaction tracks
 	AnimationModule.stopConfig(humanoid, "Attacks.Specials.SlamImpact", 0.15)
 	AnimationModule.stop(humanoid, AnimationIds.FallAirKnockback, 0.1)
 	AnimationModule.stop(humanoid, AnimationIds.Knockback, 0.1)
-	AnimationModule.stop(humanoid, AnimationIds.KnockbackExtreme, 0.1)
-	
+
 	humanoid.PlatformStand = false
 	rootPart.AssemblyAngularVelocity = Vector3.zero
-	
+
+	removeUprightAlign(rootPart)
+	-- Last resort only: still tipped after the whole get-up
+	if rootPart.CFrame.UpVector.Y < 0.7 then
+		rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + flatLookOf(rootPart))
+	end
+
 	fighter:SetAttribute("KnockbackType", nil)
+	fighter:SetAttribute("KnockdownHeavy", nil)
 	-- Clear GetUpProtection after a brief 0.3s poise buffer so character is not instantly re-knocked
 	task.delay(0.30, function()
 		if fighter and fighter.Parent then
@@ -95,27 +144,24 @@ end
 function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 	local showdownRole = fighter:GetAttribute("LeaderShowdownRole")
 	if showdownRole == "Duelist" then
-		local LeaderShowdownSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LeaderShowdownSystem"))
+		local LeaderShowdownSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("LeaderShowdownSystem"))
 		LeaderShowdownSystem.constrainToRing(rootPart)
 	end
 
 	local data = recoveryData[fighter]
 	if not data then return require(script.Parent:WaitForChild("IdleState")) end
-	
-	local elapsed = tick() - data.enterTime
-	
-	if elapsed >= data.duration then
-		local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TargetingModule"))
-		local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
-		local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 60))
+
+	if tick() - data.enterTime >= data.duration then
+		local chaseRange = CombatConfig.ChaseRange or 60
+		local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, chaseRange)
 		if not target then
-			target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange or 60)
+			target, distance = TargetingModule.getNearest(rootPart, chaseRange)
 		end
-		
+
 		if target then
 			local combatRange = CombatConfig.CombatRange or 8
 			if distance <= combatRange * 1.2 then
-				-- Opponent in melee proximity: defend or fight!
+				-- Opponent in melee proximity: defend or fight
 				return require(script.Parent:WaitForChild("FightState"))
 			elseif distance <= combatRange * 3.5 then
 				-- Standoff range: circular pacing
@@ -127,11 +173,11 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 		return require(script.Parent:WaitForChild("IdleState"))
 	end
-	
+
 	-- Keep them grounded, upright, and still during get-up
 	humanoid.WalkSpeed = 0
 	humanoid:MoveTo(rootPart.Position)
-	
+
 	return RecoveryState
 end
 

@@ -155,6 +155,53 @@ end
 -- 2. STEERING & TRACTION (Dynamic 180° Skid & Continuous Centripetal Steering)
 -- ============================================================================
 
+-- Per-frame steer driver (AI Quins). States run at 10 Hz; when the heading and the drive speed
+-- were only advanced on that tick, a turning Quin changed direction in up to 30 degree steps
+-- and its velocity jumped ~25 studs/s every 0.1s. The state now only refreshes the goal
+-- (steerTarget / steerSpeed); this driver advances the turn-rate-limited heading and the
+-- acceleration every frame until the goal expires.
+local steerConns = setmetatable({}, { __mode = "k" })
+
+local function ensureSteerDriver(fighter, humanoid, rootPart)
+	if steerConns[fighter] then return end
+	local conn
+	conn = RunService.Heartbeat:Connect(function(frameDt)
+		local data = locoData[fighter]
+		if not data or not fighter.Parent or not humanoid.Parent or humanoid.Health <= 0 or not rootPart.Parent then
+			conn:Disconnect()
+			steerConns[fighter] = nil
+			return
+		end
+		if not data.steerTarget or os.clock() > (data.steerUntil or 0) then return end
+		if activeSlides[fighter] or humanoid.PlatformStand or fighter:GetAttribute("IsPlayerControlled") == true then return end
+
+		frameDt = math.clamp(frameDt, 0.001, 0.05)
+		local target = data.steerSpeed or humanoid.WalkSpeed
+		local speed = humanoid.WalkSpeed
+		if speed < target then
+			speed = math.min(speed + (CombatConfig.Locomotion_Acceleration or 80.0) * frameDt, target)
+		elseif speed > target then
+			speed = math.max(speed - (CombatConfig.Locomotion_BrakingDeceleration or 140.0) * frameDt, target)
+		end
+		humanoid.WalkSpeed = speed
+		data.currentSpeed = speed
+
+		local toTarget = data.steerTarget - rootPart.Position
+		local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
+		if flat.Magnitude < 0.1 then return end
+		humanoid:Move(LocomotionModule.resolveGroundIntent(fighter, rootPart, flat.Unit, frameDt), false)
+	end)
+	steerConns[fighter] = conn
+end
+
+-- Drop the current steer goal (state change, brake): the driver stops issuing movement
+function LocomotionModule.cancelSteer(fighter)
+	local data = locoData[fighter]
+	if data then
+		data.steerUntil = 0
+	end
+end
+
 function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, targetSpeed, dt, resolvedDirection)
 	if not fighter or not humanoid or not rootPart or not targetPosition then return end
 	-- A committed slide owns translation until it hands back to the gait
@@ -163,8 +210,18 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	dt = math.clamp(dt or 0.016, 0.001, 0.15)
 	local data = getLocoData(fighter)
 
-	-- 1. Smoothly accelerate / decelerate to target speed
-	LocomotionModule.modulateSpeed(fighter, humanoid, targetSpeed, dt)
+	-- 1. Smoothly accelerate / decelerate to target speed. AI Quins hand the goal to the
+	-- per-frame steer driver; a piloted Quin (resolvedDirection supplied) is advanced here.
+	local useDriver = (resolvedDirection == nil) and fighter:GetAttribute("IsPlayerControlled") ~= true
+	if useDriver then
+		data.steerTarget = targetPosition
+		data.steerSpeed = targetSpeed
+		data.steerUntil = os.clock() + 0.25
+		ensureSteerDriver(fighter, humanoid, rootPart)
+		fighter:SetAttribute("PacingVelocity", math.floor(humanoid.WalkSpeed + 0.5))
+	else
+		LocomotionModule.modulateSpeed(fighter, humanoid, targetSpeed, dt)
+	end
 
 	-- 2. Check for sharp direction reversals (180° Skid)
 	local currentVel = rootPart.AssemblyLinearVelocity
@@ -175,7 +232,14 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local flatDesired = Vector3.new(toTarget.X, 0, toTarget.Z)
 	local fallbackForward = flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1))
 	local intentDirection = flatDesired.Magnitude > 0.1 and flatDesired.Unit or fallbackForward
-	local driveDirection = resolvedDirection or LocomotionModule.resolveGroundIntent(fighter, rootPart, intentDirection, dt)
+	local driveDirection = resolvedDirection
+	if not driveDirection then
+		if useDriver and data.groundIntentDirection then
+			driveDirection = data.groundIntentDirection -- the driver owns the heading
+		else
+			driveDirection = LocomotionModule.resolveGroundIntent(fighter, rootPart, intentDirection, useDriver and (1 / 60) or dt)
+		end
+	end
 
 	local skidThreshold = CombatConfig.Locomotion_SkidSpeedThreshold or 13.0
 	local now = os.clock()
@@ -224,8 +288,24 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 			fighter:SetAttribute("SkidTurnDuration", turnDuration)
 
 			-- Kinetic plant friction: drop speed dynamically for athletic turf bite (cleats digging in)
-			humanoid.WalkSpeed = math.max(12.0, currentSpeed * 0.40)
-			data.currentSpeed = humanoid.WalkSpeed
+			-- The drop is spread over a few frames; assigning it at once removed 60% of the speed in
+			-- a single frame and read as a hitch rather than a plant.
+			local plantSpeed = math.max(12.0, currentSpeed * 0.40)
+			local fromSpeed = humanoid.WalkSpeed
+			data.currentSpeed = plantSpeed
+			data.skidToken = (data.skidToken or 0) + 1
+			local skidToken = data.skidToken
+			if fromSpeed > plantSpeed then
+				task.spawn(function()
+					local rampStart = os.clock()
+					while humanoid.Parent and data.skidToken == skidToken do
+						local p = (os.clock() - rampStart) / 0.14
+						if p >= 1 then break end
+						humanoid.WalkSpeed = math.min(humanoid.WalkSpeed, fromSpeed + (plantSpeed - fromSpeed) * p)
+						RunService.Heartbeat:Wait()
+					end
+				end)
+			end
 
 			-- VFX: Stylized grey foot smoke burst along turf scrape vector (zero physics parts)
 			VfxModule.createArcaneFootBurst(fighter, rootPart.Position, curDir)
@@ -252,6 +332,7 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	if activeSlides[fighter] then return end
 
 	local data = getLocoData(fighter)
+	data.steerUntil = 0 -- braking ends any steer goal
 	local currentVel = rootPart.AssemblyLinearVelocity
 	local flatVel = Vector3.new(currentVel.X, 0, currentVel.Z)
 	local speed = flatVel.Magnitude
@@ -393,6 +474,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	end
 
 	-- Traversal parkour planning integration (vaults, jumps, dismounts)
+	local plannedFlightTime = nil
 	local shouldPlan = (jumpType == nil or jumpType == "jump" or jumpType == "vault" or jumpType == "dismount")
 	if shouldPlan and rootPart:IsA("BasePart") then
 		local plan = LocomotionModule.planTraversal(
@@ -403,6 +485,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 			forwardImpulse
 		)
 		if plan then
+			plannedFlightTime = plan.flightTime
 			TraversalModule.markTraversal(fighter, plan)
 			fighter:SetAttribute("TraversalVelocityX", plan.horizontalVelocity.X)
 			fighter:SetAttribute("TraversalVelocityZ", plan.horizontalVelocity.Z)
@@ -450,7 +533,13 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
     if isDismount then
         AnimationModule.playConfig(humanoid, "Movement.Fall", 1.0, Enum.AnimationPriority.Action3, true)
     else
-        local launchSpeed = (isLongJump and 1.08) or (isHop and 1.12) or 1.0
+        -- The jump clip carries its own rise and fall (hips travel ~4 studs up and back down).
+        -- Fit the clip to the real flight so that arc lands with the body; at a fixed rate a
+        -- short hop touched down while the clip was still at its apex and the mesh dropped late.
+        local estHeight = math.clamp(height or 8.0, 3.0, 14.0)
+        local estFlight = plannedFlightTime or (2 * math.sqrt((2 * estHeight) / Workspace.Gravity))
+        local clipDuration = AnimationModule.getEffectiveDuration(humanoid, jumpAnim, 1.0)
+        local launchSpeed = math.clamp(clipDuration / math.max(estFlight, 0.2), 0.85, 2.0)
         AnimationModule.playConfig(humanoid, jumpAnim, launchSpeed, Enum.AnimationPriority.Action3, true)
     end
 
@@ -543,7 +632,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		if align and align.Parent then align:Destroy() end
 		if att and att.Parent then att:Destroy() end
 
-		AnimationModule.stopConfig(humanoid, jumpAnim)
+		AnimationModule.stopConfig(humanoid, jumpAnim, 0.15)
 		AnimationModule.stopConfig(humanoid, "Movement.Fall")
 
 		-- Audio feedback on landing via QuinCore AudioModule (only if genuinely airborne)
@@ -609,14 +698,19 @@ end
 -- ============================================================================
 
 function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
-	local now = os.clock()
-	fighter:SetAttribute("LastDashTime", now)
+	-- tick(): every reader of LastDashTime compares against tick(). Written with os.clock()
+	-- the cooldown never applied and dashes could chain back to back.
+	fighter:SetAttribute("LastDashTime", tick())
 
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	local dist = distance or 35
-	local clampedDist = math.clamp(dist, 20, 60)
-	local dashSpeed = (CombatConfig.DashSpeed or 110) * speedMult
-	local slideDuration = math.clamp(clampedDist / dashSpeed, 0.28 / speedMult, 0.55 / speedMult)
+	-- The dash stops short at striking range. It used to cover at least 31 studs whatever the
+	-- gap, so from a 16-22 stud standoff it drove straight through the target and shoved it.
+	-- Short gaps become a quick step-in at a lower speed over the same minimum duration.
+	local travel = math.clamp(dist - (CombatConfig.CombatRange or 8) * 0.9, 8, 60)
+	local maxDashSpeed = (CombatConfig.DashSpeed or 110) * speedMult
+	local slideDuration = math.clamp(travel / maxDashSpeed, 0.22 / speedMult, 0.55 / speedMult)
+	local dashSpeed = math.min(maxDashSpeed, travel / (slideDuration * 0.8)) -- 0.8: mean of the slide's speed envelope
 
 	-- Energy drain
 	local energy = fighter:GetAttribute("Energy") or 100
@@ -634,9 +728,10 @@ function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
 		dashDir = Vector3.new(look.X, 0, look.Z).Unit
 	end
 
-	-- Align orientation smoothly towards dash direction
-	local targetLookCF = CFrame.lookAt(rootPart.Position, rootPart.Position + dashDir)
-	rootPart.CFrame = rootPart.CFrame:Lerp(targetLookCF, 0.35)
+	-- Face the dash through the humanoid's own turn (or the active facing gyro); the one-shot
+	-- CFrame blend here yawed the body up to 60 degrees in a single frame
+	getLocoData(fighter).steerUntil = 0
+	humanoid:Move(dashDir, false)
 
 	-- Animation & Sensory VFX
 	AnimationModule.stopConfig(humanoid, "Movement.Run")
@@ -702,7 +797,7 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 	local dir = flatVel.Unit
 
 	local now = os.clock()
-	fighter:SetAttribute("LastSlideTime", now)
+	fighter:SetAttribute("LastSlideTime", tick()) -- readers compare against tick()
 	fighter:SetAttribute("LastActivityTime", now)
 
 	-- Energy drain
@@ -800,6 +895,10 @@ end
 function LocomotionModule.cleanup(fighter)
 	if activeSlides[fighter] then
 		endSlide(fighter, fighter:FindFirstChildOfClass("Humanoid"), fighter:FindFirstChild("HumanoidRootPart"), false)
+	end
+	if steerConns[fighter] then
+		steerConns[fighter]:Disconnect()
+		steerConns[fighter] = nil
 	end
 	local data = locoData[fighter]
 	if data then

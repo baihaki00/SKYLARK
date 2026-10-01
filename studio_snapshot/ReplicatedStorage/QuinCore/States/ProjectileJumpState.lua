@@ -10,6 +10,9 @@ local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitF
 local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
+local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local RunService = game:GetService("RunService")
 
 local ProjectileJumpState = { name = "ProjectileJump" }
 
@@ -90,7 +93,9 @@ local function isCurveSafe(P0, P1, P2, fighter, target)
 	return true
 end
 
-local function calculateCombatAimPoint(rootPart, targetHRP, dashSpeed, humanoid)
+-- scatterAngle is rolled once per jump: re-rolling it on every update moved the landing spot
+-- 5-25 studs each tick, so a diving Quin kept re-aiming between scattered points near the ground.
+local function calculateCombatAimPoint(rootPart, targetHRP, dashSpeed, humanoid, scatterAngle)
 	local targetPos = targetHRP.Position
 	local targetVel = targetHRP.AssemblyLinearVelocity
 	local flatTargetVel = Vector3.new(targetVel.X, 0, targetVel.Z)
@@ -121,13 +126,60 @@ local function calculateCombatAimPoint(rootPart, targetHRP, dashSpeed, humanoid)
 	-- smashes are not 100% laser-guided; landing has a 5 to 25 studs scatter (clamped strictly <= 30)
 	local jumpDist = (leadPos - rootPart.Position).Magnitude
 	local scatterDist = math.clamp(jumpDist * 0.12, 5.0, 25.0)
-	local randAngle = math.random() * math.pi * 2
+	local randAngle = scatterAngle or (math.random() * math.pi * 2)
 	local scatterOffset = Vector3.new(math.cos(randAngle), 0, math.sin(randAngle)) * scatterDist
 
 	local landingSpot = leadPos - (approachDir * 4.5) + scatterOffset
 	landingSpot = Vector3.new(landingSpot.X, groundY, landingSpot.Z)
 
 	return landingSpot, approachDir, groundY
+end
+
+-- Arena containment. Mid-air strafes cover 150-300 studs and the jump drifts another couple of
+-- hundred; from most of the arena that carried the jumper over the wall, where the out-of-bounds
+-- safety net teleported it back to the centre.
+local ARENA_MARGIN = 30
+
+-- Distance available along flatDir before the arena margin
+local function arenaRoom(position, flatDir)
+	local bounds = SpatialModule.getArenaBounds()
+	local room = math.huge
+	local function limit(p, d, center, half)
+		if d > 0.001 then
+			room = math.min(room, (center + half - ARENA_MARGIN - p) / d)
+		elseif d < -0.001 then
+			room = math.min(room, (center - half + ARENA_MARGIN - p) / d)
+		end
+	end
+	limit(position.X, flatDir.X, bounds.center.X, bounds.halfX)
+	limit(position.Z, flatDir.Z, bounds.center.Z, bounds.halfZ)
+	return math.max(room, 0)
+end
+
+-- Sideways strafe: a random side, flipped and shortened as needed to stay inside the arena
+local function pickStrafe(rootPart)
+	local right = rootPart.CFrame.RightVector
+	local dir = Vector3.new(right.X, 0, right.Z)
+	dir = (dir.Magnitude > 0.01 and dir.Unit or Vector3.new(1, 0, 0)) * (math.random() > 0.5 and 1 or -1)
+	local dist = getFloat(Config.StrafeDistanceMin, Config.StrafeDistanceMax)
+	local room = arenaRoom(rootPart.Position, dir)
+	if room < dist then
+		local otherRoom = arenaRoom(rootPart.Position, -dir)
+		if otherRoom > room then
+			dir, room = -dir, otherRoom
+		end
+	end
+	return dir, math.min(dist, room)
+end
+
+-- Removes the outward part of a horizontal velocity once the position is past the margin
+local function containVelocity(position, velocity)
+	local bounds = SpatialModule.getArenaBounds()
+	local x, z = velocity.X, velocity.Z
+	local dx, dz = position.X - bounds.center.X, position.Z - bounds.center.Z
+	if math.abs(dx) > bounds.halfX - ARENA_MARGIN and dx * x > 0 then x = 0 end
+	if math.abs(dz) > bounds.halfZ - ARENA_MARGIN and dz * z > 0 then z = 0 end
+	return Vector3.new(x, velocity.Y, z)
 end
 
 local stateData = {}
@@ -158,13 +210,28 @@ local function spawnVisualizerNode(position)
 	Debris:AddItem(part, 5)
 end
 
+-- How far the root is above its standing height over whatever floor is directly below it
+-- (math.huge with no floor below). Only collidable geometry counts: other Quins and effect parts
+-- (shockwave rings, trails, dust) drifting under a jumper are not floor.
+local function heightAboveStand(rootPart, humanoid)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { rootPart.Parent, Workspace:FindFirstChild("QuinServer") }
+	params.RespectCanCollide = true
+	local hit = Workspace:Raycast(rootPart.Position + Vector3.new(0, 2, 0), Vector3.new(0, -1000, 0), params)
+	if not hit then return math.huge end
+	local standY = hit.Position.Y + (humanoid.HipHeight or 2.0) + (rootPart.Size.Y / 2)
+	return rootPart.Position.Y - standY
+end
+
+-- Tracks come from the shared per-humanoid cache (a fresh LoadAnimation per jump leaked a
+-- track on the Animator every time)
 local function playAnim(humanoid, id)
-	local animator = humanoid:FindFirstChildOfClass("Animator")
-	if not animator or not id then return nil end
-	local anim = Instance.new("Animation")
-	anim.AnimationId = id
-	local track = animator:LoadAnimation(anim)
-	track:Play(0.1)
+	if not id then return nil end
+	local track = AnimationModule.getTrack(humanoid, id)
+	if track then
+		track:Play(0.1)
+	end
 	return track
 end
 
@@ -193,7 +260,6 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		end
 	end
 	if not target then
-		local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 		target, _ = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange or 1000)
 	end
 
@@ -213,6 +279,8 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		startPos = rootPart.Position,
 		apexPos = nil,
 		curveVelocity = nil,
+		scatterAngle = math.random() * math.pi * 2,
+		touchedDown = false,
 		animTrack = playAnim(humanoid, AnimationIds.Jump)
 	}
 
@@ -238,6 +306,39 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	ao.Responsiveness = 40
 	ao.CFrame = rootPart.CFrame
 	ao.Parent = rootPart
+
+	-- Per-frame guard. The state itself updates at 10 Hz; at these speeds (150-1500 studs/s)
+	-- that is 15-150 studs per update, so the things that must be exact run every frame:
+	-- the end of a strafe, arena containment, and touchdown.
+	local data = stateData[fighter]
+	data.guardConn = RunService.Heartbeat:Connect(function(dt)
+		if stateData[fighter] ~= data or not rootPart.Parent or not lv.Parent then
+			data.guardConn:Disconnect()
+			return
+		end
+		if data.touchedDown then return end
+
+		-- A strafe ends on time (waiting for the next update let it run up to 0.1s, 150 studs, long)
+		local strafing = data.phase == "Strafe" or data.phase == "ComboStrafe"
+		if strafing and data.strafeDuration and tick() - data.phaseTime >= data.strafeDuration then
+			lv.VectorVelocity = Vector3.zero
+		end
+
+		-- Hold the flight inside the arena (both the ballistic drift and the mover's target)
+		rootPart.AssemblyLinearVelocity = containVelocity(rootPart.Position, rootPart.AssemblyLinearVelocity)
+		if lv.MaxAxesForce.X > 0 then
+			lv.VectorVelocity = containVelocity(rootPart.Position, lv.VectorVelocity)
+		end
+
+		-- Touchdown: the body used to hit the floor first and lie sliding on it until the next
+		-- update noticed. On contact the mover is held still and Impact follows.
+		local fallSpeed = -rootPart.AssemblyLinearVelocity.Y
+		if fallSpeed >= 20 and heightAboveStand(rootPart, humanoid) <= math.max(1.0, fallSpeed * dt * 1.5) then
+			data.touchedDown = true
+			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
+			lv.VectorVelocity = Vector3.zero
+		end
+	end)
 end
 
 function ProjectileJumpState.exit(fighter, humanoid, rootPart)
@@ -245,8 +346,10 @@ function ProjectileJumpState.exit(fighter, humanoid, rootPart)
 	rootPart.AssemblyAngularVelocity = Vector3.zero
 	humanoid.PlatformStand = false
 	cleanupMovers(rootPart)
-	if stateData[fighter] and stateData[fighter].animTrack then
-		stopAnim(stateData[fighter].animTrack)
+	local exiting = stateData[fighter]
+	if exiting then
+		if exiting.guardConn then exiting.guardConn:Disconnect() end
+		stopAnim(exiting.animTrack)
 	end
 	fighter:SetAttribute("LastProjectileJumpTime", tick())
 	fighter:SetAttribute("JumpStyle", nil)
@@ -286,6 +389,12 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 	local distToTarget = (targetPos - rootPart.Position).Magnitude
 	local gravity = workspace.Gravity
+	local standGap = heightAboveStand(rootPart, humanoid) -- height above standing level on the floor below
+
+	if data.touchedDown and data.phase ~= "Impact" then
+		switchPhase(data, "Impact")
+	end
+
 
 	local function triggerComboNext()
 		local action = data.comboSequence[data.comboIndex]
@@ -313,16 +422,16 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		elseif action == "Strafe" then
 			switchPhase(data, "ComboStrafe")
 			AudioModule.playMidairSwoosh(rootPart.Position)
-			data.strafeDir = rootPart.CFrame.RightVector * (math.random() > 0.5 and 1 or -1)
+			local strafeDir, dist = pickStrafe(rootPart)
+			data.strafeDir = strafeDir
 			data.strafeDuration = (math.random() > 0.5) and 0.2 or 0.5
-			local dist = getFloat(Config.StrafeDistanceMin, Config.StrafeDistanceMax)
 			data.strafeInitialVelocity = data.strafeDir * (data.strafeDuration == 0.2 and (dist / 0.2) or (dist * 4))
 
 		elseif action == "Dash" then
 			switchPhase(data, "Dash")
 			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 			local dashSpeed = Config.SlamSpeed * Config.SlamSpeedMultiplier
-			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid)
+			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle)
 			local offset = aimPoint - rootPart.Position
 			local dashDir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
 			lv.VectorVelocity = dashDir * dashSpeed
@@ -441,7 +550,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 
 		local isFalling = rootPart.AssemblyLinearVelocity.Y <= 0
-		local isNearGround = rootPart.Position.Y <= targetPos.Y + 2
+		local isNearGround = standGap <= 2
 		local reachedTarget = distToTarget < 15
 		if reachedTarget or (timeInPhase > 0.25 and isFalling and isNearGround) then
 			switchPhase(data, "Impact")
@@ -453,7 +562,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			triggerComboNext()
 		end
 
-		if distToTarget < 15 or (rootPart.Position.Y <= targetPos.Y + 2 and rootPart.AssemblyLinearVelocity.Y < 0) then
+		if distToTarget < 15 or (standGap <= 2 and rootPart.AssemblyLinearVelocity.Y < 0) then
 			switchPhase(data, "Impact")
 		end
 
@@ -496,10 +605,9 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			if data.style == 4 then
 				switchPhase(data, "Strafe")
 				AudioModule.playMidairSwoosh(rootPart.Position)
-				data.strafeDir = rootPart.CFrame.RightVector * (math.random() > 0.5 and 1 or -1)
+				local strafeDir, dist = pickStrafe(rootPart)
+				data.strafeDir = strafeDir
 				data.strafeDuration = (math.random() > 0.5) and 0.2 or 0.5
-
-				local dist = getFloat(Config.StrafeDistanceMin, Config.StrafeDistanceMax)
 				data.strafeInitialVelocity = data.strafeDir * (data.strafeDuration == 0.2 and (dist / 0.2) or (dist * 4))
 			elseif data.style == 5 then
 				switchPhase(data, "Dash")
@@ -507,7 +615,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 				-- Pre-calculate Bezier with combat offset landing point
 				data.P0 = rootPart.Position
-				data.P2 = calculateCombatAimPoint(rootPart, targetPosPart, Config.SlamSpeed * speedMult, humanoid)
+				data.P2 = calculateCombatAimPoint(rootPart, targetPosPart, Config.SlamSpeed * speedMult, humanoid, data.scatterAngle)
 				local p0p2Dist = (data.P2 - data.P0).Magnitude
 				data.dashDuration = math.clamp(p0p2Dist / 200, Config.BezierDashDuration or 0.5, 1.8) / speedMult
 
@@ -545,20 +653,20 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 				local dashSpeed = ((data.style == 3 or data.style == 7) and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed) * speedMult
-				local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid)
+				local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle)
 				local offset = aimPoint - rootPart.Position
 				local dashDir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
 				lv.VectorVelocity = dashDir * dashSpeed
 				ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
 
-				if offset.Magnitude < 10 or rootPart.Position.Y <= groundY + 2.5 then
+				if offset.Magnitude < 10 or standGap <= 2.5 then
 					switchPhase(data, "Impact")
 				end
 			end
 			return ProjectileJumpState
 		end
 
-		if distToTarget < 15 or (rootPart.Position.Y <= targetPos.Y + 2 and rootPart.AssemblyLinearVelocity.Y < 0) then
+		if distToTarget < 15 or (standGap <= 2 and rootPart.AssemblyLinearVelocity.Y < 0) then
 			switchPhase(data, "Impact")
 		end
 
@@ -575,7 +683,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			switchPhase(data, "Dash")
 
 			local dashSpeed = Config.SlamSpeed
-			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid)
+			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle)
 			local offset = aimPoint - rootPart.Position
 			local dashDir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
 			lv.VectorVelocity = dashDir * dashSpeed
@@ -605,7 +713,8 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			if rayDist > 0.01 then
 				local hit = workspace:Raycast(rootPart.Position, rayDir.Unit * rayDist, rayParams)
 				if hit then
-					rootPart.CFrame = CFrame.new(hit.Position)
+					-- Path blocked: Impact brings the body down from here (it used to be teleported
+					-- onto the hit point, up to a full update of travel away, with its facing reset)
 					switchPhase(data, "Impact")
 					return ProjectileJumpState
 				end
@@ -626,21 +735,21 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 				ao.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + flatVel)
 			end
 
-			if rawT >= 1 or distToTarget < 15 or (rawT > 0.4 and rootPart.Position.Y <= targetPos.Y + 2) then
+			if rawT >= 1 or distToTarget < 15 or (rawT > 0.4 and standGap <= 2) then
 				switchPhase(data, "Impact")
 			end
 
 		else
 			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 			local dashSpeed = (data.style == 3 or data.style == 6) and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed
-			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid)
+			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle)
 			local offset = aimPoint - rootPart.Position
 			local dir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
 			lv.VectorVelocity = dir * dashSpeed
 			ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
 
 			local isFalling = rootPart.AssemblyLinearVelocity.Y <= 0
-			local isNearGround = rootPart.Position.Y <= groundY + 2.5
+			local isNearGround = standGap <= 2.5
 			local reachedAim = offset.Magnitude < 10
 			if reachedAim or (timeInPhase > 0.12 and isFalling and isNearGround) then
 				switchPhase(data, "Impact")
@@ -649,25 +758,32 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 	elseif data.phase == "Impact" then
 
-		-- STOP all mover forces immediately
-		cleanupMovers(rootPart)
-		rootPart.AssemblyLinearVelocity = Vector3.zero
-		rootPart.AssemblyAngularVelocity = Vector3.zero
-
 		-- Detect MidAir Clash
 		local targetState = target:GetAttribute("CurrentState")
 		if (targetState == "ProjectileJump" or targetState == "MidAirClash" or targetState == "Airborne" or (targetPosPart and targetPosPart.Position.Y > 20)) and distToTarget <= 35 then
 			return require(script.Parent:WaitForChild("MidAirClashState"))
 		end
 
-		-- 1. Firmly plant feet on the arena floor (never floating, never skull stacking)
-		local rayParams = RaycastParams.new()
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-		rayParams.FilterDescendantsInstances = {fighter, target}
-		local floorRay = workspace:Raycast(rootPart.Position + Vector3.new(0, 5, 0), Vector3.new(0, -25, 0), rayParams)
+		-- Impact reached while still airborne (target within reach, path blocked): drop the rest
+		-- of the way at slam speed. The per-frame watcher stops the body at the floor; placing
+		-- it there directly was a visible snap of up to ~30 studs.
+		if not data.touchedDown and standGap > 3 and standGap < math.huge then
+			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
+			lv.VectorVelocity = Vector3.new(0, -Config.SlamSpeed * Config.SlamSpeedMultiplier, 0)
+			return ProjectileJumpState
+		end
+
+		-- STOP all mover forces immediately
+		cleanupMovers(rootPart)
+		rootPart.AssemblyLinearVelocity = Vector3.zero
+		rootPart.AssemblyAngularVelocity = Vector3.zero
+
+		-- 1. Firmly plant feet on the floor below (never floating, never skull stacking). The old
+		-- 25-stud probe missed the floor from higher up and fell back to the target's height,
+		-- which teleported a jumper that reached Impact in the air straight down to it.
 		local finalY = rootPart.Position.Y
-		if floorRay then
-			finalY = floorRay.Position.Y + (humanoid.HipHeight or 2.0) + (rootPart.Size.Y / 2)
+		if standGap < math.huge then
+			finalY = rootPart.Position.Y - standGap
 		elseif targetPosPart then
 			finalY = targetPosPart.Position.Y
 		end
@@ -689,7 +805,9 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			
 			-- 3. Eye-to-eye alignment: both face each other horizontally
 			rootPart.CFrame = CFrame.lookAt(jumperPos, Vector3.new(targetHRP.Position.X, finalY, targetHRP.Position.Z))
-			targetHRP.CFrame = CFrame.lookAt(targetHRP.Position, Vector3.new(jumperPos.X, targetHRP.Position.Y, jumperPos.Z))
+			-- The target is not rotated from here any more: writing its CFrame from another Quin's
+			-- state flipped it up to 180 degrees in one frame, whatever it was doing (mid-swing,
+			-- knocked down, airborne). Its own state turns it to face the new threat.
 		else
 			rootPart.CFrame = CFrame.new(jumperPos)
 		end
@@ -703,7 +821,6 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		VfxModule.shakeScreen(rootPart.Position, 400, 8)
 
 		-- 5. Slam Shockwave & Target Stumble (Phase 5.2)
-		local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 		local shockRadius = CombatConfig.SlamShockwaveRadius or CombatConfig.SlamImpactRadius or 14
 		local stumbleForce = CombatConfig.SlamStumbleForce or 90
 		local stumbleDuration = CombatConfig.SlamStumbleDuration or 0.35

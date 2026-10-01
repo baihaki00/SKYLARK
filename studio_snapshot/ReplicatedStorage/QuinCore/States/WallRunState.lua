@@ -1,10 +1,11 @@
 --// WallRunState.lua
--- Dynamic Parkour Wall-Running: momentum maintenance along vertical walls with wall-kick dismount
--- Adheres strictly to PHYSICS ≠ VISUALS: physical HRP maintains tangent velocity, visual rig banks into wall
+-- Parkour wall-run: the Quin leaves the floor, carries its momentum along a vertical wall a few
+-- studs up, and kicks off at the end. The root is driven by a velocity constraint (tangent speed,
+-- climb to the run height, hold distance to the wall); the presentation layer leans the body away
+-- from the wall (CombatConfig.WallRunTiltDegrees, read from the WallRunSide attribute).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
-local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -19,74 +20,100 @@ local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("Run
 local WallRunState = { name = "WallRun" }
 local wallRunData = setmetatable({}, { __mode = "k" })
 
+local MOVER_NAME = "WallRun_Velocity"
+local ALIGN_NAME = "WallRun_Align"
+local ATT_NAME = "WallRun_Att"
+
+-- How long a nearby target is ignored before it can end the run
+local MIN_COMMIT_TIME = 0.35
+-- Wall probe reach from the root, and the gap the body holds from the wall
+local WALL_PROBE_DISTANCE = 5.5
+local WALL_HOLD_DISTANCE = 2.4
+
+local function removeMovers(rootPart)
+	for _, name in ipairs({ MOVER_NAME, ALIGN_NAME, ATT_NAME }) do
+		local child = rootPart:FindFirstChild(name)
+		if child then child:Destroy() end
+	end
+end
+
+-- Velocity for this moment of the run: along the wall, toward the run height, and toward the
+-- hold distance from the wall
+local function runVelocity(data, rootPart, wallDistance)
+	local climb = math.clamp((data.runY - rootPart.Position.Y) * 6, -8, 14)
+	local intoWall = wallDistance and math.clamp((wallDistance - WALL_HOLD_DISTANCE) * 6, -6, 10) or 0
+	return data.tangent * data.wallRunSpeed + Vector3.new(0, climb, 0) - data.normal * intoWall
+end
 
 function WallRunState.enter(fighter, humanoid, rootPart)
 	local now = os.clock()
-	fighter:SetAttribute("LastWallRunTime", now)
-	fighter:SetAttribute("CurrentState", WallRunState.name)
+	fighter:SetAttribute("LastWallRunTime", tick()) -- readers compare against tick()
 
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-	local baseSpeed = CombatConfig.WallRunSpeed or 48
-	local wallRunSpeed = baseSpeed * speedMult
+	local wallRunSpeed = (CombatConfig.WallRunSpeed or 48) * speedMult
 	local maxDuration = (CombatConfig.WallRunMaxDuration or 1.25) / speedMult
 
-	-- Energy drain
 	local energy = fighter:GetAttribute("Energy") or 100
-	local cost = CombatConfig.WallRunMinEnergy or 15
-	fighter:SetAttribute("Energy", math.max(0, energy - cost))
+	fighter:SetAttribute("Energy", math.max(0, energy - (CombatConfig.WallRunMinEnergy or 15)))
 
-	-- Query spatial surface information stored or freshly detected
+	-- The caller just detected the surface; read it again from the current position
 	local wallInfo = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2)
 	local tangent = rootPart.CFrame.LookVector
 	local normal = -rootPart.CFrame.RightVector
 	local side = "Left"
-
 	if wallInfo then
 		tangent = wallInfo.tangent
 		normal = wallInfo.normal
 		side = wallInfo.side
 	end
 
-	RuntimeTracer.checkpoint(fighter, string.format("Enter WallRun (Side=%s, Speed=%.1f)", side, wallRunSpeed))
+	RuntimeTracer.checkpoint(fighter, string.format("Enter WallRun (Side=%s, Speed=%.1f, Runway=%.0f)", side, wallRunSpeed, wallInfo and wallInfo.runway or 0))
 	fighter:SetAttribute("WallRunSide", side)
 
-	-- Lock humanoid locomotion so physical BodyVelocity handles momentum
+	-- The velocity constraint owns translation for the whole run
 	humanoid.WalkSpeed = 0
 	humanoid.AutoRotate = false
+	removeMovers(rootPart)
 
-	-- Physical suspension constraint: horizontal tangent movement + gentle downward drift
-	local att = Instance.new("Attachment")
-	att.Name = "WallRun_Att"
-	att.Parent = rootPart
-
-	local lv = Instance.new("LinearVelocity")
-	lv.Name = "WallRun_Velocity"
-	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-	lv.MaxForce = 450000
-	lv.VectorVelocity = (tangent * wallRunSpeed) + Vector3.new(0, -2.5, 0)
-	lv.Attachment0 = att
-	lv.Parent = rootPart
-
-	-- Orient physical HRP along tangent forward
-	rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + tangent)
-
-	-- Animation & Visual friction effects
-	AnimationModule.playConfig(humanoid, "Movement.Run", 1.35, Enum.AnimationPriority.Movement, true)
-	local elem = fighter:GetAttribute("Element")
-	VfxModule.createDust(rootPart.Position + (normal * 0.8), 3, nil, elem)
-
-	wallRunData[fighter] = {
+	local data = {
 		startTime = now,
 		maxDuration = maxDuration,
 		wallRunSpeed = wallRunSpeed,
 		tangent = tangent,
 		normal = normal,
 		side = side,
-		linearVelocity = lv,
-		att = att,
-		isDismounting = false,
+		runY = rootPart.Position.Y + (CombatConfig.WallRunHeight or 3.5),
 		origWalkSpeed = fighter:GetAttribute("Speed") or 40,
 	}
+	wallRunData[fighter] = data
+
+	local att = Instance.new("Attachment")
+	att.Name = ATT_NAME
+	att.Parent = rootPart
+
+	local lv = Instance.new("LinearVelocity")
+	lv.Name = MOVER_NAME
+	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+	lv.MaxForce = 450000
+	lv.VectorVelocity = runVelocity(data, rootPart, wallInfo and wallInfo.wallDistance)
+	lv.Attachment0 = att
+	lv.Parent = rootPart
+	data.linearVelocity = lv
+
+	-- Turn onto the wall's tangent with torque (assigning the CFrame yawed the body up to 75
+	-- degrees in a single frame)
+	local align = Instance.new("AlignOrientation")
+	align.Name = ALIGN_NAME
+	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	align.RigidityEnabled = false
+	align.Responsiveness = 40
+	align.MaxTorque = 1000000
+	align.CFrame = CFrame.lookAt(Vector3.zero, tangent)
+	align.Attachment0 = att
+	align.Parent = rootPart
+
+	AnimationModule.playConfig(humanoid, "Movement.Run", 1.35, Enum.AnimationPriority.Movement, true)
+	VfxModule.createDust(rootPart.Position + (normal * 0.8), 3, nil, fighter:GetAttribute("Element"))
 end
 
 function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
@@ -95,64 +122,67 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("IdleState"))
 	end
 
-	local now = tick()
-	local elapsed = now - data.startTime
+	-- Same clock as data.startTime. With tick() here `elapsed` was ~1.7e9 seconds, so every
+	-- wall-run hit its max duration on the first update.
+	local elapsed = os.clock() - data.startTime
 
-	-- 1. Wall presence verification: cast ray into wall normal
 	local checkParams = RaycastParams.new()
-	checkParams.FilterDescendantsInstances = { fighter }
+	checkParams.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
 	checkParams.FilterType = Enum.RaycastFilterType.Exclude
+	local wallHit = Workspace:Raycast(rootPart.Position, -data.normal * WALL_PROBE_DISTANCE, checkParams)
+	local wallLost = wallHit == nil
+	-- A corner or obstacle in the lane ends the run before the body hits it
+	local laneBlocked = Workspace:Raycast(rootPart.Position, data.tangent * (data.wallRunSpeed * 0.15), checkParams) ~= nil
 
-	-- Ray into the wall surface
-	local wallRayHit = Workspace:Raycast(rootPart.Position, (-data.normal) * 4.5, checkParams)
-	local wallLost = (not wallRayHit or not wallRayHit.Instance)
-
-	-- 2. Target intercept check: target within athletic strike/kick range
 	local target, dist = TargetingModule.getNearest(rootPart, 18)
-	local interceptTarget = (target and dist and dist <= 14.0)
+	local interceptTarget = target ~= nil and dist ~= nil and dist <= 14.0 and elapsed >= MIN_COMMIT_TIME
 
-	-- 3. Check for Wall-Kick Dismount trigger
-	if elapsed >= data.maxDuration or wallLost or interceptTarget then
-		data.isDismounting = true
-		RuntimeTracer.checkpoint(fighter, string.format("Wall-Kick Dismount (Reason: %s)", 
-			wallLost and "WallEnd" or (interceptTarget and "TargetIntercept" or "Duration")))
+	if elapsed >= data.maxDuration or wallLost or laneBlocked or interceptTarget then
+		local reason = (wallLost and "WallEnd") or (laneBlocked and "LaneBlocked") or (interceptTarget and "TargetIntercept") or "Duration"
+		RuntimeTracer.checkpoint(fighter, string.format("Wall-Kick Dismount (Reason: %s, %.2fs)", reason, elapsed))
 
-		-- Trigger explosive outward Wall-Kick impulse
-		local outward = (CombatConfig.WallKickOutwardImpulse or 28)
-		local forward = (CombatConfig.WallKickForwardImpulse or 34)
-		local upward = (CombatConfig.WallKickUpwardImpulse or 18)
-		local kickImpulse = (data.normal * outward) + (data.tangent * forward) + Vector3.new(0, upward, 0)
+		-- Kick off the wall: out, forward and up
+		local kickImpulse = (data.normal * (CombatConfig.WallKickOutwardImpulse or 28))
+			+ (data.tangent * (CombatConfig.WallKickForwardImpulse or 34))
+			+ Vector3.new(0, CombatConfig.WallKickUpwardImpulse or 18, 0)
 
-		if data.linearVelocity and data.linearVelocity.Parent then
-			data.linearVelocity.VectorVelocity = kickImpulse
-			data.linearVelocity.MaxForce = 350000
-			Debris:AddItem(data.linearVelocity, 0.22)
-			if data.att and data.att.Parent then
-				Debris:AddItem(data.att, 0.22)
-			end
-			data.linearVelocity = nil
-			data.att = nil
+		local lv = data.linearVelocity
+		if lv and lv.Parent then
+			lv.VectorVelocity = kickImpulse
+			lv.MaxForce = 350000
+			lv.Name = "WallKick_Velocity" -- outlives the state for the length of the kick
+			Debris:AddItem(lv, 0.22)
+		end
+		data.linearVelocity = nil
+
+		local align = rootPart:FindFirstChild(ALIGN_NAME)
+		if align then
+			align.CFrame = CFrame.lookAt(Vector3.zero, Vector3.new(kickImpulse.X, 0, kickImpulse.Z))
+			align.Name = "WallKick_Align"
+			Debris:AddItem(align, 0.22)
+		end
+		local att = rootPart:FindFirstChild(ATT_NAME)
+		if att then
+			att.Name = "WallKick_Att"
+			Debris:AddItem(att, 0.22)
 		end
 
-		-- Play vault/jump animation and launch shockwave
 		AnimationModule.playConfig(humanoid, "Parkour.VaultObstacle", 1.25, Enum.AnimationPriority.Action, false)
-		local elem = fighter:GetAttribute("Element")
-		VfxModule.createShockwave(rootPart.Position, 8, 0.35, elem)
+		VfxModule.createShockwave(rootPart.Position, 8, 0.35, fighter:GetAttribute("Element"))
 
-		-- Orient toward dismount trajectory
-		rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + Vector3.new(kickImpulse.X, 0, kickImpulse.Z))
-
-		if interceptTarget and dist and dist <= (CombatConfig.CombatRange or 8.2) + 2.0 then
+		if interceptTarget and dist <= (CombatConfig.CombatRange or 8.2) + 2.0 then
 			return require(script.Parent:WaitForChild("FightState"))
-		else
-			return require(script.Parent:WaitForChild("ChaseState"))
 		end
+		return require(script.Parent:WaitForChild("ChaseState"))
 	end
 
-	-- Periodic friction sparks along the wall
+	if data.linearVelocity then
+		data.linearVelocity.VectorVelocity = runVelocity(data, rootPart, wallHit.Distance)
+	end
+
+	-- Friction dust along the wall
 	if math.random() < 0.40 then
-		local elem = fighter:GetAttribute("Element")
-		VfxModule.createDust(rootPart.Position - (data.normal * 1.2), 2, nil, elem)
+		VfxModule.createDust(rootPart.Position - (data.normal * 1.2), 2, nil, fighter:GetAttribute("Element"))
 	end
 
 	return WallRunState
@@ -162,25 +192,14 @@ function WallRunState.exit(fighter, humanoid, rootPart)
 	local data = wallRunData[fighter]
 	if not data then return end
 
-	-- Clean up physical velocity constraint
-	if data.linearVelocity and data.linearVelocity.Parent then
-		data.linearVelocity:Destroy()
-	end
-	if data.att and data.att.Parent then
-		data.att:Destroy()
-	end
-	local existingLv = rootPart:FindFirstChild("WallRun_Velocity")
-	if existingLv then existingLv:Destroy() end
-	local existingAtt = rootPart:FindFirstChild("WallRun_Att")
-	if existingAtt then existingAtt:Destroy() end
+	removeMovers(rootPart)
 
 	-- Release the wall-run stride; the next state's driver resumes the ground gait
 	-- (or the ground contract covers the dismount with the Fall pose)
 	GaitModule.stop(humanoid, 0.15)
 
-	-- Restore humanoid properties
 	humanoid.AutoRotate = true
-	humanoid.WalkSpeed = data.origWalkSpeed or 40
+	humanoid.WalkSpeed = data.origWalkSpeed
 
 	fighter:SetAttribute("WallRunSide", nil)
 	wallRunData[fighter] = nil

@@ -38,20 +38,24 @@ function AirborneState.enter(fighter, humanoid, rootPart)
 	-- Jump up to pursue
 	local jumpPower = fighter:GetAttribute("JumpPower") or 50
 	
-	local attachment = Instance.new("Attachment")
-	attachment.Name = "AirborneAttachment"
-	attachment.Parent = rootPart
-	Debris:AddItem(attachment, 0.3)
-	
-	local lv = Instance.new("LinearVelocity")
-	lv.Attachment0 = attachment
-	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-	lv.VectorVelocity = Vector3.new(0, CombatConfig.AirPursuitJumpForce or 150, 0)
-	lv.MaxForce = 150000
-	lv.Parent = rootPart
-	Debris:AddItem(lv, 0.25)
-	
-	AnimationModule.play(humanoid, AnimationIds.Jump, Enum.AnimationPriority.Action, false, 1.2)
+	-- The pursuit launch only fires from the ground. This state is also entered already in the
+	-- air (after a mid-air clash); launching again there shot the Quin straight up a second time.
+	if humanoid.FloorMaterial ~= Enum.Material.Air then
+		local attachment = Instance.new("Attachment")
+		attachment.Name = "AirborneAttachment"
+		attachment.Parent = rootPart
+		Debris:AddItem(attachment, 0.3)
+		
+		local lv = Instance.new("LinearVelocity")
+		lv.Attachment0 = attachment
+		lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+		lv.VectorVelocity = Vector3.new(0, CombatConfig.AirPursuitJumpForce or 150, 0)
+		lv.MaxForce = 150000
+		lv.Parent = rootPart
+		Debris:AddItem(lv, 0.25)
+		
+		AnimationModule.play(humanoid, AnimationIds.Jump, Enum.AnimationPriority.Action, false, 1.2)
+	end
 	data.hasJumped = true
 end
 
@@ -120,20 +124,28 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 			trackLV = Instance.new("LinearVelocity")
 			trackLV.Name = "AirborneTrackLV"
 			trackLV.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-			trackLV.MaxForce = 60000
+			-- Horizontal authority only: gravity keeps acting, so the pursuit is an arc rather
+			-- than a constant-speed straight-line glide
+			trackLV.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+			trackLV.MaxAxesForce = Vector3.new(60000, 0, 60000)
 			trackLV.Attachment0 = trackAtt
 			trackLV.Parent = rootPart
 		end
 		
-		trackLV.VectorVelocity = dir.Unit * 40
+		local flatDir = Vector3.new(dir.X, 0, dir.Z)
+		trackLV.VectorVelocity = (flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.zero) * 40
 	else
 		local trackLV = rootPart:FindFirstChild("AirborneTrackLV")
 		if trackLV then trackLV:Destroy() end
 	end
 	
 	-- Face target
-	local lookCF = CFrame.lookAt(rootPart.Position, targetHRP.Position)
-	rootPart.CFrame = rootPart.CFrame:Lerp(lookCF, 0.3)
+	-- Yaw only: aiming at the target's height pitched the whole body over
+	local flatTargetPos = Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z)
+	if (flatTargetPos - rootPart.Position).Magnitude > 0.5 then
+		local lookCF = CFrame.lookAt(rootPart.Position, flatTargetPos)
+		rootPart.CFrame = rootPart.CFrame:Lerp(lookCF, 0.3)
+	end
 	
 	-- Air combo attack
 	local attackCooldown = 0.4

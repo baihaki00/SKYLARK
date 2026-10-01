@@ -412,6 +412,7 @@ function AnimationModule.ensureBaseIdle(humanoid)
 	-- Check if actively fighting/in combat
 	local inCombat = fighter and (
 		fighter:GetAttribute("CurrentState") == "Fight"
+		or fighter:GetAttribute("CurrentState") == "Circling" -- standoff keeps the fight stance (no stance swap on every Fight <-> Circling)
 		or fighter:GetAttribute("InCombat") == true
 		or (fighter:GetAttribute("Target") ~= nil and fighter:GetAttribute("Target") ~= "")
 	)
@@ -614,6 +615,11 @@ function AnimationModule.play(humanoid, animIdOrPath, priority, looped, speed, f
 					if (not otherTrack.Looped and otherTrack.Length > 0 and otherTrack.TimePosition >= (otherTrack.Length - 0.12)) or (otherPrioVal <= Enum.AnimationPriority.Movement.Value) then
 						otherTrack:Stop(fadeIn or 0.1)
 					end
+				elseif newPrioVal > Enum.AnimationPriority.Movement.Value and otherPrioVal == Enum.AnimationPriority.Movement.Value and otherTrack.Looped then
+					-- Base locomotion loops (gait, strafe, fall) stay alive underneath an action overlay.
+					-- The overlay already wins by priority; stopping the loop made the legs drop to idle
+					-- and restart every time an attack, glance or turn overlay played. These loops are
+					-- released by their own owners (state exit, GaitModule orphan / airborne contract).
 				elseif newPrioVal >= otherPrioVal and otherTrack.Priority ~= Enum.AnimationPriority.Idle then
 					-- Higher priority overriding non-idle lower track
 					otherTrack:Stop(fadeIn or 0.1)

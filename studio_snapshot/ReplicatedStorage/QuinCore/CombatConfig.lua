@@ -62,7 +62,9 @@ local CombatConfig = {
 	WallKickOutwardImpulse = 28,
 	WallKickForwardImpulse = 34,
 	WallKickUpwardImpulse = 18,
-	WallRunTiltDegrees = 18,
+	WallRunTiltDegrees = 18,                 -- whole-body lean away from the wall during the run
+	WallRunHeight = 3.5,                     -- studs the run climbs above the floor it started from
+	WallRunMinRunway = 24,                   -- studs of wall that must lie ahead before a run starts (0.5s at run speed)
 
 	--// PROJECTILE FIGHT (Ablation / Fallback Toggle: set to false to disable)
 	EnableProjectileJump = true,
@@ -337,11 +339,9 @@ local CombatConfig = {
 	Ragdoll_RecoveryDelay = 0.40,            -- seconds before initiating get-up from prone/supine
 
 	-- Procedural Full-Body Active Ragdoll & Knockback IK
-	AirKnockback_ProceduralRagdollEnabled = true, -- if false, reverts cleanly to author-keyed FallAirKnockback track
-	Ragdoll_ArmIK_Enabled = true,                -- full procedural arm IK flailing during air launches/knockback
-	Ragdoll_LegIK_Enabled = true,                -- procedural leg drag/cycling during air launches/knockback
-	Ragdoll_FlailTurbulence = 1.0,               -- wind turbulence flailing multiplier
-	Ragdoll_DragCompliance = 0.85,               -- arm/leg drag resistance scaling with linear velocity
+	AirKnockback_ProceduralRagdollEnabled = true, -- velocity-driven body lean layered on the authored FallAirKnockback clip; false = clip only
+	Ragdoll_BodyLeanDegrees = 50,                -- whole-body lean along the travel direction at full knockback speed
+	Ragdoll_BodyLeanFullSpeed = 90,              -- studs/s of planar speed at which the lean is complete
 
 	-- High Ground & Platform Traversal Intent
 	HighGround_DiveDropEnabled = true,           -- allows perched Quins to leap down onto lower ground enemies
@@ -354,5 +354,18 @@ local CombatConfig = {
 	DebugVisualizers_Enabled = true,             -- enable 3D visualizer subsystem (toggled via HUD or 'V' key)
 	DebugVisualizers_ShowAllNearby = false,      -- true to show all nearby Quins; false for spectated Quin only
 }
+
+-- Motion continuity (16v16 movement audit)
+CombatConfig.Knockback_MaxLaunchHorizontal = 110.0 -- studs/s cap on an air-knockback launch (uncapped finishers reached 220+ and threw victims out of the arena)
+CombatConfig.Knockback_MaxLaunchVertical = 75.0    -- studs/s cap on the upward part of an air-knockback launch (~14 stud apex)
+-- RunTurn90Left/Right share one clip (a 177 degree hip pivot) and ArcRun30RearLeft/Right share one
+-- clip (a single-sided lean). Played over a 60-105 degree cut they spin the body the wrong way and
+-- snap back. Keep these off until mirrored, correctly sized clips exist; the gait carries the turn.
+CombatConfig.Chase_TurnCutOverlayEnabled = false
+CombatConfig.Chase_ArcRunOverlayEnabled = false
+-- Awareness.Turn180Pivot uses the same 177 degree hip-pivot clip. It needs root-motion handling
+-- (hold the root during the clip, rotate it 180 as the clip ends) before it can be used; until
+-- then rear turns go through the facing gyro.
+CombatConfig.Turn180PivotClipEnabled = false
 
 return CombatConfig

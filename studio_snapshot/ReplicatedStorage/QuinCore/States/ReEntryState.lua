@@ -26,21 +26,26 @@ function ReEntryState.enter(fighter, humanoid, rootPart)
 	humanoid.WalkSpeed = 0
 	humanoid.PlatformStand = false
 
-	-- Determine horizontal direction to arena center (0, Y, 0)
+	-- Horizontal direction to the real arena centre. The arena is not at the world origin:
+	-- aiming at (0, 0) sent every re-entry leap toward a point outside the arena.
 	local myPos = rootPart.Position
-	local dirToCenter = Vector3.new(-myPos.X, 0, -myPos.Z)
+	local bounds = SpatialModule.getArenaBounds()
+	local dirToCenter = Vector3.new(bounds.center.X - myPos.X, 0, bounds.center.Z - myPos.Z)
+	-- Still standing on the arena floor (only pressed against its edge)?
+	local insideFootprint = math.abs(myPos.X - bounds.center.X) <= bounds.halfX
+		and math.abs(myPos.Z - bounds.center.Z) <= bounds.halfZ and myPos.Y > -5
 	if dirToCenter.Magnitude > 0.001 then
 		dirToCenter = dirToCenter.Unit
 	else
 		dirToCenter = Vector3.new(0, 0, -1)
 	end
 
-	-- Immediately snap/face arena center
-	rootPart.CFrame = CFrame.lookAt(myPos, myPos + dirToCenter)
+	-- Turn toward the centre through the humanoid's own rotation (no facing snap)
+	humanoid.AutoRotate = true
 
 	reEntryData[fighter] = {
 		enterTime = tick(),
-		phase = "walk", -- Start with confident walk
+		phase = insideFootprint and "run_in" or "walk", -- jog back in, or walk -> run -> leap from outside
 		phaseStartTime = tick(),
 		dirToCenter = dirToCenter,
 		hasLeaped = false,
@@ -94,17 +99,39 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Global Safety Timeout (7 seconds): Emergency teleport inside if anything stalled
 	if totalElapsed > 7.0 then
 		print(string.format("[ReEntryState] %s timed out during re-entry. Emergency placing at center.", fighter.Name))
-		fighter:PivotTo(CFrame.new(0, 7.5, 0))
+		local timeoutBounds = SpatialModule.getArenaBounds()
+		fighter:PivotTo(CFrame.new(timeoutBounds.center.X, 7.5, timeoutBounds.center.Z))
 		rootPart.AssemblyLinearVelocity = Vector3.zero
 		return require(script.Parent:WaitForChild("FightState"))
 	end
 
 	-- Recompute live horizontal direction to arena center
 	local currentPos = rootPart.Position
-	local dirToCenter = Vector3.new(-currentPos.X, 0, -currentPos.Z)
-	if dirToCenter.Magnitude > 0.001 then
+	local bounds = SpatialModule.getArenaBounds()
+	local dirToCenter = Vector3.new(bounds.center.X - currentPos.X, 0, bounds.center.Z - currentPos.Z)
+	local centerDist = dirToCenter.Magnitude
+	if centerDist > 0.001 then
 		dirToCenter = dirToCenter.Unit
 		data.dirToCenter = dirToCenter
+	end
+
+	-- PHASE 0: on the arena floor but hugging its edge -> jog back inside. The wall-clearing
+	-- leap is reserved for Quins that are actually outside.
+	if data.phase == "run_in" then
+		humanoid.AutoRotate = true
+		humanoid.WalkSpeed = math.min(math.max(humanoid.WalkSpeed, 12) + 8, 34)
+		humanoid:Move(data.dirToCenter)
+		GaitModule.update(humanoid, rootPart, locoDt)
+
+		if not SpatialModule.isOutOfBounds(rootPart, 30) then
+			return require(script.Parent:WaitForChild("ChaseState"))
+		end
+		if phaseElapsed > 2.5 then
+			-- Blocked on the way in: fall back to the run-up and leap
+			data.phase = "run"
+			data.phaseStartTime = now
+		end
+		return ReEntryState
 	end
 
 	-- PHASE 1: Confident Walk (0.8 seconds)
@@ -156,11 +183,14 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 
 			-- Lift out of ground friction plane and set Freefall state
 			humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-			rootPart.CFrame = rootPart.CFrame + Vector3.new(0, 1.5, 0)
 
 			-- Super Velocity: Vy = 260 reaches apex Y ≈ 175-180 studs (clearing 148-stud wall easily)
 			-- Vxz = 150 covers 250+ studs horizontally during the 2.6s parabolic flight
-			local horizVelocity = data.dirToCenter * 150
+			-- Horizontal speed sized to land well inside the arena (roughly 45% of its radius
+			-- from the centre) instead of a fixed 150 that overshot from close range. Flight is
+			-- ~3.3s: 0.35s under the launch constraint plus the ballistic arc.
+			local travel = math.clamp(centerDist - bounds.radius * 0.45, 80, 400)
+			local horizVelocity = data.dirToCenter * math.clamp(travel / 3.3, 25, 150)
 			local vertVelocity = Vector3.new(0, 260, 0)
 			local totalVelocity = horizVelocity + vertVelocity
 
@@ -201,7 +231,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Check touchdown: Must have spent at least 1.2s in the air (to reach apex and begin descending)
 		if phaseElapsed > 1.2 then
 			local isGrounded = SpatialModule.isGrounded(rootPart)
-			local distFromCenter = Vector3.new(currentPos.X, 0, currentPos.Z).Magnitude
+			local distFromCenter = centerDist
 
 			-- If grounded or very close to the floor inside the arena
 			if isGrounded or (currentPos.Y <= 8.5 and distFromCenter < 280) then
@@ -212,8 +242,11 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 				AudioModule.playFallOnGround(currentPos)
 				AudioModule.playDash(currentPos)
 
-				-- Stabilize velocity
+				-- Stabilize velocity and absorb the drop with the landing clip (the touchdown
+				-- used to go straight from a 200 studs/s fall to the combat idle)
 				rootPart.AssemblyLinearVelocity = Vector3.zero
+				AnimationModule.stop(humanoid, AnimationIds.Fall, 0.1)
+				AnimationModule.playConfig(humanoid, "Parkour.LandingSuperHero", 1.0, Enum.AnimationPriority.Action3, true)
 
 				-- Transition to combat or idle
 				local isCombatActive = Workspace:GetAttribute("NormalCombatActive") or Workspace:GetAttribute("MatchStarted")

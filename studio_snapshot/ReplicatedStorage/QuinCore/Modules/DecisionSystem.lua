@@ -62,7 +62,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	-- 2. DASH: Athletic gap closer from 10 up to 60 studs (with 8s cooldown)
 	local dashBase = 20
 	local lastDash = quinModel:GetAttribute("LastDashTime") or 0
-	local isDashOnCooldown = (os.clock() - lastDash) < 8.0
+	local isDashOnCooldown = (tick() - lastDash) < 8.0 -- LastDashTime is a tick() timestamp
 	if not isDashOnCooldown and dist >= 10 and dist <= 60 and energyRatio > 0.35 then
 		dashBase = dashBase + 45
 		if isTargetIso then dashBase = dashBase + 20 end -- Gap close on isolated enemy

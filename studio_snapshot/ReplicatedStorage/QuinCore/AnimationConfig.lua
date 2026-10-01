@@ -105,7 +105,7 @@ AnimationConfig.Registry = {
 		GetUpBackFast = { id = "rbxassetid://95406088712190", speed = 1.45, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.90, name = "Get Up Back (Ninja Fast)" },
 		GetUpBackSlow = { id = "rbxassetid://128158227118276", speed = 1.10, fadeTime = 0.10, priority = "Action4", looped = false, impactRatio = 0.50, cancelRatio = 0.90, name = "Get Up Back (Slow Recovery)" },
 		GetUpFromCrouch = { id = "rbxassetid://108624065264351", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.90, name = "Get Up From Crouch" },
-		GetUpGround = { id = "rbxassetid://95406088712190", speed = 1.35, fadeTime = 0.10, priority = "Action4", looped = false, impactRatio = 0.50, cancelRatio = 0.90, name = "Recover to Feet" },
+		GetUpGround = { id = "rbxassetid://79207866638803", speed = 1.50, fadeTime = 0.10, priority = "Action4", looped = false, impactRatio = 0.50, cancelRatio = 0.90, name = "Recover to Feet" },
 		HitHeavy = { id = "rbxassetid://82096408080514", speed = 1.40, fadeTime = 0.14, priority = "Action4", looped = false, impactRatio = 0.15, cancelRatio = 0.60, name = "Heavy Hit Recoil" },
 		HitLight = { id = "rbxassetid://83869147275692", speed = 1.65, fadeTime = 0.01, priority = "Action4", looped = false, impactRatio = 0.10, cancelRatio = 0.40, name = "Light Hit Flinch" },
 		Knockback = { id = "rbxassetid://83869147275692", speed = 1.00, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Knockback" },

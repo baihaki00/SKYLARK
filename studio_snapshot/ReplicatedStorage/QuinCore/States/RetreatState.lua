@@ -94,8 +94,13 @@ function RetreatState.enter(fighter, humanoid, rootPart)
 		end
 	end
 
-	local initialAnim = initialHopDone and "Movement.StartSprint" or "Movement.Run"
-	AnimationModule.playConfig(humanoid, initialAnim)
+	-- Running comes from the shared gait (playing the Run clip directly restarted the cycle)
+	local initialAnim = initialHopDone and "Movement.StartSprint" or "Gait"
+	if initialHopDone then
+		AnimationModule.playConfig(humanoid, initialAnim)
+	else
+		GaitModule.update(humanoid, rootPart, 1 / 60)
+	end
 
 	retreatData[fighter] = {
 		enterTime = now,
@@ -126,7 +131,7 @@ end
 function RetreatState.exit(fighter, humanoid, rootPart)
 	local data = retreatData[fighter]
 	if data and data.currentAnim == "Gait" then
-		GaitModule.stop(humanoid, 0.15)
+		-- Gait keeps running into the next state; the ground contract releases it if unused
 	elseif data and data.currentAnim then
 		AnimationModule.stopConfig(humanoid, data.currentAnim, 0.15)
 	end
@@ -374,7 +379,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	local canWallRun = (now - lastWallRun) >= (CombatConfig.WallRunCooldown or 5.0) and energy >= (CombatConfig.WallRunMinEnergy or 15)
 		and (data.currentSpeed or 30) >= 20 and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 	if canWallRun then
-		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2)
+		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2, CombatConfig.WallRunMinRunway or 24)
 		if wallSurface then
 			fighter:SetAttribute("LastWallRunTime", now)
 			RuntimeTracer.checkpoint(fighter, "Retreat wall-running away from threat")
@@ -430,7 +435,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	if result.isJuking and result.steerDirection then
 		-- Sharp lateral juke cut target
 		arcTarget = rootPart.Position + result.steerDirection * 18
-		if currentSpeed >= 14 and (now >= (data.jukeAnimUntil or 0)) and (now - (data.lastJukeAnim or 0) >= 1.2) then
+		if CombatConfig.Chase_TurnCutOverlayEnabled == true and currentSpeed >= 14 and (now >= (data.jukeAnimUntil or 0)) and (now - (data.lastJukeAnim or 0) >= 1.2) then
 			data.jukeAnimUntil = now + 0.38
 			data.lastJukeAnim = now
 			local isRight = (result.steerDirection:Dot(rootPart.CFrame.RightVector) > 0)

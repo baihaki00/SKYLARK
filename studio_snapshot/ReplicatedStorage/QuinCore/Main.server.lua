@@ -457,7 +457,9 @@ task.spawn(function()
 			local isOob = SpatialModule.isOutOfBounds(rootPart)
 			local curStateName = currentState and currentState.name or ""
 
-			if isOob and curStateName ~= "ReEntry" and curStateName ~= "Death" then
+			-- A wall-run is deliberately inside the boundary margin: the arena's own walls are the
+			-- longest run surfaces, and the out-of-bounds timer used to pull the Quin off them.
+			if isOob and curStateName ~= "ReEntry" and curStateName ~= "Death" and curStateName ~= "WallRun" then
 				local pos = rootPart.Position
 				local bounds = SpatialModule.getArenaBounds()
 				if math.abs(pos.X - bounds.center.X) > (bounds.halfX + 80) or math.abs(pos.Z - bounds.center.Z) > (bounds.halfZ + 80) or pos.Y < -5 then
@@ -552,14 +554,21 @@ task.spawn(function()
 						local flatDist = Vector3.new(oPos.X - myPos.X, 0, oPos.Z - myPos.Z).Magnitude
 						local yDiff = oPos.Y - myPos.Y
 						-- 'other' is standing on top of this Quin: shove it off sideways
-						if flatDist < 3.5 and yDiff > 2.0 and yDiff < 10 then
+						-- Only a Quin actually resting on top is shoved off. One passing overhead in a
+						-- jump or knockback arc is left alone: this check used to teleport it 3.5 studs,
+						-- reset its facing and replace its velocity in mid-flight.
+						local oHum = other:FindFirstChildOfClass("Humanoid")
+						local oVel = oHRP.AssemblyLinearVelocity
+						local isResting = oHum ~= nil and oHum.Health > 0 and not oHum.PlatformStand
+							and math.abs(oVel.Y) < 6 and oVel.Magnitude < 12
+						if isResting and flatDist < 3.5 and yDiff > 2.0 and yDiff < 10 then
 							local pushDir = Vector3.new(oPos.X - myPos.X, 0, oPos.Z - myPos.Z)
 							if pushDir.Magnitude < 0.01 then
 								pushDir = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5)
 							end
 							pushDir = pushDir.Unit
-							oHRP:PivotTo(CFrame.new(oPos + pushDir * 3.5))
-							oHRP.AssemblyLinearVelocity = Vector3.new(pushDir.X * 40, 12, pushDir.Z * 40)
+							oHRP.CFrame = oHRP.CFrame + pushDir * 1.5 -- keeps its facing
+							oHRP.AssemblyLinearVelocity = Vector3.new(pushDir.X * 24, 8, pushDir.Z * 24)
 						end
 					end
 				end
@@ -620,7 +629,9 @@ task.spawn(function()
 						Quin:SetAttribute("ForceState", "Retreat")
 						RuntimeTracer.checkpoint(Quin, "Decision: Retreat (break off melee)")
 					end
-				elseif bestAction == "Pursue" and (currentState.name == "Idle" or currentState.name == "Recovery") then
+				elseif bestAction == "Pursue" and currentState.name == "Idle" then
+					-- Recovery is not interrupted: it finishes the get-up and then picks its own next
+					-- state. Forcing Chase from here cut the get-up clip after ~0.1s (prone -> sprint pop).
 					if distToTgt > (CombatConfig.PursueEngageDistance or 20.0) then
 						Quin:SetAttribute("ForceState", "Chase")
 						RuntimeTracer.checkpoint(Quin, "Decision: Pursue (chase target)")
@@ -696,6 +707,8 @@ task.spawn(function()
 				if currentState.exit then
 					currentState.exit(Quin, humanoid, rootPart)
 				end
+				-- The outgoing state's steer goal must not keep driving the body into the new state
+				LocomotionModule.cancelSteer(Quin)
 				
 				if newState.enter then
 					newState.enter(Quin, humanoid, rootPart)

@@ -261,8 +261,11 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 			-- Calculate dynamic 3D offset: jumps 15 to 25 studs in mid-air
 			local angle = math.random() * math.pi * 2
 			local horizDist = math.random(16, 26)
-			local newX = math.clamp(clashCenter.X + math.cos(angle) * horizDist, -180, 180)
-			local newZ = math.clamp(clashCenter.Z + math.sin(angle) * horizDist, -180, 180)
+			-- Clamp around the real arena centre (it is not at the world origin)
+			local bounds = SpatialModule.getArenaBounds()
+			local reachX, reachZ = bounds.halfX * 0.6, bounds.halfZ * 0.6
+			local newX = math.clamp(clashCenter.X + math.cos(angle) * horizDist, bounds.center.X - reachX, bounds.center.X + reachX)
+			local newZ = math.clamp(clashCenter.Z + math.sin(angle) * horizDist, bounds.center.Z - reachZ, bounds.center.Z + reachZ)
 			local newY = math.clamp(clashCenter.Y + math.random(-6, 14), 28, 70)
 			local newCenter = Vector3.new(newX, newY, newZ)
 			

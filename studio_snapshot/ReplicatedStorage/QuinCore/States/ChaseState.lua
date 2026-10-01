@@ -113,7 +113,7 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 		currentSpeed = initialSpeed,
 		isAccelerating = true,
 		isDecelerating = false,
-		currentAnim = initialAnim,
+		currentAnim = pushOffAnim or "Gait",
 		pushOffAnim = pushOffAnim,
 		lastTurnTime = 0,
 		turnActiveUntil = 0,
@@ -139,17 +139,25 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 	BattleEventSystem.emit("CHASE_STARTED", {
 		QuinId = fighter:GetAttribute("QuinId") or fighter.Name,
 		Model = fighter,
-		TargetName = target and target.Name or "Unknown",
+		TargetName = fighter:GetAttribute("CurrentTarget") or "Unknown",
 	})
 	
-	AnimationModule.playConfig(humanoid, initialAnim)
+	if pushOffAnim then
+		AnimationModule.playConfig(humanoid, pushOffAnim)
+	else
+		-- Walk / run come from the shared gait. Playing the Run or Walk clip directly here
+		-- stopped the other blend clips and restarted the cycle on every entry into Chase.
+		GaitModule.update(humanoid, rootPart, 1 / 60)
+	end
 end
 
 function ChaseState.exit(fighter, humanoid, rootPart)
 	local data = chaseData[fighter]
 	if data then
 		if data.currentAnim == "Gait" then
-			GaitModule.stop(humanoid, 0.3)
+			-- The gait is left running: the next state keeps driving it (Fight, Retreat) or
+			-- replaces it (Circling strafe), and the ground contract releases it if nobody does.
+			-- Stopping it here made the legs drop out and restart on every Chase -> Fight.
 		elseif data.currentAnim then
 			AnimationModule.stop(humanoid, data.currentAnim, 0.3)
 		end
@@ -163,8 +171,8 @@ function ChaseState.exit(fighter, humanoid, rootPart)
 	
 	AnimationModule.stopLocomotionOverlays(humanoid, 0.15)
 	
-	local speed = fighter:GetAttribute("Speed") or 40
-	humanoid.WalkSpeed = speed
+	-- WalkSpeed is left as it is: the next state accelerates or brakes from the current pace.
+	-- Forcing it to full speed here made a walking Quin lurch to a sprint on the way out.
 
 	chaseData[fighter] = nil
 end
@@ -268,7 +276,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Vertical gap awareness: target is perched on high ground
 	local verticalGap = targetHRP.Position.Y - rootPart.Position.Y
-	local lastPJ = fighter:GetAttribute("LastPositioningJumpTime") or 0
+	local lastPJ = fighter:GetAttribute("LastPositioningJumpTime") or 0 -- tick() timestamp
 	local flatDistToTgt = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
 
 	if not inShowdown and verticalGap >= (CombatConfig.HighGround_InterceptJumpMinReach or 8.0) then
@@ -277,9 +285,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 		if verticalGap <= (CombatConfig.HighGround_InterceptJumpMaxReach or 35.0) then
 			-- In reachable jump range: launch intentional High-Ground Intercept Jump
-			if energy >= climbEnergyCost and (os.clock() - lastPJ) >= 4.0 and flatDistToTgt <= 45.0
+			if energy >= climbEnergyCost and (tick() - lastPJ) >= 4.0 and flatDistToTgt <= 45.0
 				and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
-				fighter:SetAttribute("LastPositioningJumpTime", os.clock())
+				fighter:SetAttribute("LastPositioningJumpTime", tick())
 				fighter:SetAttribute("Energy", energy - climbEnergyCost)
 				fighter:SetAttribute("ObstacleAwareness", "High-Ground Intercept Jump")
 				LocomotionModule.jump(fighter, humanoid, rootPart, verticalGap + 3.0, 38.0, "jump")
@@ -442,10 +450,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		if rearDist <= (critRearDist - 1.5) then
 			local rearModel = findModelByName(rearThreatName)
 			if rearModel and rearModel:FindFirstChild("HumanoidRootPart") then
-				local rHRP = rearModel.HumanoidRootPart
-				local snapLook = CFrame.lookAt(rootPart.Position, Vector3.new(rHRP.Position.X, rootPart.Position.Y, rHRP.Position.Z))
-				rootPart.CFrame = rootPart.CFrame:Lerp(snapLook, 0.35)
-				AnimationModule.playConfig(humanoid, "Awareness.Turn180Pivot", 1.5, Enum.AnimationPriority.Action4, false)
+				-- FightState's facing gyro turns the body onto the new target. The pivot clip rotates
+				-- the hips 177 degrees by itself: stacked on a root that is also turning it over-spins
+				-- the mesh and snaps back when it ends, so it stays off unless explicitly enabled.
+				if CombatConfig.Turn180PivotClipEnabled == true then
+					AnimationModule.playConfig(humanoid, "Awareness.Turn180Pivot", 1.5, Enum.AnimationPriority.Action4, false)
+				end
 				
 				fighter:SetAttribute("CurrentTarget", rearModel.Name)
 				fighter:SetAttribute("TargetQuin", rearModel.Name)
@@ -636,8 +646,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		and (data.currentSpeed or 30) >= (CombatConfig.WallRunMinSpeed or 18)
 		and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 
-	if canWallRun and not inShowdown then
-		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2)
+	-- Not worth mounting a wall with the target already this close: the run would end at once
+	if canWallRun and not inShowdown and distance > 22 then
+		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2, CombatConfig.WallRunMinRunway or 24)
 		if wallSurface then
 			fighter:SetAttribute("ObstacleAwareness", "Wall-Running " .. wallSurface.side)
 			return require(script.Parent:WaitForChild("WallRunState"))
@@ -745,6 +756,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	local speed = fighter:GetAttribute("Speed") or 40
 	local targetSpeed = (shouldWalk and 16 or speed) * speedMult
+	-- Brake into the engagement: cap the pace by what the braking rate can shed over the
+	-- remaining gap. At a full sprint the stopping distance (~13 studs) is longer than the
+	-- hand-over range to Fight, so a sprinting Quin ran through its target and was shoved back.
+	local arriveGap = math.max(distance - (CombatConfig.CombatRange or 8), 0.5)
+	local arriveSpeed = math.sqrt(2 * (CombatConfig.Locomotion_BrakingDeceleration or 95) * arriveGap) + 6
+	targetSpeed = math.min(targetSpeed, arriveSpeed)
 
 	-- Locomotion Timing & Continuity: delegate acceleration & braking to LocomotionModule
 	local lastUpdate = data.lastUpdateTime or (now - 0.05)
@@ -768,6 +785,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.arcAnim = nil
 	end
 
+	-- A new push-off becomes available once the body has actually come to rest
+	local restVel = rootPart.AssemblyLinearVelocity
+	if Vector3.new(restVel.X, 0, restVel.Z).Magnitude < 3 and not data.pushOffAnim then
+		data.pushOffSpent = false
+	end
+
 	-- Animation track selection with push-off awareness (velocity-driven so the leg
 	-- cycle matches actual movement speed and avoids "sprint at walk pace" shuffling)
 	local desiredAnim
@@ -778,18 +801,29 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		desiredAnim = data.turnAnim
 	elseif data.arcAnim and now < (data.arcActiveUntil or 0) then
 		desiredAnim = data.arcAnim
-	elseif data.isAccelerating and currentSpeed < (targetSpeed * 0.55) then
+	elseif data.isAccelerating and currentSpeed < (targetSpeed * 0.55) and (data.pushOffAnim or not data.pushOffSpent) then
+		-- Push-off is a start-from-rest overlay: chosen once per start, never replayed while
+		-- the Quin stays slow (the gait base layer runs underneath it)
 		if not data.pushOffAnim then
 			local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
 			data.pushOffAnim = (mobility > 0.55 or math.random() > 0.5) and "Movement.IdleToRun1" or "Movement.IdleToRun2"
+			data.pushOffSpent = true
 		end
 		desiredAnim = data.pushOffAnim
+		if data.currentAnim == data.pushOffAnim and not AnimationModule.isPlaying(humanoid, data.pushOffAnim) then
+			-- Push-off finished: hand over to the gait instead of replaying it
+			data.pushOffAnim = nil
+			desiredAnim = "Movement.Run"
+		end
 	else
 		desiredAnim = "Movement.Run"
 		data.pushOffAnim = nil
 	end
 
 	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
+	-- Airborne for overlay purposes (was read below as an undefined name, so the ground
+	-- cut / arc overlays could start in mid-air)
+	local isFreefallState = isFreefall or humanoid:GetState() == Enum.HumanoidStateType.Jumping
 	if desiredAnim == "Movement.Run" or desiredAnim == "Movement.WalkConfident" then
 		-- Base gait: shared stride-matched Walk/Run blend driven by real ground speed
 		data.currentAnim = "Gait"
@@ -919,7 +953,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- 1. Direction reversals are handled 100% procedurally by LocomotionModule & ProceduralCombatReactionController
 
 	-- 2. Athletic 90-Degree Plant Cut (Mirrored Left / Right)
-	local canTurn90 = not inShowdown
+	local canTurn90 = (CombatConfig.Chase_TurnCutOverlayEnabled == true)
+		and not inShowdown
 		and not shouldWalk
 		and currentSpeed >= 14
 		and (now >= (data.turnActiveUntil or 0))
@@ -940,7 +975,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- 3. Curved Pursuit / Arc Run 30 Degree Rear (Mirrored Left / Right)
-	local canArcRun = not inShowdown
+	local canArcRun = (CombatConfig.Chase_ArcRunOverlayEnabled == true)
+		and not inShowdown
 		and not shouldWalk
 		and currentSpeed >= 16
 		and (now >= (data.turnActiveUntil or 0))
@@ -957,40 +993,28 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.lastArcTime = now
 		data.currentAnim = arcAnim
 		
-		AnimationModule.playConfig(humanoid, arcAnim, 1.20, Enum.AnimationPriority.Movement, false)
+		AnimationModule.playConfig(humanoid, arcAnim, 1.20, Enum.AnimationPriority.Action, false)
 	end
 
 	-- Authoritative single-driver steering & speed modulation
 	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, targetSpeed, dt)
 	
-	-- Fall & landing animation
-	local isFreefall = (humanoid:GetState() == Enum.HumanoidStateType.Freefall)
+	-- Fall cover and touchdown belong to the ground contract (GaitModule.bindGroundContract).
+	-- This state used to play and stop the same Fall track on its own 10 Hz rule (stopping it
+	-- on the way up and at the apex), so the two owners restarted the pose several times per
+	-- jump. Only the dismount bookkeeping and the vault clip cleanup remain here.
 	local isGrounded = SpatialModule.isGrounded(rootPart)
-	if rootPart.AssemblyLinearVelocity.Y < -5 and isFreefall and not isGrounded then
+	if isFreefallState and not isGrounded then
 		if data.wasOnPlatform then
 			data.isDismountFalling = true
 		end
-		if not AnimationModule.isPlaying(humanoid, "Movement.Fall") then
-			AnimationModule.playConfig(humanoid, "Movement.Fall", 1.0, Enum.AnimationPriority.Action)
+	elseif isGrounded then
+		if data.isDismountFalling then
+			data.isDismountFalling = false
+			data.wasOnPlatform = false
 		end
-	else
-		if AnimationModule.isPlaying(humanoid, "Movement.Fall") then
-			AnimationModule.stopConfig(humanoid, "Movement.Fall")
-			if data.isDismountFalling then
-				data.isDismountFalling = false
-				data.wasOnPlatform = false
-				-- No automatic soft landing overlay; resume the current locomotion below.
-			end
-			if data.currentAnim == "Gait" then
-				GaitModule.update(humanoid, rootPart, dt)
-			elseif data.currentAnim then
-				AnimationModule.playConfig(humanoid, data.currentAnim)
-			end
-		end
-		if isGrounded and math.abs(rootPart.AssemblyLinearVelocity.Y) < 3 then
-			if AnimationModule.isPlaying(humanoid, "Parkour.VaultObstacle") then
-				AnimationModule.stopConfig(humanoid, "Parkour.VaultObstacle")
-			end
+		if math.abs(rootPart.AssemblyLinearVelocity.Y) < 3 and AnimationModule.isPlaying(humanoid, "Parkour.VaultObstacle") then
+			AnimationModule.stopConfig(humanoid, "Parkour.VaultObstacle", 0.15)
 		end
 	end
 	

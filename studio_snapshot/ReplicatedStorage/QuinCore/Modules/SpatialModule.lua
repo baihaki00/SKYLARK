@@ -467,7 +467,30 @@ end
 -- Detect a viable vertical surface to initiate an athletic Wall-Run (Phase 6 Parkour).
 -- Scans left and right at torso height for near-vertical obstacles at an incident angle.
 -- Returns: { hitPart, hitPosition, normal, tangent, side, distance } or nil
-function SpatialModule.detectWallRunSurface(rootPart, checkDist)
+-- Length of wall still ahead along `tangent`, in studs: how far a wall-run could actually go.
+-- Samples the wall every few studs and stops at the first gap, corner or obstruction.
+local WALL_RUNWAY_STEP = 4
+local WALL_RUNWAY_MAX = 60
+local function measureWallRunway(origin, tangent, flatNormal, wallDistance, params)
+	local reach = wallDistance + 2.5
+	local runway = 0
+	for d = WALL_RUNWAY_STEP, WALL_RUNWAY_MAX, WALL_RUNWAY_STEP do
+		local wallHit = Workspace:Raycast(origin + tangent * d, -flatNormal * reach, params)
+		if not wallHit or math.abs(wallHit.Normal.Y) >= 0.25 then
+			break
+		end
+		runway = d
+	end
+	-- Something standing in the lane (a corner, another wall) ends the run early
+	local blocked = Workspace:Raycast(origin, tangent * math.max(runway, WALL_RUNWAY_STEP), params)
+	if blocked then
+		runway = math.min(runway, math.max(0, blocked.Distance - 2))
+	end
+	return runway
+end
+
+-- minRunway (optional): only report a surface with at least this much wall ahead
+function SpatialModule.detectWallRunSurface(rootPart, checkDist, minRunway)
 	checkDist = checkDist or 5.2
 	if not rootPart then return nil end
 
@@ -519,9 +542,13 @@ function SpatialModule.detectWallRunSurface(rootPart, checkDist)
 							or hit.Instance.Size.Y >= 6.0 
 							or (hit.Instance.Parent and hit.Instance.Parent.Name:find("OB") ~= nil)
 
-						if isObstacle then
+						local wallDistance = (hit.Position - origin):Dot(-flatNormal)
+						local runway = isObstacle and measureWallRunway(origin, tangent, flatNormal, wallDistance, params) or 0
+						if isObstacle and runway >= (minRunway or 0) then
 							drawDebugRay(origin, probe.dir, hit)
 							return {
+								runway = runway,
+								wallDistance = wallDistance,
 								hitPart = hit.Instance,
 								hitPosition = hit.Position,
 								normal = flatNormal,

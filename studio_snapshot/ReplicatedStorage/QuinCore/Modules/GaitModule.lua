@@ -14,6 +14,10 @@
 -- 3. Lifetime contract: the gait is state-governed (README Tier 1). If no driver has
 --    updated it for GAIT_ORPHAN_TIME (the state stopped moving the Quin), the loops are
 --    released to the idle floor instead of running in place.
+-- 4. Base-layer fill: whenever the body moves on the ground under its own drive and no
+--    other Movement-priority clip owns the legs, the gait follows real velocity regardless
+--    of which state is active. States add overlays on top; they never leave the base layer
+--    empty, so a moving Quin never shows the idle pose (no shuffling).
 -- Single Source of Truth for tuning: ReplicatedStorage.QuinCore.CombatConfig (Gait_*)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -42,6 +46,15 @@ local START_FADE = 0.15
 local AIR_GRACE = 0.12 -- seconds airborne before ground loops are released (ignores tiny hops)
 local GAIT_ORPHAN_TIME = 0.35 -- seconds without a driver before the gait is released
 local LAUNCH_WINDOW = 0.3 -- after a deliberate jump the Humanoid can still read Running for a frame or two
+local AUTO_DRIVE_INTERVAL = 0.05 -- base-layer fill rate (20 Hz per Quin)
+local AUTO_DRIVE_MIN_SPEED = 1.5 -- studs/s of planar motion before the base layer is filled
+-- States that own the whole body (reactions, scripted flight) or select their own
+-- locomotion clips (Circling strafes) are never filled automatically.
+local AUTO_DRIVE_EXCLUDED_STATES = {
+	Knockback = true, Recovery = true, Death = true, WallRun = true, Airborne = true,
+	MidAirClash = true, BeamStruggle = true, ProjectileJump = true, ProjectileFight = true,
+	Circling = true,
+}
 
 local states = {} -- [humanoid] = per-Quin gait state
 
@@ -185,6 +198,8 @@ function GaitModule.update(humanoid, rootPart, dt)
 	if not humanoid or not humanoid.Parent or not rootPart or not rootPart.Parent then return nil end
 	dt = math.clamp(dt or 1 / 60, 0, 0.25)
 	local st = getState(humanoid)
+	-- Several drivers (state + base-layer fill) may call in the same frame: drive once
+	if os.clock() - st.lastDriven < 0.015 then return nil end
 
 	if isAirborneState(humanoid) then
 		if st.airTime >= AIR_GRACE then
@@ -301,6 +316,23 @@ function GaitModule.isActive(humanoid)
 	return false
 end
 
+-- True while a non-gait Movement-priority clip (strafe, arc run, scripted walk) owns the legs
+function GaitModule.hasForeignLocomotion(humanoid)
+	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+	if not animator then return false end
+	local gaitIds = clipIds()
+	local fallEntry = AnimationConfig.get(FALL_PATH)
+	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+		if track.Priority == Enum.AnimationPriority.Movement and track.WeightTarget > 0 then
+			local id = track.Animation and track.Animation.AnimationId
+			if not gaitIds[id] and not (fallEntry and id == fallEntry.id) then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 function GaitModule.isAirborne(humanoid)
 	local st = humanoid and states[humanoid]
 	return st ~= nil and st.airTime >= AIR_GRACE
@@ -347,6 +379,21 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 				st.lastDriven = os.clock() -- give the driver its first frame after touchdown
 			end
 			st.airTime = 0
+
+			-- Base-layer fill: self-propelled ground motion with no locomotion clip owning the legs
+			local stateName = model:GetAttribute("CurrentState") or ""
+			local t = os.clock()
+			if t - (st.lastAuto or 0) >= AUTO_DRIVE_INTERVAL then
+				local fillDt = math.clamp(t - (st.lastAuto or (t - AUTO_DRIVE_INTERVAL)), 0.016, 0.1)
+				st.lastAuto = t
+				if not AUTO_DRIVE_EXCLUDED_STATES[stateName] and not humanoid.PlatformStand
+					and not hasLocomotionAction(humanoid) and humanoid.WalkSpeed > 0.5 then
+					local v = rootPart.AssemblyLinearVelocity
+					if Vector3.new(v.X, 0, v.Z).Magnitude > AUTO_DRIVE_MIN_SPEED and not GaitModule.hasForeignLocomotion(humanoid) then
+						GaitModule.update(humanoid, rootPart, fillDt)
+					end
+				end
+			end
 
 			-- Orphaned gait: no state is driving it any more
 			if (os.clock() - st.lastDriven) > GAIT_ORPHAN_TIME

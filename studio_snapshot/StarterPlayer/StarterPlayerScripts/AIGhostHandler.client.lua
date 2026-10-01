@@ -68,16 +68,10 @@ if renderMode == "Direct" then
 			keepOneNamed(root, "GhostRightFootTargetAtt", "Attachment")
 			keepOneNamed(root, "GhostLeftKneePoleAtt", "Attachment")
 			keepOneNamed(root, "GhostRightKneePoleAtt", "Attachment")
-			keepOneNamed(root, "GhostLeftHandTargetAtt", "Attachment")
-			keepOneNamed(root, "GhostRightHandTargetAtt", "Attachment")
-			keepOneNamed(root, "GhostLeftElbowPoleAtt", "Attachment")
-			keepOneNamed(root, "GhostRightElbowPoleAtt", "Attachment")
 		end
 		if humanoid then
 			keepOneNamed(humanoid, "GhostLeftFootIK", "IKControl")
 			keepOneNamed(humanoid, "GhostRightFootIK", "IKControl")
-			keepOneNamed(humanoid, "GhostLeftArmIK", "IKControl")
-			keepOneNamed(humanoid, "GhostRightArmIK", "IKControl")
 		end
 	end
 

@@ -28,11 +28,13 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 	fighter:SetAttribute("Energy", CombatConfig.MaxEnergy or 100)
 	
 	local kbType = fighter:GetAttribute("KnockbackType") or "air"
+	-- Recovery reads the same attribute but defaults to "ground": publish the resolved type so a
+	-- launch that never set it still gets the full get-up instead of a 0.2s pop to standing
+	fighter:SetAttribute("KnockbackType", kbType)
 	-- Keep it active during the knockback so the GUI can read it
 	RuntimeTracer.checkpoint(fighter, string.format("Enter Knockback (%s) | Stun=%.2fs", kbType, stunDuration))
 	
 	local isHardKnockback = (kbType == "hard_ground" or (kbType == "air" and math.random() <= 0.15))
-	print("Knockback Type", kbType)
 	
 	local flatLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
 	if flatLook.Magnitude > 0.01 then flatLook = flatLook.Unit else flatLook = Vector3.new(0,0,-1) end
@@ -78,27 +80,19 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 		AnimationModule.play(humanoid, AnimationIds.Idle, Enum.AnimationPriority.Idle, true, 1.0, 0)
 	end
 	
-	-- Strip down rotation entirely. No BodyGyro. Let physics tumble them naturally.
+	-- Heavy knockdowns keep the fighter down longer and get the slow get-up in Recovery
 	if isHardKnockback then
 		knockbackData[fighter].stunDuration = math.max(knockbackData[fighter].stunDuration, 1.5)
-		if kbType == "air" and CombatConfig.AirKnockback_ProceduralRagdollEnabled then
-			fighter:SetAttribute("ProceduralRagdollActive", true)
-		else
-			AnimationModule.play(humanoid, AnimationIds.KnockbackExtreme, Enum.AnimationPriority.Action4, false, 1, 0)
-		end
+	end
+	fighter:SetAttribute("KnockdownHeavy", isHardKnockback)
+
+	if kbType == "air" or kbType == "hard_ground" then
+		-- The flight pose is the authored air-knockback clip. While ProceduralRagdollActive is set
+		-- the presentation layer leans the whole body along its travel direction on top of it.
+		AnimationModule.play(humanoid, AnimationIds.FallAirKnockback, Enum.AnimationPriority.Action4, true, 1.0, 0.1)
+		fighter:SetAttribute("ProceduralRagdollActive", CombatConfig.AirKnockback_ProceduralRagdollEnabled == true)
 	else
-		if kbType == "air" then
-			if CombatConfig.AirKnockback_ProceduralRagdollEnabled then
-				-- Full-body active procedural IK ragdoll drives flight flailing & tumbling!
-				-- Suppresses rigid static FallAirKnockback animation track.
-				fighter:SetAttribute("ProceduralRagdollActive", true)
-			else
-				-- Revertible fallback to author-keyed FallAirKnockback
-				AnimationModule.play(humanoid, AnimationIds.FallAirKnockback, Enum.AnimationPriority.Action4, true, 1.0, 0.1)
-			end
-		else
-			AnimationModule.play(humanoid, AnimationIds.Knockback, Enum.AnimationPriority.Action4, false, 1.0, 0.1)
-		end
+		AnimationModule.play(humanoid, AnimationIds.Knockback, Enum.AnimationPriority.Action4, false, 1.0, 0.1)
 	end
 	
 	-- Play custom knockback wind/dust trail VFX
@@ -172,7 +166,9 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 			rootPart.AssemblyAngularVelocity = Vector3.zero
 			
 			if groundSlideSpeed > 10 then
-				KnockbackModule.applySlide(fighter, slideDir, groundSlideSpeed, 0.35)
+				-- Skid to rest from the actual touchdown speed. The old slide jumped to 55% of
+				-- that speed on contact, held it for 0.35s and then stopped dead.
+				KnockbackModule.applySlide(fighter, slideDir, flatVel.Magnitude, 0.45, { friction = true, endRatio = 0.1 })
 			else
 				rootPart.AssemblyLinearVelocity = Vector3.zero
 			end

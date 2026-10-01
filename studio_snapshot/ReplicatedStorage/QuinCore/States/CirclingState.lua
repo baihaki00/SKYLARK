@@ -395,12 +395,28 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	local animSpeed = math.clamp(targetStrafeSpeed / 16.0, 0.6, 1.4)
-	if desiredAnim and data.currentAnim ~= desiredAnim then
+	-- Hold: a different clip has to stay wanted for 0.3s, and clips switch at most every 0.6s.
+	-- The move direction hovers around the strafe / advance / retreat boundaries, and switching
+	-- on every tick restarted the leg clip about twice a second.
+	if desiredAnim ~= data.currentAnim then
+		if data.pendingAnim ~= desiredAnim then
+			data.pendingAnim = desiredAnim
+			data.pendingSince = now
+		end
+	else
+		data.pendingAnim = nil
+	end
+	local canSwitchAnim = data.pendingAnim ~= nil
+		and (now - (data.pendingSince or now)) >= 0.3
+		and (now - (data.lastAnimSwitch or 0)) >= 0.6
+	if desiredAnim and data.currentAnim ~= desiredAnim and canSwitchAnim then
 		if data.currentAnim then
-			AnimationModule.stop(humanoid, data.currentAnim, 0.15)
+			AnimationModule.stop(humanoid, data.currentAnim, 0.25)
 		end
 		data.currentAnim = desiredAnim
-		AnimationModule.play(humanoid, desiredAnim, Enum.AnimationPriority.Movement, true, animSpeed, 0.15)
+		data.pendingAnim = nil
+		data.lastAnimSwitch = now
+		AnimationModule.play(humanoid, desiredAnim, Enum.AnimationPriority.Movement, true, animSpeed, 0.25)
 	elseif data.currentAnim then
 		local track = AnimationModule.getTrack(humanoid, data.currentAnim)
 		if track and track.IsPlaying then

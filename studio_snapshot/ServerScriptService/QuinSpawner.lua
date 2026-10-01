@@ -119,6 +119,10 @@ local function buildPhysicsBody(model)
 	body.CanTouch = false
 	body.Massless = true
 	body.CastShadow = false
+	-- Dead contact: no restitution, low friction. With default material properties a knocked
+	-- down Quin bounced off the floor two or three times (-50 -> +26 studs/s) before settling,
+	-- and bodies dragged on each other when brushing past.
+	body.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.2, 0, 1, 100)
 	body.CFrame = hrp.CFrame * CFrame.new(0, -rootAboveFloor + COLLISION_BODY_FLOOR_CLEARANCE + COLLISION_BODY_SIZE.Y / 2, 0)
 	local weld = Instance.new("WeldConstraint")
 	weld.Part0 = hrp
@@ -189,6 +193,12 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 	end
 
 	local clone = template:Clone()
+	-- The Animator multiplies every clip's bone translation by the model's scale factor. A rig
+	-- left at an import scale (QuinFemale was at 0.044) loses all hip travel: get-ups, slides
+	-- and landings then play at standing height. Templates must be scale-1 models.
+	if math.abs(clone:GetScale() - 1) > 0.001 then
+		warn(string.format("[QuinSpawner] Template %s has model scale %.3f; animation translation will be scaled by it. Rebuild it as a scale-1 Model.", template:GetFullName(), clone:GetScale()))
+	end
 	clone.Name = string.format("Quin_%s_%s", selectedGender, quinInstance.QuinId:sub(-4))
 
 	-- Crucial Rig Sanitation: Ensure RootJoint Part0 and Part1 are strictly internal to the clone

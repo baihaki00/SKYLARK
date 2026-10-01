@@ -14,8 +14,14 @@ local idleData = {}
 
 function IdleState.enter(fighter, humanoid, rootPart)
 	LocomotionModule.brake(fighter, humanoid, rootPart, 0.05)
-	humanoid.WalkSpeed = 0
-	AnimationModule.playConfig(humanoid, "Movement.Idle")
+	-- Mid-combat this state is a 0.15-0.25s target-switch beat: the body keeps decelerating
+	-- through the brake (see update) instead of stopping dead and pushing off again.
+	if not (workspace:GetAttribute("MatchStarted") == true or fighter:GetAttribute("InCombat") == true) then
+		humanoid.WalkSpeed = 0
+	end
+	-- The base idle floor picks the stance (default / ready / fight); forcing the default
+	-- idle here swapped the stance clip on every pass through this state.
+	AnimationModule.ensureBaseIdle(humanoid)
 
 	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
 	local confidence = fighter:GetAttribute("Pers_Confidence") or 0.6
@@ -62,7 +68,8 @@ function IdleState.enter(fighter, humanoid, rootPart)
 end
 
 function IdleState.exit(fighter, humanoid, rootPart)
-	AnimationModule.stopConfig(humanoid, "Movement.Idle")
+	-- The base idle is the permanent pose floor and is never stopped here: stopping it left
+	-- the rig with no pose underneath for a few frames on every Idle -> Chase.
 	local gyro = rootPart and rootPart:FindFirstChild("IdleGyro")
 	if gyro then gyro:Destroy() end
 	idleData[fighter] = nil
@@ -102,6 +109,8 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 	if timeSinceStart < data.reactionDelay then
 		if not data.isMidCombat then
 			humanoid.WalkSpeed = 0
+		else
+			LocomotionModule.brake(fighter, humanoid, rootPart, 0.1)
 		end
 		return IdleState
 	end
