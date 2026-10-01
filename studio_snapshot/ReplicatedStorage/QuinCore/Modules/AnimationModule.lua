@@ -216,6 +216,21 @@ local function getAudioModule()
 	return _AudioModule
 end
 
+-- Lazy-load VfxModule the same way (footprints on the Footstep marker)
+local _VfxModule = nil
+local function getVfxModule()
+	if not _VfxModule then
+		local qc = ReplicatedStorage:FindFirstChild("QuinCore")
+		if qc and qc:FindFirstChild("Modules") and qc.Modules:FindFirstChild("VfxModule") then
+			local ok, mod = pcall(function() return require(qc.Modules.VfxModule) end)
+			if ok and type(mod) == "table" then
+				_VfxModule = mod
+			end
+		end
+	end
+	return _VfxModule
+end
+
 -- Wire animation marker reached signals to AudioModule exactly once per loaded track instance
 local function wireTrackAudio(humanoid, track, animId)
 	if not humanoid or not track then return end
@@ -229,6 +244,10 @@ local function wireTrackAudio(humanoid, track, animId)
 			local speed = hrp and hrp.AssemblyLinearVelocity.Magnitude or 16
 			local vol = speed > 25 and 0.45 or 0.35
 			audio.playFootstep(fighter, vol)
+		end
+		local vfx = getVfxModule()
+		if vfx and fighter and fighter.Parent then
+			vfx.createFootprint(fighter)
 		end
 	end)
 

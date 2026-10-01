@@ -381,6 +381,7 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 			local slideDir = flatVel.Magnitude > 0.1 and flatVel.Unit or rootPart.CFrame.LookVector
 			local elem = fighter:GetAttribute("Element") or "Earth"
 			VfxModule.createDust(rootPart.Position, 2, slideDir, elem)
+			VfxModule.createGroundMark(rootPart, slideDir, math.clamp(speed * 0.12, 1.5, 4.5), 0.9, 3.5)
 		else
 			-- Clean walking halt: no StopRun slide. The shared gait keeps stepping while the
 			-- body decelerates and fades into the Ready stance as speed reaches zero.
@@ -516,6 +517,32 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 			end)
 		end
 	end
+	-- A jump that was not planned over a known obstacle is checked before it is taken: the
+	-- Quin only leaves the ground when the arc comes down on something it can stand on, inside
+	-- the arena. (A straight-up hop always does.)
+	if not plannedFlightTime and rootPart:IsA("BasePart") then
+		local flatVelocity = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z)
+		local across = forwardImpulse or (flatVelocity.Magnitude > 2.0 and flatVelocity.Magnitude or 0)
+		if across > 4 then
+			local look = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+			look = look.Magnitude > 0.01 and look.Unit or Vector3.new(0, 0, -1)
+			local up = math.sqrt(2 * Workspace.Gravity * math.clamp(height or 8.0, 3.0, 14.0))
+			local valid, landing, reason = TraversalModule.validateArc(rootPart, look * across + Vector3.new(0, up, 0), humanoid.HipHeight + rootPart.Size.Y / 2)
+			if valid and SpatialModule.isOutOfBounds({ Position = landing }, 4) then
+				valid, reason = false, "OutOfArena"
+			end
+			if not valid then
+				fighter:SetAttribute("JumpRejected", reason)
+				fighter:SetAttribute("JumpRejectedCount", (fighter:GetAttribute("JumpRejectedCount") or 0) + 1)
+				if DebugDraw.isActive("Jump", fighter) then
+					DebugDraw.sphere("Jump", fighter, landing, 1.0, Color3.fromRGB(255, 70, 70), 1.2)
+					DebugDraw.text("Jump", fighter, landing + Vector3.new(0, 2.5, 0), "jump rejected: " .. reason, Color3.fromRGB(255, 70, 70), 1.2)
+				end
+				return false
+			end
+		end
+	end
+
 	if fighter and fighter:IsA("Instance") then
 		if not fighter:GetAttribute("TraversalVelocityX") then
 			fighter:SetAttribute("TraversalVelocityX", 0)
@@ -673,6 +700,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		local airTime = os.clock() - jumpStartTime
 		if airTime >= 0.18 and rootPart and rootPart.Parent then
 			AudioModule.playFallOnGround(rootPart.Position)
+			VfxModule.createLandingDust(rootPart, math.clamp(airTime / 1.2, 0.25, 0.8))
 		end
 
 		local landingVelocity = rootPart and rootPart.AssemblyLinearVelocity or Vector3.zero
@@ -722,6 +750,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 			end
 		end
 	end)
+	return true -- launched (nil / false: suppressed, debounced or rejected)
 end
 
 function LocomotionModule.checkAndJump(fighter, humanoid, rootPart, forwardImpulse)
@@ -804,6 +833,7 @@ endSlide = function(fighter, humanoid, rootPart, handOff)
 	if s.conn then s.conn:Disconnect() end
 	if s.stoppedConn then s.stoppedConn:Disconnect() end
 	if s.lv and s.lv.Parent then s.lv:Destroy() end
+	VfxModule.stopSlideSmoke(s.smoke)
 	if s.att and s.att.Parent then s.att:Destroy() end
 	if fighter.Parent then
 		fighter:SetAttribute("LocomotionAction", nil)
@@ -876,7 +906,7 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 	lv.VectorVelocity = dir * startSpeed
 	lv.Parent = rootPart
 
-	local slide = { dir = dir, lv = lv, att = att }
+	local slide = { dir = dir, lv = lv, att = att, smoke = VfxModule.createSlideSmoke(rootPart), lastMark = 0 }
 	activeSlides[fighter] = slide
 
 	-- A higher-tier reaction (hit, knockback) that stops the clip ends the glide.
@@ -924,6 +954,12 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 			return
 		end
 		lv.VectorVelocity = dir * speed
+
+		-- The glide leaves a streak on the turf
+		if t >= dropT and t < stopT and os.clock() - slide.lastMark >= 0.07 then
+			slide.lastMark = os.clock()
+			VfxModule.createGroundMark(rootPart, dir, speed * 0.08 + 0.6, 1.0, 3.5)
+		end
 	end)
 
 	return exitT / rate

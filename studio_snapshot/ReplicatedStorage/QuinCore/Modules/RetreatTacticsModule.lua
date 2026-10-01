@@ -255,10 +255,10 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 			end
 		end
 
-		-- TO_HIGH_GROUND: a platform within reach of a run
+		-- TO_HIGH_GROUND: a platform within reach of a run, low enough to jump onto
 		do
 			local best, bestValue = nil, -math.huge
-			for _, platform in ipairs(SpatialModule.findNearbyPlatforms(rootPart, searchRange, 4.0, 26.0)) do
+			for _, platform in ipairs(SpatialModule.findNearbyPlatforms(rootPart, searchRange, 4.0, CombatConfig.Jump_MaxReach or 12.0)) do
 				if leadsAway(platform.position) then
 					local value = (platform.heightDiff * 2.0) - (platform.distance * 0.4)
 					if value > bestValue then best, bestValue = platform, value end

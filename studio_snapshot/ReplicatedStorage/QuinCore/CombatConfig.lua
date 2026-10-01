@@ -394,9 +394,10 @@ CombatConfig.Combat_CounterSlideStuds = 4.5            -- studs the victim of a 
 CombatConfig.Combat_GroundKnockbackMinStuds = 10       -- ground knockback skid distance range
 CombatConfig.Combat_GroundKnockbackMaxStuds = 18
 CombatConfig.Combat_GroundKnockbackTime = 0.6          -- seconds the skid takes
-CombatConfig.Combat_StrikeRange = 10.0             -- a strike is only thrown at a target within this (the step-in covers the rest)
+CombatConfig.Combat_StrikeRange = 9.0              -- a strike is only thrown at a target within this (the step-in covers the rest)
+CombatConfig.Combat_TradeWindow = 0.08               -- a strike this close to landing still comes out when its thrower is hit (a trade)
 CombatConfig.Combat_LungeMaxSpeed = 60             -- studs/s ceiling of the step-in; its real speed is whatever closes the gap
-CombatConfig.Combat_LungeStopDistance = 5.5            -- an attack lunge stops this far from the target (outside Melee_SweetSpotMin, inside hitbox reach)
+CombatConfig.Combat_LungeStopDistance = 4.8            -- an attack lunge stops this far from the target (outside Melee_SweetSpotMin; a jab reaches 6.5)
 CombatConfig.Combat_GuardStrength = 0.70               -- chance a raised guard holds against a frontal strike
 CombatConfig.Combat_DesperateCounterCooldown = 6.0     -- seconds between a Quin's cornered counter-strikes
 CombatConfig.Combat_ComboBreakChance = 0.25            -- chance per incoming combo strike to get a guard up (scaled 0.5-1.5x by defense preference)
@@ -410,6 +411,7 @@ CombatConfig.ProjectileJump_Cooldown = 14.0            -- seconds between a Quin
 CombatConfig.Combat_MeetJumpChance = 0.5                -- times aggression: chance a Quin answers an incoming projectile jump with its own
 CombatConfig.MidAirClash_TriggerDistance = 40          -- studs between two jumpers at which they clash in the air
 CombatConfig.MidAirClash_MinHeight = 12                -- ... and this high above the floor at least
+CombatConfig.Jump_MaxReach = 12.0                       -- studs of height a jump can gain; anything higher needs a projectile jump
 
 -- === Escape and pursuit at arena scale (RetreatTacticsModule, RetreatState, ChaseState) ===
 CombatConfig.Retreat_EscapeDistanceRatio = 0.5         -- open-ground escape run, as a fraction of the arena radius (60-220 studs)
@@ -421,6 +423,7 @@ CombatConfig.Retreat_PlanHold = 4.0                    -- seconds an escape plan
 CombatConfig.Retreat_ArriveDistance = 10               -- studs from the destination at which the plan is fulfilled
 CombatConfig.Retreat_LostSightTime = 2.5               -- seconds out of the pursuer's sight to count as having lost it
 CombatConfig.Retreat_LostSightMinDistance = 40         -- ... and at least this far from it
+CombatConfig.Retreat_FleeAgainDistance = 40            -- a Quin keeping away runs again when its target comes this close
 CombatConfig.Chase_TrailGiveUpConfidence = 0.6         -- memory confidence below which an unseen target is given up (minus 0.5 x persistence)
 CombatConfig.Chase_SearchLegDistance = 45              -- studs searched onward along the target's last heading, per leg
 CombatConfig.Chase_DistractionCommitment = 0.6         -- a hunter above this commitment ignores passers-by that are not after it
@@ -432,6 +435,18 @@ CombatConfig.Circling_ProwlThreshold = 0.6             -- aggression or mobility
 CombatConfig.Circling_DurationScale = 0.7              -- scale on the standoff length
 CombatConfig.Circling_OpeningMinTime = 0.5             -- seconds in the standoff before an opening can be taken
 CombatConfig.Circling_OpeningChancePerTick = 0.35      -- per tick, times aggression, to take a turned back
+
+-- === Force lean and per-Quin style (ProceduralCombatReactionController, client) ===
+CombatConfig.Locomotion_ForceLeanEnabled = true        -- upper body leans into the acceleration it is under
+CombatConfig.Locomotion_ForceLeanFullAcceleration = 60 -- studs/s^2 at which the lean is full
+CombatConfig.Locomotion_ForceLeanPitchDegrees = 14     -- forward / back lean at full acceleration
+CombatConfig.Locomotion_ForceLeanRollDegrees = 12      -- sideways lean at full acceleration
+CombatConfig.ProceduralStyle_Enabled = false           -- experiment: each Quin leans / twists / carries weight a little differently (HUD switch overrides)
+
+-- === Ground VFX (VfxModule) ===
+CombatConfig.Vfx_LandingDust = true                    -- smoke burst where a body lands (jumps, knockdowns, projectile-jump impacts)
+CombatConfig.Vfx_SlideSmoke = true                     -- smoke trailing a slide
+CombatConfig.Vfx_GroundMarks = true                    -- fading scuffs on the turf: slide streaks, skid marks, sprint footprints (max 60 at once)
 
 -- === Cognition (QuinCore.Cognition) ===
 -- Senses / Attention / Memory are the layers that can be switched off for comparison; the

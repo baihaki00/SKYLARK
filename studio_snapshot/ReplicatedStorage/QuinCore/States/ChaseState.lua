@@ -285,15 +285,33 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local energy = fighter:GetAttribute("Energy") or 100
 		local climbEnergyCost = CombatConfig.HighGround_InterceptJumpEnergyCost or 20
 
-		if verticalGap <= (CombatConfig.HighGround_InterceptJumpMaxReach or 35.0) then
-			-- In reachable jump range: launch intentional High-Ground Intercept Jump
-			if energy >= climbEnergyCost and (tick() - lastPJ) >= 4.0 and flatDistToTgt <= 45.0
-				and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
-				fighter:SetAttribute("LastPositioningJumpTime", tick())
-				fighter:SetAttribute("Energy", energy - climbEnergyCost)
+		local canLeave = not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
+		if verticalGap <= (CombatConfig.Jump_MaxReach or 12.0) then
+			-- Within a jump's reach: jump up after it. Energy and the cooldown are only spent
+			-- when the jump is actually taken (its arc is checked for a landing first).
+			if energy >= climbEnergyCost and (tick() - lastPJ) >= 4.0 and flatDistToTgt <= 45.0 and canLeave then
 				fighter:SetAttribute("ObstacleAwareness", "High-Ground Intercept Jump")
-				LocomotionModule.jump(fighter, humanoid, rootPart, verticalGap + 3.0, 38.0, "jump")
-				return ChaseState
+				if LocomotionModule.jump(fighter, humanoid, rootPart, verticalGap + 2.0, 38.0, "jump") then
+					fighter:SetAttribute("LastPositioningJumpTime", tick())
+					fighter:SetAttribute("Energy", energy - climbEnergyCost)
+					return ChaseState
+				end
+			end
+		elseif canLeave then
+			-- Higher than any jump: the projectile jump is the way up to a target on a platform
+			local lastProjectileJump = fighter:GetAttribute("LastProjectileJumpTime") or 0
+			local cooldown = (CombatConfig.ProjectileJump_Cooldown or 14.0) / (workspace:GetAttribute("GameSpeedMultiplier") or 1.0)
+			if CombatConfig.EnableProjectileJump ~= false and fighter:GetAttribute("EnableProjectileJump") ~= false
+				and energy >= (CombatConfig.ProjectileJumpMinEnergy or 40)
+				and (tick() - lastProjectileJump) >= cooldown
+				and flatDistToTgt <= (CombatConfig.ProjectileJumpMaxDistance or 800) then
+				fighter:SetAttribute("LastProjectileJumpTime", tick())
+				fighter:SetAttribute("ObstacleAwareness", "Projectile jump to target on high ground")
+				local stylePool = { 1, 1, 2, 3, 4, 5, 5, 6, 7 }
+				fighter:SetAttribute("JumpStyle", stylePool[math.random(1, #stylePool)])
+				fighter:SetAttribute("CurrentTarget", target.Name)
+				fighter:SetAttribute("TargetQuin", target.Name)
+				return require(script.Parent:WaitForChild("ProjectileJumpState"))
 			end
 		end
 
@@ -695,16 +713,6 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	-- Elevated Platform Awareness (Target standing on high OB floating platform)
-	local elevInfo = SpatialModule.detectElevatedPlatform(rootPart, targetHRP.Position)
-	if elevInfo.isElevated and not inShowdown then
-		local flatDist = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
-		if flatDist < 25 and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
-			fighter:SetAttribute("ObstacleAwareness", "Intercepting Elevated OB")
-			JumpHandler.performJump(humanoid, rootPart, math.clamp(elevInfo.heightDiff, 15, 35), nil, "jump")
-		end
-	end
-
 	-- High-Ground Seeking: climb to a reachable overhead platform when it grants an
 	-- advantage — target is above, being pressured/bullied, or critically hurt.
 	local overheadPlatform = SpatialModule.findReachableOverheadPlatform(rootPart, 14)
@@ -717,29 +725,11 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		if wantHighGround and (now - lastHighGround) > 6 then
 			data.lastHighGroundJump = now
 			fighter:SetAttribute("ObstacleAwareness", "Climbing High Ground")
-			local climbHeight = math.clamp(overheadPlatform.topY - rootPart.Position.Y, 5, 14)
+			local climbHeight = math.clamp(overheadPlatform.topY - rootPart.Position.Y + 1, 5, 14)
 			JumpHandler.performJump(humanoid, rootPart, climbHeight, 22, "vault")
 		end
 	end
 
-	-- Positioning Projectile-Jump: launch up to a HIGH platform (beyond normal jump reach)
-	local highPlatform = SpatialModule.findReachableOverheadPlatform(rootPart, CombatConfig.PositioningJumpMaxReach or 80, 15)
-	if highPlatform and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
-		local lastPosJump = fighter:GetAttribute("LastPositioningJumpTime") or 0
-		local energy = fighter:GetAttribute("Energy") or 100
-		local recAction = fighter:GetAttribute("RecommendedAction")
-		local beingBullied = fighter:GetAttribute("BeingBullied")
-		local wantPosition = (recAction == "Retreat" or beingBullied or hpRatio < 0.35)
-		if wantPosition and energy >= (CombatConfig.ProjectileJumpMinEnergy or 40) and (now - lastPosJump) > (CombatConfig.PositioningJumpCooldown or 10) then
-			fighter:SetAttribute("LastPositioningJumpTime", now)
-			fighter:SetAttribute("ObstacleAwareness", "Positioning Jump to High Ground")
-			local topPos = highPlatform.position + Vector3.new(0, 5, 0)
-			local jumpHeight = math.max(8, (topPos.Y - rootPart.Position.Y) + 2)
-			LocomotionModule.jump(fighter, humanoid, rootPart, jumpHeight, 45, "jump")
-			return ChaseState
-		end
-	end
-	
 	-- Self Platform Dismount (Phase 4): if THIS Quin is perched on an elevated platform,
 	-- walk toward the nearest ledge biased toward the target rather than milling around.
 	local platformDismountDir = nil

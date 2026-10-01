@@ -175,6 +175,10 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 			
 			AudioModule.playSlam(rootPart.Position)
 			VfxModule.createDust(rootPart, 10)
+			VfxModule.createLandingDust(rootPart, math.clamp(flatVel.Magnitude / 80, 0.4, 1))
+			if groundSlideSpeed > 10 then
+				VfxModule.createGroundMark(rootPart, slideDir, math.clamp(flatVel.Magnitude * 0.15, 2, 8), 1.6, 4)
+			end
 			VfxModule.shakeScreen(rootPart.Position, 350, 8)
 			RuntimeTracer.checkpoint(fighter, "GroundContact → IMPACT & SLIDE")
 			

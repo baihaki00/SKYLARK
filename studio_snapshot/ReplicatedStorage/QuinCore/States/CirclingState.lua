@@ -210,8 +210,15 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
 	local targetState = target:GetAttribute("CurrentState")
 
+	-- A Quin that has decided to get away is here to keep its distance and catch its breath,
+	-- not to duel: it takes no part in the standoff below, and it runs again when pressed.
+	local keepingAway = fighter:GetAttribute("TacticalState") == "RETREATING"
+	if keepingAway and distance < (CombatConfig.Retreat_FleeAgainDistance or 40) then
+		return require(script.Parent:WaitForChild("RetreatState"))
+	end
+
 	-- Snap condition 0: Opponent broke the standoff to fight!
-	if targetState == "Fight" or targetState == "Dash" or targetState == "Special" then
+	if not keepingAway and (targetState == "Fight" or targetState == "Dash" or targetState == "Special") then
 		if DEBUG then print("[Circling] Opponent attacked! FIGHT!") end
 		return require(script.Parent:WaitForChild("FightState"))
 	end
@@ -224,7 +231,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true)
 
 	local now = tick()
-	if not TEST_MODE_ACTIVE and not isTargetDown then
+	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway then
 		if now - data.enterTime >= data.duration or distance < minCircleRange then
 			-- Tension snapped at close quarters: dash/attack into FightState!
 			local dashMin = CombatConfig.DashMinDistance or 10
@@ -240,7 +247,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- An opening ends the standoff early: the target has turned its back (it is busy with
 	-- someone else, or walking away) and is within a dash. Aggressive Quins take it sooner.
-	if not TEST_MODE_ACTIVE and not isTargetDown and (now - data.enterTime) >= (CombatConfig.Circling_OpeningMinTime or 0.5) then
+	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway and (now - data.enterTime) >= (CombatConfig.Circling_OpeningMinTime or 0.5) then
 		local toMe = flatUnit(rootPart.Position - targetHRP.Position, nil)
 		local targetFacing = flatUnit(targetHRP.CFrame.LookVector, nil)
 		local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6

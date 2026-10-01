@@ -16,6 +16,7 @@ local ImpulseModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("Imp
 local Priority = ImpulseModule.Priority
 local SLIDE_FORCE = 150000 -- slides and knockbacks have full authority over the body's walking
 local FLINCH_TIME = 0.3
+local LUNGE_FORCE = 60000 -- enough to carry the step-in over the Humanoid's own braking
 
 -- A launch owns the body: drop every ground push and any vertical slam mover
 local function cleanupMovers(targetModel, hrp)
@@ -171,7 +172,7 @@ function KnockbackModule.applyLunge(model, direction, speed, duration, maxTravel
 		speed = math.min(speed, ImpulseModule.speedForDistance(maxTravel, duration, "lunge"))
 	end
 	ImpulseModule.push(model, "lunge", direction, speed, duration, {
-		profile = "lunge", priority = Priority.SelfMotion,
+		profile = "lunge", priority = Priority.SelfMotion, maxForce = LUNGE_FORCE,
 	})
 end
 

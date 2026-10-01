@@ -279,6 +279,34 @@ function TraversalModule.plan(rootPart, desiredDirection, requestedHeight, forwa
     return plan, candidate
 end
 
+-- Would a body launched from where it stands at `launchVelocity` come down somewhere it can
+-- stand? Follows the arc of the feet until it meets something.
+-- Returns valid, landingPosition, reason ("NoLanding", "HitsWall", "NoHeadroom").
+function TraversalModule.validateArc(rootPart, launchVelocity, feetBelowRoot)
+    local params = rayParams(rootPart)
+    local gravity = Vector3.new(0, -Workspace.Gravity, 0)
+    local height = bodyMetrics(rootPart)
+    local position = rootPart.Position - Vector3.new(0, feetBelowRoot - 0.6, 0)
+    local velocity = launchVelocity
+    local step = 0.06
+    for _ = 1, 50 do
+        local nextPosition = position + velocity * step + 0.5 * gravity * (step * step)
+        local hit = DebugDraw.raycast(rootPart, position, nextPosition - position, params)
+        if hit and hit.Instance and hit.Instance.CanCollide then
+            if hit.Normal.Y < TraversalModule.Config.MinLandingNormalY then
+                return false, hit.Position, "HitsWall"
+            end
+            if not hasClearance(hit.Position, rootPart, height) then
+                return false, hit.Position, "NoHeadroom"
+            end
+            return true, hit.Position, nil
+        end
+        position = nextPosition
+        velocity += gravity * step
+    end
+    return false, position, "NoLanding"
+end
+
 function TraversalModule.markTraversal(fighter, plan)
     if not fighter or not plan then return end
     fighter:SetAttribute("TraversalType", plan.type)

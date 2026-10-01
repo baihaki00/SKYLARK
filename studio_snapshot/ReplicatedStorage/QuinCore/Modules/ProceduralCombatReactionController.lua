@@ -394,7 +394,7 @@ function ProceduralCombatReactionController:update(dt)
 			-- whenever a backpedalling Quin drifted across that line.
 			moveAngle = math.atan2(localVel.X, math.abs(localVel.Z))
 		end
-		local targetHipsYaw = moveAngle * 0.38
+		local targetHipsYaw = moveAngle * 0.38 * (self.twistScale or 1)
 		local targetSpineYaw = -targetHipsYaw * 0.85
 		self.locomotionHipsYaw = (self.locomotionHipsYaw or 0) + (targetHipsYaw - (self.locomotionHipsYaw or 0)) * (1 - math.exp(-12.0 * dt))
 		self.locomotionSpineYaw = (self.locomotionSpineYaw or 0) + (targetSpineYaw - (self.locomotionSpineYaw or 0)) * (1 - math.exp(-12.0 * dt))
@@ -436,6 +436,44 @@ function ProceduralCombatReactionController:update(dt)
 		end
 	end
 
+	-- 4b. Force lean: the upper body leans into the acceleration the body is under - forward
+	-- as it drives off, back as it brakes, into a turn or a sidestep, away from a hit that
+	-- shoves it. The acceleration is taken from a smoothed velocity so solver jitter does not
+	-- reach the spine.
+	-- Per-Quin style (experiment, off by default): each Quin leans and twists a little
+	-- differently and with its own weight, seeded from its name so it is always the same Quin.
+	local styleSwitch = workspace:GetAttribute("ProceduralStyle")
+	local styleOn = styleSwitch == true or (styleSwitch == nil and CombatConfig.ProceduralStyle_Enabled == true)
+	if not self.style then
+		local seed = 0
+		local name = serverModel and serverModel.Name or ""
+		for i = 1, #name do
+			seed = (seed * 31 + string.byte(name, i)) % 100003
+		end
+		local rng = Random.new(seed)
+		self.style = { lean = rng:NextNumber(0.6, 1.5), twist = rng:NextNumber(0.7, 1.4), response = rng:NextNumber(5, 11) }
+	end
+	local leanScale = styleOn and self.style.lean or 1
+	local leanResponse = styleOn and self.style.response or 8
+	self.twistScale = styleOn and self.style.twist or 1
+
+	local previousVelocity = self.leanVelocity or flatVel
+	self.leanVelocity = previousVelocity + (flatVel - previousVelocity) * (1 - math.exp(-10.0 * dt))
+	local rawAcceleration = dt > 0 and (self.leanVelocity - previousVelocity) / dt or Vector3.zero
+	local smoothedAcceleration = self.leanAcceleration or Vector3.zero
+	self.leanAcceleration = smoothedAcceleration + (rawAcceleration - smoothedAcceleration) * (1 - math.exp(-6.0 * dt))
+
+	local forcePitchTarget, forceRollTarget = 0, 0
+	if CombatConfig.Locomotion_ForceLeanEnabled ~= false and not isAirborne then
+		local localAcceleration = self.rootPart.CFrame:VectorToObjectSpace(self.leanAcceleration)
+		local fullAcceleration = CombatConfig.Locomotion_ForceLeanFullAcceleration or 60
+		forcePitchTarget = math.clamp(localAcceleration.Z / fullAcceleration, -1, 1) * math.rad(CombatConfig.Locomotion_ForceLeanPitchDegrees or 14) * leanScale
+		forceRollTarget = math.clamp(-localAcceleration.X / fullAcceleration, -1, 1) * math.rad(CombatConfig.Locomotion_ForceLeanRollDegrees or 12) * leanScale
+	end
+	local leanBlend = 1 - math.exp(-leanResponse * dt)
+	self.forceLeanPitch = (self.forceLeanPitch or 0) + (forcePitchTarget - (self.forceLeanPitch or 0)) * leanBlend
+	self.forceLeanRoll = (self.forceLeanRoll or 0) + (forceRollTarget - (self.forceLeanRoll or 0)) * leanBlend
+
 	-- 5. Advance Hips Ground Compression Spring
 	local hipsK = 260
 	local hipsD = 28
@@ -444,11 +482,11 @@ function ProceduralCombatReactionController:update(dt)
 	self.hipsOffset = math.clamp(self.hipsOffset + self.hipsVelocity * dt, -0.65, 0.1)
 
 	-- Total torso recoil angles = spring recoil + airborne orientation + centripetal bank roll + locomotion pitch
-	local totalPitch = self.currentPitch + self.airPitch + (self.locomotionPitch or 0)
+	local totalPitch = self.currentPitch + self.airPitch + (self.locomotionPitch or 0) + self.forceLeanPitch
 	local totalYaw = self.currentYaw
 
 	-- Torso bank roll applies strictly to the spine chain (Spine, Spine1, Spine2)
-	local spineRoll = self.currentRoll + self.airRoll + self.currentBankRoll
+	local spineRoll = self.currentRoll + self.airRoll + self.currentBankRoll + self.forceLeanRoll
 	local headRoll  = self.currentRoll + self.airRoll
 
 	-- Hierarchical distribution across spine chain:

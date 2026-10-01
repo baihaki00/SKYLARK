@@ -286,7 +286,8 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- Set telegraphing attributes for causal defense (impact window driven by config)
 	local now = tick()
 	fighter:SetAttribute("Attacking", true)
-	fighter:SetAttribute("AttackWindupUntil", now + impactDelay)
+	local windupUntil = now + impactDelay
+	fighter:SetAttribute("AttackWindupUntil", windupUntil)
 	task.delay(effectiveDuration, function()
 		if fighter.Parent and tick() >= (data.attackFinishTime or 0) then
 			fighter:SetAttribute("Attacking", false)
@@ -318,6 +319,11 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- Hit detection at exact impact frame
 	task.delay(impactDelay, function()
 		if not fighter.Parent or not target.Parent then return end
+		-- Hit while winding up: the strike never comes out and the chain is broken
+		if fighter:GetAttribute("StrikeInterrupted") == windupUntil then
+			ComboModule.resetCombo(fighter)
+			return
+		end
 		local hitModels = HitboxModule.castInFront(rootPart, moveData.hitboxSize, Vector3.new(0, 0, -3), fighter)
 		local landed = false
 

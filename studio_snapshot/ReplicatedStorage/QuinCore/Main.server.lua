@@ -619,7 +619,9 @@ task.spawn(function()
 				Quin:SetAttribute("TacticalDecision", bestAction)
 
 				-- 4. Decision-driven behavior override: wire the tactical decision into the FSM
-				local isMeleeCommitted = (currentState.name == "Fight" or currentState.name == "Special")
+				-- States a decision to retreat pulls the Quin out of: a fight, and a chase back
+				-- into one (a Quin at 5% health used to flee, turn round and chase, eight times over)
+				local isMeleeCommitted = (currentState.name == "Fight" or currentState.name == "Special" or currentState.name == "Chase")
 				local nowClock = os.clock()
 
 				if bestAction == "Retreat" and isMeleeCommitted and showdownRole ~= "Duelist" then

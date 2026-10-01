@@ -950,4 +950,159 @@ function VfxModule.emitFootstepSmoke(fighter, footPosition)
 	Debris:AddItem(attPart, 0.30)
 end
 
+-- ============================================================
+-- GROUND FEEDBACK  (landing dust, slide smoke, marks left on the turf)
+-- Switches: CombatConfig.Vfx_LandingDust / Vfx_SlideSmoke / Vfx_GroundMarks
+-- ============================================================
+local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+
+local SMOKE_TEXTURE = "rbxassetid://6508826458"
+local SMOKE_COLOR = ColorSequence.new(Color3.fromRGB(205, 210, 215), Color3.fromRGB(150, 155, 160))
+local MARK_COLOR = Color3.fromRGB(38, 62, 44) -- scuffed turf
+local MARK_LIMIT = 60 -- marks on the field at once; further ones are skipped
+local FOOTPRINT_MIN_SPEED = 25 -- studs/s: only a sprint digs into the turf
+local FOOTPRINT_INTERVAL = 0.15 -- seconds between prints per Quin (several gait clips fire the same step)
+
+local markCount = 0
+local lastFootprint = setmetatable({}, { __mode = "k" })
+local footprintSide = setmetatable({}, { __mode = "k" })
+
+-- The point on the floor under a standing Quin (root part given), or the position itself
+local function floorPoint(source)
+	if typeof(source) == "Instance" and source:IsA("BasePart") then
+		local humanoid = source.Parent and source.Parent:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			return source.Position - Vector3.new(0, humanoid.HipHeight + source.Size.Y / 2, 0)
+		end
+		return source.Position
+	end
+	return source
+end
+
+local function emitterAnchor(position, lifetime)
+	local anchor = Instance.new("Part")
+	anchor.Name = "GroundVfx"
+	anchor.Size = Vector3.new(0.1, 0.1, 0.1)
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanQuery = false
+	anchor.CanTouch = false
+	anchor.Transparency = 1
+	anchor.CFrame = CFrame.new(position)
+	anchor.Parent = workspace
+	Debris:AddItem(anchor, lifetime)
+	local attachment = Instance.new("Attachment")
+	attachment.Parent = anchor
+	return attachment
+end
+
+-- A low burst of smoke spreading along the ground where a body comes down.
+-- source: floor position or the Quin's root part; strength 0..1 (a hop .. a slam)
+function VfxModule.createLandingDust(source, strength)
+	if CombatConfig.Vfx_LandingDust == false then return end
+	strength = math.clamp(strength or 0.5, 0.2, 1)
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Texture = SMOKE_TEXTURE
+	emitter.Color = SMOKE_COLOR
+	emitter.LightEmission = 0.1
+	emitter.LightInfluence = 0.8
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.5 + strength * 0.5),
+		NumberSequenceKeypoint.new(1, 1.6 + strength * 1.6),
+	})
+	emitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.35),
+		NumberSequenceKeypoint.new(0.6, 0.7),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	emitter.Lifetime = NumberRange.new(0.35, 0.6)
+	emitter.Speed = NumberRange.new(7 + strength * 6, 12 + strength * 12)
+	emitter.SpreadAngle = Vector2.new(86, 86) -- nearly flat: outward along the ground
+	emitter.EmissionDirection = Enum.NormalId.Top
+	emitter.Drag = 5
+	emitter.Rate = 0
+	emitter.Parent = emitterAnchor(floorPoint(source) + Vector3.new(0, 0.2, 0), 1.0)
+	emitter:Emit(math.round(8 + strength * 12))
+end
+
+-- Smoke trailing from under a sliding Quin. Returns the emitter; stop it with
+-- VfxModule.stopSlideSmoke when the slide ends.
+function VfxModule.createSlideSmoke(rootPart)
+	if CombatConfig.Vfx_SlideSmoke == false then return nil end
+	local humanoid = rootPart.Parent and rootPart.Parent:FindFirstChildOfClass("Humanoid")
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "SlideSmokeAtt"
+	attachment.Position = Vector3.new(0, -((humanoid and humanoid.HipHeight or 4) + rootPart.Size.Y / 2) + 0.3, 1.2)
+	attachment.Parent = rootPart
+
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Texture = SMOKE_TEXTURE
+	emitter.Color = SMOKE_COLOR
+	emitter.LightEmission = 0.1
+	emitter.LightInfluence = 0.8
+	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 1.5) })
+	emitter.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 1) })
+	emitter.Lifetime = NumberRange.new(0.3, 0.5)
+	emitter.Speed = NumberRange.new(1, 3)
+	emitter.SpreadAngle = Vector2.new(40, 40)
+	emitter.EmissionDirection = Enum.NormalId.Back
+	emitter.Rate = 35
+	emitter.Parent = attachment
+	return emitter
+end
+
+function VfxModule.stopSlideSmoke(emitter)
+	if not emitter then return end
+	emitter.Enabled = false
+	if emitter.Parent then
+		Debris:AddItem(emitter.Parent, 0.6)
+	end
+end
+
+-- A scuff left on the turf: a short dark strip along `direction` that fades out.
+-- source: floor position or the Quin's root part
+function VfxModule.createGroundMark(source, direction, length, width, lifetime)
+	if CombatConfig.Vfx_GroundMarks == false or markCount >= MARK_LIMIT then return end
+	local flat = Vector3.new(direction.X, 0, direction.Z)
+	if flat.Magnitude < 0.01 then return end
+	lifetime = lifetime or 3.5
+	local position = floorPoint(source) + Vector3.new(0, 0.04, 0)
+
+	local mark = Instance.new("Part")
+	mark.Name = "GroundMark"
+	mark.Size = Vector3.new(width or 0.8, 0.05, length or 1.2)
+	mark.CFrame = CFrame.lookAt(position, position + flat.Unit)
+	mark.Anchored = true
+	mark.CanCollide = false
+	mark.CanQuery = false
+	mark.CanTouch = false
+	mark.CastShadow = false
+	mark.Material = Enum.Material.SmoothPlastic
+	mark.Color = MARK_COLOR
+	mark.Transparency = 0.5
+	mark.Parent = workspace
+
+	markCount += 1
+	TweenService:Create(mark, TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 1 }):Play()
+	task.delay(lifetime, function()
+		markCount -= 1
+		mark:Destroy()
+	end)
+end
+
+-- A sprinting step: one footprint, left and right alternating
+function VfxModule.createFootprint(fighter)
+	if CombatConfig.Vfx_GroundMarks == false then return end
+	local rootPart = fighter and fighter:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+	local velocity = rootPart.AssemblyLinearVelocity
+	local flat = Vector3.new(velocity.X, 0, velocity.Z)
+	local now = os.clock()
+	if flat.Magnitude < FOOTPRINT_MIN_SPEED or now - (lastFootprint[fighter] or 0) < FOOTPRINT_INTERVAL then return end
+	lastFootprint[fighter] = now
+	footprintSide[fighter] = -(footprintSide[fighter] or 1)
+	local side = flat.Unit:Cross(Vector3.yAxis) * (0.6 * footprintSide[fighter])
+	VfxModule.createGroundMark(floorPoint(rootPart) + side, flat, 1.0, 0.45, 2.5)
+end
+
 return VfxModule

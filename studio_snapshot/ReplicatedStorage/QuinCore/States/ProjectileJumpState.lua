@@ -826,6 +826,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		AudioModule.playFallOnGround(rootPart.Position)
 		AudioModule.playSlam(rootPart.Position)
 		VfxModule.createDust(rootPart, 8)
+		VfxModule.createLandingDust(rootPart, 1)
 		local elem = fighter:GetAttribute("Element") or "Fire"
 		VfxModule.createShockwave(jumperPos, 22, 0.40, elem)
 		VfxModule.shakeScreen(rootPart.Position, 400, 8)

@@ -252,7 +252,9 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- TRANSITION 3: PURSUER OVEREXTENSION / WHIFF COUNTERATTACK
 	-- If pursuer swung and missed, or overshot past runner within 10 studs, seize initiative!
-	if nearestThreat and nearestThreatDist <= (CombatConfig.PursuerOverextendWhiffDistance or 10.0) and elapsed >= minCommitDuration then
+	-- Only a Quin with fight left in it turns round; one running for its life keeps running
+	local canTurnAndFight = humanoid.Health / humanoid.MaxHealth > (CombatConfig.RetreatCriticalHealth or 0.20)
+	if canTurnAndFight and nearestThreat and nearestThreatDist <= (CombatConfig.PursuerOverextendWhiffDistance or 10.0) and elapsed >= minCommitDuration then
 		local threatAttacking = nearestThreat:GetAttribute("Attacking")
 		local threatWindupUntil = nearestThreat:GetAttribute("AttackWindupUntil") or 0
 		local hasWhiffed = threatAttacking and (now > threatWindupUntil)
@@ -309,7 +311,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- Outcome B: Reached Allies -> Turn and COUNTERATTACK! (Guaranteed commitment fulfilled)
-	if result.objective == "TO_ALLIES" and #allies >= 1 and elapsed >= minCommitDuration then
+	if canTurnAndFight and result.objective == "TO_ALLIES" and #allies >= 1 and elapsed >= minCommitDuration then
 		local allyDist = (result.targetPosition - rootPart.Position).Magnitude
 		if allyDist <= 16 then
 			-- We successfully pulled pursuer to allies! Turn and strike!
@@ -361,8 +363,13 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 
 		-- Decision changed by player command or external system
+		-- The run is finished before the Quin reconsiders. Leaving the fight is what makes the
+		-- reason to leave go away (no longer outnumbered once it is out of the crowd), so
+		-- reconsidering mid-run turned every retreat into a 2.5 s out-and-back.
+		local runFinished = (result.targetPosition - rootPart.Position).Magnitude <= (CombatConfig.Retreat_ArriveDistance or 10) + 8
+			or elapsed >= (CombatConfig.Retreat_PlanHold or 4.0)
 		local recAction = fighter:GetAttribute("RecommendedAction")
-		if recAction and recAction ~= "Retreat" and nearestThreatDist > 20 then
+		if recAction and recAction ~= "Retreat" and nearestThreatDist > 20 and runFinished then
 			RuntimeTracer.checkpoint(fighter, "Retreat complete -> " .. recAction)
 			return require(script.Parent:WaitForChild("CirclingState"))
 		end
@@ -411,8 +418,8 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	if result.objective == "TO_HIGH_GROUND" and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
 		local distToPlat = (result.targetPosition - rootPart.Position).Magnitude
 		local verticalDelta = result.targetPosition.Y - rootPart.Position.Y
-		if distToPlat <= 18 and verticalDelta >= 4.0 and verticalDelta <= 20.0 then
-			JumpHandler.performJump(humanoid, rootPart, verticalDelta + 3.0, 48, "jump")
+		if distToPlat <= 18 and verticalDelta >= 4.0 and verticalDelta <= (CombatConfig.Jump_MaxReach or 12.0) then
+			JumpHandler.performJump(humanoid, rootPart, verticalDelta + 2.0, 30, "jump")
 		end
 	end
 

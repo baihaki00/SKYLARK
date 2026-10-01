@@ -299,7 +299,7 @@ local layerList = RuntimeVisualizer and RuntimeVisualizer.getLayers() or {}
 -- Cognition switches (QuinCore.Cognition.Layers): take a layer of the Quins' perception out,
 -- for every Quin, to see what it contributes. The server owns the state; a toggle asks for it.
 local CognitionLayers = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Layers"))
-local toggleCount = #layerList + 1 + #CognitionLayers.Switchable
+local toggleCount = #layerList + 2 + #CognitionLayers.Switchable
 local LAYER_PANEL_HEIGHT = RuntimeVisualizer and (math.ceil(toggleCount / 2) * LAYER_ROW_HEIGHT + 8) or 0
 
 local layerPanel = Instance.new("Frame")
@@ -352,8 +352,16 @@ if RuntimeVisualizer then
 		RuntimeVisualizer.setWatchAll(not RuntimeVisualizer.isWatchingAll())
 	end)
 
+	-- Per-Quin motion style experiment (client-side presentation only)
+	addLayerToggle(#layerList + 2, "Motion: per-Quin style (experiment)", function()
+		local switch = Workspace:GetAttribute("ProceduralStyle")
+		return switch == true
+	end, function()
+		Workspace:SetAttribute("ProceduralStyle", Workspace:GetAttribute("ProceduralStyle") ~= true)
+	end)
+
 	for offset, layer in ipairs(CognitionLayers.Switchable) do
-		local refresh = addLayerToggle(#layerList + 1 + offset, "AI: " .. layer.label, function()
+		local refresh = addLayerToggle(#layerList + 2 + offset, "AI: " .. layer.label, function()
 			return CognitionLayers.isEnabled(layer.id)
 		end, function()
 			CognitionLayers.request(layer.id, not CognitionLayers.isEnabled(layer.id))
