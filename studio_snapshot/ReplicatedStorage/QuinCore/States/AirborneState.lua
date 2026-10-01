@@ -104,8 +104,19 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 	if not targetHRP then return AirborneState end
 	
 	-- Aerial Encounter Trigger: If opponent is airborne within 35 studs, enter MidAirClash!
+	-- Not right after a clash (the winner fell into this state and clashed again with the
+	-- Quin it had just smashed, every 0.4s), and not with a Quin being thrown (Knockback):
+	-- "in the air" is the humanoid off the floor, not a fixed height (platform tops are higher).
 	local targetState = target:GetAttribute("CurrentState")
-	if (targetState == "Airborne" or targetState == "ProjectileJump" or targetState == "MidAirClash" or targetHRP.Position.Y > 20) and distance < 35 then
+	local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
+	local targetOffGround = targetHumanoid ~= nil and (targetHumanoid.PlatformStand or targetHumanoid.FloorMaterial == Enum.Material.Air)
+	local clashCooldown = CombatConfig.MidAirClash_Cooldown or 3.0
+	local clashedRecently = os.clock() - (fighter:GetAttribute("LastClashTime") or 0) < clashCooldown
+		or os.clock() - (target:GetAttribute("LastClashTime") or 0) < clashCooldown
+	-- (a clash between two others is not joined: that made three-way clashes)
+	if not clashedRecently and targetState ~= "Knockback" and targetState ~= "MidAirClash"
+		and (targetState == "Airborne" or targetState == "ProjectileJump" or targetState == "MidAirClash" or targetOffGround) and distance < 35 then
+		fighter:SetAttribute("ClashWith", target.Name)
 		return require(script.Parent:WaitForChild("MidAirClashState"))
 	end
 	

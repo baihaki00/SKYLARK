@@ -175,10 +175,16 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 			elseif distance <= combatRange * 3.5 then
 				-- Standoff range: circular pacing
 				return require(script.Parent:WaitForChild("CirclingState"))
-			else
-				-- Distant opponent: pursue
-				return require(script.Parent:WaitForChild("ChaseState"))
 			end
+		end
+		-- Nobody within reach. On a high platform that is a place worth holding.
+		local OverwatchState = require(script.Parent:WaitForChild("OverwatchState"))
+		if OverwatchState.canHold(fighter, rootPart) then
+			return OverwatchState
+		end
+		if target then
+			-- Distant opponent: pursue
+			return require(script.Parent:WaitForChild("ChaseState"))
 		end
 		return require(script.Parent:WaitForChild("IdleState"))
 	end

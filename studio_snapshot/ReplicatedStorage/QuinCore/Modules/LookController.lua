@@ -73,6 +73,19 @@ function LookController:resolveTargetPosition()
 			end
 		end
 
+		-- Scanning (Cognition.Gaze): a glance at the sky, or looking down over the edge of
+		-- high ground. The head goes where the eyes point, straight ahead of the body.
+		local gazeMode = serverModel:GetAttribute("GazeMode")
+		local gazePitch = math.rad(serverModel:GetAttribute("GazePitch") or 0)
+		if not isPlayer and (gazeMode == "glance" or gazeMode == "resting") and math.abs(gazePitch) > math.rad(5) and self.rootPart then
+			local look = self.rootPart.CFrame.LookVector
+			local flat = Vector3.new(look.X, 0, look.Z)
+			if flat.Magnitude > 0.01 then
+				local origin = self.headBone and self.headBone.WorldCFrame.Position or self.rootPart.Position
+				return origin + (flat.Unit * math.cos(gazePitch) + Vector3.new(0, math.sin(gazePitch), 0)) * 50, "SCAN"
+			end
+		end
+
 		local targetName = serverModel:GetAttribute("TargetQuin") or serverModel:GetAttribute("CurrentTarget")
 		if targetName and targetName ~= "" then
 			local qServer = Workspace:FindFirstChild("QuinServer") or Workspace

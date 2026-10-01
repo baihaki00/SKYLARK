@@ -451,6 +451,44 @@ CombatConfig.Vfx_LandingDust = true                    -- smoke burst where a bo
 CombatConfig.Vfx_SlideSmoke = true                     -- smoke trailing a slide
 CombatConfig.Vfx_GroundMarks = true                    -- fading scuffs on the turf: slide streaks, skid marks, sprint footprints (max 60 at once)
 
+-- === Projectile jump landing ===
+-- The horizontal part of the arrival speed carries the body along the ground: a steep dive
+-- stops where it lands, a shallow one skids. The body lays back against the skid and rights
+-- itself as it runs out.
+CombatConfig.ProjectileJump_LandingSlideFactor = 0.03   -- studs of slide per stud/s of horizontal arrival speed
+CombatConfig.ProjectileJump_LandingSlideMax = 14        -- studs, longest slide
+CombatConfig.ProjectileJump_LandingSlidePreciseMax = 2  -- ... when landing on a chosen spot (a platform)
+CombatConfig.ProjectileJump_LandingSlideDuration = 0.5  -- seconds from touchdown to full stop
+CombatConfig.ProjectileJump_LandingLeanDegrees = 22     -- whole-body tilt at full slide speed
+CombatConfig.ProjectileJump_LandingLeanFullSpeed = 40   -- studs/s of slide at which the tilt is full
+
+-- === Mid-air clash outcomes ===
+CombatConfig.MidAirClash_ImmediateSmashChance = 0.3     -- chance there is no brawl: the faster one smashes the other down at once
+CombatConfig.MidAirClash_SmashSpeed = 260               -- studs/s the loser is thrown down at
+
+-- === Sky intercept (Modules/AirInterceptModule) ===
+CombatConfig.Intercept_MinHeight = 40          -- studs an airborne enemy must be above the Quin
+CombatConfig.Intercept_MaxRange = 300          -- studs
+CombatConfig.Intercept_ChanceBase = 0.03       -- chance to go up after a jumper it has seen
+CombatConfig.Intercept_ChanceAggression = 0.15 -- ... plus this times aggression
+CombatConfig.Intercept_RollInterval = 3.0      -- seconds before the same Quin is considered again
+CombatConfig.Intercept_ContactDistance = 15     -- studs at which an interceptor has reached its jumper (clash starts)
+CombatConfig.Intercept_ClaimTime = 3.0           -- seconds a jumper is left to the Quin that went up after it
+CombatConfig.Intercept_MaxTargetFallSpeed = 100   -- studs/s: a jumper falling faster than this (diving) is not gone up after
+CombatConfig.MidAirClash_HelplessSmashChance = 0.75 -- an intercepted Quin that is not jumping itself is smashed down at once
+CombatConfig.MidAirClash_Cooldown = 3.0              -- seconds after a clash before either Quin can clash again
+
+-- === Overwatch (States/OverwatchState): holding a high platform ===
+CombatConfig.Overwatch_Enabled = true
+CombatConfig.Overwatch_MinHeight = 12          -- studs above the arena floor for a platform to be worth holding
+CombatConfig.Overwatch_WatchMin = 4            -- seconds on watch before diving back in (aggressive Quins)
+CombatConfig.Overwatch_WatchMax = 12           -- ... (patient Quins)
+CombatConfig.Overwatch_MaxWatch = 25           -- seconds after which it comes down whatever happens
+CombatConfig.Overwatch_WalkSpeed = 10          -- studs/s along the edge
+CombatConfig.Overwatch_EdgeInset = 3           -- studs kept from the edge
+CombatConfig.Overwatch_EngageRange = 30        -- an enemy this close at the same height is fought up there
+CombatConfig.Retreat_RendezvousValue = 15      -- extra worth of a platform per ally already on it (up to 3)
+
 -- === Cognition (QuinCore.Cognition) ===
 -- Senses / Attention / Memory are the layers that can be switched off for comparison; the
 -- value here is the default, the Spectator HUD changes it live (workspace Cognition_<Name>).
@@ -465,6 +503,14 @@ CombatConfig.Cognition = {
 	HearingRangeMax = 40,          -- ... at awareness 1
 	NoiseSpeed = 12,               -- studs/s above which a moving Quin can be heard
 	ProximityRange = 10,           -- studs within which a Quin is always felt
+	VisionVerticalHalfAngle = 35,  -- degrees above and below where the eyes point (Cognition.Gaze)
+	GazeMaxPitch = 75,             -- degrees the eyes can follow a target up or down
+	GazeSkyPitch = 45,             -- degrees up for a glance at the sky
+	GazeDownPitch = -35,           -- degrees down when looking over the edge of high ground
+	GazeHighGround = 12,           -- studs above the arena floor from which a Quin looks down
+	GazeGlanceIntervalMin = 2.5,   -- seconds between glances at awareness 1
+	GazeGlanceIntervalMax = 7.0,   -- ... at awareness 0
+	GazeGlanceDuration = 0.8,      -- seconds a glance lasts
 
 	AttentionCapacityMin = 2,      -- enemies kept track of at awareness 0
 	AttentionCapacityMax = 6,      -- ... at awareness 1

@@ -353,6 +353,10 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 					ElevationGained = heightDiff,
 				})
 				RuntimeTracer.checkpoint(fighter, "Retreat secured high ground -> Holding vantage")
+				local OverwatchState = require(script.Parent:WaitForChild("OverwatchState"))
+				if OverwatchState.canHold(fighter, rootPart) then
+					return OverwatchState
+				end
 				return require(script.Parent:WaitForChild("CirclingState"))
 			end
 		end

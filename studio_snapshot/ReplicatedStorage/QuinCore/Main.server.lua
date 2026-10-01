@@ -50,6 +50,7 @@ local States = {
 	Knockback = require(statesFolder:WaitForChild("KnockbackState")),
 	Recovery = require(statesFolder:WaitForChild("RecoveryState")),
 	Retreat = require(statesFolder:WaitForChild("RetreatState")),
+	Overwatch = require(statesFolder:WaitForChild("OverwatchState")),
 	Special = require(statesFolder:WaitForChild("SpecialState")),
 	Death = require(statesFolder:WaitForChild("DeathState")),
 	ProjectileJump = require(statesFolder:WaitForChild("ProjectileJumpState")),

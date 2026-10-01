@@ -56,7 +56,12 @@ function MidAirClashState.enter(fighter, humanoid, rootPart)
 	ao.Parent = rootPart
 	
 	-- 2. Identify partner and establish Leader/Follower role
-	local targetName = fighter:GetAttribute("TargetQuin")
+	-- The Quin it meets up there, named by whoever started the clash (ClashWith). TargetQuin
+	-- is only the fallback: it is the Quin's general target, which can be someone standing on
+	-- the ground - a follower that looked its partner up there pulled a third Quin in, and a
+	-- jumper started clashes with chasing Quins on the floor.
+	local targetName = fighter:GetAttribute("ClashWith") or fighter:GetAttribute("TargetQuin")
+	fighter:SetAttribute("ClashWith", nil)
 	local target = nil
 	if targetName then
 		local serverFolder = Workspace:FindFirstChild("QuinServer") or Workspace
@@ -68,6 +73,20 @@ function MidAirClashState.enter(fighter, humanoid, rootPart)
 	
 	local role = "Leader"
 	local partnerFighter = target
+
+	-- A target already in a clash with another Quin is taken: no clash (update leaves at once).
+	-- Overwriting its partner made three-way clashes in which both sides "won".
+	local busyPartner = target and target:GetAttribute("MidAirClashPartner")
+	if busyPartner and busyPartner ~= fighter.Name and target:GetAttribute("CurrentState") == "MidAirClash" then
+		target = nil
+	end
+	-- Nor is one standing on something (unless it already leads this clash with us)
+	if target and not (target:GetAttribute("MidAirClashRole") == "Leader" and busyPartner == fighter.Name) then
+		local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
+		if not targetHumanoid or not (targetHumanoid.PlatformStand or targetHumanoid.FloorMaterial == Enum.Material.Air) then
+			target = nil
+		end
+	end
 	
 	if target and target:IsA("Model") then
 		local targetHRP = target:FindFirstChild("HumanoidRootPart")
@@ -78,10 +97,14 @@ function MidAirClashState.enter(fighter, humanoid, rootPart)
 			else
 				-- We are Leader: ensure target is linked and pulled into MidAirClash
 				role = "Leader"
+				-- A result left from a clash the other never arrived in is not this one's
+				fighter:SetAttribute("ClashResult", nil)
+				target:SetAttribute("ClashResult", nil)
 				fighter:SetAttribute("MidAirClashRole", "Leader")
 				fighter:SetAttribute("MidAirClashPartner", target.Name)
 				target:SetAttribute("MidAirClashRole", "Follower")
 				target:SetAttribute("MidAirClashPartner", fighter.Name)
+				target:SetAttribute("ClashWith", fighter.Name)
 				target:SetAttribute("ForceState", "MidAirClash")
 				
 				-- Set initial mid-air center point (ensure elevated at least Y=30)
@@ -96,6 +119,21 @@ function MidAirClashState.enter(fighter, humanoid, rootPart)
 				fighter:SetAttribute("ClashPhase", "Init")
 				fighter:SetAttribute("ClashPhaseStart", tick())
 				fighter:SetAttribute("ClashRelocations", 0)
+
+				-- Sometimes there is no brawl: the one that came in faster smashes the other
+				-- straight down. The result is written on both, so both act on the same one.
+				-- A target that is not flying under its own power (thrown up by a hit, falling)
+				-- cannot fight back up there: an interceptor usually smashes it down at once.
+				local targetState = target:GetAttribute("CurrentState")
+				local helpless = targetState ~= "ProjectileJump" and targetState ~= "MidAirClash"
+				if helpless and math.random() < (CombatConfig.MidAirClash_HelplessSmashChance or 0.75) then
+					fighter:SetAttribute("ClashResult", fighter.Name)
+					target:SetAttribute("ClashResult", fighter.Name)
+				elseif math.random() < (CombatConfig.MidAirClash_ImmediateSmashChance or 0.3) then
+					local winner = rootPart.AssemblyLinearVelocity.Magnitude >= targetHRP.AssemblyLinearVelocity.Magnitude and fighter or target
+					fighter:SetAttribute("ClashResult", winner.Name)
+					target:SetAttribute("ClashResult", winner.Name)
+				end
 			end
 		end
 	end
@@ -138,6 +176,8 @@ function MidAirClashState.exit(fighter, humanoid, rootPart)
 	fighter:SetAttribute("ClashPhaseStart", nil)
 	fighter:SetAttribute("ClashRelocations", nil)
 	fighter:SetAttribute("ClashWinner", nil)
+	fighter:SetAttribute("ClashResult", nil)
+	fighter:SetAttribute("LastClashTime", os.clock())
 	
 	clashData[fighter] = nil
 end
@@ -153,6 +193,12 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	local target = data.target
 	if not target or not target.Parent then
+		return require(script.Parent:WaitForChild("AirborneState"))
+	end
+	-- The partner left the clash (or is clashing with someone else): nobody to fight up here.
+	-- Not once a result is written (the leader leaves first and clears its own partner).
+	if not fighter:GetAttribute("ClashResult") and tick() - data.startTime > 0.3
+		and target:GetAttribute("MidAirClashPartner") ~= fighter.Name then
 		return require(script.Parent:WaitForChild("AirborneState"))
 	end
 	
@@ -194,9 +240,13 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 		rootPart.AssemblyLinearVelocity = Vector3.zero
 		
 		if timeInPhase > 0.2 then
-			switchPhase(data, "Flurry")
-			data.strikesDelivered = 0
-			data.nextStrikeTime = now + 0.05
+			if fighter:GetAttribute("ClashResult") then
+				switchPhase(data, "Climax") -- decided on contact: no brawl
+			else
+				switchPhase(data, "Flurry")
+				data.strikesDelivered = 0
+				data.nextStrikeTime = now + 0.05
+			end
 		end
 		
 	-- ============================================================
@@ -301,6 +351,10 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 	-- PHASE 4: CLIMAX (Tie Blast-back OR Meteor Downward Smash)
 	-- ============================================================
 	elseif data.phase == "Climax" then
+		-- The leader decides and writes the result on both fighters. (The follower used to read
+		-- it from the leader, which had usually left the state and cleared it by then: the
+		-- follower saw a tie while the leader played a smash.)
+		data.winnerName = data.winnerName or fighter:GetAttribute("ClashResult")
 		if data.role == "Leader" and not data.winnerName then
 			-- 40% Tie, 60% Meteor Slam
 			local roll = math.random()
@@ -319,8 +373,10 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 				end
 			end
 			fighter:SetAttribute("ClashWinner", data.winnerName)
-		else
-			data.winnerName = leaderModel:GetAttribute("ClashWinner") or "Tie"
+			fighter:SetAttribute("ClashResult", data.winnerName)
+			target:SetAttribute("ClashResult", data.winnerName)
+		elseif not data.winnerName then
+			return MidAirClashState -- the leader has not decided yet
 		end
 		
 		local midPoint = (rootPart.Position + targetHRP.Position) / 2
@@ -379,20 +435,21 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 				lv.Name = "KB_LinearVelocity"
 				lv.Attachment0 = loserAtt
 				lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-				lv.VectorVelocity = Vector3.new(0, -125, 0)
+				local smashSpeed = CombatConfig.MidAirClash_SmashSpeed or 260
+				lv.VectorVelocity = Vector3.new(0, -smashSpeed, 0)
 				lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis -- MaxAxesForce is ignored otherwise
 				lv.MaxAxesForce = Vector3.new(20000, 1e7, 20000)
 				lv.Parent = rootPart
 				Debris:AddItem(loserAtt, 0.6)
 				Debris:AddItem(lv, 0.6)
 				
-				rootPart.AssemblyLinearVelocity = Vector3.new(0, -125, 0)
+				rootPart.AssemblyLinearVelocity = Vector3.new(0, -smashSpeed, 0)
 				
 				fighter:SetAttribute("KnockbackType", "hard_ground")
 				fighter:SetAttribute("ForceState", "Knockback")
 				fighter:SetAttribute("LaunchedAt", tick() + 0.1)
 				
-				targetHum:TakeDamage(20)
+				humanoid:TakeDamage(20) -- the one smashed down takes it (this used to hit the winner)
 				
 				return require(script.Parent:WaitForChild("KnockbackState"))
 			end

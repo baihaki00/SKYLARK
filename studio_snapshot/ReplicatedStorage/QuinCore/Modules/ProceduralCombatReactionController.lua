@@ -328,6 +328,15 @@ function ProceduralCombatReactionController:update(dt)
 		local fullLeanSpeed = CombatConfig.Ragdoll_BodyLeanFullSpeed or 90
 		leanPitchTarget = math.clamp(localVel.Z / fullLeanSpeed, -1, 1) * maxLean
 		leanRollTarget = math.clamp(-localVel.X / fullLeanSpeed, -1, 1) * maxLean * 0.6
+	elseif serverModel and serverModel:GetAttribute("LandingSlide") == true then
+		-- Skidding out of a landing: the body lays back against the slide (and to the side of
+		-- a slide that goes across it) in proportion to its speed, so it rights itself as the
+		-- slide runs out
+		local localVel = self.rootPart.CFrame:VectorToObjectSpace(flatVel)
+		local maxLean = math.rad(CombatConfig.ProjectileJump_LandingLeanDegrees or 22)
+		local fullLeanSpeed = CombatConfig.ProjectileJump_LandingLeanFullSpeed or 40
+		leanPitchTarget = math.clamp(-localVel.Z / fullLeanSpeed, -1, 1) * maxLean
+		leanRollTarget = math.clamp(localVel.X / fullLeanSpeed, -1, 1) * maxLean
 	end
 	local leanAlpha = 1 - math.exp(-9.0 * dt)
 	self.bodyLeanPitch = self.bodyLeanPitch + (leanPitchTarget - self.bodyLeanPitch) * leanAlpha

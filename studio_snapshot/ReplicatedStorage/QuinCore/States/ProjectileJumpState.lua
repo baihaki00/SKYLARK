@@ -8,6 +8,9 @@
 --   5  Swoop      high launch, then a curved (Bezier) swoop onto the target
 --   6  Combo      a sequence of jumps and strafes, then a faster dive
 --   7  Rocket     high launch and the fastest dive
+--   8  Intercept  straight up at an enemy that is in the air, tracking it (AirInterceptModule
+--                 asks for it; it is not in the random pool). Meeting it starts a mid-air
+--                 clash; if the enemy comes down first, the jump turns into a dive on it.
 -- The dive speed is CombatConfig.ProjectileJump_SlamSpeed.
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,6 +26,7 @@ local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitF
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local ImpulseModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ImpulseModule"))
 local RunService = game:GetService("RunService")
 
 local ProjectileJumpState = { name = "ProjectileJump" }
@@ -61,6 +65,9 @@ local Config = {
 	BezierSpeedFloor = 0.25,
 	SlamSpeedMultiplier = 1.15
 }
+
+local INTERCEPT_STYLE = 8
+local INTERCEPT_TIMEOUT = 2.5 -- seconds of pursuit in the air before it dives instead
 
 -- Styles whose dive gets the SlamSpeedMultiplier
 local FAST_DIVE_STYLES = { [3] = true, [6] = true, [7] = true }
@@ -295,6 +302,11 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 
 	-- Select across all 7 projectile jump styles (Style 1 Parabolic, Style 5 Bezier, etc.)
 	local style = fighter:GetAttribute("JumpStyle")
+	-- An interception is for the tick that asked for it; left over from a jump that never
+	-- started, it is not a style for an ordinary jump
+	if style == INTERCEPT_STYLE and os.clock() - (fighter:GetAttribute("LastInterceptTime") or 0) > POINT_REQUEST_LIFETIME then
+		style = nil
+	end
 	if not style then
 		local styles = { 1, 1, 2, 3, 4, 5, 5, 6, 7 }
 		style = styles[math.random(1, #styles)]
@@ -388,10 +400,40 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		end
 		if data.touchedDown then return end
 
+		-- The speed it comes in at (the landing slide carries its horizontal part). Not taken
+		-- once the body is being set down: those last frames are driven straight down.
+		local flightVelocity = rootPart.AssemblyLinearVelocity
+		if flightVelocity.Magnitude > 30 and data.phase ~= "Impact" and not data.settingDown then
+			data.arrivalVelocity = flightVelocity
+		end
+
 		-- A strafe ends on time (waiting for the next update let it run up to 0.1s, 150 studs, long)
 		local strafing = data.phase == "Strafe" or data.phase == "ComboStrafe"
 		if strafing and data.strafeDuration and tick() - data.phaseTime >= data.strafeDuration then
 			lv.VectorVelocity = Vector3.zero
+		end
+
+		-- The intercept is steered every frame: at 480 studs/s a 10 Hz re-aim moved it ~50 studs
+		-- between corrections, more than the contact distance, so it flew past the jumper.
+		-- On contact it holds there and the next update starts the clash.
+		if data.phase == "Intercept" and not data.interceptContact then
+			local enemyRoot = data.target and data.target:FindFirstChild("HumanoidRootPart")
+			if enemyRoot then
+				local gap = enemyRoot.Position - rootPart.Position
+				if gap.Magnitude <= (CombatConfig.Intercept_ContactDistance or 15) then
+					data.interceptContact = true
+					lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
+					lv.VectorVelocity = Vector3.zero
+				else
+					local speed = data.interceptSpeed or Config.SlamSpeed
+					local lead = math.clamp(gap.Magnitude / speed, 0, 0.5)
+					local offset = enemyRoot.Position + enemyRoot.AssemblyLinearVelocity * lead - rootPart.Position
+					if offset.Magnitude > 0.001 then
+						lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
+						lv.VectorVelocity = offset.Unit * speed
+					end
+				end
+			end
 		end
 
 		-- Hold the flight inside the arena (both the ballistic drift and the mover's target)
@@ -414,6 +456,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 				-- (stopping here left a fast dive hanging up to a dozen studs in the air)
 				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 				lv.VectorVelocity = Vector3.new(0, -gap / math.max(dt, 1 / 240), 0)
+				data.settingDown = true
 			end
 		end
 	end)
@@ -534,6 +577,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	if data.phase ~= "Init" and not data.precise and standGap >= (CombatConfig.MidAirClash_MinHeight or 12)
 		and target:GetAttribute("CurrentState") == "ProjectileJump"
 		and distToTarget <= (CombatConfig.MidAirClash_TriggerDistance or 40) then
+		fighter:SetAttribute("ClashWith", target.Name)
 		return require(script.Parent:WaitForChild("MidAirClashState"))
 	end
 
@@ -546,6 +590,15 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 				local flatGap = Vector3.new(targetPos.X - rootPart.Position.X, 0, targetPos.Z - rootPart.Position.Z).Magnitude
 				local flightGuess = flatGap / (math.clamp(flatGap / 1.8, 120, 260) * speedMult)
 				targetPos += Vector3.new(targetVelocity.X, 0, targetVelocity.Z) * flightGuess
+				-- A target in the air (an interception): where it will be up there. Rising or
+				-- falling freely it follows gravity; diving it keeps its speed. Never below
+				-- the jumper's own level.
+				local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
+				if targetHumanoid and targetHumanoid.PlatformStand then
+					local drop = targetVelocity.Y > -80 and 0.5 * gravity * flightGuess ^ 2 or 0
+					local predictedY = targetPos.Y + targetVelocity.Y * flightGuess - drop
+					targetPos = Vector3.new(targetPos.X, math.max(predictedY, rootPart.Position.Y), targetPos.Z)
+				end
 			end
 			local dir = (targetPos - rootPart.Position)
 			dir = Vector3.new(dir.X, 0, dir.Z)
@@ -574,6 +627,14 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			VfxModule.shakeScreen(rootPart.Position, 500, 8)
 
 			switchPhase(data, "Arcing")
+
+		elseif data.style == INTERCEPT_STYLE then
+			VfxModule.createRocketTrail(rootPart)
+			VfxModule.createLaunchShockwave(rootPart)
+			VfxModule.shakeScreen(rootPart.Position, 500, 8)
+			AudioModule.playSonicBoom(rootPart.Position)
+			data.interceptSpeed = Config.SlamSpeed * speedMult
+			switchPhase(data, "Intercept")
 
 		elseif data.style == 6 then
 			local combos
@@ -630,6 +691,28 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			VfxModule.createRocketTrail(rootPart)
 			VfxModule.createLaunchShockwave(rootPart)
 			VfxModule.shakeScreen(rootPart.Position, 500, 8) 
+			switchPhase(data, "AirborneTimer")
+		end
+
+	elseif data.phase == "Intercept" then
+		-- A straight line at where the airborne enemy will be, steered every frame by the guard
+		-- in enter. Contact starts a mid-air clash with it whatever it is doing up there (a
+		-- jumper, a Quin thrown up by a hit); MidAirClashState decides how it ends.
+		local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
+		local targetAirborne = targetHumanoid ~= nil and targetHumanoid.Health > 0
+			and (targetHumanoid.PlatformStand or targetHumanoid.FloorMaterial == Enum.Material.Air)
+		local targetClashing = target:GetAttribute("CurrentState") == "MidAirClash"
+		if data.interceptContact and targetAirborne and not targetClashing then
+			fighter:SetAttribute("ClashWith", target.Name)
+			fighter:SetAttribute("InterceptHits", (fighter:GetAttribute("InterceptHits") or 0) + 1)
+			return require(script.Parent:WaitForChild("MidAirClashState"))
+		-- (below the interceptor it is coming down past it: the line would point at the floor)
+		elseif not targetAirborne or targetClashing or timeInPhase > INTERCEPT_TIMEOUT
+			or targetPos.Y < rootPart.Position.Y - 5 then
+			-- It came down (or got away): dive on it like any other jump
+			data.interceptContact = false
+			data.style = 2
+			data.dashExactTime = 0
 			switchPhase(data, "AirborneTimer")
 		end
 
@@ -855,7 +938,9 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		local targetState = target:GetAttribute("CurrentState")
 		-- (a target standing on a high platform is not in the air: this used to test its height
 		-- above the world origin, so reaching a Quin on a platform started an air brawl)
-		if not data.precise and (targetState == "ProjectileJump" or targetState == "MidAirClash" or targetState == "Airborne") and distToTarget <= 35 then
+		-- (a target already clashing with someone else is not joined: three-way clashes)
+		if not data.precise and (targetState == "ProjectileJump" or targetState == "Airborne") and distToTarget <= 35 then
+			fighter:SetAttribute("ClashWith", target.Name)
 			return require(script.Parent:WaitForChild("MidAirClashState"))
 		end
 
@@ -905,6 +990,36 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			-- knocked down, airborne). Its own state turns it to face the new threat.
 		else
 			rootPart.CFrame = CFrame.new(jumperPos)
+		end
+
+		-- 3b. Landing slide: the horizontal part of the arrival speed carries the body on along
+		-- the ground and friction brings it to a stop (a vertical dive stops dead, a shallow one
+		-- skids). Never into the target it landed in front of, and barely on a chosen spot.
+		local arrival = data.arrivalVelocity
+		local flatArrival = arrival and Vector3.new(arrival.X, 0, arrival.Z) or Vector3.zero
+		if flatArrival.Magnitude > 1 then
+			local slideDir = flatArrival.Unit
+			local slideDistance = math.min(flatArrival.Magnitude * (CombatConfig.ProjectileJump_LandingSlideFactor or 0.03),
+				data.precise and (CombatConfig.ProjectileJump_LandingSlidePreciseMax or 2) or (CombatConfig.ProjectileJump_LandingSlideMax or 14))
+			if targetHRP then
+				local toTarget = Vector3.new(targetHRP.Position.X - jumperPos.X, 0, targetHRP.Position.Z - jumperPos.Z)
+				if toTarget.Magnitude > 0.1 and slideDir:Dot(toTarget.Unit) > 0.5 then
+					slideDistance = math.min(slideDistance, math.max(toTarget.Magnitude - 4.5, 0))
+				end
+			end
+			if slideDistance >= 1 then
+				local slideDuration = CombatConfig.ProjectileJump_LandingSlideDuration or 0.5
+				KnockbackModule.applySlide(fighter, slideDir, ImpulseModule.speedForDistance(slideDistance, slideDuration, "friction", 0.05),
+					slideDuration, { friction = true, endRatio = 0.05 })
+				VfxModule.createGroundMark(rootPart, slideDir, slideDistance, 1.2, 3)
+				local smoke = VfxModule.createSlideSmoke(rootPart)
+				-- The client lays the body back against the slide while this is set
+				fighter:SetAttribute("LandingSlide", true)
+				task.delay(slideDuration, function()
+					VfxModule.stopSlideSmoke(smoke)
+					if fighter.Parent then fighter:SetAttribute("LandingSlide", nil) end
+				end)
+			end
 		end
 
 		-- 4. Clean foot-strike audio and subtle ground dust (no generic explosions)

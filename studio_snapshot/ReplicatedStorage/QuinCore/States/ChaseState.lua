@@ -16,6 +16,7 @@ local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local Cognition = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Cognition"))
 local PlatformCatalogue = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("PlatformCatalogue"))
 local TraversalModule = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TraversalModule"))
+local AirInterceptModule = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AirInterceptModule"))
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local BattleEventSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
@@ -282,6 +283,16 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local verticalGap = targetHRP.Position.Y - rootPart.Position.Y
 	local lastPJ = fighter:GetAttribute("LastPositioningJumpTime") or 0 -- tick() timestamp
 	local flatDistToTgt = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
+
+	-- An enemy it has seen high in the air may be met up there
+	if not inShowdown and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+		local jumper = AirInterceptModule.consider(fighter, rootPart)
+		if jumper then
+			AirInterceptModule.commit(fighter, jumper)
+			RuntimeTracer.checkpoint(fighter, "Chase: going up after a jumper")
+			return require(script.Parent:WaitForChild("ProjectileJumpState"))
+		end
+	end
 
 	-- Perched means standing on something up there. A target that is merely in the air (jumping,
 	-- knocked up) comes back down by itself; treating it as high ground sent a projectile jump

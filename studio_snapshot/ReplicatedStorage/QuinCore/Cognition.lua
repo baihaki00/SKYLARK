@@ -1,7 +1,7 @@
 --// Cognition
 -- The Quin's perception-to-understanding pipeline, run once per reasoning tick:
 --
---   WORLD -> Senses -> Attention -> Memory -> SelfAwareness -> EnvironmentAwareness
+--   WORLD -> Gaze -> Senses -> Attention -> Memory -> SelfAwareness -> EnvironmentAwareness
 --         -> SituationAwareness -> (TargetingModule, DecisionSystem, states)
 --
 -- Each layer is its own module under this one and returns a plain table; the results are kept
@@ -21,6 +21,7 @@ local PlatformCatalogue = require(QuinCore:WaitForChild("Modules"):WaitForChild(
 local Layers = require(script:WaitForChild("Layers"))
 local Blackboard = require(script:WaitForChild("Blackboard"))
 local Senses = require(script:WaitForChild("Senses"))
+local Gaze = require(script:WaitForChild("Gaze"))
 local Attention = require(script:WaitForChild("Attention"))
 local Memory = require(script:WaitForChild("Memory"))
 local SelfAwareness = require(script:WaitForChild("SelfAwareness"))
@@ -102,6 +103,14 @@ local function drawDebug(quinModel, rootPart, board, sensesOn)
 				local edge = (rootPart.CFrame * CFrame.Angles(0, math.rad(cfg.VisionHalfAngle) * side, 0)).LookVector
 				DebugDraw.line("Vision", quinModel, eye, eye + Vector3.new(edge.X, 0, edge.Z).Unit * reach, Color3.fromRGB(90, 160, 255))
 			end
+			-- Where the eyes point (up / level / down)
+			if board.gaze then
+				local look = rootPart.CFrame.LookVector
+				local flat = Vector3.new(look.X, 0, look.Z).Unit
+				local pitch = math.rad(board.gaze.pitch)
+				DebugDraw.line("Vision", quinModel, eye, eye + (flat * math.cos(pitch) + Vector3.new(0, math.sin(pitch), 0)) * 30, Color3.fromRGB(255, 255, 120))
+				DebugDraw.text("Vision", quinModel, eye + Vector3.new(0, 3, 0), string.format("gaze %s %+.0f", board.gaze.mode, board.gaze.pitch), Color3.fromRGB(255, 255, 120))
+			end
 		end
 		for _, percept in ipairs(board.percepts) do
 			if not percept.isAlly and percept.channel then
@@ -164,7 +173,8 @@ function Cognition.update(quinModel, targetModel)
 	local others = livingOthers(quinModel)
 	local sensesOn = Layers.isEnabled("Senses")
 
-	board.percepts = Senses.sense(quinModel, rootPart, others, sensesOn)
+	local gaze = Gaze.update(board, quinModel, rootPart, targetModel, now)
+	board.percepts = Senses.sense(quinModel, rootPart, others, sensesOn, gaze.pitch)
 	board.attention = Attention.rank(quinModel, board.percepts, Layers.isEnabled("Attention"))
 	board.contacts = Memory.update(board, quinModel, rootPart, board.percepts, now, Layers.isEnabled("Memory"))
 	board.self = SelfAwareness.assess(board, quinModel, rootPart, humanoid, now)

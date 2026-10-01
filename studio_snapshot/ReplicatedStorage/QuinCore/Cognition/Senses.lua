@@ -2,7 +2,9 @@
 -- What reaches a Quin this tick. One percept per other living Quin, with the channel it came
 -- through (nil = not noticed):
 --   team     allies are always known (the team talks)
---   sight    inside the vision cone and range, with a clear line of sight
+--   sight    inside the vision cone and range, with a clear line of sight. The cone is 200
+--            degrees wide and VisionVerticalHalfAngle above and below where the eyes point
+--            (gazePitch, from Cognition.Gaze)
 --   hearing  close enough to hear, and making noise (running, attacking, being thrown)
 --   touch    within arm's reach, or the Quin that just hit it
 -- Neutral (layer off): every living enemy is noticed wherever it is, as before this layer existed.
@@ -32,7 +34,8 @@ function Senses.hearingRange(quinModel)
 	return cfg.HearingRangeMin + awareness * (cfg.HearingRangeMax - cfg.HearingRangeMin)
 end
 
-function Senses.sense(quinModel, rootPart, others, enabled)
+function Senses.sense(quinModel, rootPart, others, enabled, gazePitch)
+	gazePitch = gazePitch or 0
 	local cfg = CombatConfig.Cognition
 	local myPos = rootPart.Position
 	local myEye = SpatialModule.getEyePosition(rootPart)
@@ -76,8 +79,10 @@ function Senses.sense(quinModel, rootPart, others, enabled)
 					channel = "touch"
 				end
 				local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+				local elevation = math.deg(math.asin(math.clamp(offset.Y / math.max(distance, 0.01), -1, 1)))
 				local inCone = distance <= cfg.VisionRange
 					and (flatOffset.Magnitude < 0.01 or flatLook:Dot(flatOffset.Unit) >= coneCos)
+					and math.abs(elevation - gazePitch) <= cfg.VisionVerticalHalfAngle
 				local hasLoS = false
 				if inCone or channel or distance <= LOS_ALWAYS_WITHIN then
 					hasLoS = SpatialModule.checkLineOfSight(myEye, SpatialModule.getEyePosition(otherRoot), { quinModel, other })

@@ -139,7 +139,7 @@ end
 
 -- Authentic Normal Jump Audio Method
 function AudioModule.playJump(targetOrPos, volume)
-	local jumpVol = volume or 0.3
+	local jumpVol = volume or 0.2
 	local jumpPitch = math.random(95, 105) / 100
 
 	if typeof(targetOrPos) == "Instance" then
@@ -178,7 +178,7 @@ end
 
 -- Projectile Jump Audio Methods
 function AudioModule.playJumpUp(position)
-	playSoundAt(AudioIds.JumpUp, position, 0.6, math.random(90, 110)/100, 5)
+	playSoundAt(AudioIds.JumpUp, position, 0.1, math.random(90, 110)/100, 5)
 end
 
 function AudioModule.playChargeup(position)
@@ -186,19 +186,19 @@ function AudioModule.playChargeup(position)
 end
 
 function AudioModule.playMidairSwoosh(position)
-	playSoundAt(AudioIds.MidairSwoosh, position, 1.6, math.random(95, 105)/100, 5)
+	playSoundAt(AudioIds.MidairSwoosh, position, 1.1, math.random(95, 105)/100, 5)
 end
 
 function AudioModule.playSonicBoom(position)
-	playSoundAt(AudioIds.SonicBoom, position, 1, math.random(90, 110)/100, 20)
+	playSoundAt(AudioIds.SonicBoom, position, 0.7, math.random(90, 110)/100, 20)
 end
 
 function AudioModule.playFallOnGround(position)
-	playSoundAt(AudioIds.FallOnGround, position, 0.05, math.random(70, 100)/100, 15)
+	playSoundAt(AudioIds.FallOnGround, position, 0.01, math.random(70, 100)/100, 15)
 end
 
 function AudioModule.playFallOnGroundAfterMidAir(position)
-	playSoundAt(AudioIds.FallOnGroundMidAir, position, 0.5, math.random(70, 100)/100, 15)
+	playSoundAt(AudioIds.FallOnGroundMidAir, position, 0.05, math.random(70, 100)/100, 15)
 end
 
 function AudioModule.playLanding(targetOrPos, volume)

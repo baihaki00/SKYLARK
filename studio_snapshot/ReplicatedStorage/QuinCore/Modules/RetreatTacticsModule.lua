@@ -6,7 +6,8 @@
 -- field and not a loop around the fight.
 -- Objectives, scored by the Quin's condition and personality:
 --   BREAK_LOS       get behind something the pursuer cannot see through
---   TO_HIGH_GROUND  get onto a platform
+--   TO_HIGH_GROUND  get onto a platform (one a friend already holds is worth more: the
+--                   wounded gather; one an enemy stands on is not an escape)
 --   TO_ALLIES       reach friends who are not already in this fight
 --   OPEN_GROUND     put distance between it and the threat
 -- A destination that means running at the pursuer is never chosen.
@@ -41,6 +42,18 @@ local function getEntityHRP(entity)
 		end
 	end
 	return nil
+end
+
+-- How many of these Quins are standing on the platform
+local function countOn(platform, quins)
+	local count = 0
+	for _, quin in ipairs(quins or {}) do
+		local root = getEntityHRP(quin)
+		if root and PlatformCatalogue.under(root.Position, 12) == platform then
+			count += 1
+		end
+	end
+	return count
 end
 
 function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
@@ -267,8 +280,9 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 				local rise = found.platform.topY - floorY
 				local usable = access == PlatformCatalogue.Access.Jump or access == PlatformCatalogue.Access.Vault
 					or (access == PlatformCatalogue.Access.ProjectileJump and canProjectileJump)
-				if usable and leadsAway(found.point) then
+				if usable and leadsAway(found.point) and countOn(found.platform, enemies) == 0 then
 					local value = math.min(rise, 30) * 2.0 - found.distance * 0.4
+						+ math.min(countOn(found.platform, allies), 3) * (CombatConfig.Retreat_RendezvousValue or 15)
 					if value > bestValue then
 						best, bestValue = { platform = found.platform, access = access, rise = rise, distance = found.distance }, value
 					end
