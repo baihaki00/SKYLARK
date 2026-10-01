@@ -14,6 +14,8 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local AnimationConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationConfig"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local Cognition = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Cognition"))
+local PlatformCatalogue = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("PlatformCatalogue"))
+local TraversalModule = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TraversalModule"))
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local BattleEventSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
@@ -281,17 +283,36 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local lastPJ = fighter:GetAttribute("LastPositioningJumpTime") or 0 -- tick() timestamp
 	local flatDistToTgt = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
 
-	if not inShowdown and verticalGap >= (CombatConfig.HighGround_InterceptJumpMinReach or 8.0) then
+	-- Perched means standing on something up there. A target that is merely in the air (jumping,
+	-- knocked up) comes back down by itself; treating it as high ground sent a projectile jump
+	-- after every jumper.
+	local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
+	local targetPerched = targetHumanoid ~= nil and targetHumanoid.FloorMaterial ~= Enum.Material.Air
+		and not targetHumanoid.PlatformStand
+
+	if not inShowdown and targetPerched and verticalGap >= (CombatConfig.HighGround_InterceptJumpMinReach or 8.0) then
 		local energy = fighter:GetAttribute("Energy") or 100
 		local climbEnergyCost = CombatConfig.HighGround_InterceptJumpEnergyCost or 20
 
 		local canLeave = not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 		if verticalGap <= (CombatConfig.Jump_MaxReach or 12.0) then
-			-- Within a jump's reach: jump up after it. Energy and the cooldown are only spent
-			-- when the jump is actually taken (its arc is checked for a landing first).
-			if energy >= climbEnergyCost and (tick() - lastPJ) >= 4.0 and flatDistToTgt <= 45.0 and canLeave then
+			-- Within a jump's reach. The jump is solved for the platform's edge: it needs a
+			-- run-up (too close and the feet hit the lip, too far and they fall short), so the
+			-- Quin backs off or closes in until the jump works, then takes it.
+			local platform = PlatformCatalogue.under(targetHRP.Position)
+			local edge = platform and PlatformCatalogue.nearestTopPoint(platform, rootPart.Position, 0) or targetHRP.Position
+			local toEdge = Vector3.new(edge.X - rootPart.Position.X, 0, edge.Z - rootPart.Position.Z)
+			local solution, problem = TraversalModule.solveJumpOnto(verticalGap, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 12.0)
+			if problem == "TooClose" and toEdge.Magnitude > 0.1 then
+				fighter:SetAttribute("ObstacleAwareness", "Backing off for a run-up")
+				LocomotionModule.steer(fighter, humanoid, rootPart, rootPart.Position - toEdge.Unit * 14, 24.0, 0.05)
+				GaitModule.update(humanoid, rootPart, 0.1)
+				return ChaseState
+			end
+			local facingEdge = toEdge.Magnitude > 0.1 and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85
+			if solution and facingEdge and energy >= climbEnergyCost and (tick() - lastPJ) >= 2.0 and canLeave then
 				fighter:SetAttribute("ObstacleAwareness", "High-Ground Intercept Jump")
-				if LocomotionModule.jump(fighter, humanoid, rootPart, verticalGap + 2.0, 38.0, "jump") then
+				if LocomotionModule.jump(fighter, humanoid, rootPart, solution.height, solution.speed, "jump") then
 					fighter:SetAttribute("LastPositioningJumpTime", tick())
 					fighter:SetAttribute("Energy", energy - climbEnergyCost)
 					return ChaseState

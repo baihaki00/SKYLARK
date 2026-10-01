@@ -413,6 +413,9 @@ CombatConfig.MidAirClash_TriggerDistance = 40          -- studs between two jump
 CombatConfig.MidAirClash_MinHeight = 12                -- ... and this high above the floor at least
 CombatConfig.Jump_MaxReach = 12.0                       -- studs of height a jump can gain; anything higher needs a projectile jump
 
+-- === Projectile jump flight ===
+CombatConfig.ProjectileJump_SlamSpeed = 480            -- studs/s of the dive onto the target (styles 3, 6 and 7 dive 15% faster)
+
 -- === Escape and pursuit at arena scale (RetreatTacticsModule, RetreatState, ChaseState) ===
 CombatConfig.Retreat_EscapeDistanceRatio = 0.5         -- open-ground escape run, as a fraction of the arena radius (60-220 studs)
 CombatConfig.Retreat_SearchRangeRatio = 0.4            -- range searched for cover and platforms, same basis (40-160 studs)

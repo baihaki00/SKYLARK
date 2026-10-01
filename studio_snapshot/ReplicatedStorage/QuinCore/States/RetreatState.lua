@@ -24,6 +24,8 @@ local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local Cognition = require(QuinCore:WaitForChild("Cognition"))
+local PlatformCatalogue = require(QuinCore:WaitForChild("Modules"):WaitForChild("PlatformCatalogue"))
+local TraversalModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TraversalModule"))
 
 local RetreatState = { name = "Retreat" }
 local retreatData = setmetatable({}, { __mode = "k" })
@@ -171,8 +173,14 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	-- 1. TACTICAL EVALUATION VIA RETREAT TACTICS MODULE
 	-- ============================================================
 	local board = Cognition.Blackboard.peek(fighter)
+	local standHeight = humanoid.HipHeight + rootPart.Size.Y / 2
+	local canProjectileJump = CombatConfig.EnableProjectileJump ~= false and fighter:GetAttribute("EnableProjectileJump") ~= false
+		and (fighter:GetAttribute("Energy") or 100) >= (CombatConfig.ProjectileJumpMinEnergy or 40)
+		and (now - (fighter:GetAttribute("LastProjectileJumpTime") or 0)) >= (CombatConfig.ProjectileJump_Cooldown or 14.0)
 	local result = RetreatTacticsModule.evaluate(fighter, enemies, allies, {
 		plan = data.plan,
+		standHeight = standHeight,
+		canProjectileJump = canProjectileJump,
 		stalled = board ~= nil and board.self ~= nil and board.self.stalledFor > 0.6,
 	})
 	data.plan = result.plan
@@ -414,12 +422,29 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	-- High-Ground vertical jump if approaching elevated platform
-	if result.objective == "TO_HIGH_GROUND" and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
-		local distToPlat = (result.targetPosition - rootPart.Position).Magnitude
-		local verticalDelta = result.targetPosition.Y - rootPart.Position.Y
-		if distToPlat <= 18 and verticalDelta >= 4.0 and verticalDelta <= (CombatConfig.Jump_MaxReach or 12.0) then
-			JumpHandler.performJump(humanoid, rootPart, verticalDelta + 2.0, 30, "jump")
+	-- High ground: get onto the platform the escape plan chose. A high one takes a projectile
+	-- jump to the spot; one within a jump's reach is jumped onto once the run-up fits.
+	local planPlatform = result.plan and result.plan.platform
+	if result.objective == "TO_HIGH_GROUND" and planPlatform and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+		if result.plan.access == PlatformCatalogue.Access.ProjectileJump then
+			if canProjectileJump then
+				fighter:SetAttribute("ObstacleAwareness", "Projectile jump to high ground")
+				RuntimeTracer.checkpoint(fighter, "Retreat: projectile jump onto a platform")
+				local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
+				ProjectileJumpState.aimAtPoint(fighter, result.targetPosition)
+				return ProjectileJumpState
+			end
+		else
+			local edge = PlatformCatalogue.nearestTopPoint(planPlatform, rootPart.Position, 0)
+			local toEdge = Vector3.new(edge.X - rootPart.Position.X, 0, edge.Z - rootPart.Position.Z)
+			local rise = planPlatform.topY - (rootPart.Position.Y - standHeight)
+			if rise > TraversalModule.Config.StepHeight and toEdge.Magnitude > 0.1 then
+				local solution = TraversalModule.solveJumpOnto(rise, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 12.0)
+				if solution and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85 then
+					fighter:SetAttribute("ObstacleAwareness", "Jumping to high ground")
+					JumpHandler.performJump(humanoid, rootPart, solution.height, solution.speed, "jump")
+				end
+			end
 		end
 	end
 

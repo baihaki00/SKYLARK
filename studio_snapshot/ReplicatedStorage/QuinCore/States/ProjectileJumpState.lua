@@ -1,4 +1,14 @@
 --// ProjectileJumpState.lua
+-- The rocket jump: launch, fly, and come down on the target (or on a point, see aimAtPoint).
+-- Styles (attribute JumpStyle; every one ends in the same Impact):
+--   1  Arc        one ballistic arc straight onto the target, no dive
+--   2  High dive  launch 310-410 studs up, then dive at the target
+--   3  Double     a second jump in mid-air, then a faster dive
+--   4  Sidestep   high launch, a lightning sideways strafe, then the dive
+--   5  Swoop      high launch, then a curved (Bezier) swoop onto the target
+--   6  Combo      a sequence of jumps and strafes, then a faster dive
+--   7  Rocket     high launch and the fastest dive
+-- The dive speed is CombatConfig.ProjectileJump_SlamSpeed.
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -30,7 +40,7 @@ local Config = {
 	MultiJumpDashTimeMin = 0.75,
 	MultiJumpDashTimeMax = 1.25,
 
-	SlamSpeed = 150,     
+	SlamSpeed = CombatConfig.ProjectileJump_SlamSpeed or 480,
 	StrafeDistanceMin = 150,
 	StrafeDistanceMax = 300,
 	CurveAggressiveness = 1,
@@ -51,6 +61,9 @@ local Config = {
 	BezierSpeedFloor = 0.25,
 	SlamSpeedMultiplier = 1.15
 }
+
+-- Styles whose dive gets the SlamSpeedMultiplier
+local FAST_DIVE_STYLES = { [3] = true, [6] = true, [7] = true }
 
 local function getFloat(min, max)
 	return min + math.random() * (max - min)
@@ -96,7 +109,7 @@ end
 
 -- scatterAngle is rolled once per jump: re-rolling it on every update moved the landing spot
 -- 5-25 studs each tick, so a diving Quin kept re-aiming between scattered points near the ground.
-local function calculateCombatAimPoint(rootPart, targetHRP, dashSpeed, humanoid, scatterAngle)
+local function calculateCombatAimPoint(rootPart, targetHRP, dashSpeed, humanoid, scatterAngle, precise)
 	local targetPos = targetHRP.Position
 	local targetVel = targetHRP.AssemblyLinearVelocity
 	local flatTargetVel = Vector3.new(targetVel.X, 0, targetVel.Z)
@@ -131,6 +144,9 @@ local function calculateCombatAimPoint(rootPart, targetHRP, dashSpeed, humanoid,
 	local scatterOffset = Vector3.new(math.cos(randAngle), 0, math.sin(randAngle)) * scatterDist
 
 	local landingSpot = leadPos - (approachDir * 4.5) + scatterOffset
+	if precise then
+		landingSpot = leadPos -- a jump to a spot (a platform) lands on the spot
+	end
 	landingSpot = Vector3.new(landingSpot.X, groundY, landingSpot.Z)
 
 	return landingSpot, approachDir, groundY
@@ -184,6 +200,39 @@ local function containVelocity(position, velocity)
 end
 
 local stateData = {}
+
+local POINT_TARGET_NAME = "PJ_PointTarget"
+
+local POINT_REQUEST_LIFETIME = 0.3 -- seconds: the jump must start on the tick that asked for it
+
+local pointRequests = setmetatable({}, { __mode = "k" }) -- fighter -> { position, time }
+
+-- Send a Quin on a projectile jump to a spot instead of at an enemy (a platform to get onto).
+-- The caller then returns this state. The jump is a single arc that lands on the spot itself.
+-- If the state machine does not take the transition on that tick, the request lapses.
+function ProjectileJumpState.aimAtPoint(fighter, position)
+	pointRequests[fighter] = { position = position, time = os.clock() }
+end
+
+-- The stand-in target for a jump to a spot: the flight code aims at a Model's root, so a spot
+-- is given one, at the height the jumper's root will be when standing there
+local function createPointTarget(position, humanoid, rootPart)
+	local marker = Instance.new("Part")
+	marker.Name = "Marker"
+	marker.Size = Vector3.new(1, 1, 1)
+	marker.Anchored = true
+	marker.CanCollide = false
+	marker.CanQuery = false
+	marker.CanTouch = false
+	marker.Transparency = 1
+	marker.Position = position + Vector3.new(0, humanoid.HipHeight + rootPart.Size.Y / 2, 0)
+	local standIn = Instance.new("Model")
+	standIn.Name = POINT_TARGET_NAME
+	marker.Parent = standIn
+	standIn.PrimaryPart = marker
+	standIn.Parent = Workspace
+	return standIn
+end
 
 local function cleanupMovers(hrp)
 	for _, child in ipairs(hrp:GetChildren()) do
@@ -254,6 +303,21 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 
 	local targetVal = fighter:FindFirstChild("ProjectileTarget")
 	local target = targetVal and targetVal.Value
+	local pointRequest = pointRequests[fighter]
+	pointRequests[fighter] = nil
+	if pointRequest and os.clock() - pointRequest.time <= POINT_REQUEST_LIFETIME then
+		target = createPointTarget(pointRequest.position, humanoid, rootPart)
+		style = 1
+		fighter:SetAttribute("JumpStyle", style)
+	end
+	if targetVal then
+		-- A request is for one jump: left in place, the next jump started without one
+		-- (from Chase) flew at whatever the previous jump was aimed at
+		targetVal.Value = nil
+	end
+	if target and not target.Parent then
+		target = nil
+	end
 	if not target then
 		local currentTgt = fighter:GetAttribute("CurrentTarget") or fighter:GetAttribute("TargetQuin")
 		if currentTgt then
@@ -281,6 +345,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		apexPos = nil,
 		curveVelocity = nil,
 		scatterAngle = math.random() * math.pi * 2,
+		precise = target ~= nil and target.Name == POINT_TARGET_NAME,
 		touchedDown = false,
 		animTrack = playAnim(humanoid, AnimationIds.Jump)
 	}
@@ -295,6 +360,10 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	lv.Name = "PJ_LinearVelocity"
 	lv.Attachment0 = att
 	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+	-- Per-axis limits: every phase below switches the mover on and off through MaxAxesForce.
+	-- In the default mode that property is ignored and the mover pushes with MaxForce (1000),
+	-- which left the dive to gravity and the arc short of its target.
+	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
 	lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 	lv.VectorVelocity = Vector3.zero
 	lv.Parent = rootPart
@@ -334,10 +403,18 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		-- Touchdown: the body used to hit the floor first and lie sliding on it until the next
 		-- update noticed. On contact the mover is held still and Impact follows.
 		local fallSpeed = -rootPart.AssemblyLinearVelocity.Y
-		if fallSpeed >= 20 and heightAboveStand(rootPart, humanoid) <= math.max(1.0, fallSpeed * dt * 1.5) then
-			data.touchedDown = true
-			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-			lv.VectorVelocity = Vector3.zero
+		if fallSpeed >= 20 then
+			local gap = heightAboveStand(rootPart, humanoid)
+			if gap <= 1.0 then
+				data.touchedDown = true
+				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
+				lv.VectorVelocity = Vector3.zero
+			elseif gap <= fallSpeed * dt * 1.5 then
+				-- The floor is within the next frame's travel: cover exactly the rest of the way
+				-- (stopping here left a fast dive hanging up to a dozen studs in the air)
+				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
+				lv.VectorVelocity = Vector3.new(0, -gap / math.max(dt, 1 / 240), 0)
+			end
 		end
 	end)
 end
@@ -349,6 +426,9 @@ function ProjectileJumpState.exit(fighter, humanoid, rootPart)
 	cleanupMovers(rootPart)
 	local exiting = stateData[fighter]
 	if exiting then
+		if exiting.precise and exiting.target then
+			exiting.target:Destroy()
+		end
 		if exiting.guardConn then exiting.guardConn:Disconnect() end
 		stopAnim(exiting.animTrack)
 	end
@@ -432,7 +512,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			switchPhase(data, "Dash")
 			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 			local dashSpeed = Config.SlamSpeed * Config.SlamSpeedMultiplier
-			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle)
+			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
 			local offset = aimPoint - rootPart.Position
 			local dashDir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
 			lv.VectorVelocity = dashDir * dashSpeed
@@ -451,39 +531,42 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Two jumpers that come together in the air clash there, whatever phase either is in.
 	-- (Checked only at impact, a clash needed the target to still be airborne when the jump
 	-- ended: it practically never happened.)
-	if data.phase ~= "Init" and standGap >= (CombatConfig.MidAirClash_MinHeight or 12)
+	if data.phase ~= "Init" and not data.precise and standGap >= (CombatConfig.MidAirClash_MinHeight or 12)
 		and target:GetAttribute("CurrentState") == "ProjectileJump"
 		and distToTarget <= (CombatConfig.MidAirClash_TriggerDistance or 40) then
 		return require(script.Parent:WaitForChild("MidAirClashState"))
 	end
 
 	if data.phase == "Init" then
-		if data.style == 1 or data.style == 7 then
+		if data.style == 1 then
+			-- The arc is not steered after launch, so it is thrown at where a moving target will
+			-- be when it comes down (one pass: flight time from the present distance)
+			if not data.precise then
+				local targetVelocity = targetPosPart.AssemblyLinearVelocity
+				local flatGap = Vector3.new(targetPos.X - rootPart.Position.X, 0, targetPos.Z - rootPart.Position.Z).Magnitude
+				local flightGuess = flatGap / (math.clamp(flatGap / 1.8, 120, 260) * speedMult)
+				targetPos += Vector3.new(targetVelocity.X, 0, targetVelocity.Z) * flightGuess
+			end
 			local dir = (targetPos - rootPart.Position)
 			dir = Vector3.new(dir.X, 0, dir.Z)
 			local dist = dir.Magnitude
 
-			if data.style == 1 then
+			do
 				local arcSpeed = math.clamp(dist / 1.8, 120, 260) * speedMult
 				local timeToTarget = math.max(0.05, dist / arcSpeed)
+				-- A target above the jumper is reached on the way down: the flight has to last
+				-- longer than the rise alone, or the arc goes up through the platform it stands on
+				local rise = targetPos.Y - rootPart.Position.Y
+				if rise > 0 then
+					timeToTarget = math.max(timeToTarget, math.sqrt(2 * rise / gravity) * 1.35 + 0.2)
+					arcSpeed = dist / timeToTarget
+				end
 				local requiredY = (targetPos.Y - rootPart.Position.Y + 0.5 * gravity * timeToTarget^2) / timeToTarget
 				lv.MaxAxesForce = Vector3.new(math.huge, 0, math.huge)
 				local safeDir = dist > 0.001 and dir.Unit or Vector3.new(1,0,0) -- PREVENT NAN
 				lv.VectorVelocity = safeDir * arcSpeed
 				rootPart.AssemblyLinearVelocity = Vector3.new(0, requiredY, 0)
 
-				VfxModule.createRocketTrail(rootPart)
-				VfxModule.createLaunchShockwave(rootPart)
-				VfxModule.shakeScreen(rootPart.Position, 500, 8)
-			else
-				local jumpPower = math.random(Config.JumpPowerMin, Config.JumpPowerMax) * math.clamp(speedMult, 1, 2)
-				lv.MaxAxesForce = Vector3.zero
-				local forwardVec = rootPart.CFrame.LookVector
-				local rightVec = rootPart.CFrame.RightVector
-				local forwardSpeed = math.random(30, 60) * speedMult
-				local sideSpeed = math.random(-40, 40) * speedMult
-				local driftVelocity = (forwardVec * forwardSpeed) + (rightVec * sideSpeed)
-				rootPart.AssemblyLinearVelocity = Vector3.new(driftVelocity.X, jumpPower, driftVelocity.Z)
 			end
 
 			VfxModule.createRocketTrail(rootPart)
@@ -561,7 +644,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 		local isFalling = rootPart.AssemblyLinearVelocity.Y <= 0
 		local isNearGround = standGap <= 2
-		local reachedTarget = distToTarget < 15
+		local reachedTarget = distToTarget < (data.precise and 5 or 15)
 		if reachedTarget or (timeInPhase > 0.25 and isFalling and isNearGround) then
 			switchPhase(data, "Impact")
 		end
@@ -625,9 +708,9 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 				-- Pre-calculate Bezier with combat offset landing point
 				data.P0 = rootPart.Position
-				data.P2 = calculateCombatAimPoint(rootPart, targetPosPart, Config.SlamSpeed * speedMult, humanoid, data.scatterAngle)
+				data.P2 = calculateCombatAimPoint(rootPart, targetPosPart, Config.SlamSpeed * speedMult, humanoid, data.scatterAngle, data.precise)
 				local p0p2Dist = (data.P2 - data.P0).Magnitude
-				data.dashDuration = math.clamp(p0p2Dist / 200, Config.BezierDashDuration or 0.5, 1.8) / speedMult
+				data.dashDuration = math.clamp(p0p2Dist / (Config.SlamSpeed * 0.75), 0.35, 1.2) / speedMult
 
 				local arcHeight = Config.BezierArcHeightBase
 				local lowestY = calculateLowestY(data.P0.Y, data.P2.Y, arcHeight)
@@ -662,8 +745,8 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 				switchPhase(data, "Dash")
 
 				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-				local dashSpeed = ((data.style == 3 or data.style == 7) and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed) * speedMult
-				local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle)
+				local dashSpeed = (FAST_DIVE_STYLES[data.style] and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed) * speedMult
+				local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
 				local offset = aimPoint - rootPart.Position
 				local dashDir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
 				lv.VectorVelocity = dashDir * dashSpeed
@@ -693,7 +776,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			switchPhase(data, "Dash")
 
 			local dashSpeed = Config.SlamSpeed
-			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle)
+			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
 			local offset = aimPoint - rootPart.Position
 			local dashDir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
 			lv.VectorVelocity = dashDir * dashSpeed
@@ -751,8 +834,8 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 		else
 			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-			local dashSpeed = (data.style == 3 or data.style == 6) and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed
-			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle)
+			local dashSpeed = (FAST_DIVE_STYLES[data.style] and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed) * speedMult
+			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
 			local offset = aimPoint - rootPart.Position
 			local dir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
 			lv.VectorVelocity = dir * dashSpeed
@@ -770,7 +853,9 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 		-- Detect MidAir Clash
 		local targetState = target:GetAttribute("CurrentState")
-		if (targetState == "ProjectileJump" or targetState == "MidAirClash" or targetState == "Airborne" or (targetPosPart and targetPosPart.Position.Y > 20)) and distToTarget <= 35 then
+		-- (a target standing on a high platform is not in the air: this used to test its height
+		-- above the world origin, so reaching a Quin on a platform started an air brawl)
+		if not data.precise and (targetState == "ProjectileJump" or targetState == "MidAirClash" or targetState == "Airborne") and distToTarget <= 35 then
 			return require(script.Parent:WaitForChild("MidAirClashState"))
 		end
 

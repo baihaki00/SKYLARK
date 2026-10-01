@@ -27,6 +27,7 @@ DebugDraw.Layers = {
 	{ id = "Vision", label = "Senses: cone + what it notices", source = "server" },
 	{ id = "Attention", label = "Attention: focus list", source = "server" },
 	{ id = "Tracks", label = "Memory: remembered enemies", source = "server" },
+	{ id = "Platforms", label = "Platforms: how to get on", source = "server" },
 	{ id = "Rays", label = "Raycasts", source = "server" },
 	{ id = "Steer", label = "Steering goal + heading", source = "server" },
 	{ id = "Pursuit", label = "Pursuit / intercept", source = "server" },

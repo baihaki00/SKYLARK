@@ -16,6 +16,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local DebugDraw = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugDraw"))
+local PlatformCatalogue = require(QuinCore:WaitForChild("Modules"):WaitForChild("PlatformCatalogue"))
 
 local Layers = require(script:WaitForChild("Layers"))
 local Blackboard = require(script:WaitForChild("Blackboard"))
@@ -38,6 +39,15 @@ local CHANNEL_COLOR = {
 	memory = Color3.fromRGB(255, 160, 40),
 	report = Color3.fromRGB(120, 200, 255),
 	rumour = Color3.fromRGB(170, 170, 170),
+}
+
+local PLATFORM_COLOR = {
+	Level = Color3.fromRGB(200, 200, 200),
+	Below = Color3.fromRGB(150, 150, 150),
+	Step = Color3.fromRGB(140, 255, 160),
+	Vault = Color3.fromRGB(90, 230, 255),
+	Jump = Color3.fromRGB(255, 225, 60),
+	ProjectileJump = Color3.fromRGB(255, 110, 60),
 }
 
 -- Every other living Quin this one may deal with (a showdown duelist only deals with duelists;
@@ -112,6 +122,20 @@ local function drawDebug(quinModel, rootPart, board, sensesOn)
 			end
 		end
 		DebugDraw.text("Attention", quinModel, rootPart.Position + Vector3.new(0, 11.5, 0), table.concat(lines, "\n"), Color3.fromRGB(255, 150, 235))
+	end
+
+	if DebugDraw.isActive("Platforms", quinModel) then
+		-- Every platform within reach of a run, with how this Quin would get onto it from
+		-- where it stands and how far up it is
+		local humanoid = quinModel:FindFirstChildOfClass("Humanoid")
+		local floorY = rootPart.Position.Y - ((humanoid and humanoid.HipHeight or 4) + rootPart.Size.Y / 2)
+		for _, found in ipairs(PlatformCatalogue.near(rootPart.Position, 150)) do
+			local access = PlatformCatalogue.accessFrom(found.platform, floorY)
+			local color = PLATFORM_COLOR[access]
+			DebugDraw.sphere("Platforms", quinModel, found.point, 0.8, color)
+			DebugDraw.text("Platforms", quinModel, found.point + Vector3.new(0, 3, 0),
+				string.format("%s %+.0f%s", access, found.platform.topY - floorY, found.platform.isFloating and " (floating)" or ""), color)
+		end
 	end
 
 	if DebugDraw.isActive("Tracks", quinModel) then

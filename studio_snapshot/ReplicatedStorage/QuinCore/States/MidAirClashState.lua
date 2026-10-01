@@ -380,6 +380,7 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 				lv.Attachment0 = loserAtt
 				lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
 				lv.VectorVelocity = Vector3.new(0, -125, 0)
+				lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis -- MaxAxesForce is ignored otherwise
 				lv.MaxAxesForce = Vector3.new(20000, 1e7, 20000)
 				lv.Parent = rootPart
 				Debris:AddItem(loserAtt, 0.6)

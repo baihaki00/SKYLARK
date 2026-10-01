@@ -79,6 +79,7 @@ function ProjectileFightState.enter(fighter, humanoid, rootPart)
 	lv.Name = "Proj_LinearVelocity"
 	lv.Attachment0 = att
 	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis -- MaxAxesForce is ignored otherwise
 	lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 	lv.VectorVelocity = Vector3.zero
 	lv.Parent = rootPart

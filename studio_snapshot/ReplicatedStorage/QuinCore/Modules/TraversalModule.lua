@@ -307,6 +307,31 @@ function TraversalModule.validateArc(rootPart, launchVelocity, feetBelowRoot)
     return false, position, "NoLanding"
 end
 
+-- The jump that lands a Quin on a surface `rise` studs above its feet whose near edge is
+-- `edgeDistance` studs away: { height = apex above the feet, speed = horizontal studs/s }.
+-- The feet must clear the lip before they reach it and come down past it, so there is a
+-- nearest and a farthest take-off point. Returns nil and why: "TooHigh" (no jump reaches;
+-- use a projectile jump), "TooClose" (back off for a run-up), "TooFar" (get nearer).
+function TraversalModule.solveJumpOnto(rise, edgeDistance, maxReach)
+    if rise > maxReach then
+        return nil, "TooHigh"
+    end
+    local gravity = Workspace.Gravity
+    local apex = math.clamp(math.max(rise, 0) + 2, 3.5, TraversalModule.Config.MaxTraversalHeight)
+    local up = math.sqrt(2 * gravity * apex)
+    local root = math.sqrt(math.max(up * up - 2 * gravity * math.max(rise, 0), 0))
+    local clearTime = (up - root) / gravity -- feet pass the height of the top on the way up
+    local landTime = (up + root) / gravity -- feet come back down to it
+    local speed = math.max((edgeDistance + TraversalModule.Config.LandingMargin) / (landTime * 0.92), 10)
+    if speed > 58 then
+        return nil, "TooFar"
+    end
+    if speed * clearTime > edgeDistance - 1.0 then
+        return nil, "TooClose"
+    end
+    return { height = apex, speed = speed }
+end
+
 function TraversalModule.markTraversal(fighter, plan)
     if not fighter or not plan then return end
     fighter:SetAttribute("TraversalType", plan.type)

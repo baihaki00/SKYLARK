@@ -18,6 +18,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local PlatformCatalogue = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("PlatformCatalogue"))
 
 local RetreatTacticsModule = {}
 
@@ -255,17 +256,26 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 			end
 		end
 
-		-- TO_HIGH_GROUND: a platform within reach of a run, low enough to jump onto
+		-- TO_HIGH_GROUND: a platform to get onto. One within a jump's reach is run to and jumped
+		-- onto; a higher one takes a projectile jump, so it is only an option with the energy for it.
 		do
+			local floorY = myPos.Y - (context.standHeight or 5.4)
+			local canProjectileJump = context.canProjectileJump == true
 			local best, bestValue = nil, -math.huge
-			for _, platform in ipairs(SpatialModule.findNearbyPlatforms(rootPart, searchRange, 4.0, CombatConfig.Jump_MaxReach or 12.0)) do
-				if leadsAway(platform.position) then
-					local value = (platform.heightDiff * 2.0) - (platform.distance * 0.4)
-					if value > bestValue then best, bestValue = platform, value end
+			for _, found in ipairs(PlatformCatalogue.near(myPos, canProjectileJump and escapeDistance or searchRange)) do
+				local access = PlatformCatalogue.accessFrom(found.platform, floorY)
+				local rise = found.platform.topY - floorY
+				local usable = access == PlatformCatalogue.Access.Jump or access == PlatformCatalogue.Access.Vault
+					or (access == PlatformCatalogue.Access.ProjectileJump and canProjectileJump)
+				if usable and leadsAway(found.point) then
+					local value = math.min(rise, 30) * 2.0 - found.distance * 0.4
+					if value > bestValue then
+						best, bestValue = { platform = found.platform, access = access, rise = rise, distance = found.distance }, value
+					end
 				end
 			end
 			if best then
-				local score = 25 + (best.heightDiff * 1.8) + (mobility * 25)
+				local score = 25 + (math.min(best.rise, 20) * 1.8) + (mobility * 25)
 				if quirky == "HighGround" or quirky == "Observer" or quirky == "Watcher" then
 					score += 40
 				elseif quirky == "Parkourist" or quirky == "Nuke" then
@@ -275,7 +285,13 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 				if humanoid and humanoid.Health / humanoid.MaxHealth < 0.30 then
 					score += 25 -- high ground is a lifesaver when nearly down
 				end
-				table.insert(options, { objective = "TO_HIGH_GROUND", position = best.position, score = score })
+				table.insert(options, {
+					objective = "TO_HIGH_GROUND",
+					position = PlatformCatalogue.nearestTopPoint(best.platform, myPos, 4),
+					score = score,
+					platform = best.platform,
+					access = best.access,
+				})
 			end
 		end
 
@@ -334,11 +350,14 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 
 		local best = nil
 		for _, option in ipairs(options) do
-			option.position = insideArena(option.position)
+			if not option.platform then
+				option.position = insideArena(option.position)
+			end
 			candidateScores[option.objective] = option.score
 			if not best or option.score > best.score then best = option end
 		end
-		plan = { objective = best.objective, position = best.position, score = best.score, scores = candidateScores, options = options, time = now }
+		plan = { objective = best.objective, position = best.position, score = best.score, scores = candidateScores, options = options, time = now,
+			platform = best.platform, access = best.access }
 	end
 
 	local toGoal = Vector3.new(plan.position.X - myPos.X, 0, plan.position.Z - myPos.Z)
