@@ -1,6 +1,8 @@
 --// ArenaAudioManager.lua
 -- Authoritative acoustic sound & music manager for ArenaOne emitting from ArenaGlobe
--- Features: 3-Stem Procedural Music (Anthem1: Vocal + Drums + Crowd), Warhorns, Jukebox Playlists & Acoustic Routing
+-- Features: Clean Reverb Acoustics (Echo Removed), Dedicated ARIA Voice & Music Channels,
+-- Dynamic Multi-Stem Stadium Anthem Scanning (ANTHEM1, ANTHEM2...), Dynamic Back-Timing Length Inspector,
+-- Warhorns & Real-Time Slider Mixing (Master, AriaVoice, Music, Reverb Decay, Reverb Wetness)
 
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
@@ -12,20 +14,26 @@ local ArenaConfig = require(RS.QuinCore.ArenaConfig)
 local ArenaAudio = {}
 
 local arenaGlobe = nil
-local arenaSpeakerGroup = nil
+local masterGroup = nil
+local ariaChannel = nil
+local musicChannel = nil
+
 local activeMusicSound = nil
-local activeProceduralStems = nil -- { Anthem = Sound, Drums = Sound, Crowd = Sound }
+local activeAnthemStems = {} -- { [Sound] = volumeWeight }
 local currentMusicType = "None"
-local baselineMusicVolume = 1.0
+local isAnthemActive = false
+
+-- Volume Channel Baselines
+local channelVolumes = {
+    Master = 1.0,
+    AriaVoice = 1.2,
+    Music = 0.85,
+    ReverbDecay = 3.5,
+    ReverbWet = 2.0,
+}
+
 local isDucked = false
 local duckCount = 0
-
--- 3-Stem Procedural Music Assets (All 45.03s, perfectly synchronized)
-local ANTHEM1_STEMS = {
-    Anthem = { Name = "ARIA_SkylarkAnthem1Procedural", Id = "rbxassetid://133883167606286", VolWeight = 1.0 },
-    Drums  = { Name = "Anthem1DrumFX",               Id = "rbxassetid://74373537405672",  VolWeight = 0.95 },
-    Crowd  = { Name = "Anthem1CrowdFX",              Id = "rbxassetid://86633259711410",  VolWeight = 0.85 },
-}
 
 -- Stadium Warhorn Assets
 local WARHORNS = {
@@ -33,40 +41,55 @@ local WARHORNS = {
     { Name = "WARHORN2", Id = "rbxassetid://102327524117254" },
 }
 
--- Ensure SoundService.ArenaSpeakerGroup exists with Bai's tuned acoustic effects
-local function ensureSpeakerGroup()
-    arenaSpeakerGroup = SoundService:FindFirstChild("ArenaSpeakerGroup")
-    if not arenaSpeakerGroup then
-        arenaSpeakerGroup = Instance.new("SoundGroup")
-        arenaSpeakerGroup.Name = "ArenaSpeakerGroup"
-        arenaSpeakerGroup.Volume = 1.0
-        arenaSpeakerGroup.Parent = SoundService
+-- Setup Master SoundGroup and sub-channels (Echo Removed, Reverb Polished)
+local function ensureSoundGroups()
+    masterGroup = SoundService:FindFirstChild("ArenaSpeakerGroup")
+    if not masterGroup then
+        masterGroup = Instance.new("SoundGroup")
+        masterGroup.Name = "ArenaSpeakerGroup"
+        masterGroup.Parent = SoundService
     end
-    
-    local echo = arenaSpeakerGroup:FindFirstChildOfClass("EchoSoundEffect")
-    if not echo then
-        echo = Instance.new("EchoSoundEffect")
-        echo.Name = "ArenaEcho"
-        echo.Parent = arenaSpeakerGroup
+    masterGroup.Volume = channelVolumes.Master
+
+    -- REMOVE ECHO completely per Bai's directive
+    local echo = masterGroup:FindFirstChildOfClass("EchoSoundEffect")
+    if echo then
+        echo:Destroy()
+        print("[ArenaAudio] Echo effect removed from ArenaSpeakerGroup.")
     end
-    echo.Delay = ArenaConfig.AudioSettings.Echo.Delay
-    echo.DryLevel = ArenaConfig.AudioSettings.Echo.DryLevel
-    echo.Feedback = ArenaConfig.AudioSettings.Echo.Feedback
-    echo.WetLevel = ArenaConfig.AudioSettings.Echo.WetLevel
-    
-    local reverb = arenaSpeakerGroup:FindFirstChildOfClass("ReverbSoundEffect")
+
+    -- Polish Reverb
+    local reverb = masterGroup:FindFirstChildOfClass("ReverbSoundEffect")
     if not reverb then
         reverb = Instance.new("ReverbSoundEffect")
         reverb.Name = "ArenaReverb"
-        reverb.Parent = arenaSpeakerGroup
+        reverb.Parent = masterGroup
     end
-    reverb.DecayTime = ArenaConfig.AudioSettings.Reverb.DecayTime
-    reverb.Density = ArenaConfig.AudioSettings.Reverb.Density
-    reverb.Diffusion = ArenaConfig.AudioSettings.Reverb.Diffusion
-    reverb.DryLevel = ArenaConfig.AudioSettings.Reverb.DryLevel
-    reverb.WetLevel = ArenaConfig.AudioSettings.Reverb.WetLevel
-    
-    return arenaSpeakerGroup
+    reverb.DecayTime = channelVolumes.ReverbDecay
+    reverb.WetLevel = channelVolumes.ReverbWet
+    reverb.DryLevel = 0
+    reverb.Density = 1.0
+    reverb.Diffusion = 1.0
+
+    -- Sub-channel: ARIA Voice
+    ariaChannel = masterGroup:FindFirstChild("ArenaAriaChannel")
+    if not ariaChannel then
+        ariaChannel = Instance.new("SoundGroup")
+        ariaChannel.Name = "ArenaAriaChannel"
+        ariaChannel.Parent = masterGroup
+    end
+    ariaChannel.Volume = channelVolumes.AriaVoice
+
+    -- Sub-channel: Music & Anthem
+    musicChannel = masterGroup:FindFirstChild("ArenaMusicChannel")
+    if not musicChannel then
+        musicChannel = Instance.new("SoundGroup")
+        musicChannel.Name = "ArenaMusicChannel"
+        musicChannel.Parent = masterGroup
+    end
+    musicChannel.Volume = channelVolumes.Music
+
+    return masterGroup
 end
 
 -- Locate ArenaGlobe speaker part
@@ -77,26 +100,213 @@ local function findArenaGlobe()
 end
 
 function ArenaAudio.init()
-    ensureSpeakerGroup()
+    ensureSoundGroups()
     findArenaGlobe()
     if arenaGlobe then
-        print(string.format("[ArenaAudio] Initialized. ArenaGlobe at %s, SpeakerGroup connected.", tostring(arenaGlobe.Position)))
+        print(string.format("[ArenaAudio] Initialized. Globe at %s, Master/Aria/Music channels routed.", tostring(arenaGlobe.Position)))
     else
         warn("[ArenaAudio] ArenaGlobe not found in Workspace.argoniaonion.ArenaOne!")
     end
 end
 
--- Check if track is Procedural Anthem 1
-local function isAnthem1Track(trackNameOrId)
-    if not trackNameOrId then return false end
-    local lower = string.lower(trackNameOrId)
-    return lower:find("anthem1", 1, true) ~= nil 
-        or lower:find("skylarkanthem1", 1, true) ~= nil 
-        or lower:find("procedural", 1, true) ~= nil
+function ArenaAudio.getAriaChannel()
+    ensureSoundGroups()
+    return ariaChannel
 end
 
--- Find a sound asset by Name or Id in Workspace.argoniaonion.ArenaOne.Music
--- STRICT RULE: FantasyMusic is completely excluded and never loaded.
+function ArenaAudio.getMusicChannel()
+    ensureSoundGroups()
+    return musicChannel
+end
+
+-- ============================================================================
+-- DYNAMIC ANTHEM SCANNING & PLAYBACK (Stems in ArenaOne.Anthem)
+-- Dynamically finds all stems prefixed with e.g. "ANTHEM1" and plays them together
+-- ============================================================================
+
+local function getAnthemFolder()
+    local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
+    return arenaOne and arenaOne:FindFirstChild("Anthem")
+end
+
+-- Returns dynamic length in seconds of an anthem track prefix (e.g. "ANTHEM1")
+function ArenaAudio.getAnthemLength(anthemPrefix)
+    anthemPrefix = anthemPrefix or "ANTHEM1"
+    local folder = getAnthemFolder()
+    if not folder then
+        return 45.03 -- Fallback for Anthem1
+    end
+    
+    local maxLength = 0
+    for _, sound in ipairs(folder:GetChildren()) do
+        if sound:IsA("Sound") and string.find(string.upper(sound.Name), string.upper(anthemPrefix), 1, true) then
+            if sound.TimeLength > maxLength then
+                maxLength = sound.TimeLength
+            end
+        end
+    end
+    
+    if maxLength <= 0 then
+        -- Default known duration for ANTHEM1
+        return 45.03
+    end
+    return maxLength
+end
+
+-- Play all stems of the selected anthem simultaneously from ArenaGlobe
+function ArenaAudio.playAnthem(anthemPrefix, volume, fadeTime)
+    findArenaGlobe()
+    ensureSoundGroups()
+    if not arenaGlobe then return {} end
+    
+    anthemPrefix = anthemPrefix or "ANTHEM1"
+    fadeTime = fadeTime or 1.5
+    volume = volume or channelVolumes.Music
+    
+    -- Stop active music & existing anthems
+    ArenaAudio.stopAnthem(fadeTime * 0.5)
+    if activeMusicSound and activeMusicSound.Parent then
+        local old = activeMusicSound
+        TweenService:Create(old, TweenInfo.new(fadeTime * 0.5), { Volume = 0 }):Play()
+        task.delay(fadeTime * 0.5, function()
+            old:Stop()
+            old:Destroy()
+        end)
+        activeMusicSound = nil
+    end
+    
+    local folder = getAnthemFolder()
+    local stemsToPlay = {}
+    
+    if folder then
+        for _, template in ipairs(folder:GetChildren()) do
+            if template:IsA("Sound") and string.find(string.upper(template.Name), string.upper(anthemPrefix), 1, true) then
+                table.insert(stemsToPlay, template)
+            end
+        end
+    end
+    
+    -- Fallback hardcoded ANTHEM1 if folder empty
+    if #stemsToPlay == 0 then
+        local fallbackAnthem1 = {
+            { Name = "ANTHEM1_ARIA",    Id = "rbxassetid://133883167606286", Vol = 1.0 },
+            { Name = "ANTHEM1_DrumFX",  Id = "rbxassetid://74373537405672",  Vol = 0.95 },
+            { Name = "ANTHEM1_CrowdFX", Id = "rbxassetid://86633259711410",  Vol = 0.85 },
+        }
+        for _, info in ipairs(fallbackAnthem1) do
+            local s = Instance.new("Sound")
+            s.Name = info.Name
+            s.SoundId = info.Id
+            table.insert(stemsToPlay, s)
+        end
+    end
+    
+    activeAnthemStems = {}
+    isAnthemActive = true
+    currentMusicType = "StadiumAnthem"
+    
+    for _, template in ipairs(stemsToPlay) do
+        local sound = Instance.new("Sound")
+        sound.Name = "ActiveAnthem_" .. template.Name
+        sound.SoundId = template.SoundId
+        sound.Looped = false
+        sound.Volume = 0
+        sound.RollOffMinDistance = ArenaConfig.AudioSettings.SpeakerMinDistance
+        sound.RollOffMaxDistance = ArenaConfig.AudioSettings.SpeakerMaxDistance
+        sound.RollOffMode = ArenaConfig.AudioSettings.SpeakerRollOffMode
+        
+        -- Route ARIA vocals to AriaChannel, Drums & Crowd to MusicChannel
+        local nameUpper = string.upper(template.Name)
+        if string.find(nameUpper, "ARIA", 1, true) or string.find(nameUpper, "VOCAL", 1, true) then
+            sound.SoundGroup = ariaChannel
+        else
+            sound.SoundGroup = musicChannel
+        end
+        
+        sound.Parent = arenaGlobe
+        sound.TimePosition = 0
+        sound:Play()
+        
+        local volWeight = 1.0
+        if string.find(nameUpper, "DRUM", 1, true) then
+            volWeight = 0.95
+        elseif string.find(nameUpper, "CROWD", 1, true) then
+            volWeight = 0.85
+        end
+        
+        local targetVol = volume * volWeight
+        TweenService:Create(sound, TweenInfo.new(fadeTime), { Volume = targetVol }):Play()
+        activeAnthemStems[sound] = volWeight
+    end
+    
+    print(string.format("[ArenaAudio] Stadium Anthem '%s' started with %d stems on ArenaGlobe (Volume: %.2f)",
+        anthemPrefix, #stemsToPlay, volume))
+    return activeAnthemStems
+end
+
+function ArenaAudio.stopAnthem(fadeTime)
+    fadeTime = fadeTime or 1.5
+    isAnthemActive = false
+    
+    if next(activeAnthemStems) ~= nil then
+        print(string.format("[ArenaAudio] Fading out Stadium Anthem stems (%.1fs)", fadeTime))
+        local stemsToStop = activeAnthemStems
+        activeAnthemStems = {}
+        currentMusicType = "None"
+        
+        for sound, _ in pairs(stemsToStop) do
+            if sound and sound.Parent then
+                TweenService:Create(sound, TweenInfo.new(fadeTime), { Volume = 0 }):Play()
+                task.delay(fadeTime, function()
+                    sound:Stop()
+                    sound:Destroy()
+                end)
+            end
+        end
+    end
+end
+
+function ArenaAudio.isAnthemActive()
+    return isAnthemActive and next(activeAnthemStems) ~= nil
+end
+
+-- ============================================================================
+-- WARHORN FX
+-- ============================================================================
+
+function ArenaAudio.playWarhorn(volume)
+    findArenaGlobe()
+    ensureSoundGroups()
+    if not arenaGlobe then return nil end
+    
+    local chosen = WARHORNS[math.random(1, #WARHORNS)]
+    local sound = Instance.new("Sound")
+    sound.Name = "ArenaWarhorn_" .. chosen.Name
+    sound.SoundId = chosen.Id
+    sound.Looped = false
+    sound.Volume = volume or 1.3
+    sound.RollOffMinDistance = ArenaConfig.AudioSettings.SpeakerMinDistance
+    sound.RollOffMaxDistance = ArenaConfig.AudioSettings.SpeakerMaxDistance
+    sound.RollOffMode = ArenaConfig.AudioSettings.SpeakerRollOffMode
+    sound.SoundGroup = masterGroup
+    sound.Parent = arenaGlobe
+    
+    sound:Play()
+    print(string.format("[ArenaAudio] Warhorn Sounded: %s (SoundId: %s, Vol: %.2f)", chosen.Name, chosen.Id, sound.Volume))
+    
+    task.delay(6.0, function()
+        if sound and sound.Parent then
+            sound:Stop()
+            sound:Destroy()
+        end
+    end)
+    return sound
+end
+
+-- ============================================================================
+-- STANDARD PLAYLIST TRACK PLAYBACK (PreGame, InGame, PostGame)
+-- ============================================================================
+
 local function findMusicSoundAsset(trackNameOrId, playlistType)
     local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
     local musicFolder = arenaOne and arenaOne:FindFirstChild("Music")
@@ -127,7 +337,6 @@ local function findMusicSoundAsset(trackNameOrId, playlistType)
         end
     end
     
-    -- Fallback: return first sound found in first valid folder
     for _, folder in ipairs(foldersToCheck) do
         if folder then
             for _, s in ipairs(folder:GetChildren()) do
@@ -140,151 +349,21 @@ local function findMusicSoundAsset(trackNameOrId, playlistType)
     return nil
 end
 
--- ============================================================================
--- PROCEDURAL 3-STEM MUSIC (Anthem 1: ARIA Vocal + Drums + Crowd FX)
--- ============================================================================
-
-function ArenaAudio.playProceduralAnthem1(volume, fadeTime, looped, soundType)
-    findArenaGlobe()
-    ensureSpeakerGroup()
-    if not arenaGlobe then return nil end
-    
-    fadeTime = fadeTime or 1.5
-    volume = volume or ArenaConfig.AudioSettings.BaselineVolume
-    baselineMusicVolume = volume
-    isDucked = false
-    duckCount = 0
-    currentMusicType = soundType or "ProceduralAnthem"
-    
-    -- Stop single-track music cleanly
-    if activeMusicSound and activeMusicSound.Parent then
-        local old = activeMusicSound
-        TweenService:Create(old, TweenInfo.new(fadeTime * 0.5), { Volume = 0 }):Play()
-        task.delay(fadeTime * 0.5, function()
-            old:Stop()
-            old:Destroy()
-        end)
-        activeMusicSound = nil
-    end
-    
-    -- Stop existing procedural stems cleanly if already playing
-    if activeProceduralStems then
-        local oldStems = activeProceduralStems
-        for _, s in pairs(oldStems) do
-            if s and s.Parent then
-                TweenService:Create(s, TweenInfo.new(fadeTime * 0.5), { Volume = 0 }):Play()
-                task.delay(fadeTime * 0.5, function()
-                    s:Stop()
-                    s:Destroy()
-                end)
-            end
-        end
-        activeProceduralStems = nil
-    end
-    
-    -- Instantiate all 3 stems on ArenaGlobe
-    local stems = {}
-    for stemKey, info in pairs(ANTHEM1_STEMS) do
-        local sound = Instance.new("Sound")
-        sound.Name = "ArenaProcedural_" .. stemKey
-        sound.SoundId = info.Id
-        sound.Looped = (looped ~= false)
-        sound.Volume = 0
-        sound.RollOffMinDistance = ArenaConfig.AudioSettings.SpeakerMinDistance
-        sound.RollOffMaxDistance = ArenaConfig.AudioSettings.SpeakerMaxDistance
-        sound.RollOffMode = ArenaConfig.AudioSettings.SpeakerRollOffMode
-        sound.SoundGroup = arenaSpeakerGroup
-        sound.Parent = arenaGlobe
-        stems[stemKey] = sound
-    end
-    
-    -- Perfectly synchronized start across all stems
-    for stemKey, sound in pairs(stems) do
-        sound.TimePosition = 0
-        sound:Play()
-        local targetVol = volume * (ANTHEM1_STEMS[stemKey].VolWeight or 1.0)
-        TweenService:Create(sound, TweenInfo.new(fadeTime), { Volume = targetVol }):Play()
-    end
-    
-    activeProceduralStems = stems
-    print(string.format("[ArenaAudio] Playing Procedural Anthem 1 (3 Stems: Vocal + Drums + Crowd) on ArenaGlobe (Volume: %.2f, Fade: %.1fs)", volume, fadeTime))
-    return stems
-end
-
-function ArenaAudio.stopProceduralAnthem(fadeTime)
-    fadeTime = fadeTime or 2.0
-    if activeProceduralStems then
-        print(string.format("[ArenaAudio] Fading out Procedural Anthem 1 (%.1fs)", fadeTime))
-        local stemsToStop = activeProceduralStems
-        activeProceduralStems = nil
-        currentMusicType = "None"
-        for _, s in pairs(stemsToStop) do
-            if s and s.Parent then
-                TweenService:Create(s, TweenInfo.new(fadeTime), { Volume = 0 }):Play()
-                task.delay(fadeTime, function()
-                    s:Stop()
-                    s:Destroy()
-                end)
-            end
-        end
-    end
-end
-
--- ============================================================================
--- WARHORN FX (Random WARHORN1 / WARHORN2 on ArenaGlobe with acoustics)
--- ============================================================================
-
-function ArenaAudio.playWarhorn(volume)
-    findArenaGlobe()
-    ensureSpeakerGroup()
-    if not arenaGlobe then return nil end
-    
-    local chosen = WARHORNS[math.random(1, #WARHORNS)]
-    local sound = Instance.new("Sound")
-    sound.Name = "ArenaWarhorn_" .. chosen.Name
-    sound.SoundId = chosen.Id
-    sound.Looped = false
-    sound.Volume = volume or 1.25
-    sound.RollOffMinDistance = ArenaConfig.AudioSettings.SpeakerMinDistance
-    sound.RollOffMaxDistance = ArenaConfig.AudioSettings.SpeakerMaxDistance
-    sound.RollOffMode = ArenaConfig.AudioSettings.SpeakerRollOffMode
-    sound.SoundGroup = arenaSpeakerGroup
-    sound.Parent = arenaGlobe
-    
-    sound:Play()
-    print(string.format("[ArenaAudio] 📯 Warhorn Sounded: %s (SoundId: %s, Vol: %.2f)", chosen.Name, chosen.Id, sound.Volume))
-    
-    task.delay(6.0, function()
-        if sound and sound.Parent then
-            sound:Stop()
-            sound:Destroy()
-        end
-    end)
-    return sound
-end
-
--- ============================================================================
--- STANDARD MUSIC PLAYBACK
--- ============================================================================
-
 local function playOnGlobe(assetSound, trackId, trackName, volume, fadeTime, looped, soundType)
     findArenaGlobe()
-    ensureSpeakerGroup()
+    ensureSoundGroups()
     if not arenaGlobe then return nil end
     
     fadeTime = fadeTime or 1.5
-    volume = volume or ArenaConfig.AudioSettings.BaselineVolume
-    baselineMusicVolume = volume
+    volume = volume or channelVolumes.Music
     isDucked = false
     duckCount = 0
     currentMusicType = soundType or "Music"
     
-    -- Stop previous procedural stems if playing
-    if activeProceduralStems then
-        ArenaAudio.stopProceduralAnthem(fadeTime * 0.5)
+    if isAnthemActive then
+        ArenaAudio.stopAnthem(fadeTime * 0.5)
     end
     
-    -- Stop previous single-track music cleanly
     if activeMusicSound and activeMusicSound.Parent then
         local old = activeMusicSound
         TweenService:Create(old, TweenInfo.new(fadeTime * 0.5), { Volume = 0 }):Play()
@@ -294,7 +373,6 @@ local function playOnGlobe(assetSound, trackId, trackName, volume, fadeTime, loo
         end)
     end
     
-    -- Instantiate fresh sound on ArenaGlobe
     local sound = Instance.new("Sound")
     sound.Name = "ArenaMusic_" .. (trackName or "Track")
     sound.SoundId = assetSound and assetSound.SoundId or trackId
@@ -303,7 +381,7 @@ local function playOnGlobe(assetSound, trackId, trackName, volume, fadeTime, loo
     sound.RollOffMinDistance = ArenaConfig.AudioSettings.SpeakerMinDistance
     sound.RollOffMaxDistance = ArenaConfig.AudioSettings.SpeakerMaxDistance
     sound.RollOffMode = ArenaConfig.AudioSettings.SpeakerRollOffMode
-    sound.SoundGroup = arenaSpeakerGroup
+    sound.SoundGroup = musicChannel
     sound.Parent = arenaGlobe
     
     sound:Play()
@@ -315,15 +393,11 @@ local function playOnGlobe(assetSound, trackId, trackName, volume, fadeTime, loo
     return sound
 end
 
--- 1. PreGame Music (Fades in during ArenaOpen, fades out during PreGame countdown)
+-- 1. PreGame Music (Runs across Open, Generation, and Prep Room = 50s total)
 function ArenaAudio.playPregameMusic(trackNameOrId, volume, fadeTime)
     trackNameOrId = trackNameOrId or "365"
-    volume = volume or ArenaConfig.AudioSettings.BaselineVolume
+    volume = volume or channelVolumes.Music
     fadeTime = fadeTime or 2.0
-    
-    if isAnthem1Track(trackNameOrId) then
-        return ArenaAudio.playProceduralAnthem1(volume, fadeTime, true, "PreGameMusic")
-    end
     
     local asset = findMusicSoundAsset(trackNameOrId, "PreGame")
     local soundId = asset and asset.SoundId or "rbxassetid://99750260128110"
@@ -333,10 +407,7 @@ function ArenaAudio.playPregameMusic(trackNameOrId, volume, fadeTime)
 end
 
 function ArenaAudio.stopPregameMusic(fadeTime)
-    fadeTime = fadeTime or 2.0
-    if activeProceduralStems and (currentMusicType == "PreGameMusic" or currentMusicType == "ProceduralAnthem") then
-        ArenaAudio.stopProceduralAnthem(fadeTime)
-    end
+    fadeTime = fadeTime or 1.5
     if activeMusicSound and currentMusicType == "PreGameMusic" then
         print(string.format("[ArenaAudio] Fading out PreGameMusic (%.1fs)", fadeTime))
         local s = activeMusicSound
@@ -352,15 +423,11 @@ function ArenaAudio.stopPregameMusic(fadeTime)
     end
 end
 
--- 2. InGame Music (Fades in at match start, loops during combat)
+-- 2. InGame Music
 function ArenaAudio.playInGameMusic(trackNameOrId, volume, fadeTime)
     trackNameOrId = trackNameOrId or "ts - butterflyeffect live"
-    volume = volume or ArenaConfig.AudioSettings.BaselineVolume
+    volume = volume or channelVolumes.Music
     fadeTime = fadeTime or 1.5
-    
-    if isAnthem1Track(trackNameOrId) then
-        return ArenaAudio.playProceduralAnthem1(volume, fadeTime, true, "InGameMusic")
-    end
     
     local asset = findMusicSoundAsset(trackNameOrId, "InGame")
     local soundId = asset and asset.SoundId or "rbxassetid://133867258789343"
@@ -371,9 +438,6 @@ end
 
 function ArenaAudio.stopInGameMusic(fadeTime)
     fadeTime = fadeTime or 2.0
-    if activeProceduralStems and (currentMusicType == "InGameMusic" or currentMusicType == "ProceduralAnthem") then
-        ArenaAudio.stopProceduralAnthem(fadeTime)
-    end
     if activeMusicSound and currentMusicType == "InGameMusic" then
         print(string.format("[ArenaAudio] Fading out InGameMusic (%.1fs)", fadeTime))
         local s = activeMusicSound
@@ -389,15 +453,11 @@ function ArenaAudio.stopInGameMusic(fadeTime)
     end
 end
 
--- 3. PostGame Music (Fades in during Arena Closure, fades out while ARIA_SkylarkClosure)
+-- 3. PostGame Music
 function ArenaAudio.playPostgameMusic(trackNameOrId, volume, fadeTime)
     trackNameOrId = trackNameOrId or "Bai - Tenggelam (feat. Kurt Haikal) MAXIMUS2"
-    volume = volume or ArenaConfig.AudioSettings.BaselineVolume
+    volume = volume or channelVolumes.Music
     fadeTime = fadeTime or 2.5
-    
-    if isAnthem1Track(trackNameOrId) then
-        return ArenaAudio.playProceduralAnthem1(volume, fadeTime, true, "PostGameMusic")
-    end
     
     local asset = findMusicSoundAsset(trackNameOrId, "PostGame")
     local soundId = asset and asset.SoundId or "rbxassetid://139341117198830"
@@ -408,9 +468,6 @@ end
 
 function ArenaAudio.stopPostgameMusic(fadeTime)
     fadeTime = fadeTime or 3.0
-    if activeProceduralStems and (currentMusicType == "PostGameMusic" or currentMusicType == "ProceduralAnthem") then
-        ArenaAudio.stopProceduralAnthem(fadeTime)
-    end
     if activeMusicSound and currentMusicType == "PostGameMusic" then
         print(string.format("[ArenaAudio] Fading out PostGameMusic (%.1fs)", fadeTime))
         local s = activeMusicSound
@@ -427,7 +484,7 @@ function ArenaAudio.stopPostgameMusic(fadeTime)
 end
 
 -- ============================================================================
--- DYNAMIC AUDIO DUCKING (Applies smoothly to active track and all procedural stems)
+-- DYNAMIC AUDIO DUCKING (When ARIA Speaks)
 -- ============================================================================
 
 function ArenaAudio.duck(multiplier, tweenTime)
@@ -436,19 +493,18 @@ function ArenaAudio.duck(multiplier, tweenTime)
     duckCount = duckCount + 1
     
     if activeMusicSound and activeMusicSound.Parent then
-        local targetVol = baselineMusicVolume * multiplier
+        local targetVol = channelVolumes.Music * multiplier
         TweenService:Create(activeMusicSound, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             Volume = targetVol
         }):Play()
         isDucked = true
     end
     
-    if activeProceduralStems then
-        for stemKey, s in pairs(activeProceduralStems) do
-            if s and s.Parent then
-                local weight = (ANTHEM1_STEMS[stemKey] and ANTHEM1_STEMS[stemKey].VolWeight) or 1.0
-                local targetVol = baselineMusicVolume * weight * multiplier
-                TweenService:Create(s, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+    if next(activeAnthemStems) ~= nil then
+        for sound, volWeight in pairs(activeAnthemStems) do
+            if sound and sound.Parent then
+                local targetVol = channelVolumes.Music * volWeight * multiplier
+                TweenService:Create(sound, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                     Volume = targetVol
                 }):Play()
             end
@@ -464,17 +520,16 @@ function ArenaAudio.unduck(tweenTime)
     if duckCount == 0 then
         if activeMusicSound and activeMusicSound.Parent then
             TweenService:Create(activeMusicSound, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Volume = baselineMusicVolume
+                Volume = channelVolumes.Music
             }):Play()
             isDucked = false
         end
         
-        if activeProceduralStems then
-            for stemKey, s in pairs(activeProceduralStems) do
-                if s and s.Parent then
-                    local weight = (ANTHEM1_STEMS[stemKey] and ANTHEM1_STEMS[stemKey].VolWeight) or 1.0
-                    local targetVol = baselineMusicVolume * weight
-                    TweenService:Create(s, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        if next(activeAnthemStems) ~= nil then
+            for sound, volWeight in pairs(activeAnthemStems) do
+                if sound and sound.Parent then
+                    local targetVol = channelVolumes.Music * volWeight
+                    TweenService:Create(sound, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                         Volume = targetVol
                     }):Play()
                 end
@@ -490,14 +545,12 @@ function ArenaAudio.stopAll(fadeTime)
     duckCount = 0
     isDucked = false
     
-    if activeProceduralStems then
-        ArenaAudio.stopProceduralAnthem(fadeTime)
-    end
+    ArenaAudio.stopAnthem(fadeTime)
     
     findArenaGlobe()
     if arenaGlobe then
         for _, child in ipairs(arenaGlobe:GetChildren()) do
-            if child:IsA("Sound") and (child.Name:find("Arena") or child.Name:find("ARIA")) then
+            if child:IsA("Sound") and (child.Name:find("Arena") or child.Name:find("ARIA") or child.Name:find("ActiveAnthem")) then
                 if fadeTime > 0 then
                     TweenService:Create(child, TweenInfo.new(fadeTime), { Volume = 0 }):Play()
                     task.delay(fadeTime, function()
@@ -516,84 +569,80 @@ function ArenaAudio.stopAll(fadeTime)
 end
 
 function ArenaAudio.getActiveTrackName()
-    if activeProceduralStems then
-        return "ARIA_SkylarkAnthem1Procedural (3-Stem)"
+    if isAnthemActive then
+        return "Stadium Anthem (Multi-Stem)"
     end
     return activeMusicSound and activeMusicSound.Name or "None"
 end
 
 -- ============================================================================
--- DYNAMIC ACOUSTIC & MIXING UPDATES (Developer Debug)
+-- REAL-TIME SLIDER UPDATES (Master Vol, Reverb Decay, Reverb Wetness, ARIA Voice, Music)
 -- ============================================================================
 
 function ArenaAudio.updateAcoustics(settings)
-    ensureSpeakerGroup()
-    if not arenaSpeakerGroup then return end
+    ensureSoundGroups()
+    if not masterGroup then return end
     if not settings or type(settings) ~= "table" then return end
     
-    if settings.Volume ~= nil then
-        local vol = math.clamp(tonumber(settings.Volume) or 1.0, 0, 2)
-        arenaSpeakerGroup.Volume = vol
-        baselineMusicVolume = vol
+    -- 1. Master Volume
+    if settings.Master ~= nil or settings.Volume ~= nil then
+        local vol = math.clamp(tonumber(settings.Master or settings.Volume) or 1.0, 0, 2)
+        channelVolumes.Master = vol
+        masterGroup.Volume = vol
+    end
+    
+    -- 2. ARIA Voice Channel
+    if settings.AriaVoice ~= nil then
+        local vol = math.clamp(tonumber(settings.AriaVoice) or 1.2, 0, 2)
+        channelVolumes.AriaVoice = vol
+        if ariaChannel then
+            ariaChannel.Volume = vol
+        end
+    end
+    
+    -- 3. Music Channel
+    if settings.Music ~= nil then
+        local vol = math.clamp(tonumber(settings.Music) or 0.85, 0, 2)
+        channelVolumes.Music = vol
+        if musicChannel then
+            musicChannel.Volume = vol
+        end
         if activeMusicSound and activeMusicSound.Parent and not isDucked then
             activeMusicSound.Volume = vol
         end
-        if activeProceduralStems and not isDucked then
-            for stemKey, s in pairs(activeProceduralStems) do
-                if s and s.Parent then
-                    local weight = (ANTHEM1_STEMS[stemKey] and ANTHEM1_STEMS[stemKey].VolWeight) or 1.0
-                    s.Volume = vol * weight
+        if next(activeAnthemStems) ~= nil and not isDucked then
+            for sound, volWeight in pairs(activeAnthemStems) do
+                if sound and sound.Parent then
+                    sound.Volume = vol * volWeight
                 end
             end
         end
     end
     
-    local reverb = arenaSpeakerGroup:FindFirstChildOfClass("ReverbSoundEffect")
+    -- 4. Reverb Decay & Wetness (Echo is permanently removed)
+    local reverb = masterGroup:FindFirstChildOfClass("ReverbSoundEffect")
     if reverb then
         if settings.ReverbDecay ~= nil then
-            reverb.DecayTime = math.clamp(tonumber(settings.ReverbDecay) or 4.28, 0.1, 20.0)
-        end
-        if settings.ReverbDensity ~= nil then
-            reverb.Density = math.clamp(tonumber(settings.ReverbDensity) or 1.0, 0, 1.0)
-        end
-        if settings.ReverbDiffusion ~= nil then
-            reverb.Diffusion = math.clamp(tonumber(settings.ReverbDiffusion) or 1.0, 0, 1.0)
-        end
-        if settings.ReverbDry ~= nil then
-            reverb.DryLevel = math.clamp(tonumber(settings.ReverbDry) or 2.0, -80.0, 20.0)
+            local decay = math.clamp(tonumber(settings.ReverbDecay) or 3.5, 0.1, 10.0)
+            channelVolumes.ReverbDecay = decay
+            reverb.DecayTime = decay
         end
         if settings.ReverbWet ~= nil then
-            reverb.WetLevel = math.clamp(tonumber(settings.ReverbWet) or 6.0, -80.0, 20.0)
+            local wet = math.clamp(tonumber(settings.ReverbWet) or 2.0, -40.0, 15.0)
+            channelVolumes.ReverbWet = wet
+            reverb.WetLevel = wet
         end
     end
     
-    local echo = arenaSpeakerGroup:FindFirstChildOfClass("EchoSoundEffect")
-    if echo then
-        if settings.EchoDelay ~= nil then
-            echo.Delay = math.clamp(tonumber(settings.EchoDelay) or 1.0, 0.01, 5.0)
-        end
-        if settings.EchoFeedback ~= nil then
-            echo.Feedback = math.clamp(tonumber(settings.EchoFeedback) or 0.12, 0, 1.0)
-        end
-        if settings.EchoDry ~= nil then
-            echo.DryLevel = math.clamp(tonumber(settings.EchoDry) or -45.8, -80.0, 20.0)
-        end
-        if settings.EchoWet ~= nil then
-            echo.WetLevel = math.clamp(tonumber(settings.EchoWet) or 8.2, -80.0, 20.0)
-        end
-    end
-    
-    print(string.format("[ArenaAudio] Acoustics updated: Vol=%.2f, RevDecay=%.2f, RevWet=%.1f, RevDry=%.1f, EchoDelay=%.2f, EchoFeedback=%.2f",
-        arenaSpeakerGroup.Volume,
-        reverb and reverb.DecayTime or 0,
-        reverb and reverb.WetLevel or 0,
-        reverb and reverb.DryLevel or 0,
-        echo and echo.Delay or 0,
-        echo and echo.Feedback or 0
-    ))
+    print(string.format("[ArenaAudio] Channels Updated: Master=%.2f, AriaVoice=%.2f, Music=%.2f, RevDecay=%.2fs, RevWet=%.1fdB",
+        channelVolumes.Master, channelVolumes.AriaVoice, channelVolumes.Music, channelVolumes.ReverbDecay, channelVolumes.ReverbWet))
 end
 
--- Network Listener for Developer Debug Acoustic Updates
+function ArenaAudio.getAcousticSettings()
+    return table.clone(channelVolumes)
+end
+
+-- Network Listener for UI Sliders
 local ArenaNetwork = RS:FindFirstChild("ArenaNetwork")
 if ArenaNetwork then
     local updateEvent = ArenaNetwork:FindFirstChild("UpdateAudioSettings")

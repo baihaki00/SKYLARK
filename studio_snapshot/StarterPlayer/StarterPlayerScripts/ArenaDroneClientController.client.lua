@@ -389,11 +389,14 @@ RunService:BindToRenderStep("ArenaDroneCameraRender", Enum.RenderPriority.Camera
         end
         telemetryHUD.Visible = false
         shared.CameraOverrideCFrame = nil
+        smoothedCameraCF = nil
         return
     end
     
     if not activeDrone then
         telemetryHUD.Visible = false
+        shared.CameraOverrideCFrame = nil
+        smoothedCameraCF = nil
         return
     end
     
@@ -407,22 +410,39 @@ RunService:BindToRenderStep("ArenaDroneCameraRender", Enum.RenderPriority.Camera
     local t = (flightStartTime > 0) and (os.clock() - flightStartTime) or 0
     local outroElapsed = isOutro and (os.clock() - outroStartTime) or 0
     
-    local droneCF = DroneTrajectories.getDroneCFrame(activeDrone, t, isFlying, isOutro, outroElapsed, center, size, radius, minRadius)
+    local rawDroneCF = DroneTrajectories.getDroneCFrame(activeDrone, t, isFlying, isOutro, outroElapsed, center, size, radius, minRadius)
     
-    if droneCF then
-        shared.CameraOverrideCFrame = droneCF
-        
-        -- Telemetry metrics
-        local now = os.clock()
-        if lastPos and (now - lastTime) > 0 then
-            local dist = (droneCF.Position - lastPos).Magnitude
-            local spdStuds = dist / (now - lastTime)
-            currentSpeed = currentSpeed + (spdStuds * 1.097 - currentSpeed) * 0.15 -- studs/s to approx km/h
+    if rawDroneCF then
+        if not smoothedCameraCF then
+            smoothedCameraCF = (Workspace.CurrentCamera and Workspace.CurrentCamera.CFrame) or rawDroneCF
         end
-        lastPos = droneCF.Position
+        
+        -- Butter-Smooth Frame-Rate Independent Exponential Damping (slerp/lerp)
+        local smoothingRate = 8.5
+        if activeDrone == "CombatChase" then
+            smoothingRate = 9.5
+        elseif activeDrone == "SkylineOrbit" or activeDrone == "LiveAerial" then
+            smoothingRate = 6.0
+        elseif activeDrone == "ArenaFootage" then
+            smoothingRate = 8.0
+        end
+        
+        local alpha = math.clamp(1 - math.exp(-smoothingRate * dt), 0.02, 1.0)
+        smoothedCameraCF = smoothedCameraCF:Lerp(rawDroneCF, alpha)
+        
+        shared.CameraOverrideCFrame = smoothedCameraCF
+        
+        -- Butter-smooth telemetry metrics
+        local now = os.clock()
+        if lastPos and (now - lastTime) > 0.001 then
+            local dist = (smoothedCameraCF.Position - lastPos).Magnitude
+            local rawSpd = dist / (now - lastTime)
+            currentSpeed = currentSpeed + (rawSpd * 1.097 - currentSpeed) * math.clamp(dt * 5.0, 0.05, 1.0)
+        end
+        lastPos = smoothedCameraCF.Position
         lastTime = now
         
-        local altStuds = math.max(0, droneCF.Position.Y - center.Y)
+        local altStuds = math.max(0, smoothedCameraCF.Position.Y - center.Y)
         altLbl.Text = string.format("ALT: %dm", math.floor(altStuds * 0.28))
         spdLbl.Text = string.format("SPD: %d km/h", math.floor(currentSpeed))
     end

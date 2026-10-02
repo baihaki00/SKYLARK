@@ -157,7 +157,7 @@ local function playVoiceLineInternal(categoryName)
     sound.RollOffMinDistance = ArenaConfig.AudioSettings.SpeakerMinDistance
     sound.RollOffMaxDistance = ArenaConfig.AudioSettings.SpeakerMaxDistance
     sound.RollOffMode = ArenaConfig.AudioSettings.SpeakerRollOffMode
-    sound.SoundGroup = sGroup
+    sound.SoundGroup = ArenaAudio.getAriaChannel()
     sound.Parent = globe
     
     activeAriaSound = sound
