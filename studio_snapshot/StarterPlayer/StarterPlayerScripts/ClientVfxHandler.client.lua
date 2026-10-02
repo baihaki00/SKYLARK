@@ -7,7 +7,18 @@ local localPlayer = Players.LocalPlayer
 
 local shakeEvent = ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Events"):WaitForChild("CameraShakeEvent")
 
+local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+
 local currentShake = 0
+
+-- One master volume for every camera shake: each action keeps its own intensity, this scales
+-- them all. CombatConfig.CameraShake_Multiplier; a Workspace attribute CameraShakeMultiplier
+-- overrides it live (0 = no shake).
+local function shakeMultiplier()
+    local live = workspace:GetAttribute("CameraShakeMultiplier")
+    if type(live) == "number" then return live end
+    return CombatConfig.CameraShake_Multiplier or 1
+end
 
 shakeEvent.OnClientEvent:Connect(function(position, radius, intensity)
     local char = localPlayer.Character
@@ -17,7 +28,7 @@ shakeEvent.OnClientEvent:Connect(function(position, radius, intensity)
     if dist <= radius then
         -- Linear falloff based on distance
         local falloff = 1 - (dist / radius)
-        local appliedIntensity = intensity * falloff
+        local appliedIntensity = intensity * falloff * shakeMultiplier()
         
         currentShake = math.max(currentShake, appliedIntensity)
     end

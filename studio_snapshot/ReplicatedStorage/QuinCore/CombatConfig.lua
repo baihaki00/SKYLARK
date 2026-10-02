@@ -554,6 +554,21 @@ CombatConfig.Locomotion_FacingIntoTurn = 0.3     -- share of the way from the mo
 CombatConfig.Locomotion_FacingResponsiveness = 35 -- AlignOrientation responsiveness of the steering facing
 CombatConfig.Locomotion_FacingMotionMinSpeed = 6 -- studs/s: below this it faces the steer heading (turning on the spot, starting off)
 CombatConfig.Locomotion_FacingLeadTime = 0.11     -- seconds of the motion's turn the facing target leads by (the facing constraint's own lag)
+-- Camera shake master volume (every VfxModule.shakeScreen call; each keeps its own intensity).
+-- 0.3 = 70% less than authored. Live override: Workspace attribute CameraShakeMultiplier.
+CombatConfig.CameraShake_Multiplier = 0.3
+
+-- Camera motion blur (StarterPlayerScripts.CameraMotionBlur): a BlurEffect that follows how
+-- fast the view turns / travels. Live: Workspace attributes MotionBlur (false = off), MotionBlurScale.
+CombatConfig.MotionBlur_Enabled = true
+CombatConfig.MotionBlur_MaxSize = 8       -- BlurEffect size at full motion (0-56)
+CombatConfig.MotionBlur_TurnStart = 90    -- deg/s of view turn where the blur begins
+CombatConfig.MotionBlur_TurnFull = 540    -- deg/s for full blur
+CombatConfig.MotionBlur_SpeedStart = 60   -- studs/s of camera travel where the blur begins
+CombatConfig.MotionBlur_SpeedFull = 200   -- studs/s for full blur
+CombatConfig.MotionBlur_Attack = 20       -- 1/s rise
+CombatConfig.MotionBlur_Release = 8       -- 1/s fall
+
 -- Reversals (> 115 degrees at a run): brake along the line, pivot near a standstill, drive out
 CombatConfig.Locomotion_ReversalPivot = true       -- false: the old running U-turn (speed dropped to 40%, then turned at grip)
 CombatConfig.Locomotion_ReversalBrake = 150        -- studs/s^2 deceleration of the brake phase
