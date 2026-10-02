@@ -224,3 +224,31 @@ MovementTestArena clear floor, a runner sprinting back and forth at 28 studs/s, 
 - Play As Quin (P): possesses the costume, 0 errors.
 - Arena System match not re-run (client-only foot change; no spawn or orchestrator code touched).
 - Not checked on screen.
+
+## G. Realism sweep (partial: Studio was throttled)
+
+### Condition of the run
+Studio ran at about 15 frames per second on both server and client during this sweep, with only 12 ms of work per server frame (`Stats.HeartbeatTimeMs`) and physics at 53 Hz: the window was in the background and Studio throttles it. Per-frame measures (yaw snaps, velocity jumps, foot slide from bones) are not valid at that rate and are **not reported**. They need a run with Studio in the foreground.
+
+### Probes that do not depend on frame rate
+| probe | 16v16, 100 s | FFA 32, 95 s |
+|---|---|---|
+| server errors | 0 | 0 |
+| Quin stuck in the air (moved < 2 studs in 1 s, > 3 studs up), outside MidAirClash | Airborne 1.4 s, Knockback 0.5 s, Chase 0.3 s, Retreat 0.1 s | Airborne 0.2 s, Knockback 0.1 s |
+| root centre more than 0.5 studs inside a solid block part | not measured this way | **0 incidents** |
+| two Quin roots within 1.5 studs (flat) at the same height | 23 samples | 0.4 pair-seconds |
+| root more than 2.5 studs below standing height, not airborne | Recovery only (a knocked-down body lies low) | - |
+
+A first pass counted "in wall" by bounding-box touch within 1 stud (50 samples, 34 of them the `Meshes/Tree2` boxes). The stricter test above (root actually inside a block) found none, so those were bodies standing next to things.
+
+MidAirClash holds fighters in the air by design (7.1 Quin-seconds); not counted as stuck.
+
+### Course check (the stall listed after E)
+- JUMPONOBSTACLES with the target on the 35-stud top: 2 of 2 runs reach it in 5.1 and 5.6 s (four hops), no stall.
+- With the target left at the movement test's default spot (ground level, far across the arena) the runner goes round the course. No stall on top. One run crept along the course's base for 5 s ("Going round", about 5 studs/s from x -285 to -261) before wall-running on; another shuffled back and forth for 1.5 s at x -231..-237.
+- The stall at the 5-stud / 14-stud blocks on top was **not reproduced** in these 4 runs.
+
+### Not done
+- Per-frame ranking (velocity jumps, yaw snaps, foot slide by state, bind-pose frames, airborne pose) - needs Studio in the foreground.
+- No fixes were made under G: nothing in the valid probes ranked high enough to change code.
+- Open for the owner to pick from: the 5 s creep along the base of a tall course when the way is round it; the remaining pivot foot drag (F); the top-of-course stall if it shows again.
