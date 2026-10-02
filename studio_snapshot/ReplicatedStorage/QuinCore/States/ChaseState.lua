@@ -683,6 +683,26 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Close only counts when it can be reached: a wall or a platform edge between them is not
 	-- a fight (they used to stand facing each other through it for the rest of the match)
 	local reachable = NavigationModule.isReachable(rootPart, targetHRP)
+	-- A Quin going round keeps to its path until the straight line has stayed clear for
+	-- Nav_ClearHoldTime: a line that opened for a moment while rounding a pillar flipped it
+	-- between the path and the straight line, and it ran in circles next to its target.
+	if humanoid.FloorMaterial == Enum.Material.Air then
+		-- Mid-jump the body's height says nothing about the way to the target (the top of a
+		-- hurdle is 8 studs up: "too high to reach" sent it off on a path round, swerving)
+		reachable = not data.detouring
+	elseif reachable then
+		if data.detouring then
+			data.clearSince = data.clearSince or now
+			if now - data.clearSince < (CombatConfig.Nav_ClearHoldTime or 0.5) then
+				reachable = false
+			else
+				data.detouring = false
+			end
+		end
+	else
+		data.detouring = true
+		data.clearSince = nil
+	end
 
 	-- Mirroring: If they are circling, we circle!
 	if reachable and targetState == "Circling" and distance < (CombatConfig.CombatRange or 7) * 4.0 then
@@ -731,14 +751,18 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		-- hand on top, whatever its length up to SkidOver_MaxLength. The flight is sized to the
 		-- length (apex over the middle, landing a stride past the far edge) and the clip is
 		-- fitted to that flight (LocomotionModule "skidover").
-		local skidRise, skidTakeoff = nil, nil
-		if obsInfo.hitPosition and obsInfo.topSurfaceY and (obsInfo.height or 99) <= (CombatConfig.SkidOver_MaxRise or 4.5) and speedNow >= 14 then
+		-- Thin obstacles too tall to skid (up to Hurdle_MaxRise high, 7 deep) are hurdled with the
+		-- same solve and a little more clearance: the old hurdle peaked over the near edge and
+		-- came down on top of a 3-deep, 7-tall bar.
+		local skidRise, skidTakeoff, crossType, skidLength = nil, nil, nil, nil
+		local lowEnoughToSkid = (obsInfo.height or 99) <= (CombatConfig.SkidOver_MaxRise or 4.5)
+		if obsInfo.hitPosition and obsInfo.topSurfaceY and (obsInfo.height or 99) <= (CombatConfig.Hurdle_MaxRise or 9) and speedNow >= 14 then
 			local dirFlat = Vector3.new(flatVelNow.X, 0, flatVelNow.Z).Unit
 			local probeParams = RaycastParams.new()
 			probeParams.FilterType = Enum.RaycastFilterType.Exclude
 			probeParams.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
 			local length = nil
-			for d = 1, (CombatConfig.SkidOver_MaxLength or 16), 1.5 do
+			for d = 1, lowEnoughToSkid and (CombatConfig.SkidOver_MaxLength or 16) or 7, 1.5 do
 				local p = obsInfo.hitPosition + dirFlat * d
 				local top = Workspace:Raycast(Vector3.new(p.X, obsInfo.topSurfaceY + 2, p.Z), Vector3.new(0, -4, 0), probeParams)
 				if not top or top.Position.Y < obsInfo.topSurfaceY - 1 then
@@ -746,16 +770,19 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 					break
 				end
 			end
+			skidLength = length
 			if length then
 				-- Apex over the middle; the arc must clear the obstacle's height (+0.8) at both
 				-- edges: g/8 * (T^2 - (L/v)^2) >= h + 0.8. Takeoff and landing are each
 				-- (v*T - L)/2 from the edges.
 				local g = Workspace.Gravity
-				local flight = math.sqrt((length / speedNow) ^ 2 + 8 * (obsInfo.height + 0.8) / g)
+				local clearance = lowEnoughToSkid and 0.8 or 1.2
+				local flight = math.sqrt((length / speedNow) ^ 2 + 8 * (obsInfo.height + clearance) / g)
 				local rise = g * flight * flight / 8
-				if rise <= (CombatConfig.SkidOver_MaxFlightRise or 8) then
+				if rise <= (lowEnoughToSkid and (CombatConfig.SkidOver_MaxFlightRise or 9) or 13) then
 					skidRise = rise
 					skidTakeoff = math.max(2, (speedNow * flight - length) / 2)
+					crossType = lowEnoughToSkid and "skidover" or "hurdle"
 				end
 			end
 		end
@@ -772,12 +799,28 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			if tick() >= (fighter:GetAttribute("SkidPendingUntil") or 0) then
 				local wait = math.max(0, (faceDistance - skidTakeoff) / math.max(speedNow, 1))
 				fighter:SetAttribute("SkidPendingUntil", tick() + wait + 0.3)
-				fighter:SetAttribute("ObstacleAwareness", "Skidding over")
+				fighter:SetAttribute("SkidPlan", string.format("%s face %.1f takeoff %.1f wait %.2f length %.1f rise %.1f v %.0f",
+					crossType, faceDistance, skidTakeoff, wait, skidLength or -1, skidRise, speedNow))
+				fighter:SetAttribute("ObstacleAwareness", crossType == "skidover" and "Skidding over" or "Hurdling")
 				task.delay(wait, function()
+					-- Just off a landing the body can still read as airborne for a few frames; the
+					-- jump would be refused and it ran into the obstacle. Wait for the ground (briefly).
+					local function inAir()
+						local s = humanoid:GetState()
+						return humanoid.FloorMaterial == Enum.Material.Air
+							or s == Enum.HumanoidStateType.Freefall or s == Enum.HumanoidStateType.Jumping
+					end
+					local deadline = os.clock() + 0.15
+					while inAir() and os.clock() < deadline do
+						task.wait()
+					end
 					if fighter.Parent and humanoid.Health > 0 and fighter:GetAttribute("CurrentState") == "Chase"
-						and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+						and not inAir() then
 						local v = rootPart.AssemblyLinearVelocity
-						JumpHandler.performJump(humanoid, rootPart, skidRise, Vector3.new(v.X, 0, v.Z).Magnitude, "skidover")
+						local ok = JumpHandler.performJump(humanoid, rootPart, skidRise, Vector3.new(v.X, 0, v.Z).Magnitude, crossType)
+						if ok == false then
+							fighter:SetAttribute("SkidPlan", (fighter:GetAttribute("SkidPlan") or "") .. " REFUSED " .. tostring(fighter:GetAttribute("JumpRejected")))
+						end
 					end
 				end)
 			end

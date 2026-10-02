@@ -646,6 +646,18 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		fwdSpeed = (currentHVel > 2.0) and currentHVel or 0.0
 	end
 
+	-- The Humanoid adds its own takeoff (JumpPower, 50) on the physics step after it enters
+	-- Jumping: every jump that needed less than 50 studs/s up (hurdles, skid-overs, hops) flew
+	-- at 50, higher and longer than solved. For the takeoff it is set to this jump's own speed.
+	local savedJumpPower = humanoid.JumpPower
+	humanoid.UseJumpPower = true
+	humanoid.JumpPower = upImpulse
+	task.delay(0.15, function()
+		if humanoid.Parent and humanoid.JumpPower == upImpulse then
+			humanoid.JumpPower = savedJumpPower
+		end
+	end)
+
 	-- Unstick humanoid from ground plane
 	humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 

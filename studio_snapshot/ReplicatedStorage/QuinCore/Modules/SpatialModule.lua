@@ -275,8 +275,12 @@ function SpatialModule.analyzeObstacleAhead(rootPart, targetPos, checkDistance)
 	local isOB = (hitPart.Name == "OB" or hitPart.Name:find("OB") ~= nil)
 
 	-- Measure height of obstacle by casting down from above hit position
+	-- From just inside the face: cast from the face plane itself, the ray grazed past the top
+	-- of thin bars and hit the floor (height 0: a 3-stud bar read as "no obstacle" or as a
+	-- step, so the Quin ran into it)
 	local maxCheckH = 80
-	local upRayOrigin = hit.Position + Vector3.new(0, maxCheckH, 0)
+	local inside = hit.Position - Vector3.new(hit.Normal.X, 0, hit.Normal.Z) * 0.4
+	local upRayOrigin = inside + Vector3.new(0, maxCheckH, 0)
 	local downHit = DebugDraw.raycast(rootPart, upRayOrigin, Vector3.new(0, -maxCheckH * 1.5, 0), params)
 
 	local topY = downHit and downHit.Position.Y or (hit.Position.Y + 2.0)

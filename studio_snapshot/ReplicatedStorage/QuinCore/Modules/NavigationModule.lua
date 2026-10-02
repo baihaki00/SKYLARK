@@ -17,7 +17,7 @@ local NavigationModule = {}
 
 local MAX_HEIGHT_ON_FOOT = 7 -- studs of height between the two above which it is not a walk-up
 local SWEEP_HEIGHT = 4.5 -- studs above the root: obstacles below this are stepped, vaulted or jumped
-local SWEEP_RADIUS = 1.2
+local SWEEP_RADIUS = 2.0 -- about the body's half width: a thinner sweep passed lines the body could not (grazing a pillar)
 
 local function sweepParams(a, b)
 	local params = RaycastParams.new()
@@ -97,6 +97,14 @@ function NavigationModule.detourWaypoint(fighter, rootPart, targetPosition)
 	end
 	local waypoint = waypoints[entry.index]
 	if not waypoint then return nil end
+	-- Off the path (thrown by a knockback, carried by a slide): a path from where it used to
+	-- be leads the wrong way, so plan again from here
+	local gap = Vector3.new(waypoint.Position.X - rootPart.Position.X, 0, waypoint.Position.Z - rootPart.Position.Z)
+	if gap.Magnitude > (CombatConfig.Nav_OffPathDistance or 24) then
+		entry.waypoints = nil
+		requestPath(fighter, rootPart, targetPosition)
+		return nil
+	end
 	return waypoint.Position, waypoint.Action == Enum.PathWaypointAction.Jump
 end
 

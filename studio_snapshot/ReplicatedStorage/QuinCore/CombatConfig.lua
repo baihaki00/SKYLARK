@@ -543,6 +543,7 @@ CombatConfig.ProjectileJump_SmackDownChance = 0.5  -- share of arc jumps (style 
 CombatConfig.SkidOver_MaxRise = 4.5               -- studs: obstacles up to this high are skidded over (hands on top), taller ones hurdled/vaulted
 CombatConfig.SkidOver_MaxLength = 16              -- studs: longest low obstacle cleared in one skid-over (the flight and clip stretch with it)
 CombatConfig.SkidOver_MaxFlightRise = 9           -- studs: a skid-over that would need a higher arc than this (slow, long) is vaulted instead
+CombatConfig.Hurdle_MaxRise = 9                  -- studs: thin obstacles (up to 7 deep) up to this high are hurdled with a timed, solved arc
 CombatConfig.Overwatch_EdgeInset = 3           -- studs kept from the edge
 CombatConfig.Overwatch_EngageRange = 30        -- an enemy this close at the same height is fought up there
 CombatConfig.Retreat_RendezvousValue = 15      -- extra worth of a platform per ally already on it (up to 3)
