@@ -431,6 +431,29 @@ task.spawn(function()
 			continue
 		end
 
+		-- === Studio test: run laps (MovementTestArena circle course) ===
+		-- With DevLapRadius / DevLapCenter set (Studio only) the Quin runs a circle on its normal
+		-- locomotion (steer driver, gait, lean) instead of its states, at the speed its lateral
+		-- grip allows on that radius. Clearing the attribute hands it back to the AI.
+		local lapRadius = Quin:GetAttribute("DevLapRadius")
+		if lapRadius and game:GetService("RunService"):IsStudio() then
+			local center = Quin:GetAttribute("DevLapCenter") or rootPart.Position
+			local grip = CombatConfig.Locomotion_LateralGrip or 90
+			local speed = math.min(Quin:GetAttribute("DevLapSpeed") or 40, math.sqrt(grip * lapRadius) * 0.95)
+			local p = rootPart.Position
+			-- along the tangent, with a pull back onto the circle (aiming at a point ahead on the
+			-- circle made it face the chord, 10-20 degrees off its motion)
+			local radial = Vector3.new(p.X - center.X, 0, p.Z - center.Z)
+			local distance = radial.Magnitude
+			radial = distance > 0.1 and radial.Unit or Vector3.new(1, 0, 0)
+			local tangent = Vector3.new(-radial.Z, 0, radial.X) * (Quin:GetAttribute("DevLapDirection") or 1)
+			local goal = p + tangent * 10 - radial * math.clamp(distance - lapRadius, -3, 3) * 1.5
+			LocomotionModule.steer(Quin, humanoid, rootPart, goal, speed, 0.05)
+			GaitModule.update(humanoid, rootPart, 0.05)
+			task.wait(0.05)
+			continue
+		end
+
 		-- === Inert Laboratory Rig Bypass ===
 		-- When marked IsInert or IsTester (without explicit combat mode active), keep Quin completely passive
 		local isInert = Quin:GetAttribute("IsInert") == true
@@ -687,7 +710,10 @@ task.spawn(function()
 			-- State Dwell Commitment Check: prevent rapid 100-300ms fluttering
 			local isInterrupt = (forceState ~= nil)
 				or (newState.name == "Knockback" or newState.name == "Death" or newState.name == "Recovery"
-					or newState.name == "MidAirClash" or newState.name == "BeamStruggle" or newState.name == "ReEntry")
+					or newState.name == "MidAirClash" or newState.name == "BeamStruggle" or newState.name == "ReEntry"
+					-- committed moves lasting a second or more, gated by their own cooldowns; held
+					-- back here, a hop onto a stepping stone waited 1.3 s and its spot request lapsed
+					or newState.name == "ProjectileJump" or newState.name == "WallRun")
 			
 			local dwellElapsed = os.clock() - stateStartTime
 			local minDwell = 0

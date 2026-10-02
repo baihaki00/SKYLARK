@@ -30,6 +30,18 @@ local function isHumanoidAirborne(humanoid)
 	return s == Enum.HumanoidStateType.Freefall or s == Enum.HumanoidStateType.Jumping
 end
 
+-- Feet on something, by a ray (Humanoid.FloorMaterial and the Humanoid state lag a landing by
+-- a few tenths of a second: crossings planned on a landing were dropped, and the edge guard
+-- was off while the body drifted to the lip)
+function LocomotionModule.isOnGround(rootPart, humanoid)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { rootPart.Parent, Workspace:FindFirstChild("QuinServer") }
+	params.RespectCanCollide = true
+	local reach = (humanoid and humanoid.HipHeight or 4.2) + rootPart.Size.Y / 2 + 0.9
+	return Workspace:Raycast(rootPart.Position, Vector3.new(0, -reach, 0), params) ~= nil
+end
+
 function LocomotionModule.isSliding(fighter)
 	return fighter ~= nil and activeSlides[fighter] ~= nil
 end
@@ -222,6 +234,30 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 
 	dt = math.clamp(dt or 0.016, 0.001, 0.15)
 	local data = getLocoData(fighter)
+
+	-- The floor is lava: whatever state is steering, a Quin on raised ground does not run off
+	-- it unless where it is going is well below (SpatialModule.keepOnSurface)
+	if LocomotionModule.isOnGround(rootPart, humanoid) then
+		-- (where it is really headed decides whether going down is wanted: a ledge dive steers
+		-- at a point level with itself, toward a target below)
+		local reference = targetPosition
+		local targetName = fighter:GetAttribute("CurrentTarget")
+		if targetName then
+			local container = Workspace:FindFirstChild("QuinServer")
+			local model = (container and container:FindFirstChild(targetName)) or Workspace:FindFirstChild(targetName)
+			local targetRoot = model and model:FindFirstChild("HumanoidRootPart")
+			if targetRoot then
+				reference = targetRoot.Position
+			end
+		end
+		local held
+		targetPosition, held = SpatialModule.keepOnSurface(rootPart, targetPosition, reference)
+		fighter:SetAttribute("EdgeHeld", held or nil)
+	elseif data.airSpeedCap and os.clock() < (data.airCapUntil or 0) then
+		-- In the air nothing pushes the body forward: the run could not speed it up past its
+		-- launch (it carried a shortened jump on at 40 studs/s and into the next obstacle)
+		targetSpeed = math.min(targetSpeed, data.airSpeedCap)
+	end
 
 	-- 1. Smoothly accelerate / decelerate to target speed. AI Quins hand the goal to the
 	-- per-frame steer driver; a piloted Quin (resolvedDirection supplied) is advanced here.
@@ -467,6 +503,84 @@ function LocomotionModule.planTraversal(fighter, rootPart, desiredDirection, req
 	return plan, candidate
 end
 
+-- Skid-over: the clip itself carries the body up and over (hips rise, a hand on top, legs
+-- swing through), so the body is not thrown on a ballistic arc. It keeps its running height
+-- and speed on a mover, with its collision off for the crossing (the obstacle passes under the
+-- legs), and the clip's airborne part (0.08 -> 0.97 s) is fitted to the crossing time. Over a
+-- 3-stud obstacle Y is locked; taller ones (up to 5) get a small eased lift of (h - 3) at the
+-- middle so the legs clear the top.
+local function runSkidOver(fighter, humanoid, rootPart, speed, rise, direction)
+	local gravity = Workspace.Gravity
+	local duration = 2 * math.sqrt(2 * math.max(rise or 3, 0.5) / gravity)
+	local obstacleHeight = fighter:GetAttribute("SkidObstacleHeight") or 3
+	local lift = math.clamp(obstacleHeight - 3, 0, 2.5)
+	local data = getLocoData(fighter)
+
+	local saved = {}
+	for _, part in ipairs(fighter:GetDescendants()) do
+		if part:IsA("BasePart") and part.CanCollide then
+			saved[part] = true
+			part.CanCollide = false
+		end
+	end
+	humanoid.PlatformStand = true
+	fighter:SetAttribute("SkidOverActive", true)
+
+	local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+	local mover = Instance.new("LinearVelocity")
+	mover.Name = "SkidOverMover"
+	mover.Attachment0 = att
+	mover.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+	mover.ForceLimitMode = Enum.ForceLimitMode.Magnitude
+	mover.MaxForce = math.huge
+	mover.VectorVelocity = direction * speed
+	mover.Parent = rootPart
+	local align = Instance.new("AlignOrientation")
+	align.Name = "SkidOverAlign"
+	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	align.Attachment0 = att
+	align.Responsiveness = 40
+	align.MaxTorque = 1e7
+	align.CFrame = CFrame.lookAt(Vector3.zero, direction)
+	align.Parent = rootPart
+
+	local track = AnimationModule.playConfig(humanoid, "Parkour.SkidOverOB", 1.0, Enum.AnimationPriority.Action3, true)
+	if track then
+		track:AdjustSpeed(math.clamp((0.97 - 0.08) / math.max(duration, 0.1), 0.5, 2.6))
+		if track.Length > 0 then
+			track.TimePosition = 0.08
+		end
+	end
+	AudioModule.playJump(fighter, 0.5)
+
+	local baseY = rootPart.Position.Y
+	local start = os.clock()
+	local conn
+	conn = RunService.Heartbeat:Connect(function(dt)
+		local t = os.clock() - start
+		if t >= duration or not fighter.Parent or humanoid.Health <= 0 then
+			conn:Disconnect()
+			mover:Destroy()
+			align:Destroy()
+			for part in pairs(saved) do
+				if part.Parent then part.CanCollide = true end
+			end
+			humanoid.PlatformStand = false
+			fighter:SetAttribute("SkidOverActive", nil)
+			if rootPart.Parent then
+				rootPart.AssemblyLinearVelocity = direction * speed
+			end
+			humanoid:ChangeState(Enum.HumanoidStateType.Running)
+			data.airCapUntil = 0
+			return
+		end
+		local y = baseY + lift * math.sin(math.pi * t / duration)
+		local vy = math.clamp((y - rootPart.Position.Y) / math.max(dt, 1 / 240), -60, 60)
+		mover.VectorVelocity = direction * speed + Vector3.new(0, vy, 0)
+	end)
+	return true
+end
+
 function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpulse, jumpType)
 	-- Universal argument normalization: support both (fighter, humanoid, rootPart, ...)
 	-- and legacy (humanoid, rootPart, height, forwardImpulse, jumpType) callers
@@ -482,11 +596,16 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 
 	-- Pure Ground Locomotion: suppress ballistic jump impulse if jumping is disabled
 	if LocomotionModule.isJumpSuppressed(fighter, humanoid) then
+		fighter:SetAttribute("JumpSkip", "suppressed")
 		return
 	end
 
-	-- Ballistic jumps launch from the ground only (Rule 6): no mid-air re-launch
-	if isHumanoidAirborne(humanoid) then
+	-- Ballistic jumps launch from the ground only (Rule 6): no mid-air re-launch. An obstacle
+	-- crossing goes by real ground contact: the Humanoid state still reads Jumping/Freefall for
+	-- a moment after touchdown, and a skid-over planned on landing was refused into the wall.
+	local crossing = jumpType == "skidover" or jumpType == "hurdle"
+	if isHumanoidAirborne(humanoid) and not (crossing and LocomotionModule.isOnGround(rootPart, humanoid)) then
+		fighter:SetAttribute("JumpSkip", "airborne " .. tostring(jumpType))
 		return
 	end
 
@@ -532,8 +651,18 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		if across > 4 then
 			local look = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
 			look = look.Magnitude > 0.01 and look.Unit or Vector3.new(0, 0, -1)
+			-- a crossing launches along its velocity (the facing can lag a turn)
+			if crossing and flatVelocity.Magnitude > 4 then
+				look = flatVelocity.Unit
+			end
 			local up = math.sqrt(2 * Workspace.Gravity * math.clamp(height or 8.0, 3.0, 14.0))
 			local valid, landing, reason = TraversalModule.validateArc(rootPart, look * across + Vector3.new(0, up, 0), humanoid.HipHeight + rootPart.Size.Y / 2)
+			-- A crossing's arc was solved to clear the obstacle with margin; this coarser trace
+			-- (one point at the feet, 0.06 s steps) called it a wall hit and cancelled it, and the
+			-- Quin ran into the bar. Only its landing is checked (no ground = lava).
+			if not valid and crossing and (reason == "HitsWall" or reason == "NoHeadroom") then
+				valid, reason = true, nil
+			end
 			if valid and SpatialModule.isOutOfBounds({ Position = landing }, 4) then
 				valid, reason = false, "OutOfArena"
 			end
@@ -560,11 +689,21 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	local now = os.clock()
 
 	-- Enforce jump debounce to eliminate rapid-fire double-hopping
-	local debounce = CombatConfig.Locomotion_JumpDebounce or 0.35
+	-- (an obstacle crossing only needs to be back on the ground: bars in a row are taken
+	-- landing-to-takeoff within a few tenths of a second)
+	local debounce = crossing and 0.15 or (CombatConfig.Locomotion_JumpDebounce or 0.35)
 	if (now - data.lastJumpTime) < debounce then
+		fighter:SetAttribute("JumpSkip", string.format("debounce %.2f %s", now - data.lastJumpTime, tostring(jumpType)))
 		return
 	end
 	data.lastJumpTime = now
+
+	if jumpType == "skidover" then
+		local flatVel = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z)
+		local direction = flatVel.Magnitude > 4 and flatVel.Unit
+			or Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z).Unit
+		return runSkidOver(fighter, humanoid, rootPart, forwardImpulse or flatVel.Magnitude, height, direction)
+	end
 
 	local isVault = (jumpType == "vault")
     -- Stepping off a height: planned drops and the ledge dive both land softly
@@ -667,10 +806,13 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
         0,
         fighter:GetAttribute("TraversalVelocityZ") or 0
     )
-    if plannedHorizontal.Magnitude < 0.01 then
+    -- (a crossing is its own plan: a vault's velocity can still be on the attributes)
+    if crossing or plannedHorizontal.Magnitude < 0.01 then
         plannedHorizontal = flatLook * fwdSpeed
     end
     rootPart.AssemblyLinearVelocity = plannedHorizontal + Vector3.new(0, upImpulse, 0)
+    data.airSpeedCap = math.max(plannedHorizontal.Magnitude, 2)
+    data.airCapUntil = os.clock() + 2 * upImpulse / gravity + 0.15
 
     -- Debug: the arc this jump was launched on, until it comes back down to launch height
     if DebugDraw.isActive("Jump", fighter) then
@@ -884,6 +1026,18 @@ endSlide = function(fighter, humanoid, rootPart, handOff)
 	if s.lv and s.lv.Parent then s.lv:Destroy() end
 	VfxModule.stopSlideSmoke(s.smoke)
 	if s.att and s.att.Parent then s.att:Destroy() end
+	if s.savedCollide then
+		for part in pairs(s.savedCollide) do
+			if part.Parent then part.CanCollide = true end
+		end
+	end
+	if s.rootCollide and rootPart and rootPart.Parent then
+		rootPart.CanCollide = true
+	end
+	if s.platformStand and humanoid and humanoid.Parent then
+		humanoid.PlatformStand = false
+		humanoid:ChangeState(Enum.HumanoidStateType.Running)
+	end
 	if fighter.Parent then
 		fighter:SetAttribute("LocomotionAction", nil)
 	end
@@ -906,7 +1060,10 @@ end
 -- Returns the slide's duration in seconds, or 0 when a slide cannot start.
 -- slideDir is accepted for API compatibility; a slide always commits to the current
 -- travel direction because it is momentum, not a new drive.
-function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDuration)
+-- opts.underGap: sliding under something (a bar 4-8 studs up). The pose goes low but the
+-- collision body stays 8 tall, so it hit the bar and was bumped up onto it; collision is off
+-- for the slide (the Humanoid keeps its height above the floor by its own ray).
+function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDuration, opts)
 	if not fighter or not humanoid or not rootPart then return 0 end
 	if activeSlides[fighter] or isHumanoidAirborne(humanoid) then return 0 end
 
@@ -915,6 +1072,16 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 	local startSpeed = flatVel.Magnitude
 	if startSpeed < (CombatConfig.Slide_MinStartSpeed or 8.0) then return 0 end
 	local dir = flatVel.Unit
+	-- A slide is not steered once it starts, so it must not head off a raised edge
+	do
+		local glideLength = math.clamp(startSpeed * 1.1, 10, 35)
+		local goal, bent = SpatialModule.keepOnSurface(rootPart, rootPart.Position + dir * glideLength, rootPart.Position, glideLength)
+		if bent then
+			local flatGoal = Vector3.new(goal.X - rootPart.Position.X, 0, goal.Z - rootPart.Position.Z)
+			if flatGoal.Magnitude < 0.5 then return 0 end -- nowhere to slide to
+			dir = flatGoal.Unit
+		end
+	end
 
 	local now = os.clock()
 	fighter:SetAttribute("LastSlideTime", tick()) -- readers compare against tick()
@@ -957,6 +1124,28 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 
 	local slide = { dir = dir, lv = lv, att = att, smoke = VfxModule.createSlideSmoke(rootPart), lastMark = 0 }
 	activeSlides[fighter] = slide
+	if opts and opts.underGap then
+		slide.savedCollide = {}
+		for _, part in ipairs(fighter:GetDescendants()) do
+			if part:IsA("BasePart") and part.CanCollide and part ~= rootPart then
+				slide.savedCollide[part] = true
+				part.CanCollide = false
+			end
+		end
+		-- the root (2 x 2 x 1 at hip height) is the Humanoid's floor contact: it stays solid but
+		-- must not catch the bar either
+		if rootPart.CanCollide then
+			slide.rootCollide = true
+			rootPart.CanCollide = false
+		end
+		-- Its root rides higher (5.4 studs) than a low gap's underside: the Humanoid's own floor
+		-- sensor found the bar and stood the body up on it (it climbed 5 studs). Under a gap the
+		-- slide carries the body at its height instead (platform-stand, the mover holds Y).
+		humanoid.PlatformStand = true
+		slide.platformStand = true
+		slide.underGap = true
+		lv.MaxAxesForce = Vector3.new(150000, 150000, 150000)
+	end
 
 	-- A higher-tier reaction (hit, knockback) that stops the clip ends the glide.
 	-- (Stopped never fires for our own exit: endSlide clears activeSlides first.)
@@ -985,6 +1174,37 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 		local t = (os.clock() - startClock) * rate
 		if track and track.IsPlaying and track.Length > 0 then
 			t = track.TimePosition
+		end
+
+		-- Under a gap the slide does not come up while something is still low overhead (it
+		-- rose and turned its collision back on half under the next bar, and was thrown off
+		-- the lane): it stays in the glide, which also carries it under bars close together.
+		-- held at its height with nothing under it (gone past an edge): end it now rather than
+		-- carry the body out over the drop
+		if slide.underGap and not LocomotionModule.isOnGround(rootPart, humanoid) then
+			endSlide(fighter, humanoid, rootPart, false)
+			return
+		end
+		if slide.underGap and t >= stopT - 0.12 then
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
+			params.RespectCanCollide = true
+			local feet = rootPart.Position - Vector3.new(0, rootPart.Size.Y / 2 + humanoid.HipHeight - 0.5, 0)
+			local low = false
+			for _, along in ipairs({ -2, 0, 2.5, 5 }) do
+				if Workspace:Raycast(feet + dir * along, Vector3.new(0, 8.5, 0), params) then
+					low = true
+					break
+				end
+			end
+			if low and os.clock() - startClock < 4 then
+				if track and track.IsPlaying and track.Length > 0 then
+					track.TimePosition = math.max(dropT + 0.1, stopT - 0.35)
+				end
+				lv.VectorVelocity = dir * math.max(glideEnd, 22)
+				return
+			end
 		end
 
 		local speed

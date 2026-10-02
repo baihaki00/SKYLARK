@@ -74,6 +74,66 @@ function SpatialModule.isNearArenaEdge(rootPart, threshold, allowPlatformDrop)
 	return false, Vector3.zero
 end
 
+local MAX_DROP_ON_FOOT = 10 -- studs a Quin steps down on foot (more than this off a raised surface is "lava")
+
+-- Keep a running Quin on the surface it stands on ("the floor is lava"). With its target at
+-- about the same level, a heading that would carry it off a drop (a raised lane, a platform
+-- edge) is bent toward ground that continues, the smallest turn first; boxed in, it stops at
+-- the edge. A target well below is a reason to go down, so the heading is left alone.
+-- Returns the (possibly new) goal and whether it was changed.
+function SpatialModule.keepOnSurface(rootPart, goal, targetPos, reachOverride)
+	local params = RaycastParams.new()
+	local excludeList = { rootPart.Parent }
+	local qs = Workspace:FindFirstChild("QuinServer")
+	if qs then table.insert(excludeList, qs) end
+	params.FilterDescendantsInstances = excludeList
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.RespectCanCollide = true
+
+	local p = rootPart.Position
+	local floor = Workspace:Raycast(p, Vector3.new(0, -9, 0), params)
+	if not floor then return goal, false end -- in the air: nothing to keep to
+	if targetPos and targetPos.Y < p.Y - 6 then return goal, false end
+	local want = Vector3.new(goal.X - p.X, 0, goal.Z - p.Z)
+	if want.Magnitude < 0.5 then return goal, false end
+	local dir = want.Unit
+	local floorY = floor.Position.Y
+	local v = rootPart.AssemblyLinearVelocity
+	local reach = reachOverride or math.clamp(Vector3.new(v.X, 0, v.Z).Magnitude * 0.25, 3, 10)
+	local function onGround(d)
+		-- the body is ~2.5 wide: ground must also be there 1.2 to either side of the path, or
+		-- the root creeps to the lip on a shallow heading and the body slides off
+		local side = Vector3.new(-d.Z, 0, d.X) * 1.2
+		local probes = { p + d * 2, p + d * 2 + side, p + d * 2 - side, p + d * (reach * 0.6), p + d * reach }
+		if reach > 10 then
+			-- a long committed move (a slide): the whole way, edge margin included
+			for s = 5, reach, 5 do
+				table.insert(probes, p + d * s + side)
+				table.insert(probes, p + d * s - side)
+			end
+		end
+		for _, probe in ipairs(probes) do
+			-- from above any step it could take, down to a drop it can take on foot
+			-- (MAX_DROP_ON_FOOT; off the top of a bar back onto the lane is fine)
+			local drop = 6 + MAX_DROP_ON_FOOT
+			if not Workspace:Raycast(Vector3.new(probe.X, floorY + 6, probe.Z), Vector3.new(0, -drop, 0), params) then
+				return false
+			end
+		end
+		return true
+	end
+	if onGround(dir) then return goal, false end
+	-- (only shallow turns: running along an edge at a steep angle carried a Quin off the end of
+	-- a small top on its momentum; past 50 degrees it stops at the edge instead)
+	for _, angle in ipairs({ 15, -15, 30, -30, 50, -50 }) do
+		local d = CFrame.Angles(0, math.rad(angle), 0):VectorToWorldSpace(dir)
+		if onGround(d) then
+			return p + d * math.max(want.Magnitude, 8), true
+		end
+	end
+	return p, true
+end
+
 -- Get a safe direction to move when obstacles are ahead with multi-ray whisker array
 function SpatialModule.getObstacleAvoidanceDirection(rootPart, checkDistance)
 	checkDistance = checkDistance or 14
@@ -274,6 +334,18 @@ function SpatialModule.analyzeObstacleAhead(rootPart, targetPos, checkDistance)
 	local hitPart = hit.Instance
 	local isOB = (hitPart.Name == "OB" or hitPart.Name:find("OB") ~= nil)
 
+	-- Open space beneath it (a floating bar): not something to jump over, the slide-under
+	-- check deals with it (its face at chest height used to be skidded or hurdled into)
+	do
+		local floorBelow = Workspace:Raycast(origin, Vector3.new(0, -9, 0), params)
+		local floorY = floorBelow and floorBelow.Position.Y or (origin.Y - 5.11)
+		local inside = hit.Position - Vector3.new(hit.Normal.X, 0, hit.Normal.Z) * 0.4
+		local under = Workspace:Raycast(Vector3.new(inside.X, floorY + 0.3, inside.Z), Vector3.new(0, 14, 0), params)
+		if under and under.Position.Y - floorY >= 2.5 then
+			return { hasObstacle = false, overhead = true }
+		end
+	end
+
 	-- Measure height of obstacle by casting down from above hit position
 	-- From just inside the face: cast from the face plane itself, the ray grazed past the top
 	-- of thin bars and hit the floor (height 0: a 3-stud bar read as "no obstacle" or as a
@@ -416,23 +488,28 @@ function SpatialModule.detectLowOverheadGap(rootPart, forwardDist)
 	params.FilterType = Enum.RaycastFilterType.Exclude
 
 	local pos = rootPart.Position
-	-- Ray forward at upper-body height to catch a low ceiling the Quin would hit its head on
-	local origin = Vector3.new(pos.X, pos.Y - 1.0, pos.Z)
-	local dir = rootPart.CFrame.LookVector * forwardDist
-	local hit = DebugDraw.raycast(rootPart, origin, dir, params)
-	if not hit or not hit.Instance then return nil end
-
-	local part = hit.Instance
-	local isOB = (part.Name == "OB" or part.Name:find("OB") ~= nil)
-	if not isOB then return nil end
-
-	-- Estimate the obstacle's bottom edge (axis-aligned placeholder)
-	local bottomY = part.Position.Y - (part.Size.Y / 2)
-	local groundY = pos.Y - 5.4 -- feet (skin bottom)
-	local gapHeight = bottomY - groundY
-
-	if gapHeight > 0.8 and gapHeight < 3.5 then
-		return { bottomY = bottomY, gapHeight = gapHeight, part = part }
+	params.RespectCanCollide = true
+	-- Along the way it is moving (the facing can lag), at chest and head height: something the
+	-- body would hit with open space beneath it (a bar 2.5-8.5 studs up) is slid under. Any part
+	-- (it used to need "OB" in the name) and any gap a slide fits (it used to be 0.8-3.5 only).
+	local v = rootPart.AssemblyLinearVelocity
+	local flat = Vector3.new(v.X, 0, v.Z)
+	local look = flat.Magnitude > 4 and flat.Unit or Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z).Unit
+	local floor = Workspace:Raycast(pos, Vector3.new(0, -9, 0), params)
+	local groundY = floor and floor.Position.Y or (pos.Y - 5.11)
+	local hit
+	for _, rise in ipairs({ 2.6, 4.5, 6.5 }) do
+		hit = Workspace:Raycast(Vector3.new(pos.X, groundY + rise, pos.Z), look * forwardDist, params)
+		if hit then break end
+	end
+	if not hit then return nil end
+	local inside = hit.Position - Vector3.new(hit.Normal.X, 0, hit.Normal.Z) * 0.4
+	local under = Workspace:Raycast(Vector3.new(inside.X, groundY + 0.3, inside.Z), Vector3.new(0, 12, 0), params)
+	if not under then return nil end -- solid to the floor: not a gap
+	local gapHeight = under.Position.Y - groundY
+	if gapHeight >= 2.5 and gapHeight < 8.5 then
+		local faceDistance = Vector3.new(hit.Position.X - pos.X, 0, hit.Position.Z - pos.Z).Magnitude
+		return { bottomY = under.Position.Y, gapHeight = gapHeight, part = hit.Instance, faceDistance = faceDistance }
 	end
 	return nil
 end

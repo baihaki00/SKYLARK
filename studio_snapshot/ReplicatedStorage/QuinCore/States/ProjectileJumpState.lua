@@ -401,7 +401,9 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 
 	local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 	local energy = fighter:GetAttribute("Energy") or 100
-	local drain = CombatConfig.EnergyDrain_ProjectileJump or 40
+	-- (a hop onto a spot, a stepping stone, is a short traversal jump, not the big attack)
+	local drain = (target and target.Name == POINT_TARGET_NAME) and (CombatConfig.EnergyDrain_PointJump or 8)
+		or (CombatConfig.EnergyDrain_ProjectileJump or 40)
 	fighter:SetAttribute("EnergyAtActionStart", energy)
 	fighter:SetAttribute("Energy", math.max(0, energy - drain))
 
@@ -730,6 +732,12 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			do
 				local arcSpeed = math.clamp(dist / 1.8, 120, 260) * speedMult
 				local timeToTarget = math.max(0.05, dist / arcSpeed)
+				-- A hop onto a spot close by flew at the arc's 120 studs/s floor (a 12-stud hop
+				-- in a tenth of a second): it takes a jump's time instead
+				if data.precise then
+					timeToTarget = math.max(timeToTarget, 0.35 + dist / 90)
+					arcSpeed = dist / timeToTarget
+				end
 				-- A target above the jumper is reached on the way down: the flight has to last
 				-- longer than the rise alone, or the arc goes up through the platform it stands on
 				local rise = targetPos.Y - rootPart.Position.Y
@@ -1153,11 +1161,14 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		VfxModule.createDust(rootPart, 8)
 		VfxModule.createLandingDust(rootPart, 1)
 		local elem = fighter:GetAttribute("Element") or "Fire"
-		VfxModule.createShockwave(jumperPos, 22, 0.40, elem)
-		VfxModule.shakeScreen(rootPart.Position, 400, 8)
+		if not data.precise then
+			VfxModule.createShockwave(jumperPos, 22, 0.40, elem)
+			VfxModule.shakeScreen(rootPart.Position, 400, 8)
+		end
 
 		-- 5. Slam Shockwave & Target Stumble (Phase 5.2)
-		local shockRadius = CombatConfig.SlamShockwaveRadius or CombatConfig.SlamImpactRadius or 14
+		-- (a hop onto a spot is not a slam: no shockwave)
+		local shockRadius = data.precise and 0 or (CombatConfig.SlamShockwaveRadius or CombatConfig.SlamImpactRadius or 14)
 		local stumbleForce = CombatConfig.SlamStumbleForce or 90
 		local stumbleDuration = CombatConfig.SlamStumbleDuration or 0.35
 		for _, other in ipairs(CollectionService:GetTagged("Quin")) do
@@ -1204,7 +1215,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			stopAnim(data.animTrack)
 		end
 		AnimationModule.stop(humanoid, AnimationIds.Dash, 0.05)
-		fighter:SetAttribute("KnockbackType", "slam_landing")
+		fighter:SetAttribute("KnockbackType", data.precise and "traversal_landing" or "slam_landing")
 
 		return require(script.Parent:WaitForChild("RecoveryState"))
 	end

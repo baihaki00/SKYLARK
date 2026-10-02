@@ -816,5 +816,23 @@ task.delay(3, function()
 	end
 end)
 
+-- Studio testing: tools that cannot fire GameCommand from a client (the Studio MCP) set
+-- Workspace attribute DevCommand = "movement_test" | "team:16" | "ffa:8". Studio only.
+if game:GetService("RunService"):IsStudio() then
+	Workspace:GetAttributeChangedSignal("DevCommand"):Connect(function()
+		local raw = Workspace:GetAttribute("DevCommand")
+		if type(raw) ~= "string" or raw == "" then return end
+		Workspace:SetAttribute("DevCommand", nil)
+		local command, arg = raw:match("^([^:]+):?(.*)$")
+		if command == "movement_test" then
+			GameModeManager.startMovementTestInArena()
+		elseif command == "team" then
+			GameModeManager.startTeamBattle(tonumber(arg) or 4)
+		elseif command == "ffa" then
+			GameModeManager.startFreeForAll(tonumber(arg) or 8)
+		end
+	end)
+end
+
 _G.GameModeManager = GameModeManager
 print("[GameModeManager] Ready. Modes: ffa, team, tournament")

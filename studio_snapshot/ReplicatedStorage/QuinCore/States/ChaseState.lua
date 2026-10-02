@@ -302,6 +302,29 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local targetPerched = targetHumanoid ~= nil and targetHumanoid.FloorMaterial ~= Enum.Material.Air
 		and not targetHumanoid.PlatformStand
 
+	-- Climb to a target above through stepping stones (NavigationModule.nextStone): a precise
+	-- hop onto the next surface that brings it closer, then the next from there. Running jumps
+	-- onto small tops carried their speed straight off the far side, so these are spot jumps.
+	-- (a smaller climb too when it cannot simply walk up: the last 7 studs from one high stone to
+	-- the target's ran it straight off the stone)
+	local stoneClimb = verticalGap >= (CombatConfig.Nav_StoneMinClimb or 8)
+		or (verticalGap >= 2 and not NavigationModule.isReachable(rootPart, targetHRP))
+	if not inShowdown and stoneClimb and LocomotionModule.isOnGround(rootPart, humanoid) and not LocomotionModule.isSliding(fighter) then
+		local stone = NavigationModule.nextStone(fighter, rootPart, targetHRP, 2)
+		if stone then
+			fighter:SetAttribute("ObstacleAwareness", string.format("Stepping stone: %.0f up, %.0f across", stone.rise, stone.hop))
+			if tick() - (fighter:GetAttribute("LastStoneHopTime") or 0) >= 0.6 then
+				fighter:SetAttribute("LastStoneHopTime", tick())
+				fighter:SetAttribute("LastProjectileJumpTime", tick())
+				local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
+				ProjectileJumpState.aimAtPoint(fighter, stone.point)
+				return ProjectileJumpState
+			end
+			LocomotionModule.brake(fighter, humanoid, rootPart, 0.1)
+			return ChaseState
+		end
+	end
+
 	if not inShowdown and targetPerched and verticalGap >= (CombatConfig.HighGround_InterceptJumpMinReach or 8.0) then
 		local energy = fighter:GetAttribute("Energy") or 100
 		local climbEnergyCost = CombatConfig.HighGround_InterceptJumpEnergyCost or 20
@@ -686,7 +709,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- A Quin going round keeps to its path until the straight line has stayed clear for
 	-- Nav_ClearHoldTime: a line that opened for a moment while rounding a pillar flipped it
 	-- between the path and the straight line, and it ran in circles next to its target.
-	if humanoid.FloorMaterial == Enum.Material.Air then
+	if not LocomotionModule.isOnGround(rootPart, humanoid) then
 		-- Mid-jump the body's height says nothing about the way to the target (the top of a
 		-- hurdle is 8 studs up: "too high to reach" sent it off on a path round, swerving)
 		reachable = not data.detouring
@@ -722,6 +745,11 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- === Comprehensive OB & Obstacle Situational Awareness ===
 	local obsInfo = SpatialModule.analyzeObstacleAhead(rootPart, targetHRP.Position, 22)
 	local obstacleSteer = nil
+	-- A lip lower than a step is walked over (it used to be "avoided": the Quin swerved,
+	-- which on a narrow raised lane meant off the edge)
+	if obsInfo.hasObstacle and (obsInfo.height or 99) < (CombatConfig.Locomotion_StepHeight or 1.5) then
+		obsInfo = { hasObstacle = false }
+	end
 	if obsInfo.hasObstacle and not inShowdown then
 		local isJumpSuppressed = LocomotionModule.isJumpSuppressed(fighter, humanoid)
 		-- Takeoff timing: a runner leaves the ground so the top of its arc is over the obstacle,
@@ -754,9 +782,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Thin obstacles too tall to skid (up to Hurdle_MaxRise high, 7 deep) are hurdled with the
 		-- same solve and a little more clearance: the old hurdle peaked over the near edge and
 		-- came down on top of a 3-deep, 7-tall bar.
-		local skidRise, skidTakeoff, crossType, skidLength = nil, nil, nil, nil
-		local lowEnoughToSkid = (obsInfo.height or 99) <= (CombatConfig.SkidOver_MaxRise or 4.5)
-		if obsInfo.hitPosition and obsInfo.topSurfaceY and (obsInfo.height or 99) <= (CombatConfig.Hurdle_MaxRise or 9) and speedNow >= 14 then
+		local skidRise, skidTakeoff, crossType, skidLength, crossHeight, crossSpeed = nil, nil, nil, nil, nil, nil
+		-- Skid-over only between SkidOver_MinRise and SkidOver_MaxRise (3-5: below that the hand
+		-- on top reads wrong, above it the vault is too high); everything else is a jump
+		local lowEnoughToSkid = (obsInfo.height or 99) <= (CombatConfig.SkidOver_MaxRise or 5)
+			and (obsInfo.height or 0) >= (CombatConfig.SkidOver_MinRise or 3)
+		if obsInfo.hitPosition and obsInfo.topSurfaceY and (obsInfo.height or 99) <= (CombatConfig.Hurdle_MaxRise or 11) and speedNow >= 14 then
 			local dirFlat = Vector3.new(flatVelNow.X, 0, flatVelNow.Z).Unit
 			local probeParams = RaycastParams.new()
 			probeParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -776,13 +807,40 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				-- edges: g/8 * (T^2 - (L/v)^2) >= h + 0.8. Takeoff and landing are each
 				-- (v*T - L)/2 from the edges.
 				local g = Workspace.Gravity
-				local clearance = lowEnoughToSkid and 0.8 or 1.2
+				local clearance = (lowEnoughToSkid or obsInfo.height < 3) and 0.8 or 1.2
 				local flight = math.sqrt((length / speedNow) ^ 2 + 8 * (obsInfo.height + clearance) / g)
 				local rise = g * flight * flight / 8
-				if rise <= (lowEnoughToSkid and (CombatConfig.SkidOver_MaxFlightRise or 9) or 13) then
+				if rise <= (lowEnoughToSkid and (CombatConfig.SkidOver_MaxFlightRise or 9) or 14) then
 					skidRise = rise
 					skidTakeoff = math.max(2, (speedNow * flight - length) / 2)
 					crossType = lowEnoughToSkid and "skidover" or "hurdle"
+					crossHeight = obsInfo.height + clearance
+
+					-- Pace for the next one. A crossing lands as far past this obstacle as it took off
+					-- before it, and both grow with speed; with the next obstacle close behind, a full
+					-- sprint landed with no run-up left for it (0.9 studs from a 7-stud bar: a dead stop
+					-- and a standing jump). A runner shortens up on the ground, before taking off: the
+					-- approach speed is capped so this landing plus the next takeoff fit in the gap,
+					--   v <= (2 (gap - 1) + L1 + L2) / (T1 + T2),  T = sqrt(8 (h + c) / g)
+					local farEdge = obsInfo.hitPosition + dirFlat * length
+					local floorY = obsInfo.topSurfaceY - obsInfo.height
+					local ahead = Workspace:Raycast(Vector3.new(farEdge.X, floorY + 1.0, farEdge.Z) + dirFlat * 0.5, dirFlat * 26, probeParams)
+					if data and ahead and ahead.Normal.Y < 0.3 then
+						local inside = ahead.Position - Vector3.new(ahead.Normal.X, 0, ahead.Normal.Z) * 0.4
+						local nextTop = Workspace:Raycast(inside + Vector3.new(0, 20, 0), Vector3.new(0, -24, 0), probeParams)
+						local nextH = nextTop and (nextTop.Position.Y - floorY) or 0
+						if nextH >= (CombatConfig.Locomotion_StepHeight or 1.5) and nextH <= (CombatConfig.Hurdle_MaxRise or 11) then
+							local gap = (ahead.Position - farEdge):Dot(dirFlat)
+							local T1 = math.sqrt(8 * (obsInfo.height + clearance) / g)
+							local T2 = math.sqrt(8 * (nextH + 1.0) / g)
+							local paceCap = (2 * (gap - 1) + length + 3) / (T1 + T2)
+							if paceCap < speedNow + 2 then
+								data.obstaclePace = math.max(paceCap, 16)
+								data.obstaclePaceUntil = now + 0.6
+								fighter:SetAttribute("ObstaclePace", math.floor(data.obstaclePace))
+							end
+						end
+					end
 				end
 			end
 		end
@@ -799,25 +857,58 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			if tick() >= (fighter:GetAttribute("SkidPendingUntil") or 0) then
 				local wait = math.max(0, (faceDistance - skidTakeoff) / math.max(speedNow, 1))
 				fighter:SetAttribute("SkidPendingUntil", tick() + wait + 0.3)
-				fighter:SetAttribute("SkidPlan", string.format("%s face %.1f takeoff %.1f wait %.2f length %.1f rise %.1f v %.0f",
-					crossType, faceDistance, skidTakeoff, wait, skidLength or -1, skidRise, speedNow))
+				fighter:SetAttribute("SkidPlan", string.format("%s face %.1f takeoff %.1f wait %.2f length %.1f rise %.1f v %.0f%s",
+					crossType, faceDistance, skidTakeoff, wait, skidLength or -1, skidRise, speedNow,
+					crossSpeed and string.format(" (setting up the next: v %.0f)", crossSpeed) or ""))
 				fighter:SetAttribute("ObstacleAwareness", crossType == "skidover" and "Skidding over" or "Hurdling")
+				local facePos = obsInfo.hitPosition
+				local crossDir = Vector3.new(flatVelNow.X, 0, flatVelNow.Z).Unit
+				local plannedRise, plannedTakeoff, plannedLength, plannedHeight, plannedSpeed = skidRise, skidTakeoff, skidLength, crossHeight, crossSpeed
 				task.delay(wait, function()
 					-- Just off a landing the body can still read as airborne for a few frames; the
 					-- jump would be refused and it ran into the obstacle. Wait for the ground (briefly).
 					local function inAir()
-						local s = humanoid:GetState()
-						return humanoid.FloorMaterial == Enum.Material.Air
-							or s == Enum.HumanoidStateType.Freefall or s == Enum.HumanoidStateType.Jumping
+						return not LocomotionModule.isOnGround(rootPart, humanoid)
 					end
-					local deadline = os.clock() + 0.15
+					local deadline = os.clock() + 0.35
 					while inAir() and os.clock() < deadline do
 						task.wait()
 					end
 					if fighter.Parent and humanoid.Health > 0 and fighter:GetAttribute("CurrentState") == "Chase"
 						and not inAir() then
 						local v = rootPart.AssemblyLinearVelocity
-						local ok = JumpHandler.performJump(humanoid, rootPart, skidRise, Vector3.new(v.X, 0, v.Z).Magnitude, crossType)
+						local speed = plannedSpeed or Vector3.new(v.X, 0, v.Z).Magnitude
+						local rise = plannedRise
+						-- Where it really is now: a crossing planned on a landing, or a tick late,
+						-- can be closer than the ideal takeoff. Then it jumps from here instead of
+						-- refusing: the lowest arc that still clears both edges, found over the
+						-- horizontal speeds it can shed (a shortened, steeper jump).
+						local d = (facePos - rootPart.Position):Dot(crossDir)
+						if d < plannedTakeoff - 0.75 then
+							local g = Workspace.Gravity
+							local H = plannedHeight
+							local L = plannedLength or 3
+							local best = nil
+							if d > 0.3 then
+								for hv = math.max(speed, 10), 8, -2 do
+									local vy = math.max(H * hv / d + g * d / (2 * hv), H * hv / (d + L) + g * (d + L) / (2 * hv))
+									if not best or vy < best.vy * 0.93 then
+										best = { hv = hv, vy = vy }
+									end
+								end
+							end
+							if not best or best.vy * best.vy / (2 * g) > 14 then
+								fighter:SetAttribute("SkidPlan", (fighter:GetAttribute("SkidPlan") or "") .. string.format(" TOO CLOSE d %.1f", d))
+								return
+							end
+							rise = best.vy * best.vy / (2 * g)
+							speed = best.hv
+							fighter:SetAttribute("SkidPlan", (fighter:GetAttribute("SkidPlan") or "") .. string.format(" SHORT d %.1f -> v %.0f rise %.1f", d, speed, rise))
+						end
+						if crossType == "skidover" then
+							fighter:SetAttribute("SkidObstacleHeight", plannedHeight - 0.8)
+						end
+						local ok = JumpHandler.performJump(humanoid, rootPart, rise, speed, crossType)
 						if ok == false then
 							fighter:SetAttribute("SkidPlan", (fighter:GetAttribute("SkidPlan") or "") .. " REFUSED " .. tostring(fighter:GetAttribute("JumpRejected")))
 						end
@@ -851,7 +942,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- Slide-under: low-overhead gap ahead -> athletic SlideState
-	local slideGap = SpatialModule.detectLowOverheadGap(rootPart, 8)
+	local slideGap = SpatialModule.detectLowOverheadGap(rootPart, 18)
 	local energy = fighter:GetAttribute("Energy") or 100
 	local quirky = fighter:GetAttribute("Quirky") or "Balanced"
 	local lastSlide = fighter:GetAttribute("LastSlideTime") or 0
@@ -859,11 +950,17 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local canSlide = (now - lastSlide) >= slideCooldown and energy >= (CombatConfig.SlideMinEnergy or 12)
 		and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 
-	if slideGap and canSlide and not inShowdown then
-		fighter:SetAttribute("ObstacleAwareness", "Sliding Under Gap")
-		fighter:SetAttribute("LastSlideTime", now)
-		LocomotionModule.slide(fighter, humanoid, rootPart)
-		return ChaseState
+	-- Sliding under a gap is forced by the course, not a choice: no cooldown or energy gate.
+	-- The clip is low from about 0.1 s to 0.9 s, so it starts when the bar is ~0.3 s away.
+	if slideGap and not inShowdown and not LocomotionModule.isSliding(fighter) then
+		local flatSpeed = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Magnitude
+		if slideGap.faceDistance <= flatSpeed * 0.3 + 1.5 then
+			fighter:SetAttribute("ObstacleAwareness", string.format("Sliding under a %.0f-stud gap", slideGap.gapHeight))
+			fighter:SetAttribute("LastSlideTime", now)
+			LocomotionModule.slide(fighter, humanoid, rootPart, nil, nil, { underGap = true })
+			return ChaseState
+		end
+		fighter:SetAttribute("ObstacleAwareness", "Approaching a low gap")
 	end
 
 	-- Tactical Gap-Close Slide: one decision per approach, taken as the Quin comes into slide
@@ -981,6 +1078,10 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local arriveGap = math.max(distance - (CombatConfig.CombatRange or 8), 0.5)
 	local arriveSpeed = math.sqrt(2 * (CombatConfig.Locomotion_BrakingDeceleration or 95) * arriveGap) + 6
 	targetSpeed = math.min(targetSpeed, arriveSpeed)
+	-- Pacing through a run of obstacles (set where the crossing is planned)
+	if data.obstaclePace and now < (data.obstaclePaceUntil or 0) then
+		targetSpeed = math.min(targetSpeed, data.obstaclePace * speedMult)
+	end
 
 	-- Locomotion Timing & Continuity: delegate acceleration & braking to LocomotionModule
 	local lastUpdate = data.lastUpdateTime or (now - 0.05)
@@ -1135,7 +1236,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	local nearEdge, awayDir = SpatialModule.isNearArenaEdge(rootPart, 6, allowPlatformDrop)
+	-- Only the arena's true void here; ledges of raised ground are kept to by keepOnSurface
+	-- below (on an 8-wide lane both sides read as ledges and this steered it off one of them)
+	local nearEdge, awayDir = SpatialModule.isNearArenaEdge(rootPart, 6, true)
 	if nearEdge then
 		arcTarget = rootPart.Position + awayDir * 10 + dirToTarget * 5
 	end

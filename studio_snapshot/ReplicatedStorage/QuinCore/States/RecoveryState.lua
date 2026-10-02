@@ -94,6 +94,11 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 	if kbType == "ground" and upY >= 0.85 then
 		-- Light ground flinch, still on its feet
 		duration = 0.2
+	elseif kbType == "traversal_landing" then
+		-- A hop onto a spot (a stepping stone): a soft landing and straight on
+		clipPath = "Parkour.LandingSoft"
+		AnimationModule.playConfig(humanoid, clipPath, 1.3, Enum.AnimationPriority.Action3, false)
+		duration = 0.3
 	elseif kbType == "slam_landing" and fighter:GetAttribute("LandingClipPath") then
 		-- The jump's own clip goes on as the landing (the arc smack-down): no second clip on top
 		clipPath = fighter:GetAttribute("LandingClipPath")
