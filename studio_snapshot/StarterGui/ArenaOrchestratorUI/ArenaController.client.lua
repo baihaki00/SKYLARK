@@ -168,7 +168,7 @@ closeBtn.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
 closeBtn.TextColor3 = C_TEXT
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 15
-closeBtn.Text = "✕"
+closeBtn.Text = "X" -- (Gotham has no ✕ glyph)
 closeBtn.Parent = header
 applyCorner(closeBtn, 18)
 
@@ -237,6 +237,7 @@ leftCol.Parent = content
 
 local leftLayout = Instance.new("UIListLayout")
 leftLayout.Padding = UDim.new(0, 12)
+leftLayout.SortOrder = Enum.SortOrder.LayoutOrder
 leftLayout.Parent = leftCol
 
 -- Section 1: Match Mode Selector
@@ -260,20 +261,23 @@ applyStroke(modeContainer, C_STROKE, 1)
 local modeLayout = Instance.new("UIListLayout")
 modeLayout.FillDirection = Enum.FillDirection.Horizontal
 modeLayout.Padding = UDim.new(0, 6)
+modeLayout.SortOrder = Enum.SortOrder.LayoutOrder
 modeLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 modeLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 modeLayout.Parent = modeContainer
 
 local modeButtons = {}
+local refreshSizeLabels -- (defined with the size buttons below)
 local modes = {
     { id = "TeamBattle", name = "Team Battle" },
     { id = "1vs1",       name = "1 vs 1 Duel" },
     { id = "FFA",        name = "Free For All" },
 }
 
-for _, m in ipairs(modes) do
+for modeIndex, m in ipairs(modes) do
     local btn = Instance.new("TextButton")
     btn.Name = "Mode_" .. m.id
+    btn.LayoutOrder = modeIndex
     btn.Size = UDim2.new(0, 128, 0, 32)
     btn.BackgroundColor3 = (selectedMode == m.id) and C_CARD_SEL or Color3.fromRGB(18, 22, 32)
     btn.TextColor3 = (selectedMode == m.id) and C_CYAN or C_MUTED
@@ -292,6 +296,7 @@ for _, m in ipairs(modes) do
             b.btn.TextColor3 = isSel and C_CYAN or C_MUTED
             b.stroke.Color = isSel and C_CYAN or C_STROKE
         end
+        refreshSizeLabels()
     end)
 
     modeButtons[m.id] = { btn = btn, stroke = stroke }
@@ -318,16 +323,30 @@ applyStroke(sizeContainer, C_STROKE, 1)
 local sizeLayout = Instance.new("UIListLayout")
 sizeLayout.FillDirection = Enum.FillDirection.Horizontal
 sizeLayout.Padding = UDim.new(0, 6)
+sizeLayout.SortOrder = Enum.SortOrder.LayoutOrder -- (by name, 16v16 came before 2v2)
 sizeLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 sizeLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 sizeLayout.Parent = sizeContainer
 
 local sizeButtons = {}
+
+-- Free For All has no squads: the same buttons pick 2x as many Quins; a duel has no size
+function refreshSizeLabels()
+    for sz, b in pairs(sizeButtons) do
+        if selectedMode == "FFA" then
+            b.btn.Text = string.format("%d Quins", sz * 2)
+        else
+            b.btn.Text = sz .. "v" .. sz
+        end
+        b.btn.TextTransparency = (selectedMode == "1vs1") and 0.6 or 0
+    end
+end
 local sizes = { 1, 2, 4, 8, 16 }
 
 for _, sz in ipairs(sizes) do
     local btn = Instance.new("TextButton")
     btn.Name = "Size_" .. sz
+    btn.LayoutOrder = sz
     btn.Size = UDim2.new(0, 74, 0, 32)
     btn.BackgroundColor3 = (selectedTeamSize == sz) and C_CARD_SEL or Color3.fromRGB(18, 22, 32)
     btn.TextColor3 = (selectedTeamSize == sz) and C_CYAN or C_MUTED
@@ -363,7 +382,7 @@ durSecHeader.Text = "PHASE TIMING (SECONDS)"
 durSecHeader.Parent = leftCol
 
 local durContainer = Instance.new("Frame")
-durContainer.Size = UDim2.new(1, 0, 0, 215)
+durContainer.Size = UDim2.new(1, 0, 0, 224)
 durContainer.BackgroundColor3 = C_CARD
 durContainer.Parent = leftCol
 applyCorner(durContainer, 10)
@@ -382,10 +401,10 @@ durPad.Parent = durContainer
 
 local durationRows = {
     { key = "ArenaOpen",            name = "1. Arena Open",            default = 10 },
-    { key = "ArenaGeneration",      name = "2. Arena Generation",      default = 10 },
+    { key = "ArenaGeneration",      name = "2. Arena Generation",      default = 15 },
     { key = "PreparationRoom",      name = "3. Preparation Room",      default = 30 },
-    { key = "TeleportingQuins",     name = "4. Teleport Quins",        default = 5 },
-    { key = "StadiumAnthem",        name = "5. Stadium Anthem (Fixed)",default = 60 },
+    { key = "TeleportingQuins",     name = "4. Teleport Quins",        default = 10 },
+    { key = "StadiumAnthem",        name = "5. Stadium Anthem",         default = 60 },
     { key = "GameTime",             name = "6. Game Time Limit",       default = 600 },
     { key = "WinnerDetermination",  name = "7. Victory Ceremony",     default = 8 },
     { key = "PostGame",             name = "8. Post-Game Exit",        default = 180 },
@@ -431,6 +450,14 @@ for _, d in ipairs(durationRows) do
     end)
 end
 
+-- Sections keep the order they were built in (with every LayoutOrder 0 the list sorted them
+-- by name, so every container Frame came before every header TextLabel)
+for index, child in ipairs(leftCol:GetChildren()) do
+    if child:IsA("GuiObject") then
+        child.LayoutOrder = index
+    end
+end
+
 -- Right Column: Toggles & Music Playlists
 local rightCol = Instance.new("ScrollingFrame")
 rightCol.Name = "RightColumn"
@@ -445,6 +472,7 @@ rightCol.Parent = content
 
 local rightLayout = Instance.new("UIListLayout")
 rightLayout.Padding = UDim.new(0, 10)
+rightLayout.SortOrder = Enum.SortOrder.LayoutOrder
 rightLayout.Parent = rightCol
 
 -- Section 3: Feature Toggles
@@ -481,7 +509,7 @@ togPad.Parent = togglesContainer
 local toggleDefs = {
     { key = "Announcer",         name = "ARIA Stadium Announcer" },
     { key = "ProceduralMusic",   name = "Stadium Audio & Playlists" },
-    { key = "ProceduralTerrain", name = "Procedural Terrain Obstacles" },
+    { key = "ProceduralTerrain", name = "Procedural Terrain Obstacles  [not built yet]", stub = true },
     { key = "Fireworks",         name = "Atmospheric Fireworks Show" },
     { key = "Drones",            name = "Spectator Camera Drones" },
     { key = "Screen",            name = "3D Arena Screen Jumbotron" },
@@ -525,7 +553,11 @@ for _, cDef in ipairs(toggleDefs) do
     lbl.Text = cDef.name
     lbl.Parent = row
 
+    if cDef.stub then
+        lbl.TextColor3 = C_MUTED
+    end
     row.MouseButton1Click:Connect(function()
+        if cDef.stub then return end
         activeToggles[cDef.key] = not activeToggles[cDef.key]
         local isChecked = activeToggles[cDef.key]
         box.BackgroundColor3 = isChecked and C_CYAN or Color3.fromRGB(15, 18, 26)
@@ -1066,7 +1098,7 @@ applyStroke(skipBtn, C_AMBER, 1)
 startBtn.MouseButton1Click:Connect(function()
     local cfg = {
         Mode = selectedMode,
-        TeamSize = selectedTeamSize,
+        TeamSize = (selectedMode == "FFA") and selectedTeamSize * 2 or selectedTeamSize,
         SelectedTrack = selectedTrack,
         SelectedAnthem = selectedAnthem or "ANTHEM1",
         SelectedInTrack = selectedInTrack,
@@ -1130,13 +1162,8 @@ ContextActionService:BindActionAtPriority(
     Enum.KeyCode.O
 )
 
--- Fallback UserInputService listener
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if UserInputService:GetFocusedTextBox() then return end
-    if input.KeyCode == Enum.KeyCode.O then
-        toggleWindow()
-    end
-end)
+-- (one binding only: a second UserInputService listener toggled the window again on the same
+-- key press, so it opened and closed at once)
 
 -- ============================================================================
 -- 6. STATE REPLICATION SYNC
@@ -1159,14 +1186,15 @@ StateReplication.OnClientEvent:Connect(function(snap)
         phaseColor = Color3.fromRGB(150, 180, 255)
     end
     
-    phaseBadge.Text = string.format("● %s (%ds)", snap.Phase, snap.TimeRemaining or 0)
+    local secondsLeft = math.max(0, math.floor((tonumber(snap.TimeRemaining) or 0) + 0.5))
+    phaseBadge.Text = string.format("● %s (%ds)", snap.Phase, secondsLeft)
     phaseBadge.TextColor3 = phaseColor
     
     if snap.Phase == "IDLE" then
         liveStatusLbl.Text = "READY: Match Inactive"
         liveSubStatus.Text = "Select mode and options, then click Start Match."
     else
-        liveStatusLbl.Text = string.format("PHASE: %s • TIME LEFT: %ds", snap.Phase, snap.TimeRemaining or 0)
+        liveStatusLbl.Text = string.format("PHASE: %s • TIME LEFT: %ds", snap.Phase, secondsLeft)
         liveSubStatus.Text = string.format("Alpha: %d/%d (Alive: %d)  |  Beta: %d/%d (Alive: %d)",
             math.floor(snap.AlphaHp or 0), math.floor(snap.AlphaMax or 0), snap.AlphaAlive or 0,
             math.floor(snap.BetaHp or 0), math.floor(snap.BetaMax or 0), snap.BetaAlive or 0

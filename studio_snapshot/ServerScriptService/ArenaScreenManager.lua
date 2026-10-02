@@ -1121,8 +1121,9 @@ function ArenaScreen.setSequence(phaseName, titleText, subtitleText, timeRemaini
                 -- Pre-Game Hero Countdown numeral
                 if targetScene == "Scene_PreGame" then
                     local heroNum = scene:FindFirstChild("HeroNumber")
-                    if heroNum and timeRemaining then
-                        heroNum.Text = tostring(math.max(1, math.floor(timeRemaining)))
+                    local shown = timeRemaining and math.max(1, math.floor(timeRemaining))
+                    if heroNum and shown and heroNum.Text ~= tostring(shown) then -- (refreshed 4x/s: pulse only on a new number)
+                        heroNum.Text = tostring(shown)
                         -- Shockwave pulse
                         heroNum.TextSize = 310
                         TweenService:Create(heroNum, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {

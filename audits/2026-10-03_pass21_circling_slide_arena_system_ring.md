@@ -1,0 +1,118 @@
+# Pass 21: Circling sideways slide, the Arena System, the globe ring
+
+Base: pass 20 (`88280ce`).
+
+## 1. Sideways sliding in Circling (`a0274a9`)
+
+### Measured
+16v16, 40 s, every Quin in Circling. A frame counts as "sliding" when the Quin is moving and has had no clean foot plant for 0.4 s (planted toe still: slip under max(2, 0.15 × speed)).
+- Before: **41.8%** of moving frames.
+- Strafe-run clips moving straight sideways: about 45%.
+- Forward run, jog and walk cycles played while moving sideways: 53-72%.
+
+### Causes
+- **Forward drift:** the planted toe was dragged *forward*, not sideways. In body space the body moved about 4 studs/s forward of pure sideways (about 13°), and strafe clips cannot step forward.
+  - The orbit curves toward the target all the time.
+  - Circling set the facing at 10 Hz from the last tick's velocity, through a 25-responsiveness gyro, so the body was always behind the curve.
+- **Travel form:** in Circling's travel form the gait was forward-only (Circling owns the strafe clips), so a body still turning toward its travel ran its forward cycle sideways.
+
+### Fixes
+- The strafe facing is led by the orbit's own turn rate × `Circling_FacingLeadTime` (0.25 s), and the gyro is stiffer (`Circling_GyroResponsiveness` 35).
+  - The turn rate is smoothed and reset on feint reversals.
+  - Mean forward drift: 4.3 → 1.1 and 3.5 → 0.6 studs/s.
+- GaitModule's directional gait (strafe/backpedal by real angle) now also runs in Circling's travel form.
+
+### Result
+| | Circling sliding |
+|---|---|
+| before | 41.8% |
+| after | **17.3%** |
+| Fight (same run, for reference) | 21.6% |
+| Chase (same run, for reference) | 20.8% |
+
+0 errors.
+
+## 2. Arena System Orchestrator
+
+### Drift found
+Seven arena scripts in Studio no longer matched git (a newer rewrite). They were committed as found first (`e4e8f69`).
+
+### Faults in that version
+- **Anthem never played:** the orchestrator called `ArenaAudio.playAnthemGroup`, which does not exist (it is `playAnthem`). The error ended the whole match at the anthem.
+- **Other missing calls:**
+  - `playIngameMusic` (the function is `playInGameMusic`);
+  - `ArenaDroneManager.deployDrones` / `stopDrones` (the functions are `startDrones` / `resetDrones`);
+  - `ArenaFireworks.launchCombatBurst`;
+  - `ArenaAudio.setChannelVolume`, which every slider move called through a second, broken `UpdateAudioSettings` handler.
+  - `playWarhorn` was passed a name as its volume.
+- **Panel timings ignored:** the phase durations were hard-coded (Generation 10, Teleport 5, Game 180, Victory 10, Post-game 5) instead of the panel's 15 / 10 / 600 / 8 / 180.
+- **Skip was partial:** each wait reset the skip flag, so in the anthem a Skip only ended the lead-in wait and the anthem still played. Skips also left ARIA lines and stems running.
+- **FFA:**
+  - it called a `getArenaMetrics` that the drone manager does not have, and crashed;
+  - its end check (`alphaAlive == 0 or betaAlive == 0`) is always true with no beta team.
+- **Panel:**
+  - **Section order:** all `LayoutOrder` 0, so the list sorted by name (every Frame before every TextLabel). The section headers piled up at the bottom, team sizes read 1v1 / 16v16 / 2v2…, and the right column lost its headers.
+  - **O hotkey:** bound twice (ContextActionService plus a UserInputService fallback), so one press could open and close the window.
+  - **Phase badge:** formatted a fractional time with `%d`, which errored on every update, so it stayed on IDLE.
+  - **Missing glyph:** the close button "✕" is not in Gotham.
+- **Screen:**
+  - titles were written before the scene switch, so they landed on the previous phase's scene;
+  - the countdown numeral re-pulsed 4×/s.
+
+### Changes
+- **Orchestrator (rewritten on the same structure):**
+  - Phases: ARENA_OPEN → ARENA_GENERATION → PREPARATION_ROOM → TELEPORTING_QUINS → STADIUM_ANTHEM → PRE_GAME → IN_GAME → WINNER_DETERMINATION → POST_GAME → IDLE.
+  - Every duration comes from the panel; defaults are in `ArenaConfig.DefaultDurations`, now including `StadiumAnthem` 60.
+  - **Skip ends the whole phase** (an epoch counter checked by every wait). A skipped anthem fades out, and skipped ARIA lines stop.
+  - **Globe and screen** ignite at T+5 s of Arena Open (still ignited if Arena Open is skipped earlier).
+  - **Anthem** back-timed to end 1 s before its window.
+  - **Countdown:** warhorn at T-5, drones at T-4 (Drones toggle); with the Pre-Game Timer off, the countdown is skipped and the warhorn and drones fire at fight start.
+  - **Ending:** FFA ends at one survivor. Winner by elimination, else more fighters alive, else health.
+  - **Post-game:** music, closing lines, drone outro in the last 15 s, closure, then IDLE.
+  - Studio-only test hook: Workspace `ArenaDevCommand` = `start <json>` / `skip` / `stop`.
+- **Config:** `ArenaConfig.DefaultToggles.Drones = true`.
+- **Panel:**
+  - explicit layout order everywhere;
+  - one O binding;
+  - whole seconds in the badge;
+  - FFA sizes shown as Quin counts (2× the squad size);
+  - "Procedural Terrain [not built yet]" is read-only (no generator exists);
+  - close button "X".
+- **Screen:** the countdown numeral pulses only when it changes.
+
+### Verified in Play
+- **Full sequence with the panel timings:**
+  - globe and screen at T+5.1 s;
+  - every ARIA line plays;
+  - pre-game music fades at teleport;
+  - ANTHEM1 (45 s, 3 stems) plays;
+  - warhorn, then drones at T-4, then in-game music;
+  - victory ceremony, post-game music, drone outro, closure fade;
+  - IDLE with no fighters left.
+- **Skips** in Arena Open (before T+5), Preparation Room and Anthem each ended the phase at once.
+- **Panel buttons:** START, SKIP and STOP work through the panel itself (clicked), and the badge counts down.
+- 0 errors, 0 warnings.
+
+## 3. The ring around the ArenaGlobe (LiveFeedScreen, client)
+
+### Why it looked bad
+- **Squashed text:** 32 separate panels each carried a 1920×600 canvas stretched onto a 19 × 36-stud panel, so the text was crushed about 6× sideways.
+- **Repeated text:** the same advert was copied on every panel.
+- **Motion:** the whole band rolled ±7.5° while it turned.
+- **Timing:** it glitch-flickered on together with the globe.
+
+### Now
+- **One continuous stadium LED ribbon:** 48 panels, 12 studs tall, cyan neon top rail and gold bottom rail.
+- **Canvas:** pixels-per-stud, so nothing is stretched.
+- **Ticker:**
+  - one message scrolls around the whole ring;
+  - each panel shows its own slice, on both faces, and the slices join up;
+  - the text is sized so a whole number of repeats closes the loop (`TextSize` is capped at 100 by Roblox; 14 px/stud makes that about 60% of the band).
+- **Messages** follow the match phase and cross-fade.
+- **Motion:** slow yaw only.
+- **Appears 1 s after the globe** (T+6 s of Arena Open) as a light-up sweep around the ring.
+- The "✦" separator is not in GothamBlack; it is now "•".
+
+## Open
+- "Procedural Terrain Obstacles": no generator exists; the toggle is marked "not built yet".
+- The ARIA categories `ARIA_54321GameCountdown` / `ARIA_AnnounceWinner` are filled by the Aria manager's local list; `ARIA_Congratulations` and the team-win lines play from it.

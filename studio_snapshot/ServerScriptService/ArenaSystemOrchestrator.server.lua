@@ -1,7 +1,13 @@
 --// ArenaSystemOrchestrator.server.lua
 -- Single Source of Truth for Argonia ArenaOne Lifecycle & Production Broadcast State Machine
--- Controls: 120s Pre-Combat Sequence, Dynamic Back-Timed Stadium Anthem (Ends at T=59s, 1s Reverb Ring-Out),
--- T+5.0s Authoritative Hologram Materialization, Clean ARIA Voice Scheduling & Quin Pacification
+--
+-- Phases (durations from the Arena System panel, defaults in ArenaConfig.DefaultDurations):
+--   ARENA_OPEN -> ARENA_GENERATION -> PREPARATION_ROOM -> TELEPORTING_QUINS -> STADIUM_ANTHEM
+--   -> PRE_GAME (5-4-3-2-1, Pre-Game Timer toggle) -> IN_GAME -> WINNER_DETERMINATION -> POST_GAME -> IDLE
+--
+-- ArenaGlobe and the ArenaScreen materialize at T+5s of ARENA_OPEN (ArenaHologramsActive); the
+-- client brings the ribbon ring up 1s after the globe (LiveFeedScreen).
+-- SKIP ends the whole current phase, including what that phase was playing (anthem, ARIA line).
 
 local Workspace = game:GetService("Workspace")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -18,25 +24,24 @@ local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 
 local Orchestrator = {}
 
+local HOLOGRAM_IGNITION_TIME = 5.0 -- seconds into ARENA_OPEN
+local ANTHEM_RING_OUT = 1.0 -- seconds of reverb tail between the anthem and the countdown
+
 local currentPhase = "IDLE"
 local phaseEndTime = 0
-local skipRequested = false
+local phaseDuration = 0
+local skipEpoch = 0 -- bumped by SKIP; every wait inside a phase returns when it changes
 local matchThread = nil
 
 local activeConfig = {
-    Mode = "4vs4",
+    Mode = "TeamBattle",
     TeamSize = 4,
     SelectedTrack = "365",
     SelectedAnthem = "ANTHEM1",
-    SelectedInTrack = "365",
-    SelectedPostTrack = "365",
-    Toggles = {
-        Screen = true,
-        Fireworks = true,
-        ProceduralMusic = true,
-        Announcer = true,
-        Drones = true,
-    }
+    SelectedInTrack = "ts - butterflyeffect live",
+    SelectedPostTrack = "Bai - Tenggelam (feat. Kurt Haikal) MAXIMUS2",
+    Toggles = table.clone(ArenaConfig.DefaultToggles),
+    Durations = table.clone(ArenaConfig.DefaultDurations),
 }
 
 local matchStats = {
@@ -74,38 +79,20 @@ local function ensureNetwork()
         Announce = getOrCreate("Announce", "RemoteEvent"),
         PlayTrack = getOrCreate("PlayTrack", "RemoteEvent"),
         DroneEvent = getOrCreate("DroneEvent", "RemoteEvent"),
-        UpdateAudioSettings = getOrCreate("UpdateAudioSettings", "RemoteEvent"),
+        -- UpdateAudioSettings is handled by ArenaAudioManager (it owns the channels)
     }
 end
 
 local remotes = ensureNetwork()
 local StateReplication = remotes.StateReplication
 
-local function replicateState()
-    local remaining = math.max(0, phaseEndTime - os.clock())
-    local alphaHp, alphaMax, betaHp, betaMax, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
-    
-    local snapshot = {
-        Phase = currentPhase,
-        TimeRemaining = remaining,
-        TotalPhaseDuration = phaseEndTime - (phaseEndTime - remaining),
-        AlphaHp = alphaHp,
-        AlphaMax = alphaMax,
-        BetaHp = betaHp,
-        BetaMax = betaMax,
-        AlphaAlive = alphaAlive,
-        BetaAlive = betaAlive,
-        Toggles = activeConfig.Toggles,
-    }
-    
-    StateReplication:FireAllClients(snapshot)
-    
-    if activeConfig.Toggles.Screen then
-        ArenaScreen.setEnabled(true)
-        ArenaScreen.updateMatchState(currentPhase, remaining, alphaHp, alphaMax, betaHp, betaMax, alphaAlive, betaAlive)
-    else
-        ArenaScreen.setEnabled(false)
-    end
+local function toggle(key)
+    return activeConfig.Toggles[key] == true
+end
+
+local function duration(key)
+    local value = tonumber(activeConfig.Durations[key]) or tonumber(ArenaConfig.DefaultDurations[key]) or 10
+    return math.max(0, value)
 end
 
 local function getTournamentFighters()
@@ -124,7 +111,7 @@ end
 function Orchestrator.getTeamHealthStats()
     local alphaHp, alphaMax, alphaAlive = 0, 0, 0
     local betaHp, betaMax, betaAlive = 0, 0, 0
-    
+
     for _, quin in ipairs(getTournamentFighters()) do
         if quin.Parent then
             local hum = quin:FindFirstChildOfClass("Humanoid")
@@ -133,16 +120,13 @@ function Orchestrator.getTeamHealthStats()
                 local hp = math.max(0, hum.Health)
                 local maxHp = hum.MaxHealth
                 local isAlive = hp > 0
-                
-                if team == "TeamAlpha" then
-                    alphaHp = alphaHp + hp
-                    alphaMax = alphaMax + maxHp
-                    if isAlive then alphaAlive = alphaAlive + 1 end
-                elseif team == "TeamBeta" then
+
+                if team == "TeamBeta" then
                     betaHp = betaHp + hp
                     betaMax = betaMax + maxHp
                     if isAlive then betaAlive = betaAlive + 1 end
                 else
+                    -- TeamAlpha, and every FFA fighter (individual survival)
                     alphaHp = alphaHp + hp
                     alphaMax = alphaMax + maxHp
                     if isAlive then alphaAlive = alphaAlive + 1 end
@@ -150,19 +134,64 @@ function Orchestrator.getTeamHealthStats()
             end
         end
     end
-    
+
     return alphaHp, alphaMax, betaHp, betaMax, alphaAlive, betaAlive
 end
 
-local function waitPhaseDuration(duration)
-    phaseEndTime = os.clock() + duration
-    skipRequested = false
-    
-    while os.clock() < phaseEndTime and not skipRequested do
+local function replicateState()
+    local remaining = math.max(0, math.ceil(phaseEndTime - os.clock()))
+    if currentPhase == "IDLE" then
+        remaining = 0
+    end
+    local alphaHp, alphaMax, betaHp, betaMax, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
+
+    StateReplication:FireAllClients({
+        Phase = currentPhase,
+        TimeRemaining = remaining,
+        TotalPhaseDuration = math.ceil(phaseDuration),
+        Mode = activeConfig.Mode,
+        TeamSize = activeConfig.TeamSize,
+        Winner = matchStats.Winner,
+        WinnerTeam = matchStats.WinnerTeam,
+        AlphaHp = alphaHp,
+        AlphaMax = alphaMax,
+        BetaHp = betaHp,
+        BetaMax = betaMax,
+        AlphaAlive = alphaAlive,
+        BetaAlive = betaAlive,
+        Toggles = activeConfig.Toggles,
+    })
+
+    if toggle("Screen") then
+        ArenaScreen.setEnabled(true)
+        ArenaScreen.updateMatchState(currentPhase, remaining, alphaHp, alphaMax, betaHp, betaMax, alphaAlive, betaAlive)
+    else
+        ArenaScreen.setEnabled(false)
+    end
+end
+
+-- Start a phase: the screen switches to the phase's scene first, so its title lands on it
+local function beginPhase(name, seconds, title, subtitle)
+    currentPhase = name
+    phaseDuration = seconds
+    phaseEndTime = os.clock() + seconds
+    print(string.format("[ArenaSystemOrchestrator] Entering Phase: %s (%.0fs)", name, seconds))
+    ArenaScreen.setSequence(name, title, subtitle, seconds)
+    replicateState()
+    return skipEpoch
+end
+
+-- Wait until the phase deadline (or `untilTime`); returns false if the phase was skipped
+local function waitPhase(epoch, untilTime)
+    local deadline = untilTime or phaseEndTime
+    while os.clock() < deadline do
+        if skipEpoch ~= epoch then
+            return false
+        end
         replicateState()
         task.wait(0.25)
     end
-    skipRequested = false
+    return skipEpoch == epoch
 end
 
 local function pacifyAllQuins()
@@ -180,328 +209,275 @@ local function pacifyAllQuins()
     end
 end
 
--- ============================================================================
--- LIFECYCLE STATE MACHINE (120s TO IN-GAME)
--- ============================================================================
+local function getArenaGlobe()
+    local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
+    return arenaOne and arenaOne:FindFirstChild("ArenaGlobe")
+end
 
-local function runMatchLifecycle()
-    -- -------------------------------------------------------------
-    -- PHASE 1: ARENA OPEN (10 SECONDS)
-    -- Holograms start invisible, ignite at T+5.0s
-    -- -------------------------------------------------------------
-    currentPhase = "ARENA_OPEN"
-    print("[ArenaSystemOrchestrator] Entering Phase: ARENA_OPEN (10s)")
-    
-    Workspace:SetAttribute("ArenaHologramsActive", false)
-    ArenaScreen.setHologramActive(false)
-    ArenaScreen.setTitle("ARENA ONE", "GATES ARE OPEN • PREPARING MATCH")
-    
-    if activeConfig.Toggles.Fireworks then
-        ArenaFireworks.launchOpeningShow(10)
+local function igniteHolograms()
+    if Workspace:GetAttribute("ArenaHologramsActive") == true then return end
+    print("[ArenaSystemOrchestrator] Holograms: ArenaGlobe + ArenaScreen materialize (ring follows 1s later on clients)")
+    Workspace:SetAttribute("ArenaHologramsActive", true)
+    ArenaScreen.setHologramActive(true)
+    local globe = getArenaGlobe()
+    if globe then
+        globe.Material = Enum.Material.ForceField
+        globe.Color = Color3.fromRGB(0, 210, 255)
+        globe.Transparency = 0.45
     end
-    
-    -- Pre-Game music begins (spans Open, Generation, Prep Room = 50s total)
-    if activeConfig.Toggles.ProceduralMusic then
-        ArenaAudio.playPregameMusic(activeConfig.SelectedTrack or "365", 1.0, 2.0)
-    end
-    
-    if activeConfig.Toggles.Announcer then
-        ArenaAria.speak("ARIA_ArenaOpen")
-    end
-    
-    -- T+5.0s Hologram Ignition
-    task.delay(5.0, function()
-        if currentPhase == "ARENA_OPEN" or currentPhase == "ARENA_GENERATION" then
-            print("[ArenaSystemOrchestrator] T+5s: Holographic materialization active!")
-            Workspace:SetAttribute("ArenaHologramsActive", true)
-            ArenaScreen.setHologramActive(true)
-            
-            -- Authoritative Server Globe ForceField Hologram Ignition
-            local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
-            local globe = arenaOne and arenaOne:FindFirstChild("ArenaGlobe")
-            if globe then
-                globe.Material = Enum.Material.ForceField
-                globe.Color = Color3.fromRGB(0, 210, 255)
-                globe.Transparency = 0.45
-            end
-        end
-    end)
-    
-    waitPhaseDuration(10)
-    
-    -- -------------------------------------------------------------
-    -- PHASE 2: ARENA GENERATION (10 SECONDS)
-    -- -------------------------------------------------------------
-    currentPhase = "ARENA_GENERATION"
-    print("[ArenaSystemOrchestrator] Entering Phase: ARENA_GENERATION (10s)")
-    
-    ArenaScreen.setTitle("ARENA GENERATION", "CONFIGURING COMBAT SECTOR")
-    
-    if activeConfig.Toggles.Announcer then
-        ArenaAria.speak("ARIA_ArenaGenerationCommence")
-    end
-    
-    task.delay(5.5, function()
-        if currentPhase == "ARENA_GENERATION" and activeConfig.Toggles.Announcer then
-            ArenaAria.speak("ARIA_ArenaGenerationCompleted")
-        end
-    end)
-    
-    waitPhaseDuration(10)
-    
-    -- -------------------------------------------------------------
-    -- PHASE 3: PREPARATION ROOM (30 SECONDS)
-    -- Fighters calibrating in staging backrooms. ZERO Quins on field!
-    -- -------------------------------------------------------------
-    currentPhase = "PREPARATION_ROOM"
-    print("[ArenaSystemOrchestrator] Entering Phase: PREPARATION_ROOM (30s)")
-    
-    QuinSpawner.cleanAll()
-    Workspace:SetAttribute("MatchStarted", false)
-    
-    ArenaScreen.setTitle("PREPARATION ROOM", "FIGHTERS CALIBRATING IN BACKROOMS • 30 SECONDS")
-    
-    if activeConfig.Toggles.Announcer then
-        ArenaAria.speak("ARIA_AnnouncementPreparationRoomGuide")
-    end
-    
-    waitPhaseDuration(30)
-    
-    -- -------------------------------------------------------------
-    -- PHASE 4: TELEPORTING QUINS TO DESIGNATED AREAS (5 SECONDS)
-    -- Pre-Game music fades out, Quins spawn onto the field!
-    -- -------------------------------------------------------------
-    currentPhase = "TELEPORTING_QUINS"
-    print("[ArenaSystemOrchestrator] Entering Phase: TELEPORTING_QUINS (5s)")
-    
-    -- Smooth fade out of Pre-Game music
-    ArenaAudio.stopPregameMusic(1.5)
-    
-    ArenaScreen.setTitle("DEPLOYMENT TELEPORT", "MATERIALIZING FIGHTERS AT COMBAT STATIONS")
-    ArenaScreen.displayAnnouncement("TELEPORTING QUINS TO DESIGNATED AREAS", 3.0, "ARENA DISPATCH", Color3.fromRGB(0, 220, 255))
-    
-    if activeConfig.Toggles.Announcer then
-        ArenaAria.speak("ARIA_TeleportingQuinsToDesignatedAreas")
-    end
-    
-    -- Authoritative Field Spawning
+end
+
+local function spawnFighters()
     local mode = activeConfig.Mode
-    local teamSize = activeConfig.TeamSize or 4
+    local teamSize = math.max(1, tonumber(activeConfig.TeamSize) or 4)
     local positions = QuinSpawner.getSpawnPositions()
     local posAlpha = positions[1] or Vector3.new(158, 2.05, -605)
     local posBeta = positions[2] or Vector3.new(-137, 2.05, -233)
     local forwardDir = (posBeta - posAlpha).Unit
     local sideDir = Vector3.new(-forwardDir.Z, 0, forwardDir.X)
-    
+
+    local function settle(q, cf)
+        if not q then return end
+        q:PivotTo(cf)
+        q:SetAttribute("CurrentState", "Idle")
+        q:SetAttribute("IsInert", true)
+    end
+
     if mode == "1vs1" then
-        local p1 = Vector3.new(posAlpha.X * 0.4 + posBeta.X * 0.6, posAlpha.Y, posAlpha.Z * 0.4 + posBeta.Z * 0.6)
-        local p2 = Vector3.new(posBeta.X * 0.4 + posAlpha.X * 0.6, posBeta.Y, posBeta.Z * 0.4 + posAlpha.Z * 0.6)
-        local qA = QuinSpawner.spawn("Male", p1, "TeamAlpha")
-        local qB = QuinSpawner.spawn("Female", p2, "TeamBeta")
-        if qA then
-            qA:PivotTo(CFrame.lookAt(p1, Vector3.new(p2.X, p1.Y, p2.Z)))
-            qA:SetAttribute("CurrentState", "Idle")
-            qA:SetAttribute("IsInert", true)
-        end
-        if qB then
-            qB:PivotTo(CFrame.lookAt(p2, Vector3.new(p1.X, p2.Y, p1.Z)))
-            qB:SetAttribute("CurrentState", "Idle")
-            qB:SetAttribute("IsInert", true)
-        end
+        local p1 = posAlpha:Lerp(posBeta, 0.6)
+        local p2 = posBeta:Lerp(posAlpha, 0.6)
+        settle(QuinSpawner.spawn("Male", p1, "TeamAlpha"), CFrame.lookAt(p1, Vector3.new(p2.X, p1.Y, p2.Z)))
+        settle(QuinSpawner.spawn("Female", p2, "TeamBeta"), CFrame.lookAt(p2, Vector3.new(p1.X, p2.Y, p1.Z)))
     elseif mode == "FFA" then
-        local DroneTrajectories = require(ServerScriptService:WaitForChild("ArenaDroneManager"))
+        local DroneTrajectories = require(ReplicatedStorage.QuinCore:WaitForChild("ArenaDroneTrajectories"))
         local _, center, _, radius = DroneTrajectories.getArenaMetrics()
-        local quins = QuinSpawner.spawnTeam({"Male", "Female"}, nil, teamSize)
-        for idx, q in ipairs(getTournamentFighters()) do
-            local angle = (idx / math.max(1, #getTournamentFighters())) * (math.pi * 2)
-            local r = math.clamp(radius * 0.55, 40, 120)
-            local spawnPos = center + Vector3.new(math.cos(angle) * r, 2, math.sin(angle) * r)
-            q:PivotTo(CFrame.lookAt(spawnPos, Vector3.new(center.X, spawnPos.Y, center.Z)))
-            q:SetAttribute("CurrentState", "Idle")
-            q:SetAttribute("IsInert", true)
+        local count = math.max(2, teamSize)
+        local r = math.clamp((radius or 150) * 0.55, 40, 120)
+        for i = 1, count do
+            local angle = (i / count) * math.pi * 2
+            local pos = center + Vector3.new(math.cos(angle) * r, 2, math.sin(angle) * r)
+            local q = QuinSpawner.spawn((i % 2 == 1) and "Male" or "Female", pos, nil)
+            settle(q, CFrame.lookAt(pos, Vector3.new(center.X, pos.Y, center.Z)))
         end
     else
-        -- Team Battle
+        -- Team Battle: two lines facing each other
         for i = 1, teamSize do
             local sideOffset = (i - (teamSize + 1) * 0.5) * 12
             local pA = posAlpha + sideDir * sideOffset + Vector3.new(0, 2, 0)
             local pB = posBeta + sideDir * sideOffset + Vector3.new(0, 2, 0)
-            local genderA = (i % 2 == 1) and "Male" or "Female"
-            local genderB = (i % 2 == 1) and "Female" or "Male"
-            
-            local qA = QuinSpawner.spawn(genderA, pA, "TeamAlpha")
-            local qB = QuinSpawner.spawn(genderB, pB, "TeamBeta")
-            
-            if qA then
-                qA:PivotTo(CFrame.lookAt(pA, pA + forwardDir))
-                qA:SetAttribute("CurrentState", "Idle")
-                qA:SetAttribute("IsInert", true)
-            end
-            if qB then
-                qB:PivotTo(CFrame.lookAt(pB, pB - forwardDir))
-                qB:SetAttribute("CurrentState", "Idle")
-                qB:SetAttribute("IsInert", true)
-            end
+            settle(QuinSpawner.spawn((i % 2 == 1) and "Male" or "Female", pA, "TeamAlpha"), CFrame.lookAt(pA, pA + forwardDir))
+            settle(QuinSpawner.spawn((i % 2 == 1) and "Female" or "Male", pB, "TeamBeta"), CFrame.lookAt(pB, pB - forwardDir))
         end
     end
-    
-    waitPhaseDuration(5)
-    
-    -- -------------------------------------------------------------
-    -- PHASE 5: STADIUM ANTHEM (60 SECONDS WINDOW)
-    -- Dynamic Back-Timing: Anthem ends at T=59s, followed by 1.0s reverb offset
-    -- Zero ARIA voiceovers during anthem to prevent overlapping
-    -- -------------------------------------------------------------
-    currentPhase = "STADIUM_ANTHEM"
-    print("[ArenaSystemOrchestrator] Entering Phase: STADIUM_ANTHEM (60s Window)")
-    
-    ArenaScreen.setTitle("STADIUM ANTHEM", "ALL RISE FOR THE ARENA ONE ANTHEM")
-    ArenaScreen.displayAnnouncement("STADIUM ANTHEM // CEREMONIAL TRADITION", 4.0, "CEREMONY", Color3.fromRGB(212, 175, 55))
-    
+end
+
+-- Who won: an elimination, or at the time limit more fighters alive, then more health
+local function decideWinner(mode)
+    local alphaHp, alphaMax, betaHp, betaMax, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
+    if mode == "FFA" then
+        local best, bestHp = nil, -1
+        for _, q in ipairs(getTournamentFighters()) do
+            local h = q:FindFirstChildOfClass("Humanoid")
+            if h and h.Health > 0 and h.Health > bestHp then
+                best, bestHp = q, h.Health
+            end
+        end
+        if best then
+            return best.Name, "FFA Champion", alphaAlive <= 1 and "Last Quin Standing" or "Time Limit (Highest Health)"
+        end
+        return "DRAW", "Draw", "Mutual Elimination"
+    end
+    if alphaAlive == 0 and betaAlive == 0 then
+        return "DRAW", "Draw", "Mutual Elimination"
+    elseif betaAlive == 0 then
+        return "TEAM ALPHA", "TeamAlpha", "Elimination"
+    elseif alphaAlive == 0 then
+        return "TEAM BETA", "TeamBeta", "Elimination"
+    end
+    if alphaAlive ~= betaAlive then
+        local alpha = alphaAlive > betaAlive
+        return alpha and "TEAM ALPHA" or "TEAM BETA", alpha and "TeamAlpha" or "TeamBeta",
+            string.format("Time Limit (Fighters Alive %d vs %d)", math.max(alphaAlive, betaAlive), math.min(alphaAlive, betaAlive))
+    end
+    local alphaPct = alphaMax > 0 and alphaHp / alphaMax or 0
+    local betaPct = betaMax > 0 and betaHp / betaMax or 0
+    if math.abs(alphaPct - betaPct) < 1e-3 then
+        return "DRAW", "Draw", "Time Limit (Equal Health & Count)"
+    end
+    local alpha = alphaPct > betaPct
+    return alpha and "TEAM ALPHA" or "TEAM BETA", alpha and "TeamAlpha" or "TeamBeta",
+        string.format("Time Limit (Health %.0f%% vs %.0f%%)", math.max(alphaPct, betaPct) * 100, math.min(alphaPct, betaPct) * 100)
+end
+
+-- ============================================================================
+-- LIFECYCLE STATE MACHINE
+-- ============================================================================
+
+local function runMatchLifecycle()
+    local mode = activeConfig.Mode
+
+    -- PHASE 1: ARENA OPEN. Globe + screen materialize at T+5s.
+    Workspace:SetAttribute("ArenaHologramsActive", false)
+    ArenaScreen.setHologramActive(false)
+    local openTime = duration("ArenaOpen")
+    local epoch = beginPhase("ARENA_OPEN", openTime, "ARENA ONE", "GATES ARE OPEN • PREPARING MATCH")
+    if toggle("Fireworks") then
+        ArenaFireworks.launchOpeningShow(openTime)
+    end
+    if toggle("ProceduralMusic") then
+        ArenaAudio.playPregameMusic(activeConfig.SelectedTrack or "365", 1.0, 2.0) -- runs through Prep Room
+    end
+    if toggle("Announcer") then
+        ArenaAria.speak("ARIA_ArenaOpen")
+    end
+    if waitPhase(epoch, os.clock() + math.min(HOLOGRAM_IGNITION_TIME, openTime)) then
+        igniteHolograms()
+        waitPhase(epoch)
+    end
+    igniteHolograms() -- (an Arena Open skipped before T+5s still brings them up)
+
+    -- PHASE 2: ARENA GENERATION
+    epoch = beginPhase("ARENA_GENERATION", duration("ArenaGeneration"), "ARENA GENERATION", "CONFIGURING COMBAT SECTOR")
+    if toggle("Announcer") then
+        ArenaAria.speak("ARIA_ArenaGenerationCommence")
+    end
+    -- (no procedural terrain generator exists yet: the edit-mode arena parts are used)
+    if waitPhase(epoch, os.clock() + math.min(5.5, phaseDuration * 0.55)) and toggle("Announcer") then
+        ArenaAria.speak("ARIA_ArenaGenerationCompleted")
+    end
+    waitPhase(epoch)
+
+    -- PHASE 3: PREPARATION ROOM. Fighters calibrating in the backrooms: none on the field.
+    QuinSpawner.cleanAll()
+    Workspace:SetAttribute("MatchStarted", false)
+    local prepTime = duration("PreparationRoom")
+    epoch = beginPhase("PREPARATION_ROOM", prepTime, "PREPARATION ROOM", string.format("FIGHTERS CALIBRATING IN BACKROOMS • %d SECONDS", prepTime))
+    if toggle("Announcer") then
+        ArenaAria.speak("ARIA_AnnouncementPreparationRoomGuide")
+    end
+    if not waitPhase(epoch) then
+        ArenaAria.stopAll()
+    end
+
+    -- PHASE 4: TELEPORTING QUINS. Pre-game music fades, fighters materialize at their stations.
+    epoch = beginPhase("TELEPORTING_QUINS", duration("TeleportingQuins"), "DEPLOYMENT TELEPORT", "MATERIALIZING FIGHTERS AT COMBAT STATIONS")
+    ArenaAudio.stopPregameMusic(1.5)
+    ArenaScreen.displayAnnouncement("TELEPORTING QUINS TO DESIGNATED AREAS", 3.0, "ARENA DISPATCH", Color3.fromRGB(0, 220, 255))
+    if toggle("Announcer") then
+        ArenaAria.speak("ARIA_TeleportingQuinsToDesignatedAreas")
+    end
+    spawnFighters()
+    if not waitPhase(epoch) then
+        ArenaAria.stopAll()
+    end
+
+    -- PHASE 5: STADIUM ANTHEM. Back-timed to end ANTHEM_RING_OUT before the window closes;
+    -- no ARIA lines over it. A longer anthem than the window starts at once and is not cut.
+    local anthemWindow = duration("StadiumAnthem")
     local anthemPrefix = activeConfig.SelectedAnthem or "ANTHEM1"
-    local anthemLength = ArenaAudio.getAnthemLength(anthemPrefix)
-    local phaseWindow = 60.0
-    local targetEndOffset = 1.0 -- Exactly 1s silence/reverb offset before pregame
-    local startDelay = math.max(0, (phaseWindow - targetEndOffset) - anthemLength)
-    
-    print(string.format("[ArenaSystemOrchestrator] Anthem back-timing: Length=%.2fs, Delay=%.2fs, Ending at T=59.0s (1s Reverb Ring-Out)",
-        anthemLength, startDelay))
-    
-    -- Step 1: Wait initial buildup delay if anthem is shorter than 59s
-    if startDelay > 0 then
-        waitPhaseDuration(startDelay)
+    local anthemLength = toggle("ProceduralMusic") and ArenaAudio.getAnthemLength(anthemPrefix) or 0
+    local startDelay = math.max(0, anthemWindow - ANTHEM_RING_OUT - anthemLength)
+    epoch = beginPhase("STADIUM_ANTHEM", math.max(anthemWindow, anthemLength + ANTHEM_RING_OUT), "STADIUM ANTHEM", "ALL RISE FOR THE ARENA ONE ANTHEM")
+    ArenaScreen.displayAnnouncement("STADIUM ANTHEM // CEREMONIAL TRADITION", 4.0, "CEREMONY", Color3.fromRGB(212, 175, 55))
+    print(string.format("[ArenaSystemOrchestrator] Anthem %s: %.2fs, starts at T+%.2fs of a %.0fs window", anthemPrefix, anthemLength, startDelay, phaseDuration))
+    if waitPhase(epoch, os.clock() + startDelay) and toggle("ProceduralMusic") then
+        ArenaAudio.playAnthem(anthemPrefix, 1.0)
     end
-    
-    -- Step 2: Start Anthem playback
-    if activeConfig.Toggles.ProceduralMusic then
-        ArenaAudio.playAnthemGroup(anthemPrefix, 1.0)
+    if not waitPhase(epoch) then
+        ArenaAudio.stopAnthem(1.5)
     end
-    
-    -- Step 3: Wait Anthem playback duration
-    waitPhaseDuration(anthemLength)
-    
-    -- Step 4: 1.0s Reverb Ring-Out / Delay Offset before Pre-Game
-    print("[ArenaSystemOrchestrator] Anthem concluded. Holding 1.0s acoustic reverb offset before combat countdown...")
-    waitPhaseDuration(targetEndOffset)
-    
-    -- -------------------------------------------------------------
-    -- PHASE 6: PRE-GAME COUNTDOWN (5 SECONDS)
-    -- Colossal numerals 5-4-3-2-1 with shockwaves and warhorn
-    -- -------------------------------------------------------------
-    currentPhase = "PRE_GAME"
-    print("[ArenaSystemOrchestrator] Entering Phase: PRE_GAME (5s)")
-    
-    ArenaScreen.setTitle("STAND BY FOR COMBAT", "5 SECONDS TO ENGAGEMENT")
-    
-    -- Deploy live drones over the arena
-    if activeConfig.Toggles.Drones then
-        ArenaDroneManager.deployDrones()
+
+    -- PHASE 6: PRE-GAME COUNTDOWN (Pre-Game Timer toggle). Warhorn at T-5, drones at T-4.
+    if toggle("TimerPreGame") then
+        epoch = beginPhase("PRE_GAME", duration("PreGame"), "STAND BY FOR COMBAT", "SECONDS TO ENGAGEMENT")
+        ArenaAudio.playWarhorn(1.0)
+        if toggle("Announcer") then
+            ArenaAria.speak("ARIA_54321GameCountdown")
+        end
+        if waitPhase(epoch, os.clock() + math.min(1.0, phaseDuration)) and toggle("Drones") then
+            ArenaDroneManager.startDrones()
+        end
+        waitPhase(epoch)
     end
-    
-    -- Sound warhorn at T-5
-    ArenaAudio.playWarhorn("WARHORN1", 1.0)
-    
-    -- ARIA countdown voiceover
-    if activeConfig.Toggles.Announcer then
-        ArenaAria.speak("ARIA_PreGameCountdown")
-    end
-    
-    waitPhaseDuration(5)
-    
-    -- -------------------------------------------------------------
-    -- PHASE 7: IN-GAME (LIVE COMBAT)
-    -- Uninert Quins, engage AI, battle music starts!
-    -- -------------------------------------------------------------
-    currentPhase = "IN_GAME"
-    print("[ArenaSystemOrchestrator] Entering Phase: IN_GAME")
-    
+
+    -- PHASE 7: IN-GAME. Quins released; ends on an elimination or the game time limit.
     Workspace:SetAttribute("MatchStarted", true)
-    
-    -- Uninert all fighters on field
+    epoch = beginPhase("IN_GAME", duration("GameTime"), "COMBAT ENGAGEMENT", "SECTOR ALPHA VS SECTOR BETA")
+    if not toggle("TimerPreGame") then
+        ArenaAudio.playWarhorn(1.0)
+        if toggle("Drones") then
+            ArenaDroneManager.startDrones()
+        end
+    end
     for _, q in ipairs(getTournamentFighters()) do
         q:SetAttribute("IsInert", false)
         q:SetAttribute("InCombat", true)
-        local hum = q:FindFirstChildOfClass("Humanoid")
-        if hum then hum.WalkSpeed = 16 end
+        q:SetAttribute("ForceState", nil)
     end
-    
-    ArenaScreen.setTitle("COMBAT ENGAGEMENT", "SECTOR ALPHA VS SECTOR BETA")
     ArenaScreen.displayAnnouncement("ENGAGEMENT COMMENCED // TOURNAMENT PROTOCOL LIVE", 4.0, "SYSTEM", Color3.fromRGB(0, 210, 255))
-    
-    -- Play In-Game Combat Music
-    if activeConfig.Toggles.ProceduralMusic then
-        ArenaAudio.playIngameMusic(activeConfig.SelectedInTrack or "365", 1.0, 1.5)
+    if toggle("ProceduralMusic") then
+        ArenaAudio.playInGameMusic(activeConfig.SelectedInTrack, 1.0, 1.5)
     end
-    
-    if activeConfig.Toggles.Fireworks then
-        ArenaFireworks.launchCombatBurst(6)
-    end
-    
-    -- Live Match Monitoring Loop
-    local matchDuration = 180.0
-    phaseEndTime = os.clock() + matchDuration
-    skipRequested = false
-    
-    while os.clock() < phaseEndTime and not skipRequested do
+    while os.clock() < phaseEndTime and skipEpoch == epoch do
         replicateState()
-        
-        local alphaHp, _, betaHp, _, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
-        if (alphaAlive == 0 or betaAlive == 0) and (alphaHp == 0 or betaHp == 0) then
-            print("[ArenaSystemOrchestrator] Squad wiped out! Determining winner...")
+        local _, _, _, _, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
+        if mode == "FFA" then
+            if alphaAlive <= 1 then break end
+        elseif alphaAlive == 0 or betaAlive == 0 then
             break
         end
-        
         task.wait(0.25)
     end
-    
-    -- -------------------------------------------------------------
-    -- PHASE 8: WINNER DETERMINATION & VICTORY CEREMONY
-    -- -------------------------------------------------------------
-    currentPhase = "WINNER_DETERMINATION"
-    print("[ArenaSystemOrchestrator] Entering Phase: WINNER_DETERMINATION")
-    
+
+    -- PHASE 8: WINNER DETERMINATION / VICTORY CEREMONY
+    local winnerName, winnerTeam, reason = decideWinner(mode)
+    matchStats.Winner, matchStats.WinnerTeam, matchStats.EndReason = winnerName, winnerTeam, reason
+    Workspace:SetAttribute("MatchStarted", false)
     pacifyAllQuins()
-    
-    local alphaHp, _, betaHp, _, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
-    local winnerTeam = "TeamAlpha"
-    local winnerName = "TEAM ALPHA"
-    
-    if betaAlive > alphaAlive or (betaAlive == alphaAlive and betaHp > alphaHp) then
-        winnerTeam = "TeamBeta"
-        winnerName = "TEAM BETA"
-    elseif alphaAlive == betaAlive and alphaHp == betaHp then
-        winnerTeam = "Draw"
-        winnerName = "DRAW"
+    ArenaAudio.stopInGameMusic(2.0)
+    local victoryTime = duration("WinnerDetermination")
+    epoch = beginPhase("WINNER_DETERMINATION", victoryTime, nil, nil)
+    ArenaScreen.showWinner(winnerName, reason)
+    if toggle("Fireworks") then
+        ArenaFireworks.launchWinnerShow(victoryTime)
     end
-    
-    matchStats.Winner = winnerName
-    matchStats.WinnerTeam = winnerTeam
-    matchStats.EndReason = "Combat Victory"
-    
-    ArenaScreen.showWinner(winnerName, string.format("CONQUEST RECORDED • %s ACHIEVED VICTORY", winnerName))
-    
-    if activeConfig.Toggles.Fireworks then
-        ArenaFireworks.launchOpeningShow(12)
+    if toggle("Announcer") then
+        ArenaAria.playWinnerSequence(winnerTeam)
     end
-    
-    if activeConfig.Toggles.Announcer then
-        ArenaAria.speak("ARIA_MatchConclusion")
+    if not waitPhase(epoch) then
+        ArenaAria.stopAll()
     end
-    
-    waitPhaseDuration(10)
-    
-    -- -------------------------------------------------------------
-    -- PHASE 9: POST_GAME & RESET
-    -- -------------------------------------------------------------
-    currentPhase = "POST_GAME"
-    print("[ArenaSystemOrchestrator] Entering Phase: POST_GAME (Clean up)")
-    
-    ArenaAudio.stopAll(2.0)
-    ArenaDroneManager.stopDrones()
-    QuinSpawner.cleanAll()
-    
-    waitPhaseDuration(5)
-    
+
+    -- PHASE 9: POST-GAME. Spectators leave; closing lines, drone outro in the last 15s.
+    local postTime = duration("PostGame")
+    epoch = beginPhase("POST_GAME", postTime, "ARENA CLOSURE", "SPECTATOR EXIT PROTOCOLS ACTIVE")
+    pacifyAllQuins()
+    if toggle("ProceduralMusic") then
+        ArenaAudio.playPostgameMusic(activeConfig.SelectedPostTrack, 1.0, 2.5)
+    end
+    if toggle("Announcer") then
+        ArenaAria.speak("ARIA_ArenaClosing")
+    end
+    local postStart = os.clock()
+    local guideAt = postStart + math.clamp(postTime * 0.15, 2.5, 6.0)
+    local outroLead = math.min(15.0, postTime)
+    local outroAt = math.max(guideAt + 2.0, postStart + postTime - outroLead)
+    local closureAt = math.max(outroAt + 1.0, postStart + postTime - 7.0)
+    if waitPhase(epoch, guideAt) and toggle("Announcer") then
+        ArenaAria.speak("ARIA_LeaveTheArenaGuide")
+    end
+    if waitPhase(epoch, outroAt) and toggle("Drones") then
+        ArenaDroneManager.startOutro(math.max(1, postStart + postTime - os.clock()))
+        ArenaScreen.displayAnnouncement("ARENA DRONES OUTRO -- FORMATION CLIMB", 2.5, "ARENA BROADCAST", Color3.fromRGB(220, 80, 255))
+    end
+    if waitPhase(epoch, closureAt) then
+        if toggle("Announcer") then
+            ArenaAria.speak("ARIA_SkylarkClosure")
+        end
+        ArenaAudio.stopPostgameMusic(5.0)
+    end
+    waitPhase(epoch)
+
     Orchestrator.stopMatch()
 end
 
@@ -514,22 +490,37 @@ function Orchestrator.startMatch(settings)
         print("[ArenaSystemOrchestrator] Cannot start match: already active in phase " .. currentPhase)
         return false, "Match already running."
     end
-    
-    if settings then
+
+    activeConfig.Toggles = table.clone(ArenaConfig.DefaultToggles)
+    activeConfig.Durations = table.clone(ArenaConfig.DefaultDurations)
+    if type(settings) == "table" then
         if settings.Mode then activeConfig.Mode = settings.Mode end
-        if settings.TeamSize then activeConfig.TeamSize = settings.TeamSize end
-        if settings.Toggles then activeConfig.Toggles = settings.Toggles end
+        if settings.TeamSize then activeConfig.TeamSize = tonumber(settings.TeamSize) or activeConfig.TeamSize end
         if settings.SelectedTrack then activeConfig.SelectedTrack = settings.SelectedTrack end
         if settings.SelectedAnthem then activeConfig.SelectedAnthem = settings.SelectedAnthem end
         if settings.SelectedInTrack then activeConfig.SelectedInTrack = settings.SelectedInTrack end
         if settings.SelectedPostTrack then activeConfig.SelectedPostTrack = settings.SelectedPostTrack end
+        if type(settings.Toggles) == "table" then
+            for k, v in pairs(settings.Toggles) do
+                activeConfig.Toggles[k] = (v == true)
+            end
+        end
+        if type(settings.Durations) == "table" then
+            for k, v in pairs(settings.Durations) do
+                local n = tonumber(v)
+                if n and n >= 0 then
+                    activeConfig.Durations[k] = n
+                end
+            end
+        end
     end
-    
+
     matchStats.StartTime = os.clock()
     matchStats.Winner = nil
     matchStats.WinnerTeam = nil
     matchStats.EndReason = nil
-    
+
+    print(string.format("[ArenaSystemOrchestrator] Match starting: %s, team size %s", tostring(activeConfig.Mode), tostring(activeConfig.TeamSize)))
     matchThread = task.spawn(function()
         local success, err = pcall(runMatchLifecycle)
         if not success then
@@ -537,43 +528,50 @@ function Orchestrator.startMatch(settings)
             Orchestrator.stopMatch()
         end
     end)
-    
+
     return true, "Match initialized successfully."
 end
 
 function Orchestrator.stopMatch()
-    print("[ArenaSystemOrchestrator] Force stopping match.")
-    if matchThread then
+    print("[ArenaSystemOrchestrator] Match stopped -> IDLE.")
+    if matchThread and matchThread ~= coroutine.running() then
         task.cancel(matchThread)
-        matchThread = nil
     end
-    
+    matchThread = nil
+    skipEpoch += 1
+
     currentPhase = "IDLE"
     phaseEndTime = 0
-    skipRequested = false
-    
+    phaseDuration = 0
+
     Workspace:SetAttribute("MatchStarted", false)
     Workspace:SetAttribute("ArenaHologramsActive", false)
     ArenaScreen.setHologramActive(false)
-    ArenaScreen.setTitle("ARENA ONE", "STANDBY")
-    
-    local arenaOne = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
-    local globe = arenaOne and arenaOne:FindFirstChild("ArenaGlobe")
+    ArenaScreen.setSequence("IDLE", "ARENA ONE", "STANDBY", 0)
+    ArenaScreen.clearAnnouncement()
+
+    local globe = getArenaGlobe()
     if globe then
         globe.Transparency = 1.0
     end
-    
+
+    ArenaAria.stopAll()
     ArenaAudio.stopAll(1.0)
-    ArenaDroneManager.stopDrones()
+    ArenaFireworks.stopAll()
+    ArenaDroneManager.resetDrones()
     QuinSpawner.cleanAll()
     replicateState()
 end
 
 function Orchestrator.skipPhase()
     if currentPhase ~= "IDLE" then
-        print(string.format("[ArenaSystemOrchestrator] Skipping current phase: %s", currentPhase))
-        skipRequested = true
+        print(string.format("[ArenaSystemOrchestrator] Skipping phase: %s", currentPhase))
+        skipEpoch += 1
     end
+end
+
+function Orchestrator.getPhase()
+    return currentPhase, math.max(0, phaseEndTime - os.clock())
 end
 
 -- Wire Remotes
@@ -590,10 +588,11 @@ remotes.SkipPhase.OnServerEvent:Connect(function(player)
 end)
 
 remotes.UpdateToggles.OnServerEvent:Connect(function(player, newToggles)
-    if newToggles and type(newToggles) == "table" then
+    if type(newToggles) == "table" then
         for k, v in pairs(newToggles) do
             activeConfig.Toggles[k] = (v == true)
         end
+        replicateState()
     end
 end)
 
@@ -607,16 +606,32 @@ end)
 
 remotes.DroneEvent.OnServerEvent:Connect(function(player, action)
     if action == "Deploy" then
-        ArenaDroneManager.deployDrones()
+        ArenaDroneManager.startDrones()
     elseif action == "Stop" then
-        ArenaDroneManager.stopDrones()
+        ArenaDroneManager.resetDrones()
     end
 end)
 
-remotes.UpdateAudioSettings.OnServerEvent:Connect(function(player, channel, val)
-    ArenaAudio.setChannelVolume(channel, val)
-end)
+_G.ArenaOrchestrator = Orchestrator
+shared.ArenaOrchestrator = Orchestrator
+
+-- Studio test hook: Workspace attribute ArenaDevCommand = "start <json>" | "skip" | "stop"
+if game:GetService("RunService"):IsStudio() then
+    Workspace:GetAttributeChangedSignal("ArenaDevCommand"):Connect(function()
+        local cmd = Workspace:GetAttribute("ArenaDevCommand")
+        if cmd == nil or cmd == "" then return end
+        Workspace:SetAttribute("ArenaDevCommand", nil)
+        if cmd == "skip" then
+            Orchestrator.skipPhase()
+        elseif cmd == "stop" then
+            Orchestrator.stopMatch()
+        elseif type(cmd) == "string" and cmd:sub(1, 5) == "start" then
+            local ok, cfg = pcall(function()
+                return game:GetService("HttpService"):JSONDecode(cmd:sub(7))
+            end)
+            Orchestrator.startMatch(ok and cfg or nil)
+        end
+    end)
+end
 
 print("[ArenaSystemOrchestrator] Ready for operations.")
-
-return Orchestrator
