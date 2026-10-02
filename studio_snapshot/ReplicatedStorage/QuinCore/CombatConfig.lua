@@ -282,9 +282,9 @@ local CombatConfig = {
 	Gait_WalkAuthoredSpeed = 6.90,           -- studs/s ground speed of Movement.WalkConfident at 1.0x
 	Gait_JogAuthoredSpeed = 9.85,            -- studs/s ground speed of Movement.Jog at 1.0x (pose lab, stance-foot median; 8.4 cycled the legs 17% fast: feet ran backward through the jog band)
 	Gait_RunAuthoredSpeed = 29.5,            -- studs/s ground speed of Movement.Run at 1.0x (stance-foot travel measured on the rig: 28.7-31.6)
-	Gait_WalkPlantPhase = 0.31,              -- normalized time of the left-foot plant in Walk
-	Gait_JogPlantPhase = 0.34,               -- normalized time of the left-foot plant in Jog
-	Gait_RunPlantPhase = 0.46,               -- normalized time of the left-foot plant in Run
+	Gait_WalkPlantPhase = 0.550,             -- normalized time of the left foot's mid-stance in Walk (pose lab pass 22D; was 0.31, a touchdown-ish point)
+	Gait_JogPlantPhase = 0.433,              -- likewise in Jog (was 0.34: the three clips were aligned on different stance points)
+	Gait_RunPlantPhase = 0.479,              -- likewise in Run (was 0.46)
 	Gait_WalkToJogStart = 7.5,               -- studs/s where Jog starts blending in over Walk
 	Gait_WalkToJogEnd = 10.0,                -- studs/s where the blend is fully Jog
 	Gait_JogToRunStart = 11.0,               -- studs/s where Run starts blending in over Jog (Jog tops out near 12.6)
@@ -370,8 +370,8 @@ local CombatConfig = {
 -- Strafe clips: ground speed of the planted foot at 1.0x, measured on the rig. Circling strafes
 -- at exactly these paces so the feet stay planted (it used 10 / 20 / 30 studs/s before).
 CombatConfig.Strafe_TiredPace = 0.65 -- a tired Quin strafes at this fraction of the walk-strafe clip's pace
-CombatConfig.Strafe_WalkAuthoredSpeed = 6.5
-CombatConfig.Strafe_RunAuthoredSpeed = 18.5
+CombatConfig.Strafe_WalkAuthoredSpeed = 7.3 -- lateral stance-foot speed of the walk strafes at 1.0x (pose lab pass 22D: 7.30-7.32)
+CombatConfig.Strafe_RunAuthoredSpeed = 18.9 -- likewise for the run strafes (18.88-18.90)
 CombatConfig.Strafe_MinPlayRate = 0.6
 CombatConfig.Strafe_MaxPlayRate = 1.35
 CombatConfig.Circling_MaxFacingBias = 60 -- degrees the body may turn off its target to keep a strafe exactly sideways (35 limited strafes to a narrow band of directions)
@@ -465,6 +465,17 @@ CombatConfig.Gait_Directional = true
 CombatConfig.Gait_StrafeAngle = 50       -- degrees off the facing from which the strafe clips play
 CombatConfig.Gait_BackpedalAngle = 130   -- degrees from which the forward cycle plays in reverse
 CombatConfig.Gait_StrafeRunSpeed = 10    -- studs/s above which the run strafe is used
+-- Diagonal blend (pass 22D): forward and strafe clips mixed continuously by the motion's angle
+-- off the facing, on one phase, instead of the hard 50/130 degree switches above
+CombatConfig.Gait_DiagonalBlend = true
+CombatConfig.Gait_DiagonalSideHysteresis = 0.75 -- studs/s of opposite lateral motion before the strafe side flips
+CombatConfig.Gait_StrafeWalkToRunStart = 8      -- studs/s where the run strafe starts blending in over the walk strafe
+CombatConfig.Gait_StrafeWalkToRunEnd = 13       -- studs/s where the strafe blend is fully run
+-- Left-foot mid-stance phases of the strafe clips (pose lab: centre of the left toe's stance window)
+CombatConfig.Gait_StrafeLeftWalkPlantPhase = 0.562
+CombatConfig.Gait_StrafeLeftRunPlantPhase = 0.521
+CombatConfig.Gait_StrafeRightWalkPlantPhase = 0.529
+CombatConfig.Gait_StrafeRightRunPlantPhase = 0.575
 
 CombatConfig.BodyTilt_Enabled = true            -- workspace attribute BodyTilt overrides (A/B)
 CombatConfig.BodyTilt_Scale = 0.6               -- share of the physical lean angle atan(a / g)

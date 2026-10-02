@@ -95,3 +95,51 @@ Each perch lasted **15-30 s**. Seen from the ground, that is a Quin stuck up a w
   - in Fight, strike lunges: the lunge mover pauses the gait and the punch clip owns the legs (the designed step into the punch);
   - in Fight, the strafe-run at mid speed (87%), which goes to item D.
 - 0 errors. Arena System and Play As Quin pass.
+
+## D. Diagonal blending (forward + strafe)
+
+### Before
+`GaitModule.update` hard-switched the legs by the motion's angle off the facing:
+- under 50°, the forward cycle (crabwise between about 25° and 50°);
+- 50-130°, a full strafe clip;
+- over 130°, the forward cycle played in reverse.
+
+The strafe clip ran on its own clock, not in step with the forward set.
+
+### Pose lab (Edit, the rig clone)
+- **Strafe authored speeds:** the lateral stance-foot speed is walk **7.3** (config said 6.5) and run **18.9** (config said 18.5). Both are corrected; Circling uses them too.
+- **Plant phases were inconsistent.**
+  - Measured as the centre of the left toe's stance window (mid-stance), the forward clips' left foot is at walk 0.550, jog 0.433 and run 0.479.
+  - Config said 0.31, 0.34 and 0.46, i.e. three different stance points. Walk sat about a quarter cycle off the others.
+  - All plant phases are now mid-stance. The strafes are at L-walk 0.562, L-run 0.521, R-walk 0.529 and R-run 0.575.
+
+### Change (`Gait_DiagonalBlend`, live A/B: Workspace attribute `GaitDiagonal`)
+One continuous blend replaces the switches: the forward set plus the strafe set of the side the body moves toward (walk→run strafe blended by speed, 8-13 studs/s).
+
+With the motion split into a forward part `a = s·|cos|` and a sideways part `b = s·sin`, and the per-cycle stride of each set `S_f`, `S_s`:
+- `cadence = a/S_f + b/S_s`;
+- `w_fwd = (a/S_f)/cadence`, `w_side = 1 − w_fwd` (exact under linear pose blending);
+- every clip plays at cadence × its length on one canonical phase;
+- reversed forward clips run that phase mirrored, so the left foot still lands with the strafe's;
+- the side flips with 0.75 studs/s of hysteresis.
+
+Bug found on the way: `hasForeignLocomotion` saw the blend's own strafe tracks as foreign and switched the base-layer fill off under every diagonal. They now count as the gait's own.
+
+### Result
+16v16, 4 min, alternating on/off every 10 s:
+
+| | mean planted-foot slip (studs/s), off → on | sliding frames %, off → on |
+|---|---|---|
+| Chase 25-50° | 17.0 → 15.4 | 37.3 → 34.3 |
+| Chase 70-110° | 25.8 → **18.2** | 36.7 → 27.6 |
+| Circling 50-70° | 16.0 → **12.4** | 44.8 → 43.4 |
+| Circling 70-110° | 8.0 → 6.3 | 20.0 → 21.4 |
+| Fight 50-70° | 18.7 → 15.8 | 29.2 → 30.1 |
+| Fight 70-110° | 18.8 → 16.6 | 29.9 → 28.6 |
+| Chase all | 7.3 → 7.2 | 18.0 → **14.6** |
+| Fight all | 16.4 → 15.9 | 19.4 → 20.4 |
+
+- In the diagonal bands, the planted foot skates 10-30% slower. The pop at 50° is gone (not visible in these numbers; owner to check on screen).
+- How often a foot slides at all is about unchanged in Fight. What is left in those bands comes with the body turning while a foot is planted (item F's foot pin), not from the clip choice.
+- Before the mid-stance phases, the blend was *worse* than the switches (Fight 29.0% vs 22.3%). The out-of-step feet were the cause.
+- 0 server errors. Arena System reached IN_GAME. P to possess works.

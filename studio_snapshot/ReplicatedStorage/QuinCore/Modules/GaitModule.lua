@@ -3,7 +3,7 @@
 --
 -- 1. Ground gait: a synchronized 1D blend space over Walk -> Jog -> Run driven by the
 --    Quin's real planar velocity. Each clip has a measured authored ground speed (how
---    fast its planted foot travels at 1.0x) and a measured left-foot plant phase. The
+--    fast its planted foot travels at 1.0x) and a measured left-foot mid-stance phase. The
 --    group advances one canonical phase (0 = left foot plant) at
 --        cadence = speed / sum(weight_i * strideDistance_i)
 --    and every clip plays at cadence * clipLength, aligned to its own plant phase, so
@@ -34,9 +34,9 @@ local FALL_PATH = "Movement.Fall"
 
 -- Blend-space clips in ascending speed order
 local CLIPS = {
-	{ path = "Movement.WalkConfident", speedKey = "Gait_WalkAuthoredSpeed", speed = 6.90, plantKey = "Gait_WalkPlantPhase", plant = 0.31 },
-	{ path = "Movement.Jog", speedKey = "Gait_JogAuthoredSpeed", speed = 9.03, plantKey = "Gait_JogPlantPhase", plant = 0.34 },
-	{ path = "Movement.Run", speedKey = "Gait_RunAuthoredSpeed", speed = 29.9, plantKey = "Gait_RunPlantPhase", plant = 0.46 },
+	{ path = "Movement.WalkConfident", speedKey = "Gait_WalkAuthoredSpeed", speed = 6.90, plantKey = "Gait_WalkPlantPhase", plant = 0.550 },
+	{ path = "Movement.Jog", speedKey = "Gait_JogAuthoredSpeed", speed = 9.03, plantKey = "Gait_JogPlantPhase", plant = 0.433 },
+	{ path = "Movement.Run", speedKey = "Gait_RunAuthoredSpeed", speed = 29.9, plantKey = "Gait_RunPlantPhase", plant = 0.479 },
 }
 
 local RATE_DEADBAND = 0.015
@@ -147,6 +147,30 @@ local function trackPhase(track, plant)
 	return ((track.TimePosition % track.Length) / track.Length - plant) % 1
 end
 
+-- Strafe clips for the diagonal blend, per side, in ascending speed order. Authored lateral
+-- speed and left-foot mid-stance phase measured on the rig (pose lab, pass 22D).
+local STRAFE_CLIPS = {
+	Left = {
+		{ path = "Strafe.StrafeLeftWalk", speedKey = "Strafe_WalkAuthoredSpeed", speed = 7.3, plantKey = "Gait_StrafeLeftWalkPlantPhase", plant = 0.562 },
+		{ path = "Strafe.StrafeLeftRun", speedKey = "Strafe_RunAuthoredSpeed", speed = 18.9, plantKey = "Gait_StrafeLeftRunPlantPhase", plant = 0.521 },
+	},
+	Right = {
+		{ path = "Strafe.StrafeRightWalk", speedKey = "Strafe_WalkAuthoredSpeed", speed = 7.3, plantKey = "Gait_StrafeRightWalkPlantPhase", plant = 0.529 },
+		{ path = "Strafe.StrafeRightRun", speedKey = "Strafe_RunAuthoredSpeed", speed = 18.9, plantKey = "Gait_StrafeRightRunPlantPhase", plant = 0.575 },
+	},
+}
+
+local function stopSideTracks(st, fade)
+	if st.sideTracks then
+		for _, track in pairs(st.sideTracks) do
+			track:Stop(fade or 0.15)
+		end
+		st.sideTracks = nil
+	end
+	st.side = nil
+	st.sideWeights, st.sideRates = {}, {}
+end
+
 local function releaseGroundLoops(humanoid, fade)
 	local st = states[humanoid]
 	for _, clip in ipairs(CLIPS) do
@@ -159,6 +183,7 @@ local function releaseGroundLoops(humanoid, fade)
 			st.strafeTrack = nil
 		end
 		st.dirMode = nil
+		stopSideTracks(st, fade or 0.2)
 	end
 end
 
@@ -182,6 +207,8 @@ local function applyAirborne(humanoid)
 	if st then
 		st.rates, st.weights = {}, {}
 		st.strafeTrack = nil -- (stopped above with the other looped Movement tracks)
+		st.sideTracks, st.side = nil, nil -- (diagonal strafe layer, likewise)
+		st.sideWeights, st.sideRates = {}, {}
 		st.dirMode = nil
 	end
 	local fall = AnimationModule.getTrack(humanoid, FALL_PATH)
@@ -215,6 +242,139 @@ local function drive(track, weight, rate, st, key, startPhase)
 		track:AdjustSpeed(rate)
 		st.rates[key] = rate
 	end
+end
+
+-- Diagonal blend: one continuous mix of the forward set (played in reverse when the motion
+-- points behind the facing) and the strafe set of the side the body moves toward, instead of
+-- hard switches at 50 and 130 degrees (a body moving 30-50 degrees off its facing ran the
+-- forward cycle crabwise; at 50 it popped to a full strafe). Under linear pose blending a cycle
+-- carries the feet w_fwd * S_f forward and w_side * S_s sideways, so with the motion split into
+-- a = s*|cos| forward and b = s*sin sideways:
+--     cadence f = a / S_f + b / S_s,   w_fwd = (a / S_f) / f,   w_side = 1 - w_fwd
+-- and every clip plays at f * its length on one canonical phase (0 = left foot mid-stance).
+-- Reversed forward clips run that phase mirrored, so the left foot still lands with the strafe's.
+local function driveDiagonal(humanoid, st, tracks, weights, lens, plants, cycleDistance, speed, locoWeight, flatLook, flatRight, planarVel)
+	local dirUnit = planarVel.Unit
+	local cosA = flatLook.Unit:Dot(dirUnit)
+	local lateral = flatRight.Magnitude > 0.01 and planarVel:Dot(flatRight.Unit) or 0
+	local sinA = math.sqrt(math.max(0, 1 - cosA * cosA))
+
+	-- Side with a little hysteresis so a straight run does not flip left/right on noise
+	local side = st.side
+	local flip = CombatConfig.Gait_DiagonalSideHysteresis or 0.75
+	if side == nil or (side == "Right" and lateral < -flip) or (side == "Left" and lateral > flip) then
+		side = lateral >= 0 and "Right" or "Left"
+	end
+	if st.side and st.side ~= side then
+		stopSideTracks(st, 0.15)
+	end
+	st.side = side
+
+	local sideClips = STRAFE_CLIPS[side]
+	local toRun = smoothstep(CombatConfig.Gait_StrafeWalkToRunStart or 8, CombatConfig.Gait_StrafeWalkToRunEnd or 13, speed)
+	local sideWeights = { 1 - toRun, toRun }
+	local sideTracks, sideLens, sidePlants = {}, {}, {}
+	local sideCycle = 0
+	for j, clip in ipairs(sideClips) do
+		local track = AnimationModule.getTrack(humanoid, clip.path)
+		if not track then return nil end
+		sideTracks[j] = track
+		sideLens[j] = track.Length > 0 and track.Length or AnimationModule.getRawLength(clip.path)
+		sidePlants[j] = CombatConfig[clip.plantKey] or clip.plant
+		sideCycle += sideWeights[j] * (CombatConfig[clip.speedKey] or clip.speed) * sideLens[j]
+	end
+
+	local a = speed * math.abs(cosA) / math.max(cycleDistance, 0.01)
+	local b = speed * sinA / math.max(sideCycle, 0.01)
+	local cadence = a + b
+	local wFwd = cadence > 1e-4 and a / cadence or 1
+	local wSide = 1 - wFwd
+
+	-- Clamp the cadence on the clip that dominates the pose
+	local leadLen, leadW = lens[1], -1
+	for i = 1, #tracks do
+		if weights[i] * wFwd > leadW then leadW, leadLen = weights[i] * wFwd, lens[i] end
+	end
+	for j = 1, #sideTracks do
+		if sideWeights[j] * wSide > leadW then leadW, leadLen = sideWeights[j] * wSide, sideLens[j] end
+	end
+	local minRate = CombatConfig.Gait_MinPlayRate or 0.60
+	local maxRate = CombatConfig.Gait_MaxPlayRate or 1.45
+	cadence = math.clamp(cadence, minRate / leadLen, maxRate / leadLen)
+
+	local direction = cosA < 0 and -1 or 1
+
+	-- Canonical phase from the most weighted live clip
+	local phase
+	local best = -1
+	for i, track in ipairs(tracks) do
+		local w = (st.weights[i] or 0)
+		if w > best then
+			local p = trackPhase(track, plants[i])
+			if p then
+				best = w
+				phase = (direction * p) % 1
+			end
+		end
+	end
+	for j, track in ipairs(sideTracks) do
+		local w = st.sideWeights and st.sideWeights[j] or 0
+		if w > best then
+			local p = trackPhase(track, sidePlants[j])
+			if p then
+				best = w
+				phase = p
+			end
+		end
+	end
+	if not phase then
+		phase = st.entryPhase or AnimationModule.getGaitPhase(humanoid)
+	end
+	st.entryPhase = nil
+
+	local function sync(track, clipPhase)
+		if isActive(track) and track.Length > 0 then
+			local current = (track.TimePosition % track.Length) / track.Length
+			if math.abs(wrappedPhaseDelta(clipPhase, current)) > PHASE_TOLERANCE then
+				track.TimePosition = clipPhase * track.Length
+			end
+		end
+	end
+
+	for i, track in ipairs(tracks) do
+		local clipPhase = (plants[i] + direction * phase) % 1
+		drive(track, weights[i] * wFwd * locoWeight, direction * cadence * lens[i], st, i, clipPhase)
+		sync(track, clipPhase)
+	end
+
+	st.sideWeights = st.sideWeights or {}
+	st.sideRates = st.sideRates or {}
+	st.sideTracks = st.sideTracks or {}
+	local sideState = { weights = st.sideWeights, rates = st.sideRates }
+	for j, track in ipairs(sideTracks) do
+		local w = sideWeights[j] * wSide * locoWeight
+		if isActive(track) or w > 0.02 then
+			local clipPhase = (sidePlants[j] + phase) % 1
+			drive(track, w, cadence * sideLens[j], sideState, j, clipPhase)
+			sync(track, clipPhase)
+			st.sideTracks[j] = track
+		end
+	end
+
+	st.dirMode = wSide > 0.5 and "strafe" or (direction < 0 and "back" or "forward")
+	local model = humanoid.Parent
+	if model and workspace:GetAttribute("GaitDebug") then
+		model:SetAttribute("GaitSide", math.floor(wSide * 100 + 0.5) / 100)
+	end
+	return {
+		speed = speed,
+		weights = weights,
+		locoWeight = locoWeight,
+		cadence = cadence,
+		phase = phase,
+		mode = st.dirMode,
+		sideWeight = wSide,
+	}
 end
 
 -- Drive the blend space from the root's actual planar velocity.
@@ -304,6 +464,20 @@ function GaitModule.update(humanoid, rootPart, dt)
 	-- forward cycle run sideways slid on 43-69% of frames, so the gait picks by angle there too)
 	local directionalSwitch = workspace:GetAttribute("GaitDirectional") -- live A/B switch
 	local directionalOn = directionalSwitch == true or (directionalSwitch == nil and CombatConfig.Gait_Directional ~= false)
+	local diagonalSwitch = workspace:GetAttribute("GaitDiagonal") -- live A/B switch
+	local diagonalOn = directionalOn and (diagonalSwitch == true or (diagonalSwitch == nil and CombatConfig.Gait_DiagonalBlend == true))
+	if diagonalOn and flatLook.Magnitude > 0.01 and planarVel.Magnitude > 1 then
+		if st.strafeTrack then
+			st.strafeTrack:Stop(0.15)
+			st.strafeTrack = nil
+		end
+		local right = rootPart.CFrame.RightVector
+		local result = driveDiagonal(humanoid, st, tracks, weights, lens, plants, cycleDistance, speed, locoWeight, flatLook, Vector3.new(right.X, 0, right.Z), planarVel)
+		if result then return result end
+	end
+	if st.sideTracks then
+		stopSideTracks(st, 0.15)
+	end
 	if directionalOn and flatLook.Magnitude > 0.01 and planarVel.Magnitude > 1 then
 		local angle = math.deg(math.acos(math.clamp(flatLook.Unit:Dot(planarVel.Unit), -1, 1)))
 		local sideStart = CombatConfig.Gait_StrafeAngle or 50
@@ -428,9 +602,16 @@ function GaitModule.hasForeignLocomotion(humanoid)
 	if not animator then return false end
 	local gaitIds = clipIds()
 	local fallEntry = AnimationConfig.get(FALL_PATH)
-	local ownStrafe = states[humanoid] and states[humanoid].strafeTrack
+	local st = states[humanoid]
+	local ownStrafe = st and st.strafeTrack
+	local own = {}
+	if st and st.sideTracks then
+		-- the diagonal blend's strafe layer is the gait's own, not a foreign clip (seen as foreign,
+		-- it switched the base-layer fill off under every diagonal)
+		for _, track in pairs(st.sideTracks) do own[track] = true end
+	end
 	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-		if track ~= ownStrafe and track.Priority == Enum.AnimationPriority.Movement and track.WeightTarget > 0 then
+		if track ~= ownStrafe and not own[track] and track.Priority == Enum.AnimationPriority.Movement and track.WeightTarget > 0 then
 			local id = track.Animation and track.Animation.AnimationId
 			if not gaitIds[id] and not (fallEntry and id == fallEntry.id) then
 				return true
