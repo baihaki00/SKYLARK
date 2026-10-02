@@ -133,6 +133,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 				gyro.RigidityEnabled = false
 				gyro.Responsiveness = 15
 				gyro.MaxTorque = 100000
+				gyro.MaxAngularVelocity = CombatConfig.Combat_FacingMaxTurnRate or 14 -- same cap as the Fight and Circling facing
 				gyro.CFrame = rootPart.CFrame
 				gyro.Parent = rootPart
 			end

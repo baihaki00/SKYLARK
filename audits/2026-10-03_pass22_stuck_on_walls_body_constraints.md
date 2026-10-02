@@ -288,3 +288,15 @@ Server-side toe slide was also sampled (Fight 57%, Circling 51%, Chase 47% of gr
 - Client-side measures (bind-pose frames, airborne pose, on-screen foot slide) were not run.
 - `FightState` rear-turn counter sets `FightGyro.Responsiveness = 45` and never puts it back to 22.
 - `IdleGyro` is also uncapped (few events: Idle is a short beat).
+
+## Leftovers after G
+
+| item | result |
+|---|---|
+| `FightGyro` stayed stiff after a rear-turn counter | **fixed**: Responsiveness goes back to 22 once the counter is over. In a 16v16 the gyro is stiff in 2.8% of samples (the counter's own 0.35 s windows). |
+| `IdleGyro` uncapped | **fixed**: same cap as Fight and Circling (`Combat_FacingMaxTurnRate`). No Idle gyro existed during the 52 s check, so the cap itself was not exercised. |
+| brake phase "ending early while the body is still fast" (seen in F's client timeline) | **not a bug**: on the server the body is at 6 studs/s when the pivot starts (5 of 5 reversals, brake 0.15 s). The client saw the phase flag before it saw the slowed body. |
+| remaining pivot foot drag | **not changed**: needs a turn-in-place clip, or `Locomotion_ReversalTurnRate = 4` at the cost of a 0.68 s pivot. |
+| 5 s creep at the base of JUMPONOBSTACLES | **not a stall**: in 4 of 5 runs the slow spells are the chase's own stalk pacing (`PaceReason = Stalk:AlternatingPace`, 7.5 studs/s for 1.8 s each). The 5 s spell itself was not seen again. |
+
+16v16, 52 s: 0 server errors, 32 alive.

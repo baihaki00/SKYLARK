@@ -637,6 +637,11 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			alignOri.CFrame = rootPart.CFrame
 			alignOri.Parent = rootPart
 		end
+		-- The rear-turn counter stiffens the gyro for its turn; it used to stay stiff for the
+		-- rest of the fight
+		if data.currentAction ~= "rear_turn_counter" and alignOri.Responsiveness ~= 22 then
+			alignOri.Responsiveness = 22
+		end
 		alignOri.CFrame = lookCF
 	end
 	
