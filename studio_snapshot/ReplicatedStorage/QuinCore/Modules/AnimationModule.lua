@@ -231,6 +231,8 @@ local function getVfxModule()
 	return _VfxModule
 end
 
+local FOOTSTEP_MIN_WEIGHT = 0.35 -- blend weight below which a clip's Footstep markers are silent
+
 -- Wire animation marker reached signals to AudioModule exactly once per loaded track instance
 local function wireTrackAudio(humanoid, track, animId)
 	if not humanoid or not track then return end
@@ -238,6 +240,10 @@ local function wireTrackAudio(humanoid, track, animId)
 
 	-- Footstep marker (Run, Walk, Strafe, ArcRun, etc.)
 	track:GetMarkerReachedSignal("Footstep"):Connect(function()
+		-- Only a clip that is carrying the legs speaks. The gait keeps its other clips (jog,
+		-- run, strafes) running in step at near-zero weight for blending, and their markers
+		-- fire too: every step sounded twice, about 0.16 s apart.
+		if track.WeightCurrent < FOOTSTEP_MIN_WEIGHT then return end
 		local audio = getAudioModule()
 		if audio and audio.playFootstep and fighter and fighter.Parent then
 			local hrp = fighter:FindFirstChild("HumanoidRootPart")

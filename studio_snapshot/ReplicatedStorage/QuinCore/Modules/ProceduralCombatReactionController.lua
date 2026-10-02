@@ -815,7 +815,13 @@ function ProceduralCombatReactionController:update(dt)
 						end
 					elseif lock then
 						local drift = Vector3.new(animFootPos.X - lock.X, 0, animFootPos.Z - lock.Z).Magnitude
-						local overreach = (lock - hipPos).Magnitude > maxReach
+						-- Out of reach is judged against what the clip itself asks of the leg. A walk
+						-- lands on a nearly straight leg and the pin sits at floor height, a little
+						-- lower than the clip has the ankle: against the bare leg length the spot was
+						-- 0.1-0.2 studs "out of reach" from the first frame of every stance, so one
+						-- foot was stepped all through a plain walk and the other let go.
+						local clipExtension = (animFootPos - hipPos).Magnitude
+						local overreach = (lock - hipPos).Magnitude > math.max(maxReach, clipExtension + (CombatConfig.FootIK_OverreachSlack or 0.3))
 						if drift > plantMaxDrift or overreach then
 							local other = isLeft and "Right" or "Left"
 							local landing = nil

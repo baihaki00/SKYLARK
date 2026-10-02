@@ -175,7 +175,25 @@ if renderMode == "Direct" then
 		return false
 	end
 
+	-- The controllers edit, in place, the pose the Animator wrote. The Animator does not write
+	-- on every rendered frame: above about 60 fps some frames have no animation step (1 in 13
+	-- at 235 fps). Editing again on such a frame stacked this frame's offsets on last frame's -
+	-- the head jumped by its whole look angle and snapped back, and the foot solver read its
+	-- own output as the clip's pose. So the pose is edited once per animation step, with the
+	-- time that has passed since the last edit.
+	local poseFresh = true
+	local poseDt = 0
+	RunService.PreAnimation:Connect(function()
+		poseFresh = true
+	end)
 	RunService.RenderStepped:Connect(function(dt)
+		poseDt += dt
+		-- (Workspace PoseEditEveryFrame = true: the old behaviour, for comparison)
+		local editPose, editDt = poseFresh or workspace:GetAttribute("PoseEditEveryFrame") == true, poseDt
+		if editPose then
+			poseFresh = false
+			poseDt = 0
+		end
 		for model, entry in pairs(presentations) do
 			-- (a body no clip has reached stays hidden: revealed after 3 s regardless, an idle Quin
 			-- stuck in the floor showed as a T-posed torso; 20 s is only a last resort)
@@ -189,9 +207,9 @@ if renderMode == "Direct" then
 			end
 			if model.Parent and entry.reaction and entry.look then
 				local isDead = model:GetAttribute("CurrentState") == "Death"
-				if not isDead then
-					entry.reaction:update(dt)
-					entry.look:update(dt)
+				if not isDead and editPose then
+					entry.reaction:update(editDt)
+					entry.look:update(editDt)
 				end
 				local reaction = entry.reaction
 				model:SetAttribute("ReactionType", reaction.activeReactionType)
@@ -462,7 +480,24 @@ elseif enableghostmode then
 	-----------------------------------------------------------
 	-- LOOP: Smooth visual update & procedural look-at (RenderStepped)
 	-----------------------------------------------------------
+	-- The controllers edit, in place, the pose the Animator wrote. The Animator does not write
+	-- on every rendered frame: above about 60 fps some frames have no animation step (1 in 13
+	-- at 235 fps). Editing again on such a frame stacked this frame's offsets on last frame's -
+	-- the head jumped by its whole look angle and snapped back, and the foot solver read its
+	-- own output as the clip's pose. So the pose is edited once per animation step, with the
+	-- time that has passed since the last edit.
+	local poseFresh = true
+	local poseDt = 0
+	RunService.PreAnimation:Connect(function()
+		poseFresh = true
+	end)
 	RunService.RenderStepped:Connect(function(dt)
+		poseDt += dt
+		local editPose, editDt = poseFresh, poseDt
+		if editPose then
+			poseFresh = false
+			poseDt = 0
+		end
 		for aiModel, ghost in pairs(ghostMap) do
 			if typeof(ghost) == "Instance" then
 				local root = aiModel:FindFirstChild("HumanoidRootPart")
@@ -505,8 +540,8 @@ elseif enableghostmode then
 
 				-- 1. Procedural combat reaction controller (hips, spine, neck, head)
 				local reactionCtrl = ghostReactionControllers[ghost]
-				if reactionCtrl and not isDead then
-					reactionCtrl:update(dt)
+				if reactionCtrl and not isDead and editPose then
+					reactionCtrl:update(editDt)
 					ghost:SetAttribute("ReactionType", reactionCtrl.activeReactionType)
 					ghost:SetAttribute("ReactionPitch", math.round(math.deg(reactionCtrl.currentPitch) * 10) / 10)
 					ghost:SetAttribute("ReactionRoll", math.round(math.deg(reactionCtrl.currentRoll) * 10) / 10)
@@ -518,8 +553,8 @@ elseif enableghostmode then
 
 				-- 2. Procedural look controller (head, neck, spine2)
 				local lookCtrl = ghostLookControllers[ghost]
-				if lookCtrl and not isDead then
-					lookCtrl:update(dt)
+				if lookCtrl and not isDead and editPose then
+					lookCtrl:update(editDt)
 					ghost:SetAttribute("LookMode", lookCtrl.gazeMode)
 					ghost:SetAttribute("LookYaw", math.round(math.deg(lookCtrl.currentYaw)))
 					ghost:SetAttribute("LookPitch", math.round(math.deg(lookCtrl.currentPitch)))
