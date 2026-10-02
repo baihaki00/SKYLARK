@@ -5029,7 +5029,7 @@ tmGrid.BackgroundTransparency = 1
 tmGrid.BorderSizePixel = 0
 tmGrid.ScrollBarThickness = 6
 tmGrid.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 180)
-tmGrid.CanvasSize = UDim2.new(0, 1720, 0, 0)
+tmGrid.CanvasSize = UDim2.new(0, 1960, 0, 0)
 tmGrid.Parent = testModesView
 
 -- Card 1: Animation Sparring Lab
@@ -5103,6 +5103,44 @@ createModeCard(
 		statusToast.TextColor3 = C_SUCCESS
 	end
 )
+
+-- Card 8: Pose Viewer (ServerScriptService.PoseViewer): the walk clip as authored on both rigs
+-- beside a live Quin with every game layer on, each frame-labelled, to tell a broken clip from a
+-- broken game layer
+do
+	local function launchPoseViewer(gender)
+		labEvent:FireServer("SetTestMode", { mode = "PoseViewer", gender = gender })
+		statusToast.Text = "Pose Viewer: raw walk clip beside a live " .. gender .. " Quin (Workspace attrs PoseViewerSpeed / PoseViewerPaused / PoseViewerFrame)"
+		statusToast.TextColor3 = C_SUCCESS
+	end
+	local poseAccent = Color3.fromRGB(120, 200, 255)
+	local poseCard = createModeCard(
+		tmGrid, 1680, "Pose Viewer", "Clip vs Game Layers",
+		"Shows the walk clip exactly as authored on the male and female rigs (no game layers), beside a live Quin walking with every layer on. Each body is labelled with clip, id, time and frame.\n\nFind a bad frame on the live Quin and compare: wrong on the raw rigs too = the clip; wrong only live = a game layer.\n\nControls (Workspace attributes): PoseViewerSpeed, PoseViewerPaused, PoseViewerFrame (-1 = play).",
+		poseAccent,
+		function(btn)
+			launchPoseViewer("Male")
+		end
+	)
+	for _, child in ipairs(poseCard:GetChildren()) do
+		if child:IsA("TextButton") then
+			child.Text = "Live MALE ▶"
+		end
+	end
+	local femaleBtn = Instance.new("TextButton")
+	femaleBtn.Size = UDim2.new(1, -20, 0, 40)
+	femaleBtn.Position = UDim2.new(0, 10, 1, -100)
+	femaleBtn.BackgroundColor3 = Color3.fromRGB(255, 160, 210)
+	femaleBtn.TextColor3 = Color3.new(0, 0, 0)
+	femaleBtn.Font = Enum.Font.GothamBold
+	femaleBtn.TextSize = 12
+	femaleBtn.Text = "Live FEMALE ▶"
+	femaleBtn.Parent = poseCard
+	applyCorner(femaleBtn, 6)
+	femaleBtn.MouseButton1Click:Connect(function()
+		launchPoseViewer("Female")
+	end)
+end
 
 -- Card 7: Deterministic Scenarios Evaluator
 createModeCard(

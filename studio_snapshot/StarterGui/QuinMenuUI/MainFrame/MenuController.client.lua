@@ -18,7 +18,7 @@ local mainFrame = script.Parent:IsA("Frame") and script.Parent or script.Parent:
 
 -- Ensure main frame is nicely sized and styled
 if mainFrame then
-	mainFrame.Size = UDim2.new(0, 320, 0, 360)
+	mainFrame.Size = UDim2.new(0, 320, 0, 452)
 	mainFrame.Position = UDim2.new(0, 20, 0, 80)
 	mainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
 	mainFrame.BackgroundTransparency = 0.15
@@ -242,6 +242,17 @@ makeScenarioBtn("Btn1v1", 212, "1 vs 1 SPARRING MATCH", Color3.fromRGB(35, 55, 8
 makeScenarioBtn("Btn4v4", 246, "4 vs 4 TEAM SKIRMISH", Color3.fromRGB(40, 70, 60), "team", 4)
 makeScenarioBtn("Btn16v16", 280, "16 vs 16 ARENA WAR (32 Quins)", Color3.fromRGB(110, 35, 35), "team", 16)
 makeScenarioBtn("BtnClean", 316, "RESET ARENA / CLEAR QUINS", Color3.fromRGB(50, 45, 50), "clean")
+
+-- 3. Test modes (development tools)
+local testLabel = scenarioLabel:Clone()
+testLabel.Name = "TestModesLabel"
+testLabel.Position = UDim2.new(0, 10, 0, 352)
+testLabel.Text = "TEST MODES:"
+testLabel.Parent = mainFrame
+
+-- Pose Viewer: the walk clip raw on both rigs beside a live Quin, frame-labelled (ServerScriptService.PoseViewer)
+makeScenarioBtn("BtnPoseViewerMale", 374, "POSE VIEWER: WALK (live MALE)", Color3.fromRGB(30, 70, 95), "pose_viewer", "Male")
+makeScenarioBtn("BtnPoseViewerFemale", 408, "POSE VIEWER: WALK (live FEMALE)", Color3.fromRGB(95, 40, 75), "pose_viewer", "Female")
 
 -- ============================================================
 -- INPUT BINDINGS (Q, E cycle; B releases tracking with the free camera; M toggles menu)

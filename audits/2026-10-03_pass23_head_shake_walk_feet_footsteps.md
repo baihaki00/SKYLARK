@@ -107,3 +107,34 @@ ServerStorage any more); the git snapshot matched Studio before the edits.
 ## Regression (4 and 5)
 - 16v16, 50 s: 0 server errors, 0 client errors, 32 alive.
 - Not re-run: Arena match, P to possess. The owner checks the walk on screen with the viewer.
+
+## 23c. Pose Viewer as a one-click test mode
+
+The owner asked for the pose viewer to stay: one click from the Quin Manager, labelled as a test, and known to later sessions and other agents.
+
+### Done
+- **`ServerScriptService.PoseViewer`** is a module with `start` / `stop`. It runs the raw male and female rigs plus a live Quin, each with a label. Controls are the Workspace attributes `PoseViewerSpeed`, `PoseViewerPaused` and `PoseViewerFrame`.
+- **Entry points:**
+  - `GameModeManager.startPoseViewer(gender, player)`;
+  - `GameCommand "pose_viewer"`;
+  - Studio `DevCommand "pose_viewer:Male"`;
+  - `AnimationLabServer` `SetTestMode "PoseViewer"`.
+- **Quin Manager > TEST MODES:** a new Pose Viewer card with "Live MALE" and "Live FEMALE" buttons.
+- **Docs:** [TEST_MODES.md](../TEST_MODES.md) (every test mode, and how to add one), linked from README §10.
+
+### Fixed on the way
+1. **Buttons in the wrong menu.** The buttons had first gone into `StarterGui.QuinMenuUI`, which is disabled in StarterGui, so they never showed. The visible Quin Manager is `AnimationLabUI`. The QuinMenuUI buttons stay, harmless, in case it is re-enabled.
+2. **Clip lookup.** `PoseViewer` indexed `AnimationConfig[category][name]` and found nothing ("unknown clip Movement.WalkConfident"). It now uses `AnimationConfig.get(path)`.
+3. **Published servers.** The live Quin walks on `DevGoal`, which `Main` followed in Studio only. It now also follows it while `CurrentMode == "PoseViewer"`. Only the server sets `DevGoal`.
+4. **Cleanup.** The viewer outlived the next mode (a team battle does not set `CurrentMode`), and the raw rigs stayed in the arena. It now also ends when its live Quin is cleared away, and clears `CurrentMode` when it stops.
+
+### Verified (Play, clicked through the real menu)
+- **Quin Manager > TEST MODES > Pose Viewer > Live MALE:**
+  - 2 raw rigs labelled (frame 28/31);
+  - live male walking 15 studs in 2 s with the walk clip at weight 1.00;
+  - 0 new errors.
+- **Live FEMALE:** replaces the scene (1 live Quin, 2 rigs).
+- **Starting a team battle afterwards:** viewer gone, `CurrentMode` cleared, 8 Quins spawned.
+
+### Noticed, not changed
+Many existing Quin Manager labels show garbled emoji text (e.g. "âš”ï¸ Quin Manager", "ðŸ§ª Test Modes"). Their sources were saved double-encoded at some point. The new card uses real UTF-8 and renders correctly.

@@ -169,3 +169,9 @@ Instead, animations strictly follow **Tiered Lifetime Contracts**:
 - **Step 3: Procedural Foot IK & Ledge Gripping**: `IKControl` surface conforming on inclines, stairs, and ledge lips.
 - **Step 4: Active Ragdoll & Heavy Impact Spectacle**: Anatomically constrained physical joint reactions, aerodynamic mid-air tumbling, and pose-aware ground recoveries.
 
+
+---
+
+## 10. Test Modes (Quin Manager > TEST MODES)
+
+One-click diagnostic scenes live in the in-game **Quin Manager** (pill button "Quin Manager [M]", `StarterGui.AnimationLabUI`) under the **TEST MODES** tab. Before guessing at an animation or movement bug, use them to see it. Each one, how to start it (menu, `GameCommand`, or the Studio-only `Workspace` attribute `DevCommand`) and how to add a new one is in **[TEST_MODES.md](TEST_MODES.md)**.

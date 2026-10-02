@@ -518,6 +518,12 @@ local function handleLabAction(player, action, data)
 				GMM.startTournament()
 			end
 			labEvent:FireAllClients("TestModeChanged", { mode = "Tournament", active = true })
+		elseif testMode == "PoseViewer" then
+			Workspace:SetAttribute("InfiniteStrafeTest", false)
+			if GMM and GMM.startPoseViewer then
+				GMM.startPoseViewer(data.gender, player)
+			end
+			labEvent:FireAllClients("TestModeChanged", { mode = "PoseViewer", active = true, gender = data.gender })
 		elseif testMode == "DeterministicTest" then
 			Workspace:SetAttribute("InfiniteStrafeTest", false)
 			if GMM and GMM.startTestMode then

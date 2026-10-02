@@ -10,6 +10,7 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 
 local ServerScriptService = game:GetService("ServerScriptService")
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
+local PoseViewer = require(ServerScriptService:WaitForChild("PoseViewer"))
 
 local GameModeManager = {}
 _G.GameModeManager = GameModeManager
@@ -633,6 +634,16 @@ function GameModeManager.startMidAirClashMode()
 	Workspace:SetAttribute("MatchStarted", true)
 end
 
+-- Test mode: the walk clip raw on the male and female rigs beside a live Quin walking on every
+-- game layer, frame-labelled (ServerScriptService.PoseViewer). gender = "Male" | "Female".
+function GameModeManager.startPoseViewer(gender, player)
+	currentMode = "PoseViewer"
+	roundActive = false
+	gender = gender == "Female" and "Female" or "Male"
+	PoseViewer.start({ gender = gender, player = player })
+	broadcastStatus("Pose Viewer: raw walk clip (male, female) beside a live " .. gender .. " Quin")
+end
+
 function GameModeManager.startMovementTestInArena()
 	currentMode = "MovementTestArena"
 	roundActive = true
@@ -715,6 +726,8 @@ commandEvent.OnServerEvent:Connect(function(player, command, arg1)
 		GameModeManager.startMidAirClashMode()
 	elseif command == "movement_test" or command == "arena_movement_test" then
 		GameModeManager.startMovementTestInArena()
+	elseif command == "pose_viewer" then
+		GameModeManager.startPoseViewer(arg1, player)
 	elseif command == "tournament" then
 		GameModeManager.startTournament()
 	elseif command == "jump_test" then
@@ -817,7 +830,7 @@ task.delay(3, function()
 end)
 
 -- Studio testing: tools that cannot fire GameCommand from a client (the Studio MCP) set
--- Workspace attribute DevCommand = "movement_test" | "team:16" | "ffa:8". Studio only.
+-- Workspace attribute DevCommand = "movement_test" | "team:16" | "ffa:8" | "pose_viewer:Male". Studio only.
 if game:GetService("RunService"):IsStudio() then
 	Workspace:GetAttributeChangedSignal("DevCommand"):Connect(function()
 		local raw = Workspace:GetAttribute("DevCommand")
@@ -830,6 +843,8 @@ if game:GetService("RunService"):IsStudio() then
 			GameModeManager.startTeamBattle(tonumber(arg) or 4)
 		elseif command == "ffa" then
 			GameModeManager.startFreeForAll(tonumber(arg) or 8)
+		elseif command == "pose_viewer" then
+			GameModeManager.startPoseViewer(arg)
 		end
 	end)
 end

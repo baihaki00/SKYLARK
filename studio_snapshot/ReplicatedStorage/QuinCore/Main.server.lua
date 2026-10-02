@@ -454,10 +454,11 @@ task.spawn(function()
 			continue
 		end
 
-		-- With DevGoal set (Studio only) the Quin runs at that point on its normal locomotion;
-		-- a test moves the goal to make it turn (pivots, reversals).
+		-- With DevGoal set (Studio, or the Pose Viewer test mode in a live server) the Quin runs at
+		-- that point on its normal locomotion; a test moves the goal to make it turn (pivots,
+		-- reversals) or walks it up and down (PoseViewer). Only the server sets it.
 		local devGoal = Quin:GetAttribute("DevGoal")
-		if devGoal and game:GetService("RunService"):IsStudio() then
+		if devGoal and (game:GetService("RunService"):IsStudio() or workspace:GetAttribute("CurrentMode") == "PoseViewer") then
 			LocomotionModule.steer(Quin, humanoid, rootPart, devGoal, Quin:GetAttribute("DevGoalSpeed") or 40, 0.1)
 			GaitModule.update(humanoid, rootPart, 0.1)
 			task.wait(0.1)
