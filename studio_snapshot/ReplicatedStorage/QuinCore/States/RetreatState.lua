@@ -102,8 +102,8 @@ function RetreatState.enter(fighter, humanoid, rootPart)
 	end
 
 	-- Running comes from the shared gait (playing the Run clip directly restarted the cycle)
-	local initialAnim = initialHopDone and "Movement.StartSprint" or "Gait"
-	if initialHopDone then
+	local initialAnim = (initialHopDone and CombatConfig.Chase_PushOffOverlay == true) and "Movement.StartSprint" or "Gait"
+	if initialAnim ~= "Gait" then
 		AnimationModule.playConfig(humanoid, initialAnim)
 	else
 		GaitModule.update(humanoid, rootPart, 1 / 60)
@@ -467,7 +467,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Animation track selection with push-off awareness
 	local desiredAnim
-	if data.isAccelerating and currentSpeed < (maxSpeed * 0.55) then
+	if CombatConfig.Chase_PushOffOverlay == true and data.isAccelerating and currentSpeed < (maxSpeed * 0.55) then
 		desiredAnim = "Movement.StartSprint"
 	else
 		desiredAnim = "Movement.Run"

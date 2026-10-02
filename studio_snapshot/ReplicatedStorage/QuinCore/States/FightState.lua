@@ -643,7 +643,14 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	elseif distance <= idealRange + 0.3 then
 		data.closingGap = false
 	end
-	if data.closingGap then
+	-- Planted while its own strike plays: the punch clip owns the legs, and still being steered
+	-- at up to 40 studs/s underneath it (plus the lunge) the feet glided - punches thrown on the
+	-- run slid on 56-59% of frames. The strike's own lunge is the step.
+	local striking = fighter:GetAttribute("Attacking") == true and now < (data.attackFinishTime or 0)
+		and CombatConfig.Fight_PlantWhileStriking ~= false
+	if striking then
+		LocomotionModule.brake(fighter, humanoid, rootPart, locoDt)
+	elseif data.closingGap then
 		-- Close the gap through the shared locomotion path (acceleration, turn rate, gait).
 		-- Approach pace scales with the gap so a 2-stud correction is a step, not a sprint burst.
 		local maxApproach = fighter:GetAttribute("Speed") or 40

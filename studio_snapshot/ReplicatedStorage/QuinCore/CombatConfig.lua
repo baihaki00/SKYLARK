@@ -280,7 +280,7 @@ local CombatConfig = {
 	-- are measured by sampling each clip on the Quin rig (planted-foot velocity at 1.0x, and the
 	-- normalized time of the left-foot plant). Re-measure if a clip or the rig scale changes.
 	Gait_WalkAuthoredSpeed = 6.90,           -- studs/s ground speed of Movement.WalkConfident at 1.0x
-	Gait_JogAuthoredSpeed = 8.4,             -- studs/s ground speed of Movement.Jog at 1.0x (calibrated in-game)
+	Gait_JogAuthoredSpeed = 9.85,            -- studs/s ground speed of Movement.Jog at 1.0x (pose lab, stance-foot median; 8.4 cycled the legs 17% fast: feet ran backward through the jog band)
 	Gait_RunAuthoredSpeed = 29.5,            -- studs/s ground speed of Movement.Run at 1.0x (stance-foot travel measured on the rig: 28.7-31.6)
 	Gait_WalkPlantPhase = 0.31,              -- normalized time of the left-foot plant in Walk
 	Gait_JogPlantPhase = 0.34,               -- normalized time of the left-foot plant in Jog
@@ -575,6 +575,11 @@ CombatConfig.ProjectileJump_DashWallProbeTime = 0.15 -- seconds of dive travel p
 CombatConfig.ProjectileJump_StallTime = 0.4         -- seconds without progress...
 CombatConfig.ProjectileJump_StallDistance = 1.5     -- ...of less than this many studs ends the phase
 CombatConfig.ProjectileJump_MaxStateTime = 8        -- seconds: hard cap on a whole jump
+-- Foot slide (pass 22C). The start-run push-off clip (Movement.IdleToRun / StartSprint) played over
+-- an accelerating body slid on ~65% of its frames at any speed - the gait starts from rest on its
+-- own (true brings the overlay back). Fight plants the body while its own strike plays.
+CombatConfig.Chase_PushOffOverlay = false
+CombatConfig.Fight_PlantWhileStriking = true
 -- Overwatch holds only tops at least this wide both ways (pillar and wall tops are not lookouts)
 CombatConfig.Overwatch_MinTopWidth = 10
 

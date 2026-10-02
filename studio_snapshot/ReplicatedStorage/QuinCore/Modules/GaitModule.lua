@@ -42,11 +42,21 @@ local CLIPS = {
 local RATE_DEADBAND = 0.015
 local WEIGHT_DEADBAND = 0.02
 local PHASE_TOLERANCE = 0.06
-local START_FADE = 0.15
+-- Fades on the blend: the weights already follow the measured speed continuously, so a fade
+-- only adds lag. At 80 studs/s^2 the body crosses walk -> jog -> run in ~0.2 s; with 0.15 s start
+-- and 0.1 s weight fades the blend trailed it by a whole band (walk still weighted at a jog: the
+-- feet cycled too fast, -2 to -7 studs/s of slip at 11-17 studs/s; barely weighted when setting
+-- off: the feet dragged, +3 to +8 at 1-5 studs/s).
+local START_FADE = CombatConfig.Gait_StartFade or 0.06
+local WEIGHT_FADE = CombatConfig.Gait_WeightFade or 0.04
 local AIR_GRACE = 0.12 -- seconds airborne before ground loops are released (ignores tiny hops)
 local GAIT_ORPHAN_TIME = 0.35 -- seconds without a driver before the gait is released
 local LAUNCH_WINDOW = 0.3 -- after a deliberate jump the Humanoid can still read Running for a frame or two
-local AUTO_DRIVE_INTERVAL = 0.05 -- base-layer fill rate (20 Hz per Quin)
+-- Base-layer fill rate. The states drive the gait at 10 Hz and the fill ran at 20 Hz: accelerating
+-- at 80 studs/s^2 the speed moved 4-8 studs/s between updates, so the blend weights and rates
+-- trailed it by 2-3 studs/s (walk still weighted at 12 studs/s, feet cycling too fast). Every
+-- frame by default.
+local AUTO_DRIVE_INTERVAL = CombatConfig.Gait_AutoDriveInterval or 0
 local AUTO_DRIVE_MIN_SPEED = 1.5 -- studs/s of planar motion before the base layer is filled
 local SPEED_FOLLOW_RATE = 25 -- 1/s; how tightly the gait speed follows the measured velocity
 local STANDSTILL_SPEED = 0.4 -- studs/s below which the Quin is standing: no ground loop plays at all
@@ -198,7 +208,7 @@ local function drive(track, weight, rate, st, key, startPhase)
 		return
 	end
 	if math.abs(weight - (st.weights[key] or -1)) > WEIGHT_DEADBAND then
-		track:AdjustWeight(weight, 0.1)
+		track:AdjustWeight(weight, WEIGHT_FADE)
 		st.weights[key] = weight
 	end
 	if math.abs(rate - (st.rates[key] or -1)) > RATE_DEADBAND then

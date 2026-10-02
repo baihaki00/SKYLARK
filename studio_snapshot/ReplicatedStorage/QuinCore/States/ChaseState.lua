@@ -107,7 +107,7 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 
 	if strategy == "ConfidentWalk" or strategy == "WalkThenSprint" then
 		initialAnim = "Movement.WalkConfident"
-	elseif initialSpeed < 4 and actualPlanarSpeed < 4 then
+	elseif initialSpeed < 4 and actualPlanarSpeed < 4 and CombatConfig.Chase_PushOffOverlay == true then
 		pushOffAnim = (mobility > 0.55 or math.random() > 0.5) and "Movement.IdleToRun1" or "Movement.IdleToRun2"
 		initialAnim = pushOffAnim
 	end
@@ -1121,7 +1121,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		desiredAnim = data.turnAnim
 	elseif data.arcAnim and now < (data.arcActiveUntil or 0) then
 		desiredAnim = data.arcAnim
-	elseif data.isAccelerating and currentSpeed < (targetSpeed * 0.55) and (data.pushOffAnim or not data.pushOffSpent) then
+	elseif CombatConfig.Chase_PushOffOverlay == true and data.isAccelerating and currentSpeed < (targetSpeed * 0.55) and (data.pushOffAnim or not data.pushOffSpent) then
 		-- Push-off is a start-from-rest overlay: chosen once per start, never replayed while
 		-- the Quin stays slow (the gait base layer runs underneath it)
 		if not data.pushOffAnim then

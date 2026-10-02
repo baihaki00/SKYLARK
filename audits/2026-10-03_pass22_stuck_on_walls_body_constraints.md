@@ -57,3 +57,41 @@ Each perch lasted **15-30 s**. Seen from the ground, that is a Quin stuck up a w
 ### After
 - FFA 32: **0 blips** in 2 × 9 s (about 4,500 Circling Quin-frames).
 - 0 server errors.
+
+## C. Feet sliding in Fight and Chase
+
+### Metric
+16v16, 45 s, server. A frame "slides" when the Quin is moving more than 2 studs/s and has had no clean planted foot for 0.4 s. The clip on the legs is the highest-*priority* track above 0.3 weight.
+
+### Before
+- **Overall:** Fight 31.4%, Chase 29.6%.
+- **By cause:**
+  - action clips on top of a moving body;
+  - walk and jog speeds;
+  - the strafe-run at mid speed.
+
+### Causes found and fixed
+1. **Start-run push-off overlay** (`Movement.IdleToRun1/2`, Retreat's `StartSprint`; one asset).
+   - It played full-body over an accelerating body and slid on ~65% of its frames at *any* speed: 1,710 sliding frames, about 19% of all sliding.
+   - The gait starts from rest on its own, so `Chase_PushOffOverlay = false`.
+2. **Steering during a strike:** Fight kept steering at up to 40 studs/s under the punch clip, and punches on the run slid on 56-59% of frames. The body now brakes while its own strike plays (`Fight_PlantWhileStriking`); the strike's lunge is the step.
+3. **Jog authored speed wrong:** `Gait_JogAuthoredSpeed` was 8.4. The pose lab measures the stance foot at **9.85** studs/s (walk 7.04 and run 29.29 match their config). The jog cycled 17% fast, so the feet ran backward through the jog band.
+4. **Gait updated too rarely:** states drive it at 10 Hz and the base-layer fill ran at 20 Hz.
+   - At 80 studs/s² the speed moved 4-8 studs/s between updates, so the blend trailed it by 2-3 studs/s (walk still weighted at 12 studs/s).
+   - The fill now runs every frame (`Gait_AutoDriveInterval` 0).
+   - The blend fades are shorter: `Gait_StartFade` 0.06, `Gait_WeightFade` 0.04.
+   - Server heartbeat 13.7 ms with 32 Quins.
+
+### After (excluding clips meant to glide: run-slide, jump, fall, dash, hit flinch)
+
+| | before | after |
+|---|---|---|
+| Chase | 29.6% | **13.0%** |
+| Fight | 31.4% | **21.0%** |
+
+- **Per-speed slip:** run speeds (18-40 studs/s) within ±2 studs/s.
+- **Left:**
+  - the 10-13 band during hard acceleration (fade lag);
+  - in Fight, strike lunges: the lunge mover pauses the gait and the punch clip owns the legs (the designed step into the punch);
+  - in Fight, the strafe-run at mid speed (87%), which goes to item D.
+- 0 errors. Arena System and Play As Quin pass.
