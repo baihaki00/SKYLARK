@@ -240,6 +240,28 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 		serverFolder.Parent = Workspace
 	end
 
+	-- Stand the root at its own height above the floor under `position`. Callers pass spawn-pad
+	-- points (the arena pads sit at y = -0.95; +2 put the root ~6 studs too low): the body started
+	-- buried to the shoulders, and a Quin that never got going showed as a T-posed torso
+	-- sticking out of the ground near the spawn.
+	do
+		local humanoid = clone:FindFirstChildOfClass("Humanoid")
+		local root = clone:FindFirstChild("HumanoidRootPart")
+		if humanoid and root then
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.RespectCanCollide = true
+			params.FilterDescendantsInstances = { serverFolder, clone }
+			local hit = Workspace:Raycast(position + Vector3.new(0, 12, 0), Vector3.new(0, -60, 0), params)
+			if hit then
+				local standY = hit.Position.Y + root.Size.Y / 2 + humanoid.HipHeight + 0.05
+				if math.abs(standY - position.Y) < 40 then
+					position = Vector3.new(position.X, standY, position.Z)
+				end
+			end
+		end
+	end
+
 	-- Position and orient: face opponent directly if target provided
 	if faceTargetPosition then
 		clone:PivotTo(CFrame.lookAt(position, Vector3.new(faceTargetPosition.X, position.Y, faceTargetPosition.Z)))

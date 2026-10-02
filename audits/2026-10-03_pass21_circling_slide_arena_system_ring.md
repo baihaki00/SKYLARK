@@ -116,3 +116,28 @@ Seven arena scripts in Studio no longer matched git (a newer rewrite). They were
 ## Open
 - "Procedural Terrain Obstacles": no generator exists; the toggle is marked "not built yet".
 - The ARIA categories `ARIA_54321GameCountdown` / `ARIA_AnnounceWinner` are filled by the Aria manager's local list; `ARIA_Congratulations` and the team-win lines play from it.
+
+## 4. Follow-up from the owner's screenshots (pass 21c)
+
+### One-frame camera flash onto a flying Quin
+- **Cause:** the Quin Manager menu (`MenuController`) had **Action Cam ON by default**.
+  - Whenever any Quin entered a MidAirClash, Action Cam set `CameraSubject` to that Quin. SmoothCamera (DEFAULT mode) put the subject back on the player the next frame, so the view jumped to the Quin for one frame and back.
+  - When the tracked Quin died, the menu cycled to the next Quin: another flash.
+- **Fix:**
+  - Action Cam is off by default.
+  - Tracking (Action Cam or Q/E in that menu) now goes through the spectator camera (`shared.SpectatedQuin` / `SpectatedQuin` attribute), so it actually follows instead of flashing.
+  - The dead-target cycle only runs while the player is spectating.
+
+### "Ghost shirts" at both spawn sides
+- **What they are:** T-posed Quin torsos sticking out of ArenaGround.
+- **Cause:**
+  - The orchestrator spawns at the QuinSpawn pads (y = -0.95) + 2, which put the root about 6 studs below standing height, so the body started buried to the shoulders.
+  - The client hides a new Quin until a clip drives it, but revealed it after 3 s regardless, so a Quin that did not get going showed in its bind pose.
+- **Fix:**
+  - `QuinSpawner.spawn` stands every Quin's root at floor + its standing height, found by ray, for every caller.
+  - The orchestrator keeps that height when it turns them to face each other.
+  - AIGhostHandler keeps an un-animated body hidden (20 s last resort instead of 3 s).
+- **Measured:**
+  - Arena System 4v4: all 8 Quins at y 7.43-7.58 on their first frame (standing height).
+  - 16v16 and Arena runs: no Quin un-animated or below standing height on the client, 0 errors.
+- **Not reproduced:** the buried bodies did not appear in this build's runs, so the fix is to the cause found in the code, not to an observed reproduction.

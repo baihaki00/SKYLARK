@@ -47,7 +47,8 @@ end
 -- ============================================================
 local trackedQuin = nil
 local trackedIndex = 1
-local actionCamEnabled = true
+-- Off by default: switched on, every Air Clash anywhere in the arena took the camera
+local actionCamEnabled = false
 local isSpectating = false
 
 local function getActiveQuins()
@@ -77,22 +78,15 @@ local function getActiveQuins()
 	return quins
 end
 
+-- Tracking goes through the spectator camera (SmoothCamera follows shared.SpectatedQuin /
+-- the SpectatedQuin attribute). Setting CameraSubject here directly was undone by SmoothCamera on
+-- the next frame: the view jumped to the Quin for a single frame and back.
 local function setTrackedQuin(quin)
 	trackedQuin = quin
-	if quin then
-		local hum = quin:FindFirstChildOfClass("Humanoid")
-		if hum then
-			camera.CameraSubject = hum
-			camera.CameraType = Enum.CameraType.Custom
-			isSpectating = true
-		end
-	else
-		isSpectating = false
-		local char = localPlayer.Character
-		if char and char:FindFirstChildOfClass("Humanoid") then
-			camera.CameraSubject = char:FindFirstChildOfClass("Humanoid")
-		end
-	end
+	isSpectating = quin ~= nil
+	shared.SpectatedQuin = quin
+	_G.SpectatedQuin = quin
+	workspace:SetAttribute("SpectatedQuin", quin and quin.Name or "")
 end
 
 local function cycleQuin(delta)
@@ -189,11 +183,11 @@ local actionCamBtn = Instance.new("TextButton")
 actionCamBtn.Name = "ActionCamBtn"
 actionCamBtn.Size = UDim2.new(1, -20, 0, 24)
 actionCamBtn.Position = UDim2.new(0, 10, 0, 126)
-actionCamBtn.BackgroundColor3 = Color3.fromRGB(20, 50, 40)
-actionCamBtn.TextColor3 = Color3.fromRGB(150, 255, 180)
+actionCamBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 30)
+actionCamBtn.TextColor3 = Color3.fromRGB(255, 160, 160)
 actionCamBtn.Font = Enum.Font.GothamBold
 actionCamBtn.TextSize = 11
-actionCamBtn.Text = "ACTION CAM: ON (Auto-tracks Air Clash)"
+actionCamBtn.Text = "ACTION CAM: OFF (Manual Only)"
 actionCamBtn.Parent = mainFrame
 
 actionCamBtn.MouseButton1Click:Connect(function()
@@ -287,7 +281,7 @@ RunService.RenderStepped:Connect(function()
 	end
 	
 	-- Verify trackedQuin validity
-	if trackedQuin and (not trackedQuin.Parent or not trackedQuin:FindFirstChildOfClass("Humanoid") or trackedQuin:FindFirstChildOfClass("Humanoid").Health <= 0) then
+	if trackedQuin and isSpectating and (not trackedQuin.Parent or not trackedQuin:FindFirstChildOfClass("Humanoid") or trackedQuin:FindFirstChildOfClass("Humanoid").Health <= 0) then
 		cycleQuin(1)
 	end
 	

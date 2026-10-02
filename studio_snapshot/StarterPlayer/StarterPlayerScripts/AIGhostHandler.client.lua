@@ -177,7 +177,9 @@ if renderMode == "Direct" then
 
 	RunService.RenderStepped:Connect(function(dt)
 		for model, entry in pairs(presentations) do
-			if entry.hiddenSince and (animatedYet(model) or os.clock() - entry.hiddenSince > 3) then
+			-- (a body no clip has reached stays hidden: revealed after 3 s regardless, an idle Quin
+			-- stuck in the floor showed as a T-posed torso; 20 s is only a last resort)
+			if entry.hiddenSince and (animatedYet(model) or os.clock() - entry.hiddenSince > 20) then
 				entry.hiddenSince = nil
 				for _, part in ipairs(model:GetDescendants()) do
 					if part:IsA("BasePart") then

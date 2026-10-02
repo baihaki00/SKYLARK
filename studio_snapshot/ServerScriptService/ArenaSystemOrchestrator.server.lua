@@ -238,7 +238,9 @@ local function spawnFighters()
 
     local function settle(q, cf)
         if not q then return end
-        q:PivotTo(cf)
+        -- (keep the height QuinSpawner stood it at; the spawn points are pad level)
+        local standY = q:GetPivot().Position.Y
+        q:PivotTo(cf.Rotation + Vector3.new(cf.Position.X, standY, cf.Position.Z))
         q:SetAttribute("CurrentState", "Idle")
         q:SetAttribute("IsInert", true)
     end
