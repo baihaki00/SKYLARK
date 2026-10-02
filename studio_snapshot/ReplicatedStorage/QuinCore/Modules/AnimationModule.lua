@@ -302,6 +302,17 @@ local function ensureAnimator(humanoid)
 end
 
 -- Get or load a track
+-- A config entry may ask for its own track ("id#trackKey") when it shares an asset with another
+-- entry: SurveyIdle (one-shot, Action2) and FightIdle/CombatIdle (looped idle) are one asset, and
+-- with one cached track per id, playing the survey turned the fight idle into a one-shot - when
+-- it ended nothing was posed (single-frame T-poses in Circling).
+local function trackIdFor(entry)
+	if entry and entry.trackKey then
+		return entry.id .. "#" .. entry.trackKey
+	end
+	return entry and entry.id
+end
+
 local function getTrack(humanoid, animId)
 	if not humanoid or not animId or animId == "" then return nil end
 	local animator = ensureAnimator(humanoid)
@@ -311,13 +322,14 @@ local function getTrack(humanoid, animId)
 	end
 	
 	if not animationTracks[humanoid][animId] then
+		local assetId = animId:match("^([^#]+)") or animId
 		local anim = Instance.new("Animation")
-		anim.AnimationId = animId
+		anim.AnimationId = assetId
 		local track = animator and animator:LoadAnimation(anim) or humanoid:LoadAnimation(anim)
 		animationTracks[humanoid][animId] = track
 
 		-- Wire animation audio markers directly to AudioModule ONCE upon track loading!
-		wireTrackAudio(humanoid, track, animId)
+		wireTrackAudio(humanoid, track, assetId)
 	end
 	
 	return animationTracks[humanoid][animId]
@@ -400,7 +412,11 @@ function AnimationModule.ensureBaseIdle(humanoid)
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 	if animator then
 		for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
-			if t ~= track and t.Animation and t.Animation.AnimationId == entry.id then
+			local cachedElsewhere = false
+			for _, cached in pairs(animationTracks[humanoid] or {}) do
+				if cached == t then cachedElsewhere = true break end
+			end
+			if t ~= track and not cachedElsewhere and t.Animation and t.Animation.AnimationId == entry.id then
 				t:Stop(0)
 				pcall(function() t:Destroy() end)
 			elseif t.Priority == Enum.AnimationPriority.Idle and t ~= track and t.IsPlaying then
@@ -441,7 +457,7 @@ function AnimationModule.playConfig(humanoid, dotPath, runtimeMultiplier, priori
 		AnimationModule.ensureBaseIdle(humanoid)
 	end
 
-	return AnimationModule.play(humanoid, entry.id, prio, looped, finalSpeed, fadeTime, overlay)
+	return AnimationModule.play(humanoid, trackIdFor(entry), prio, looped, finalSpeed, fadeTime, overlay)
 end
 
 -- Stop using a configuration dotPath
@@ -449,7 +465,7 @@ function AnimationModule.stopConfig(humanoid, dotPath, fadeOut)
 	local ac = getAnimationConfig()
 	local entry = ac and ac.get(dotPath)
 	if entry and entry.id then
-		AnimationModule.stop(humanoid, entry.id, fadeOut or entry.fadeTime or 0.15)
+		AnimationModule.stop(humanoid, trackIdFor(entry), fadeOut or entry.fadeTime or 0.15)
 	end
 end
 
@@ -473,7 +489,10 @@ function AnimationModule.stopCategory(humanoid, category, fadeOut)
 	collectIds(catData)
 	
 	for animId, track in pairs(animationTracks[humanoid]) do
-		if idsToStop[animId] and track.IsPlaying then
+		-- (never the base idle: Attacks.BeamStruggle and Awareness.AssessTarget share the fight
+		-- idle's asset, so stopping "Attacks" on entering Fight / Circling stopped the idle loop
+		-- itself and the body showed its bind pose until the no-pose watchdog caught it)
+		if idsToStop[animId] and track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Idle then
 			track:Stop(fadeOut or 0.15)
 		end
 	end
@@ -502,7 +521,7 @@ function AnimationModule.play(humanoid, animIdOrPath, priority, looped, speed, f
 		local ac = getAnimationConfig()
 		local entry = ac and ac.get(animIdOrPath)
 		if entry and entry.id then
-			animId = entry.id
+			animId = trackIdFor(entry)
 			priority = priority or (entry.priority and Enum.AnimationPriority[entry.priority]) or Enum.AnimationPriority.Action
 			if looped == nil then looped = (entry.looped == true) end
 			speed = (speed or 1.0) * (entry.speed or 1.0)
@@ -611,7 +630,7 @@ function AnimationModule.stop(humanoid, animIdOrPath, fadeOut)
 	if type(animIdOrPath) == "string" and animIdOrPath:find("%.") then
 		local ac = getAnimationConfig()
 		local entry = ac and ac.get(animIdOrPath)
-		if entry and entry.id then animId = entry.id end
+		if entry and entry.id then animId = trackIdFor(entry) end
 	end
 	local fade = fadeOut or 0.15
 	if animationTracks[humanoid] and animationTracks[humanoid][animId] then
@@ -667,7 +686,10 @@ function AnimationModule.stopCategory(humanoid, category, fadeOut)
 	end
 	
 	for animId, track in pairs(animationTracks[humanoid]) do
-		if idsToStop[animId] and track.IsPlaying then
+		-- (never the base idle: Attacks.BeamStruggle and Awareness.AssessTarget share the fight
+		-- idle's asset, so stopping "Attacks" on entering Fight / Circling stopped the idle loop
+		-- itself and the body showed its bind pose until the no-pose watchdog caught it)
+		if idsToStop[animId] and track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Idle then
 			track:Stop(fadeOut or 0.15)
 		end
 	end
@@ -680,7 +702,7 @@ function AnimationModule.isPlaying(humanoid, animIdOrPath)
 	if type(animIdOrPath) == "string" and animIdOrPath:find("%.") then
 		local ac = getAnimationConfig()
 		local entry = ac and ac.get(animIdOrPath)
-		if entry and entry.id then animId = entry.id end
+		if entry and entry.id then animId = trackIdFor(entry) end
 	end
 	local myTrack = animationTracks[humanoid] and animationTracks[humanoid][animId]
 	if myTrack and myTrack.IsPlaying and (myTrack.WeightTarget == nil or myTrack.WeightTarget > 0) then
@@ -706,7 +728,7 @@ function AnimationModule.getEffectiveDuration(humanoid, animIdOrPath, runtimeMul
 		local ac = getAnimationConfig()
 		local entry = ac and ac.get(animIdOrPath)
 		if entry and entry.id then
-			animId = entry.id
+			animId = trackIdFor(entry)
 			baseSpeed = entry.speed or 1.0
 		end
 	end
@@ -806,7 +828,7 @@ function AnimationModule.getTrack(humanoid, animIdOrPath)
 	if type(animIdOrPath) == "string" and animIdOrPath:find("%.") then
 		local ac = getAnimationConfig()
 		local entry = ac and ac.get(animIdOrPath)
-		if entry and entry.id then animId = entry.id end
+		if entry and entry.id then animId = trackIdFor(entry) end
 	end
 	return getTrack(humanoid, animId)
 end
@@ -817,7 +839,7 @@ function AnimationModule.getExistingTrack(humanoid, animIdOrPath)
 	if type(animIdOrPath) == "string" and animIdOrPath:find("%.") then
 		local ac = getAnimationConfig()
 		local entry = ac and ac.get(animIdOrPath)
-		if entry and entry.id then animId = entry.id end
+		if entry and entry.id then animId = trackIdFor(entry) end
 	end
 	return animationTracks[humanoid] and animationTracks[humanoid][animId] or nil
 end

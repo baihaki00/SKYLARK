@@ -32,3 +32,28 @@ Each perch lasted **15-30 s**. Seen from the ground, that is a Quin stuck up a w
 - **Every punch errored:** `executePlayerAttack` passed an options table to `AnimationModule.play`, which takes positional arguments ("Unable to assign property Priority"). Fixed.
 - **Release fired 21 times:** `Release` yields on the server while the per-frame loop, seeing the costume gone, called release again every frame. Each call reloaded the avatar, which could undo the next possession. The session now stops locally first, then releases once.
 - **Verified:** possess → punches (no error) → release (once) → possess again. Arena System 4v4 reaches IN_GAME with 8 Quins and 0 errors.
+
+## B. One-frame T-pose blips (Circling)
+
+### Measured (client; a frame counts when 90%+ of a visible Quin's bones are at identity)
+- FFA 32: 5 blips in 9 s, all in Circling.
+- 16v16: 0 in about 27k Quin-frames (rare).
+- **In the blip frame** only two tracks were left, both fading to 0: the fight-idle loop (asset 109837817595150, WeightTarget 0) and a finished punch.
+
+### Cause
+- `Attacks.Specials.BeamStruggle` and `Awareness.AssessTarget` use the **same asset as the fight idle**. AnimationModule caches one track per asset id, so they *are* the fight-idle track.
+- `stopCategory("Attacks")`, run on entering Circling and Fight, therefore stopped the base idle itself.
+- The body had no pose until the 0.1 s no-pose watchdog restarted the idle.
+- The Survey/FightIdle shared track (the pass-15 suspect) is the same family of bug: playing SurveyIdle turned the idle into a one-shot.
+
+### Fixes (AnimationModule, AnimationConfig)
+- `stopCategory` (both copies in the module) never stops an Idle-priority track.
+- **Own tracks for entries that share an asset:**
+  - a config entry with `trackKey` gets its own track (`id#trackKey`, loading the same asset);
+  - used by `SurveyIdle`, `AssessTarget` and `BeamStruggle`;
+  - all path-based play/stop resolution goes through it.
+- `ensureBaseIdle`'s duplicate-track prune no longer destroys a track the module caches under another key.
+
+### After
+- FFA 32: **0 blips** in 2 × 9 s (about 4,500 Circling Quin-frames).
+- 0 server errors.
