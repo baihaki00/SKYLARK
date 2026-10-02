@@ -289,11 +289,12 @@ function GaitModule.update(humanoid, rootPart, dt)
 	local look = rootPart.CFrame.LookVector
 	local flatLook = Vector3.new(look.X, 0, look.Z)
 	local planarVel = Vector3.new(vel.X, 0, vel.Z)
-	-- (Circling plays the same strafe clips itself: there it owns them)
-	local owner = humanoid.Parent and humanoid.Parent:GetAttribute("CurrentState")
+	-- (Circling plays the strafe clips itself in its strafe form and only hands the legs to the
+	-- gait in its travel form; there the body is often still turning toward its travel, and the
+	-- forward cycle run sideways slid on 43-69% of frames, so the gait picks by angle there too)
 	local directionalSwitch = workspace:GetAttribute("GaitDirectional") -- live A/B switch
 	local directionalOn = directionalSwitch == true or (directionalSwitch == nil and CombatConfig.Gait_Directional ~= false)
-	if directionalOn and owner ~= "Circling" and flatLook.Magnitude > 0.01 and planarVel.Magnitude > 1 then
+	if directionalOn and flatLook.Magnitude > 0.01 and planarVel.Magnitude > 1 then
 		local angle = math.deg(math.acos(math.clamp(flatLook.Unit:Dot(planarVel.Unit), -1, 1)))
 		local sideStart = CombatConfig.Gait_StrafeAngle or 50
 		local backStart = CombatConfig.Gait_BackpedalAngle or 130

@@ -69,7 +69,7 @@ local function ensureGyro(rootPart)
 		att.Name = "RootAttachment"
 		gyro.Attachment0 = att
 		gyro.RigidityEnabled = false
-		gyro.Responsiveness = 25
+		gyro.Responsiveness = CombatConfig.Circling_GyroResponsiveness or 35
 		gyro.MaxTorque = 100000
 		gyro.CFrame = rootPart.CFrame
 		gyro.Parent = rootPart
@@ -402,8 +402,25 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		motion = planar.Unit
 	end
 
+	-- The orbit curves toward the target all the time. Facing set from the velocity of the last
+	-- tick, through a constraint that lags further, left the body ~13 degrees behind the curve:
+	-- the motion then had a forward part the strafe clips cannot step, and the planted foot was
+	-- dragged forward at 4-5 studs/s. The motion is led by its own turn rate.
+	local motionYaw = math.atan2(motion.X, motion.Z)
+	if data.prevMotionYaw then
+		local delta = (motionYaw - data.prevMotionYaw + math.pi) % (2 * math.pi) - math.pi
+		if math.abs(delta) > 1 then
+			data.motionTurnRate = 0 -- a reversal (feint), not a curve
+		else
+			data.motionTurnRate = (data.motionTurnRate or 0) * 0.7 + (delta / dt) * 0.3
+		end
+	end
+	data.prevMotionYaw = motionYaw
+
 	local look
 	if strafing then
+		local lead = math.clamp((data.motionTurnRate or 0) * (CombatConfig.Circling_FacingLeadTime or 0.25), -0.5, 0.5)
+		motion = Vector3.new(math.sin(motionYaw + lead), 0, math.cos(motionYaw + lead))
 		-- Turn the body so that the motion is exactly along its right (or left) axis
 		look = side > 0 and Vector3.new(motion.Z, 0, -motion.X) or Vector3.new(-motion.Z, 0, motion.X)
 	else

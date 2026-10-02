@@ -569,6 +569,10 @@ CombatConfig.MotionBlur_SpeedFull = 200   -- studs/s for full blur
 CombatConfig.MotionBlur_Attack = 20       -- 1/s rise
 CombatConfig.MotionBlur_Release = 8       -- 1/s fall
 
+-- Circling strafe facing: the orbit's turn is led so the motion stays straight sideways
+CombatConfig.Circling_FacingLeadTime = 0.25       -- seconds (10 Hz tick + gyro lag)
+CombatConfig.Circling_GyroResponsiveness = 35
+
 -- Reversals (> 115 degrees at a run): brake along the line, pivot near a standstill, drive out
 CombatConfig.Locomotion_ReversalPivot = true       -- false: the old running U-turn (speed dropped to 40%, then turned at grip)
 CombatConfig.Locomotion_ReversalBrake = 150        -- studs/s^2 deceleration of the brake phase
