@@ -39,7 +39,11 @@ local watchData = setmetatable({}, { __mode = "k" })
 -- The platform under the Quin if it is high enough to be worth holding, else nil
 local function heldPlatform(rootPart)
 	local platform = PlatformCatalogue.under(rootPart.Position, 12)
-	if platform and platform.heightAboveArenaFloor >= (CombatConfig.Overwatch_MinHeight or 12) then
+	-- (and room to move: the tops of the tall thin walls, 7 studs across and 50-170 up, passed
+	-- as platforms, so a Quin that dived onto one perched up there for 15-30 s - "stuck up a wall")
+	local minTop = CombatConfig.Overwatch_MinTopWidth or 10
+	if platform and platform.heightAboveArenaFloor >= (CombatConfig.Overwatch_MinHeight or 12)
+		and math.min(platform.halfA, platform.halfB) * 2 >= minTop then
 		return platform
 	end
 	return nil

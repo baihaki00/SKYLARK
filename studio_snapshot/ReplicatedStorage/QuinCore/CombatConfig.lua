@@ -569,6 +569,15 @@ CombatConfig.MotionBlur_SpeedFull = 200   -- studs/s for full blur
 CombatConfig.MotionBlur_Attack = 20       -- 1/s rise
 CombatConfig.MotionBlur_Release = 8       -- 1/s fall
 
+-- Projectile jump guards: a dive stops at a wall in its line, a driven phase that stops moving
+-- comes down, and no jump lasts longer than the cap
+CombatConfig.ProjectileJump_DashWallProbeTime = 0.15 -- seconds of dive travel probed ahead for a wall
+CombatConfig.ProjectileJump_StallTime = 0.4         -- seconds without progress...
+CombatConfig.ProjectileJump_StallDistance = 1.5     -- ...of less than this many studs ends the phase
+CombatConfig.ProjectileJump_MaxStateTime = 8        -- seconds: hard cap on a whole jump
+-- Overwatch holds only tops at least this wide both ways (pillar and wall tops are not lookouts)
+CombatConfig.Overwatch_MinTopWidth = 10
+
 -- Circling strafe facing: the orbit's turn is led so the motion stays straight sideways
 CombatConfig.Circling_FacingLeadTime = 0.25       -- seconds (10 Hz tick + gyro lag)
 CombatConfig.Circling_GyroResponsiveness = 35

@@ -452,11 +452,8 @@ local function executePlayerAttack()
 
 	-- Play attack animation track
 	local animId = PUNCH_TRACKS[comboStep]
-	AnimationModule.play(activeHumanoid, animId, {
-		speed = 1.35,
-		priority = Enum.AnimationPriority.Action4,
-		fadeTime = 0.05
-	})
+	-- (play takes positional arguments: the options table it was given errored on every punch)
+	AnimationModule.play(activeHumanoid, animId, Enum.AnimationPriority.Action4, false, 1.35, 0.05)
 
 	-- Invoke server-authoritative damage & hitbox
 	if controlFunction then
@@ -515,10 +512,13 @@ toggleQuinControl = function(desiredState, explicitTarget)
 			updateButtonDisplay(false)
 		end
 	else
-		if controlFunction then
+		-- Stop locally first: Release yields on the server round trip, and the per-frame loop kept
+		-- calling it every frame meanwhile (21 releases, each reloading the avatar)
+		local wasActive = activeQuin ~= nil
+		stopControlSession()
+		if controlFunction and wasActive then
 			controlFunction:InvokeServer("Release")
 		end
-		stopControlSession()
 	end
 end
 

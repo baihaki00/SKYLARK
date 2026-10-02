@@ -640,6 +640,27 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	local gravity = workspace.Gravity
 	local standGap = heightAboveStand(rootPart, humanoid) -- height above standing level on the floor below
 
+	-- Stall guard and hard cap: a driven phase that has stopped moving (caught on an edge or an
+	-- overhang the probes missed), or a jump that has run far too long, comes down now
+	if data.phase ~= "Impact" and data.phase ~= "Init" then
+		local stallTime = CombatConfig.ProjectileJump_StallTime or 0.4
+		data.trail = data.trail or {}
+		table.insert(data.trail, { now, rootPart.Position })
+		while #data.trail > 1 and now - data.trail[1][1] > stallTime do
+			table.remove(data.trail, 1)
+		end
+		local driven = data.phase == "Dash" or data.phase == "Arcing" or data.phase == "Strafe"
+			or data.phase == "ComboStrafe" or data.phase == "Intercept"
+		local oldest = data.trail[1]
+		local stalled = driven and timeInPhase > stallTime and now - oldest[1] >= stallTime * 0.75
+			and (rootPart.Position - oldest[2]).Magnitude < (CombatConfig.ProjectileJump_StallDistance or 1.5)
+		local overtime = now - data.startTime > (CombatConfig.ProjectileJump_MaxStateTime or 8)
+		if (stalled or overtime) and not (data.phase == "Intercept" and data.interceptContact) then
+			fighter:SetAttribute("PJGuard", stalled and "Stalled" or "Overtime")
+			switchPhase(data, "Impact")
+		end
+	end
+
 	if data.touchedDown and data.phase ~= "Impact" then
 		switchPhase(data, "Impact")
 	end
@@ -1054,6 +1075,19 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
 			local offset = aimPoint - rootPart.Position
 			local dir = diveDirection(offset, rootPart.CFrame.LookVector)
+			-- A wall in the dive line ends the dive here (Impact drops the body down beside it).
+			-- With no check the mover pressed the body into the wall face with unlimited force:
+			-- it never reached its aim nor the ground, and hung on the wall.
+			local wallParams = RaycastParams.new()
+			wallParams.FilterType = Enum.RaycastFilterType.Exclude
+			wallParams.FilterDescendantsInstances = { fighter, target }
+			local probe = dashSpeed * (CombatConfig.ProjectileJump_DashWallProbeTime or 0.15) + 2
+			local wallHit = DebugDraw.raycast(rootPart, rootPart.Position, dir * probe, wallParams)
+			if wallHit and math.abs(wallHit.Normal.Y) < 0.5 then
+				data.wallNormal = wallHit.Normal
+				switchPhase(data, "Impact")
+				return ProjectileJumpState
+			end
 			lv.VectorVelocity = dir * dashSpeed
 			ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
 
@@ -1082,7 +1116,9 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		-- it there directly was a visible snap of up to ~30 studs.
 		if not data.touchedDown and standGap > 3 and standGap < math.huge then
 			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-			lv.VectorVelocity = Vector3.new(0, -Config.SlamSpeed * Config.SlamSpeedMultiplier, 0)
+			-- (a dive stopped by a wall eases off it on the way down instead of dragging on the face)
+			local offWall = data.wallNormal and Vector3.new(data.wallNormal.X, 0, data.wallNormal.Z) * 6 or Vector3.zero
+			lv.VectorVelocity = Vector3.new(0, -Config.SlamSpeed * Config.SlamSpeedMultiplier, 0) + offWall
 			return ProjectileJumpState
 		end
 
