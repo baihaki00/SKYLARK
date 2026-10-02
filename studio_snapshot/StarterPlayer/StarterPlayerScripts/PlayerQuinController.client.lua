@@ -494,6 +494,20 @@ toggleQuinControl = function(desiredState, explicitTarget)
 		end
 
 		local possessedQuin = controlFunction:InvokeServer("Possess", targetName)
+		if not possessedQuin then
+			-- The costume is the new player.Character, but the reply can arrive before the
+			-- model itself has replicated (Quin models stream as Persistent): the reference
+			-- came back nil and the costume stood in a T-pose, uncontrolled. Wait for it.
+			local deadline = os.clock() + 5
+			while os.clock() < deadline do
+				local char = player.Character
+				if char and char:GetAttribute("IsCostume") == true and char:FindFirstChildOfClass("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
+					possessedQuin = char
+					break
+				end
+				task.wait(0.05)
+			end
+		end
 		if possessedQuin then
 			startControlSession(possessedQuin)
 		else

@@ -159,3 +159,17 @@ Seven arena scripts in Studio no longer matched git (a newer rewrite). They were
   - Both templates are set to `LevelOfDetail = Disabled`. This is a property of the place file: **save the place**.
   - `QuinSpawner` sets `Disabled` on every clone, so a re-imported rig cannot bring it back.
 - **Not verified:** the stand-ins never showed in Claude's own runs, so the owner needs to confirm.
+
+## 7. Arena System and Play As Quin broken (pass 21f)
+- **Arena System - Claude's bug from 21e:** `QuinSpawner` wrote `clone.LevelOfDetail`. Game scripts cannot write that property (it needs plugin capability), so every spawn errored ("cannot write 'LevelOfDetail'") and the match aborted at TELEPORTING_QUINS. The write is removed; the templates carry `Disabled` and clones inherit it. A guarded read warns if a template ever has it on again.
+- **Play As Quin:**
+  - The server made the costume `player.Character`, but the RemoteFunction reply arrived before the model had replicated: Quin models stream `Persistent` since 21d, and they replicate slightly later.
+  - The client got `nil` ("Server failed to possess Quin") and never started control or animation, so the costume stood in a T-pose. This is the red T-posed figure in the owner's first GIF.
+  - The client now waits up to 5 s for the costume to arrive as its character.
+- **Removed Gemini's two diagnostic scripts:**
+  - `ServerScriptService.GhostHunter_AutoSpawn`: on every Play it cleaned the arena, spawned a 1v1 at the origin and set `MatchStarted = true`.
+  - `StarterPlayerScripts.GhostDiagnostic`: a per-frame print per Quin.
+  - Every other script matches git (hash-compared).
+- **Verified:**
+  - Arena System 4v4 through to IN_GAME: 8 Quins fighting, 0 errors.
+  - Play As Quin: possessed, idle plays, W jogs at 12 studs/s on the jog clip, P releases back to the avatar and the costume is removed.

@@ -224,10 +224,13 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 	-- mid-game where Quins had been. Persistent: the whole model is always on every client, as
 	-- one unit (the drone and spectator cameras need far Quins too).
 	clone.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
-	-- No low-detail stand-ins: QuinMale had LevelOfDetail = StreamingMesh, so the engine drew a
-	-- grey, low-poly, bind-pose (T-pose) copy of a Quin for a few frames at a time - the "ghost
-	-- shirts". The templates are set to Disabled too; this keeps any re-imported rig from bringing it back.
-	clone.LevelOfDetail = Enum.ModelLevelOfDetail.Disabled
+	-- (LevelOfDetail must stay Disabled on the QuinType templates: StreamingMesh made the engine
+	-- draw grey low-poly bind-pose stand-ins, the "ghost shirts". Game scripts cannot write that
+	-- property - it needs plugin capability - so clones inherit it from the template.)
+	local readable, lod = pcall(function() return clone.LevelOfDetail end)
+	if readable and lod ~= Enum.ModelLevelOfDetail.Disabled then
+		warn(string.format("[QuinSpawner] %s has LevelOfDetail %s: set it to Disabled in Studio (ghost stand-ins)", template:GetFullName(), tostring(lod)))
+	end
 
 	-- Crucial Rig Sanitation: Ensure RootJoint Part0 and Part1 are strictly internal to the clone
 	local hrp = clone:FindFirstChild("HumanoidRootPart")
