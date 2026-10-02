@@ -340,6 +340,9 @@ local CombatConfig = {
 	FootIK_StepLead = 0.1,                   -- seconds of body travel a step lands ahead of the clip's foot
 	FootIK_PlantDriftPerSpeed = 0.04,        -- extra drift allowance per stud/s of body speed (3 studs at a 40 stud/s sprint)
 	FootIK_StepMaxSpeed = 12,                -- studs/s above which no procedural step is taken (the clip steps)
+	FootIK_PlantWhenStill = true,            -- plant a foot only once the clip has stopped it (workspace PlantWhenStill overrides)
+	FootIK_PlantStillMin = 3,                -- studs/s of clip foot travel over the ground below which it counts as stopped...
+	FootIK_PlantStillPerSpeed = 0.35,        -- ...or this fraction of the body's speed, whichever is larger (a sprint's planted foot creeps)
 	FootIK_OverreachSlack = 0.3,             -- studs a pinned foot may sit beyond the clip's own leg extension before it counts as out of reach
 	FootIK_PivotPin = true,                  -- hold the planted foot fully through a plant-and-pivot reversal (no turn attenuation); workspace PivotPin overrides
 	FootIK_PivotMaxDrift = 0.7,              -- studs a pinned foot may fall behind in a pivot before it steps (the turn swings the clip's feet round fast)
@@ -472,6 +475,8 @@ CombatConfig.Gait_StrafeRunSpeed = 10    -- studs/s above which the run strafe i
 -- Diagonal blend (pass 22D): forward and strafe clips mixed continuously by the motion's angle
 -- off the facing, on one phase, instead of the hard 50/130 degree switches above
 CombatConfig.Gait_DiagonalBlend = true
+CombatConfig.Gait_DiagonalBlendStart = 20  -- degrees off the facing (or off straight back) where the strafe set starts to blend in
+CombatConfig.Gait_DiagonalBlendFull = 40   -- degrees where the blend is fully by stride (below Start: the forward cycle alone)
 CombatConfig.Gait_DiagonalSideHysteresis = 0.75 -- studs/s of opposite lateral motion before the strafe side flips
 CombatConfig.Gait_StrafeWalkToRunStart = 8      -- studs/s where the run strafe starts blending in over the walk strafe
 CombatConfig.Gait_StrafeWalkToRunEnd = 13       -- studs/s where the strafe blend is fully run

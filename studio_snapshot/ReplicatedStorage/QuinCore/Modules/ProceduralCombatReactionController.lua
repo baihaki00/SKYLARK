@@ -717,6 +717,14 @@ function ProceduralCombatReactionController:update(dt)
 		local stepLead = CombatConfig.FootIK_StepLead or 0.1
 		local now = os.clock()
 		local plantContact = CombatConfig.FootIK_PlantContact or 0.15
+		-- A foot is planted only once the clip has stopped it, not merely brought it low. The walk
+		-- sets the left heel down about four frames before the foot stops reaching forward;
+		-- pinned at the first touch, the clip kept pulling it on and the leg was bent and the
+		-- ankle wrenched to hold it there (the left leg looked broken on every step).
+		local stillSwitch = workspace:GetAttribute("PlantWhenStill") -- live A/B switch
+		local plantWhenStill = stillSwitch == true or (stillSwitch == nil and CombatConfig.FootIK_PlantWhenStill ~= false)
+		local plantStillSpeed = math.max(CombatConfig.FootIK_PlantStillMin or 3, speed * (CombatConfig.FootIK_PlantStillPerSpeed or 0.35))
+		self.clipFootPrev = self.clipFootPrev or {}
 		local plantLift = CombatConfig.FootIK_PlantLift or 0.35
 		-- A running clip's planted foot still creeps a little (4-14 studs/s at a sprint): the
 		-- allowance grows with speed so a stance is held to the end instead of being let go
@@ -776,6 +784,13 @@ function ProceduralCombatReactionController:update(dt)
 
 			-- Where the clip puts the ankle this frame
 			local animFootPos = leg.footW.Position
+			-- How fast the clip itself is moving this foot over the ground
+			local prevClip = self.clipFootPrev[side]
+			local clipFootSpeed = 0
+			if prevClip and now > prevClip.t then
+				clipFootSpeed = Vector3.new(animFootPos.X - prevClip.pos.X, 0, animFootPos.Z - prevClip.pos.Z).Magnitude / (now - prevClip.t)
+			end
+			self.clipFootPrev[side] = { pos = animFootPos, t = now }
 			local hipPos = leg.hipW.Position
 			local maxReach = leg.reach * 0.98 -- just short of a locked knee
 
@@ -855,7 +870,8 @@ function ProceduralCombatReactionController:update(dt)
 							end
 							-- otherwise it holds a moment longer, until the other foot is down
 						end
-					elseif self.plantArmed[side] and liftAboveSurface <= plantContact then
+					elseif self.plantArmed[side] and liftAboveSurface <= plantContact
+						and (not plantWhenStill or clipFootSpeed <= plantStillSpeed) then
 						lock = Vector3.new(animFootPos.X, floorY + ankleHeight, animFootPos.Z)
 						self.plantArmed[side] = false
 						self.plantFade[side] = nil

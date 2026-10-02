@@ -290,6 +290,16 @@ local function driveDiagonal(humanoid, st, tracks, weights, lens, plants, cycleD
 	local wFwd = cadence > 1e-4 and a / cadence or 1
 	local wSide = 1 - wFwd
 
+	-- Close to straight ahead (or straight back) the strafe set stays out and the forward cycle
+	-- carries the whole motion, as before the blend existed. Blended from 0 degrees, a body a
+	-- little off its facing (facing its target while walking) got about a quarter of a strafe
+	-- clip: one leg kept its stance, the other dragged 2 studs each step - a limp.
+	local offAxis = math.deg(math.asin(math.clamp(sinA, 0, 1)))
+	local blendIn = smoothstep(CombatConfig.Gait_DiagonalBlendStart or 20, CombatConfig.Gait_DiagonalBlendFull or 40, offAxis)
+	cadence = (speed / math.max(cycleDistance, 0.01)) * (1 - blendIn) + cadence * blendIn
+	wSide *= blendIn
+	wFwd = 1 - wSide
+
 	-- Clamp the cadence on the clip that dominates the pose
 	local leadLen, leadW = lens[1], -1
 	for i = 1, #tracks do
