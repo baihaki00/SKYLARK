@@ -597,6 +597,17 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			shouldWalk = data.isPacingWalk and (distance > 40)
 		end
 
+		-- A stalking walk is a short read of the target, not the whole approach: from across the
+		-- arena WalkThenSprint walked until 65 studs out (up to 18 s at walking pace, staring at
+		-- the target the whole way). After Chase_StalkWalkMaxTime the Quin commits and runs.
+		if shouldWalk and (strat == "ConfidentWalk" or strat == "WalkThenSprint") then
+			data.stalkWalkSince = data.stalkWalkSince or now
+			if now - data.stalkWalkSince > (CombatConfig.Chase_StalkWalkMaxTime or 2.5) / speedMult then
+				data.pacingStrategy = "ContinuousSprint"
+				shouldWalk = false
+			end
+		end
+
 		-- Pacing Commitment Hysteresis: do not abort sprint pursuit within 2.0s of initiating sprint
 		local sprintDwell = (now - (data.sprintStartTime or 0)) < (2.0 / speedMult)
 		if sprintDwell and not data.wasWalking and distance > 10 then
@@ -716,9 +727,61 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			local down = Workspace:Raycast(Vector3.new(beyond.X, obsInfo.topSurfaceY + 3, beyond.Z), Vector3.new(0, -(obsInfo.topSurfaceY + 3 - rootPart.Position.Y + 8), 0), probeParams)
 			isThin = not down or down.Position.Y < obsInfo.topSurfaceY - 1.5
 		end
+		-- Skid-over: a low obstacle (up to SkidOver_MaxRise) is crossed in one speed vault, a
+		-- hand on top, whatever its length up to SkidOver_MaxLength. The flight is sized to the
+		-- length (apex over the middle, landing a stride past the far edge) and the clip is
+		-- fitted to that flight (LocomotionModule "skidover").
+		local skidRise, skidTakeoff = nil, nil
+		if obsInfo.hitPosition and obsInfo.topSurfaceY and (obsInfo.height or 99) <= (CombatConfig.SkidOver_MaxRise or 4.5) and speedNow >= 14 then
+			local dirFlat = Vector3.new(flatVelNow.X, 0, flatVelNow.Z).Unit
+			local probeParams = RaycastParams.new()
+			probeParams.FilterType = Enum.RaycastFilterType.Exclude
+			probeParams.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
+			local length = nil
+			for d = 1, (CombatConfig.SkidOver_MaxLength or 16), 1.5 do
+				local p = obsInfo.hitPosition + dirFlat * d
+				local top = Workspace:Raycast(Vector3.new(p.X, obsInfo.topSurfaceY + 2, p.Z), Vector3.new(0, -4, 0), probeParams)
+				if not top or top.Position.Y < obsInfo.topSurfaceY - 1 then
+					length = d
+					break
+				end
+			end
+			if length then
+				-- Apex over the middle; the arc must clear the obstacle's height (+0.8) at both
+				-- edges: g/8 * (T^2 - (L/v)^2) >= h + 0.8. Takeoff and landing are each
+				-- (v*T - L)/2 from the edges.
+				local g = Workspace.Gravity
+				local flight = math.sqrt((length / speedNow) ^ 2 + 8 * (obsInfo.height + 0.8) / g)
+				local rise = g * flight * flight / 8
+				if rise <= (CombatConfig.SkidOver_MaxFlightRise or 8) then
+					skidRise = rise
+					skidTakeoff = math.max(2, (speedNow * flight - length) / 2)
+				end
+			end
+		end
 		local readyToJump = isThin and faceDistance <= takeoffDistance + 1
 			or (not isThin and faceDistance <= 4 + speedNow * 0.16)
-		if obsInfo.canVault and not readyToJump then
+		-- This state updates at 10 Hz: at 40 studs/s that is 4 studs a tick, about the whole
+		-- takeoff window, so the takeoff is timed to the moment (task.delay) once it falls
+		-- before the next tick
+		local skidLead = speedNow * 0.15
+		if skidRise then
+			readyToJump = faceDistance <= skidTakeoff + skidLead
+		end
+		if skidRise and readyToJump and not isJumpSuppressed and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+			if tick() >= (fighter:GetAttribute("SkidPendingUntil") or 0) then
+				local wait = math.max(0, (faceDistance - skidTakeoff) / math.max(speedNow, 1))
+				fighter:SetAttribute("SkidPendingUntil", tick() + wait + 0.3)
+				fighter:SetAttribute("ObstacleAwareness", "Skidding over")
+				task.delay(wait, function()
+					if fighter.Parent and humanoid.Health > 0 and fighter:GetAttribute("CurrentState") == "Chase"
+						and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+						local v = rootPart.AssemblyLinearVelocity
+						JumpHandler.performJump(humanoid, rootPart, skidRise, Vector3.new(v.X, 0, v.Z).Magnitude, "skidover")
+					end
+				end)
+			end
+		elseif obsInfo.canVault and not readyToJump then
 			fighter:SetAttribute("ObstacleAwareness", "Approaching Obstacle")
 		elseif obsInfo.canVault and isThin and not isJumpSuppressed and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
 			fighter:SetAttribute("ObstacleAwareness", "Hurdling")

@@ -94,6 +94,12 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 	if kbType == "ground" and upY >= 0.85 then
 		-- Light ground flinch, still on its feet
 		duration = 0.2
+	elseif kbType == "slam_landing" and fighter:GetAttribute("LandingClipPath") then
+		-- The jump's own clip goes on as the landing (the arc smack-down): no second clip on top
+		clipPath = fighter:GetAttribute("LandingClipPath")
+		duration = (fighter:GetAttribute("LandingClipRemaining") or 1.0) * GET_UP_HANDOVER
+		fighter:SetAttribute("LandingClipPath", nil)
+		fighter:SetAttribute("LandingClipRemaining", nil)
 	elseif kbType == "slam_landing" then
 		clipPath = SLAM_LANDINGS[math.random(1, #SLAM_LANDINGS)]
 		local track = AnimationModule.playConfig(humanoid, clipPath, 1.0, Enum.AnimationPriority.Action4, false)

@@ -323,21 +323,26 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		-- Hit while winding up: the strike never comes out and the chain is broken
 		if fighter:GetAttribute("StrikeInterrupted") == windupUntil then
 			ComboModule.resetCombo(fighter)
+			fighter:SetAttribute("StrikeResult", "Interrupted")
+			fighter:SetAttribute("StrikeSeq", (fighter:GetAttribute("StrikeSeq") or 0) + 1)
 			return
 		end
 		local hitModels = HitboxModule.castInFront(rootPart, moveData.hitboxSize, Vector3.new(0, 0, -3), fighter)
 		local landed = false
+		local result = "Whiff"
 
 		for _, hitModel in ipairs(hitModels) do
 			local damageInfo = DamageModule.calculate(fighter, hitModel, moveData.step, moveData.damageMultiplier)
 			local applied, isKill, status = DamageModule.apply(fighter, hitModel, damageInfo)
 
 			if status == "Blocked" or status == "Dodged" then
+				result = status
 				if DEBUG then print("[Fight] Combo broken by " .. status .. "!") end
 				ComboModule.resetCombo(fighter)
 				data.lastAttackTime = tick() + 0.3 -- Stagger them slightly
 			elseif applied then
 				landed = true
+				result = "Hit"
 				if DEBUG then
 					print(string.format("[Fight] %s -> %s: %s (DMG=%d%s, Combo=%d)",
 						fighter.Name, hitModel.Name, moveData.name,
@@ -364,6 +369,13 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		if not landed then
 			ComboModule.resetCombo(fighter)
 		end
+		-- Strike telemetry (HUD / audits): what became of this strike
+		if result == "Whiff" and #hitModels == 0 then
+			local tHRP = target:FindFirstChild("HumanoidRootPart")
+			fighter:SetAttribute("StrikeMissDist", tHRP and math.floor((tHRP.Position - rootPart.Position).Magnitude * 10) / 10 or -1)
+		end
+		fighter:SetAttribute("StrikeResult", result)
+		fighter:SetAttribute("StrikeSeq", (fighter:GetAttribute("StrikeSeq") or 0) + 1)
 	end)
 
 	return effectiveDuration, cancelDelay
@@ -697,6 +709,10 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	-- A strike is only thrown at a target the step-in can reach. Out of reach the Quin keeps
 	-- closing (the approach above) instead of swinging at air and losing its combo.
 	if (action == "light" or action == "heavy") and distance > (CombatConfig.Combat_StrikeRange or 10.0) then
+		-- Step in now. The approach only restarts past idealRange + 2 (10.2), beyond the strike
+		-- range (9): a Quin left 9-10 studs out neither struck nor closed, and two of them stood
+		-- facing each other (21% of close fighting, up to 11 s at a time).
+		data.closingGap = true
 		return FightState
 	end
 	data.lastAttackTime = now

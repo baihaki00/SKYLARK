@@ -318,6 +318,29 @@ local function playClip(humanoid, path, looped)
 	return track
 end
 
+-- The arc jump's other look: one smack-down clip over the whole jump (AnimationConfig
+-- Attacks.Specials.ProceduralSmackDown, in place). Its markers: ProjectileJump (takeoff) 0.53 s,
+-- BodyLanding 1.20 s, end 2.73 s. It starts at the takeoff; the airborne part is stretched or
+-- squeezed every frame so the BodyLanding frame meets the touchdown, and the rest plays at normal
+-- speed as the landing (RecoveryState carries it on instead of a landing clip).
+local SMACK_PATH = "Attacks.Specials.ProceduralSmackDown"
+local SMACK_TAKEOFF = 0.53
+local SMACK_LANDING = 1.2
+
+local function playSmackDown(humanoid)
+	local entry = AnimationConfig.get(SMACK_PATH)
+	local track = entry and AnimationModule.getTrack(humanoid, entry.id)
+	if track then
+		track.Priority = Enum.AnimationPriority.Action3
+		track.Looped = false
+		track:Play(0.08, 1, 1)
+		if track.Length > 0 then
+			track.TimePosition = SMACK_TAKEOFF
+		end
+	end
+	return track
+end
+
 -- The dive: the flying clip, head first along the path
 local function playDiveAnim(humanoid)
 	return playClip(humanoid, "ProjectileJump.DiveFly", true)
@@ -400,7 +423,14 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		fighter = fighter,
 	}
 	fighter:SetAttribute("PJPhase", "Init")
-	stateData[fighter].animTrack = playClip(humanoid, stateData[fighter].kit.jump, false)
+	local starting = stateData[fighter]
+	if style == 1 and not starting.precise and math.random() < (CombatConfig.ProjectileJump_SmackDownChance or 0.5) then
+		starting.smackDown = true
+		starting.kit = nil -- no airborne loop: the one clip covers the flight
+		starting.animTrack = playSmackDown(humanoid)
+	else
+		starting.animTrack = playClip(humanoid, starting.kit.jump, false)
+	end
 
 	AudioModule.playJumpUp(rootPart.Position)
 
@@ -506,6 +536,20 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 			if look.Magnitude > 0.01 then
 				ao.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + look)
 			end
+		end
+
+		-- Smack-down timing: the clip's flight part ends exactly at touchdown, whatever the arc
+		if data.smackDown and data.animTrack and data.animTrack.IsPlaying and data.phase ~= "Init" then
+			local track = data.animTrack
+			if track.Length > 0 and track.TimePosition < SMACK_TAKEOFF - 0.05 then
+				track.TimePosition = SMACK_TAKEOFF -- the asset was still loading at launch
+			end
+			local gap = heightAboveStand(rootPart, humanoid)
+			local vy = rootPart.AssemblyLinearVelocity.Y
+			local g = workspace.Gravity
+			local toLand = gap < math.huge and (vy + math.sqrt(math.max(vy * vy + 2 * g * math.max(gap, 0), 0))) / g or 1
+			local left = SMACK_LANDING - track.TimePosition
+			track:AdjustSpeed(left > 0.02 and math.clamp(left / math.max(toLand, 0.05), 0.15, 2.5) or 0)
 		end
 
 		-- Touchdown: the body used to hit the floor first and lie sliding on it until the next
@@ -1146,7 +1190,19 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 
 		-- 6. Route into dedicated slam recovery pipeline (Phase 5.1)
-		stopAnim(data.animTrack)
+		if data.smackDown and data.animTrack and data.animTrack.IsPlaying then
+			-- The smack-down's own landing carries on (RecoveryState waits for it)
+			local track = data.animTrack
+			if track.TimePosition < SMACK_LANDING then
+				track.TimePosition = SMACK_LANDING
+			end
+			track:AdjustSpeed(1)
+			fighter:SetAttribute("LandingClipPath", SMACK_PATH)
+			fighter:SetAttribute("LandingClipRemaining", math.max(track.Length - track.TimePosition, 0.3))
+			data.animTrack = nil -- not stopped by exit
+		else
+			stopAnim(data.animTrack)
+		end
 		AnimationModule.stop(humanoid, AnimationIds.Dash, 0.05)
 		fighter:SetAttribute("KnockbackType", "slam_landing")
 

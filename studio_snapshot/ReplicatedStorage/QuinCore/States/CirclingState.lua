@@ -22,6 +22,7 @@ local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
+local NavigationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("NavigationModule"))
 
 local CirclingState = { name = "Circling" }
 
@@ -215,6 +216,20 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local keepingAway = fighter:GetAttribute("TacticalState") == "RETREATING"
 	if keepingAway and distance < (CombatConfig.Retreat_FleeAgainDistance or 40) then
 		return require(script.Parent:WaitForChild("RetreatState"))
+	end
+
+	-- A target it cannot get to (up on a platform, behind a wall) is not circled: orbiting
+	-- underneath a platform read as running in circles. Chase finds the way up or round.
+	-- Half a second of grace so a body passing between them does not end the standoff.
+	if not keepingAway and targetHRP then
+		if NavigationModule.isReachable(rootPart, targetHRP) then
+			data.unreachableSince = nil
+		else
+			data.unreachableSince = data.unreachableSince or tick()
+			if tick() - data.unreachableSince > 0.5 then
+				return require(script.Parent:WaitForChild("ChaseState"))
+			end
+		end
 	end
 
 	-- Snap condition 0: Opponent broke the standoff to fight!

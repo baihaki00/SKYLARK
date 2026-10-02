@@ -29,6 +29,9 @@ local OverwatchState = { name = "Overwatch" }
 
 local ARRIVE_DISTANCE = 2.5 -- studs from a lookout point at which the Quin stops
 local PAUSE_MIN, PAUSE_MAX = 1.5, 3.5 -- seconds spent looking from one point
+local MIN_LEG = 5 -- studs: a lookout nearer than this is the spot it already stands on
+local LOOP_POINTS = 8 -- waypoints per lap of a jog loop
+local LOOP_ARRIVE = 3.5 -- studs: a loop waypoint is passed through, not stopped at
 local SAME_LEVEL = 10 -- studs of height difference within which an enemy is "up here"
 
 local watchData = setmetatable({}, { __mode = "k" })
@@ -78,6 +81,62 @@ local function pickLookout(fighter, rootPart, platform)
 	return PlatformCatalogue.nearestTopPoint(platform, platform.center + toward.Unit * 1000 + across * spread, inset)
 end
 
+-- What the Quin does next up there. Standing at one lookout for the whole watch (narrow
+-- platforms gave the same lookout every time, so it stood still for 10-25 s) read as a statue.
+--   lookout - walk to a point on the edge facing its enemies, stop and look (as before)
+--   pace    - walk back and forth along the platform, short stops at each turn
+--   loop    - jog a lap or two around the top (platforms wide enough for a circle)
+local function planRoutine(fighter, rootPart, platform)
+	local inset = CombatConfig.Overwatch_EdgeInset or 3
+	local ua, ub = math.max(platform.halfA - inset, 0), math.max(platform.halfB - inset, 0)
+	local longAxis, longHalf = platform.axisA, ua
+	if ub > ua then
+		longAxis, longHalf = platform.axisB, ub
+	end
+	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+	local walkSpeed = CombatConfig.Overwatch_WalkSpeed or 10
+	local roll = math.random()
+
+	-- Jog loop: an ellipse one stud inside the walking inset
+	local ra, rb = ua - 1, ub - 1
+	if math.min(ra, rb) >= (CombatConfig.Overwatch_LoopMinRadius or 4) and roll < 0.2 + 0.3 * mobility then
+		local points = {}
+		local start = math.atan2((rootPart.Position - platform.center):Dot(platform.axisB) / rb, (rootPart.Position - platform.center):Dot(platform.axisA) / ra)
+		local turn = math.random() < 0.5 and 1 or -1
+		local laps = math.random(1, 2)
+		for i = 1, LOOP_POINTS * laps do
+			local angle = start + turn * i * (2 * math.pi / LOOP_POINTS)
+			table.insert(points, platform.center + platform.axisA * (math.cos(angle) * ra) + platform.axisB * (math.sin(angle) * rb))
+		end
+		return { kind = "loop", points = points, speed = CombatConfig.Overwatch_JogSpeed or 14, turnPause = 0, endPause = { 0.4, 1.2 } }
+	end
+
+	-- Pacing: end to end along the long side, turning at a different spot each time
+	if longHalf * 2 >= MIN_LEG * 1.6 and roll < 0.75 then
+		local points = {}
+		local side = (rootPart.Position - platform.center):Dot(longAxis) > 0 and 1 or -1
+		for _ = 1, math.random(2, 4) do
+			side = -side
+			table.insert(points, platform.center + longAxis * (side * longHalf * (0.55 + 0.45 * math.random())))
+		end
+		return { kind = "pace", points = points, speed = walkSpeed * (0.8 + 0.3 * math.random()), turnPause = { 0.3, 0.9 }, endPause = { 0.8, 2.0 } }
+	end
+
+	-- Lookout over the enemies' side
+	local lookout = pickLookout(fighter, rootPart, platform)
+	local flat = Vector3.new(lookout.X - rootPart.Position.X, 0, lookout.Z - rootPart.Position.Z)
+	if flat.Magnitude < MIN_LEG then
+		-- Already there: look from here, then do something else
+		return { kind = "look", points = {}, speed = walkSpeed, turnPause = 0, endPause = { PAUSE_MIN, PAUSE_MAX } }
+	end
+	return { kind = "lookout", points = { lookout }, speed = walkSpeed, turnPause = 0, endPause = { PAUSE_MIN, PAUSE_MAX } }
+end
+
+local function randomIn(range)
+	if type(range) ~= "table" then return range end
+	return range[1] + math.random() * (range[2] - range[1])
+end
+
 function OverwatchState.enter(fighter, humanoid, rootPart)
 	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
 	local watchMin = CombatConfig.Overwatch_WatchMin or 4
@@ -86,7 +145,8 @@ function OverwatchState.enter(fighter, humanoid, rootPart)
 		enterTime = os.clock(),
 		lastUpdate = os.clock(),
 		watchFor = watchMax + (watchMin - watchMax) * aggression,
-		lookout = nil,
+		route = nil,
+		routeIndex = 1,
 		pauseUntil = 0,
 	}
 	humanoid.AutoRotate = true
@@ -159,23 +219,46 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("ChaseState"))
 	end
 
-	-- Walk the edge: to a lookout point, stand and look, then to the next
+	-- Use the platform: look out, pace, jog a loop (planRoutine), with stops in between
 	if now < data.pauseUntil then
 		LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 		return OverwatchState
 	end
-	if not data.lookout then
-		data.lookout = pickLookout(fighter, rootPart, platform)
+	local route = data.route
+	if not route or data.routeIndex > #route.points then
+		if route then
+			-- Routine done: stop for a moment, then plan the next
+			data.route = nil
+			data.pauseUntil = now + randomIn(route.endPause)
+			LocomotionModule.brake(fighter, humanoid, rootPart, dt)
+			return OverwatchState
+		end
+		route = planRoutine(fighter, rootPart, platform)
+		data.route = route
+		data.routeIndex = 1
+		fighter:SetAttribute("ObstacleAwareness", "Holding high ground (" .. route.kind .. ")")
+		if #route.points == 0 then
+			return OverwatchState
+		end
 	end
-	local toLookout = Vector3.new(data.lookout.X - rootPart.Position.X, 0, data.lookout.Z - rootPart.Position.Z)
-	if toLookout.Magnitude <= ARRIVE_DISTANCE then
-		data.lookout = nil
-		data.pauseUntil = now + PAUSE_MIN + math.random() * (PAUSE_MAX - PAUSE_MIN)
-		LocomotionModule.brake(fighter, humanoid, rootPart, dt)
-	else
-		LocomotionModule.steer(fighter, humanoid, rootPart, data.lookout, CombatConfig.Overwatch_WalkSpeed or 10, dt)
-		GaitModule.update(humanoid, rootPart, dt)
+
+	local point = route.points[data.routeIndex]
+	local toPoint = Vector3.new(point.X - rootPart.Position.X, 0, point.Z - rootPart.Position.Z)
+	if toPoint.Magnitude <= (route.kind == "loop" and LOOP_ARRIVE or ARRIVE_DISTANCE) then
+		data.routeIndex += 1
+		local turnPause = randomIn(route.turnPause)
+		if turnPause > 0 and data.routeIndex <= #route.points then
+			data.pauseUntil = now + turnPause
+			LocomotionModule.brake(fighter, humanoid, rootPart, dt)
+			return OverwatchState
+		end
+		point = route.points[data.routeIndex]
+		if not point then
+			return OverwatchState
+		end
 	end
+	LocomotionModule.steer(fighter, humanoid, rootPart, point, route.speed, dt)
+	GaitModule.update(humanoid, rootPart, dt)
 
 	return OverwatchState
 end

@@ -571,7 +571,9 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
     local isDismount = (jumpType == "dismount" or jumpType == "leap_down")
     local isHop = (jumpType == "hop")
     local isLongJump = (jumpType == "longjump")
-    local jumpAnim = isVault and "Parkour.VaultObstacle" or "Movement.Jump"
+    -- Skid-over: a speed vault over a low obstacle, a hand on top (Parkour.SkidOverOB)
+    local isSkid = (jumpType == "skidover")
+    local jumpAnim = isSkid and "Parkour.SkidOverOB" or (isVault and "Parkour.VaultObstacle" or "Movement.Jump")
 
     -- Keep the gait underneath the traversal layer. The parkour clip supplies
     -- anticipation and silhouette while the run cycle preserves continuity.
@@ -581,6 +583,31 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
     GaitModule.notifyLaunch(humanoid)
     if isDismount then
         AnimationModule.playConfig(humanoid, "Movement.Fall", 1.0, Enum.AnimationPriority.Action3, true)
+    elseif isSkid then
+        -- The clip leaves the ground at 0.08 s and its feet are down again at 0.97 s (Footstep
+        -- marker): that part is fitted to the real flight, so a long obstacle (a longer, higher
+        -- flight) plays it slower and a short one faster.
+        local rise = math.clamp(height or 4.0, 3.0, 14.0)
+        local flight = 2 * math.sqrt(2 * Workspace.Gravity * rise) / Workspace.Gravity
+        local track = AnimationModule.playConfig(humanoid, jumpAnim, 1.0, Enum.AnimationPriority.Action3, true)
+        if track then
+            track:AdjustSpeed(math.clamp((0.97 - 0.08) / math.max(flight, 0.1), 0.5, 2.6))
+            if track.Length > 0 then
+                track.TimePosition = 0.08
+            else
+                -- First use: the asset is still loading. Once it arrives, put the clip where
+                -- it would be by now, so the feet still come down with the body.
+                local launched = os.clock()
+                task.spawn(function()
+                    while track.Length == 0 and os.clock() - launched < 0.5 do
+                        task.wait()
+                    end
+                    if track.IsPlaying and track.Length > 0 then
+                        track.TimePosition = math.min(0.08 + (os.clock() - launched) * track.Speed, 0.95)
+                    end
+                end)
+            end
+        end
     else
         -- The jump clip carries its own rise and fall (hips travel ~4 studs up and back down).
         -- Fit the clip to the real flight so that arc lands with the body; at a fixed rate a
@@ -611,7 +638,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 
 	local currentHVel = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Magnitude
 	-- A hurdle is cleared along the way the body is travelling (the facing can lag a turn)
-	if jumpType == "hurdle" and currentHVel > 4 then
+	if (jumpType == "hurdle" or isSkid) and currentHVel > 4 then
 		flatLook = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Unit
 	end
 	local fwdSpeed = forwardImpulse

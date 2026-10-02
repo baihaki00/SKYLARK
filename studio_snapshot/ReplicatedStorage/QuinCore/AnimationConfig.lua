@@ -31,7 +31,7 @@ AnimationConfig.Registry = {
 			Uppercut = { id = "rbxassetid://113219639247452", speed = 1.20, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.75, name = "Uppercut" },
 			RivalFinisher = { id = "rbxassetid://87872094663324", speed = 1.15, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.50, cancelRatio = 0.85, name = "Rival Decisive Finisher" },
 			BeamStruggle = { id = "rbxassetid://109837817595150", speed = 1.00, fadeTime = 0.10, priority = "Action4", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Beam Struggle Channel" },
-			ProceduralSmackDown = { id = "rbxassetid://131548528642488", speed = 1.25, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.45, cancelRatio = 0.80, name = "AOE Arc Jump Smack Down" },
+			ProceduralSmackDown = { id = "rbxassetid://71743026406362", speed = 1.25, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.45, cancelRatio = 0.80, name = "AOE Arc Jump Smack Down" },
 		},
 	},
 	Idles = {
