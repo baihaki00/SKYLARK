@@ -678,6 +678,16 @@ function ProceduralCombatReactionController:update(dt)
 		local angVelY = math.abs(self.smoothedTurnRate or self.rootPart.AssemblyAngularVelocity.Y)
 		local rawTurnDampen = math.clamp(1.0 - (angVelY - 4.0) / 8.0, 0.0, 1.0)
 		self.currentTurnDampen = (self.currentTurnDampen or 1.0) + (rawTurnDampen - (self.currentTurnDampen or 1.0)) * (1 - math.exp(-8.0 * dt))
+		-- Plant-and-pivot reversals (LocomotionModule, server ReversalPhase "pivot") turn at ~7 rad/s
+		-- on purpose, on a planted foot: the turn attenuation above let go of that foot (~60% pinned)
+		-- and it dragged round with the body. Held fully, the pinned foot falls behind the turning
+		-- clip and the plant/step logic below steps it round: a two-step pivot.
+		local pivotSwitch = workspace:GetAttribute("PivotPin") -- live A/B switch
+		local pivotPinOn = pivotSwitch == true or (pivotSwitch == nil and CombatConfig.FootIK_PivotPin ~= false)
+		local pivoting = pivotPinOn and serverModel ~= nil and serverModel:GetAttribute("ReversalPhase") == "pivot"
+		if pivoting then
+			self.currentTurnDampen = 1.0
+		end
 		local turnDampen = self.currentTurnDampen
 
 		-- 3. Foot placement.
@@ -712,6 +722,13 @@ function ProceduralCombatReactionController:update(dt)
 		-- allowance grows with speed so a stance is held to the end instead of being let go
 		-- (or stepped) halfway through it
 		local plantMaxDrift = (CombatConfig.FootIK_PlantMaxDrift or 1.4) + speed * (CombatConfig.FootIK_PlantDriftPerSpeed or 0.04)
+		local plantLetGo = plantMaxDrift * 2 -- (a pivot steps sooner but lets go no sooner)
+		if pivoting then
+			-- A pivot swings the clip's feet round the pinned one fast (180 degrees in ~0.45 s):
+			-- held to the usual allowance the foot overreached before a step could start, was let
+			-- go and spent the turn unpinned. Pivot steps start sooner and are quicker.
+			plantMaxDrift = CombatConfig.FootIK_PivotMaxDrift or 0.7
+		end
 		-- Procedural steps are for clips that do not step (a stance played while moving); at a
 		-- run the clip lifts the foot itself
 		local stepMaxSpeed = CombatConfig.FootIK_StepMaxSpeed or 12
@@ -807,6 +824,9 @@ function ProceduralCombatReactionController:update(dt)
 								local hipHeight = hipPos.Y - (floorY + ankleHeight)
 								local reachFlat = math.sqrt(math.max(maxReach * maxReach - hipHeight * hipHeight, 0)) * 0.85
 								local duration = math.clamp((CombatConfig.FootIK_StepDuration or 0.28) - speed * 0.006, 0.14, 0.3)
+								if pivoting then
+									duration = CombatConfig.FootIK_PivotStepDuration or 0.16
+								end
 								local aim = Vector3.new(animFootPos.X, 0, animFootPos.Z) + flatVel * (duration * 0.5 + stepLead)
 								local fromHip = aim - Vector3.new(hipPos.X, 0, hipPos.Z)
 								if fromHip.Magnitude > reachFlat then
@@ -821,7 +841,7 @@ function ProceduralCombatReactionController:update(dt)
 							end
 							if landing then
 								step, lock = landing, nil
-							elseif overreach or drift > plantMaxDrift * 2 then
+							elseif overreach or drift > plantLetGo then
 								-- No step possible (the other foot is up, nowhere to land): let go
 								self.plantFade[side] = lock
 								lock = nil
@@ -888,11 +908,11 @@ function ProceduralCombatReactionController:update(dt)
 			end
 
 			-- (debug: why the left foot is or is not planted; client-only attribute)
-			if isLeft and self.aiModel and workspace:GetAttribute("FootDebug") then
+			if self.aiModel and workspace:GetAttribute("FootDebug") then
 				local reason = footsFree and "free" or (not hit and "nohit") or (pushed and "pushed")
 					or (self.step[side] and "step") or (self.plant[side] and "lock")
 					or (self.plantArmed[side] and "armed") or "waitLift"
-				self.aiModel:SetAttribute("FootDbg", string.format("%s lift=%.2f w=%.2f", reason, animFootPos.Y - ((hit and hit.Position.Y or 0) + ankleHeight), self.legWeight[side]))
+				self.aiModel:SetAttribute(isLeft and "FootDbg" or "FootDbgR", string.format("%s lift=%.2f w=%.2f", reason, animFootPos.Y - ((hit and hit.Position.Y or 0) + ankleHeight), self.legWeight[side]))
 			end
 
 			return targetPos, targetWeight, isLedge, elevDelta, planted, leg

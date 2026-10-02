@@ -340,6 +340,9 @@ local CombatConfig = {
 	FootIK_StepLead = 0.1,                   -- seconds of body travel a step lands ahead of the clip's foot
 	FootIK_PlantDriftPerSpeed = 0.04,        -- extra drift allowance per stud/s of body speed (3 studs at a 40 stud/s sprint)
 	FootIK_StepMaxSpeed = 12,                -- studs/s above which no procedural step is taken (the clip steps)
+	FootIK_PivotPin = true,                  -- hold the planted foot fully through a plant-and-pivot reversal (no turn attenuation); workspace PivotPin overrides
+	FootIK_PivotMaxDrift = 0.7,              -- studs a pinned foot may fall behind in a pivot before it steps (the turn swings the clip's feet round fast)
+	FootIK_PivotStepDuration = 0.16,         -- seconds a pivot step takes (two steps fit a ~0.45 s 180)
 	VisualGhostHeightOffset = 0.02,          -- vertical calibration offset (studs) ensuring visual shoe sole rests flush on terrain without bone deformation
 
 	-- Active Muscle Ragdoll & Spectacle Knockback (Step 4)

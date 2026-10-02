@@ -187,3 +187,40 @@ The 2 in the A/B run were dives that began while the switch was flipping.
   - With the same code, Chase then stalled in two places in two runs: at the 5-stud block (x −249, SkidPlan "SHORT") in one, at the 14-stud block (x −149) in the other.
   - The landing change doesn't touch either. Listed for G.
 - Arena System reached IN_GAME. P to possess works.
+
+## F. Planted foot during the 180-degree pivot
+
+### Cause
+The client foot solver (ProceduralCombatReactionController) fades the foot pin out when the body turns fast (`turnDampen`: full at 4 rad/s, zero at 12). That is right for running cuts. A plant-and-pivot reversal (LocomotionModule, `ReversalPhase` "pivot") turns at 7 rad/s *on* a planted foot, so the solver let go of that foot (about 60% pin weight) and it dragged round with the body.
+
+Holding the pin alone was not enough: the turn swings the clip's feet round fast, so a fully held foot passed its drift allowance before a step could start, was released, and spent the turn unpinned.
+
+### Change (`FootIK_PivotPin`, live A/B: Workspace attribute `PivotPin`)
+During the pivot only:
+- no turn attenuation (pin weight held at 1);
+- a pinned foot steps once it falls 0.7 studs behind (`FootIK_PivotMaxDrift`; normal allowance grows with speed);
+- pivot steps take 0.16 s (`FootIK_PivotStepDuration`; normal 0.14-0.3), so two steps fit the ~0.4 s turn;
+- the let-go threshold stays at twice the *normal* allowance, so stepping sooner does not mean releasing sooner.
+
+Debug: with Workspace `FootDebug` set, the right foot now reports too (`FootDbgR`, next to `FootDbg`).
+
+### Result
+MovementTestArena clear floor, a runner sprinting back and forth at 28 studs/s, every leg a real 180. The setting switched after every pivot; measured from the solver's own state (bone reads of AI Quins on the client are unreliable), over the pivot plus 0.25 s after it. "Held" = at least one foot pinned at weight > 0.9.
+
+| | pivots (approx.) | foot held | foot dragging |
+|---|---|---|---|
+| before (A) | 5 | 16-22% | 74-81% |
+| pin held (B), turn 7 rad/s | 5-6 | 38-54% | 37-57% |
+| pin held, pivot at 3 studs/s (C) | 5 | 40-53% | 45-59% |
+| pin held, turn 5 rad/s | 6 | 41% | 55% |
+| pin held, turn 4 rad/s | 6 | 61-73% | 27-34% |
+
+- The pin roughly doubles how much of the turn has a foot planted. Pivot-to-pivot spread is large (it depends on where the gait is when the brake starts).
+- A slower turn (4 rad/s) holds best but makes the pivot 0.68 s instead of 0.39 s. Kept at 7 for tempo; `Locomotion_ReversalTurnRate = 4` is the switch if the owner prefers planted feet over speed.
+- What is left: the brake phase hands over with a foot in the air and the walk cycle at pivot speed keeps one foot lifted through much of the turn. A turn-in-place clip (parked Blender list) is the real fix.
+
+### Regression
+- 16v16, 50 s: 0 server and 0 client errors, all 32 alive, states normal.
+- Play As Quin (P): possesses the costume, 0 errors.
+- Arena System match not re-run (client-only foot change; no spawn or orchestrator code touched).
+- Not checked on screen.
