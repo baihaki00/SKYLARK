@@ -71,6 +71,7 @@ local function ensureGyro(rootPart)
 		gyro.RigidityEnabled = false
 		gyro.Responsiveness = CombatConfig.Circling_GyroResponsiveness or 35
 		gyro.MaxTorque = 100000
+		gyro.MaxAngularVelocity = CombatConfig.Combat_FacingMaxTurnRate or 14 -- (uncapped it whipped round at 18-26 rad/s)
 		gyro.CFrame = rootPart.CFrame
 		gyro.Parent = rootPart
 	end

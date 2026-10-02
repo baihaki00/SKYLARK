@@ -252,3 +252,39 @@ MidAirClash holds fighters in the air by design (7.1 Quin-seconds); not counted 
 - Per-frame ranking (velocity jumps, yaw snaps, foot slide by state, bind-pose frames, airborne pose) - needs Studio in the foreground.
 - No fixes were made under G: nothing in the valid probes ranked high enough to change code.
 - Open for the owner to pick from: the 5 s creep along the base of a tall course when the way is round it; the remaining pivot foot drag (F); the top-of-course stall if it shows again.
+
+## G (continued). Per-frame sweep with Studio in the foreground
+
+16v16, 100 s, server at 44 fps.
+
+### Ranking
+| finding | count | verdict |
+|---|---|---|
+| flat velocity change over 45 studs/s in one frame, on the ground | Fight 128, Chase 17, Recovery 12, Circling 9 | almost all "0 -> 110, KnockbackType air": the victim of an air launch on the frame before its state changes. By design. |
+| position jump not explained by velocity | 2 | projectile-jump set-down snap (pass 22E). By design. |
+| body spinning far faster than a turn | see below | **fixed** |
+
+Server-side toe slide was also sampled (Fight 57%, Circling 51%, Chase 47% of grounded frames by this probe) but the server pose has no client foot solver, so it does not show what is on screen and is not comparable with the C/D numbers.
+
+### Fix: facing whip in Fight and Circling
+- **Measured:** 131 turns of more than 25 degrees in one frame in 45 s, all in Fight or Circling, with the root's angular velocity at 18-26 rad/s (over 1000 degrees/s). The only facing constraint present was `FightGyro` or `CirclingGyro`, both with no turn-rate cap. Triggers: the target changing, or a target passing close by so its bearing sweeps fast.
+- **Why only these two:** the locomotion facing is capped at 14 rad/s, Recovery at 18, Knockback at 15. Fight and Circling were the ones left uncapped.
+- **Change:** `MaxAngularVelocity = Combat_FacingMaxTurnRate` (14 rad/s) on both gyros. The riposte after a block (`ImmediateCounter`) wrote the root CFrame directly, a one-frame flip; it now turns through `FightGyro`, as the rear-turn counter already did.
+- **A/B in one match** (16 Quins keep the cap, 16 have it removed live; 75 s; measured by angular velocity, so it does not depend on frame rate):
+
+| | time in Fight/Circling | above 16 rad/s | above 22 rad/s | fast-spin bursts | peak |
+|---|---|---|---|---|---|
+| uncapped | 807 Quin-s | 2.74 s | 0.13 s | 55 | 26 rad/s |
+| capped | 846 Quin-s | 0.03 s | 0 | 1 | 16 rad/s |
+
+- **Metric note:** "more than 25 degrees in one frame" is not a usable count: at 14 rad/s any frame longer than 31 ms crosses it, and Studio's frame rate fell to about 38 fps during the after-run. It read Fight 118 -> 96, Circling 76 -> 90 and was discarded for the angular-velocity A/B.
+
+### Regression
+- 16v16: 0 server errors. P to possess: works, 0 errors.
+- Arena System match not re-run (state code only).
+- Not checked on screen.
+
+### Left from G
+- Client-side measures (bind-pose frames, airborne pose, on-screen foot slide) were not run.
+- `FightState` rear-turn counter sets `FightGyro.Responsiveness = 45` and never puts it back to 22.
+- `IdleGyro` is also uncapped (few events: Idle is a short beat).

@@ -604,6 +604,7 @@ CombatConfig.Circling_FacingLeadTime = 0.25       -- seconds (10 Hz tick + gyro 
 CombatConfig.Circling_GyroResponsiveness = 35
 
 -- Reversals (> 115 degrees at a run): brake along the line, pivot near a standstill, drive out
+CombatConfig.Combat_FacingMaxTurnRate = 14          -- rad/s cap on the Fight and Circling facing gyros (the locomotion facing uses the same)
 CombatConfig.Locomotion_ReversalPivot = true       -- false: the old running U-turn (speed dropped to 40%, then turned at grip)
 CombatConfig.Locomotion_ReversalBrake = 150        -- studs/s^2 deceleration of the brake phase
 CombatConfig.Locomotion_ReversalPivotSpeed = 6     -- studs/s held while the body turns round

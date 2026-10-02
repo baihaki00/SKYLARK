@@ -466,7 +466,13 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			
 			local cTargetHRP = counterTarget.HumanoidRootPart
 			local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(cTargetHRP.Position.X, rootPart.Position.Y, cTargetHRP.Position.Z))
-			rootPart.CFrame = lookCF
+			-- Turned by the facing gyro (as the rear-turn counter is), not flipped in one frame
+			local facingGyro = rootPart:FindFirstChild("FightGyro")
+			if facingGyro then
+				facingGyro.CFrame = lookCF
+			else
+				rootPart.CFrame = lookCF
+			end
 			
 			data.currentAction = "immediate_counter"
 			data.lastAttackTime = now
@@ -625,6 +631,9 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			alignOri.RigidityEnabled = false
 			alignOri.Responsiveness = 22
 			alignOri.MaxTorque = 60000
+			-- Without a cap the body whipped round at 18-26 rad/s (over 1000 degrees/s) whenever
+			-- the target changed or passed close by
+			alignOri.MaxAngularVelocity = CombatConfig.Combat_FacingMaxTurnRate or 14
 			alignOri.CFrame = rootPart.CFrame
 			alignOri.Parent = rootPart
 		end
