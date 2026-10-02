@@ -175,3 +175,17 @@ Instead, animations strictly follow **Tiered Lifetime Contracts**:
 ## 10. Test Modes (Quin Manager > TEST MODES)
 
 One-click diagnostic scenes live in the in-game **Quin Manager** (pill button "Quin Manager [M]", `StarterGui.AnimationLabUI`) under the **TEST MODES** tab. Before guessing at an animation or movement bug, use them to see it. Each one, how to start it (menu, `GameCommand`, or the Studio-only `Workspace` attribute `DevCommand`) and how to add a new one is in **[TEST_MODES.md](TEST_MODES.md)**.
+
+---
+
+## 11. Publishing to Roblox (version notes from git)
+
+`scripts/publish-notes.ps1` builds the Roblox version title and details from the commits since the last publish. It opens Studio's **Save to Roblox with Notes** (Ctrl+Alt+S) and pastes them in. You click **Save**. Then it tags the commit `roblox-published-<date-time>` and pushes the tag, so every Roblox version maps to a git commit and the next notes start from there.
+
+```powershell
+.\scripts\publish-notes.ps1 -DryRun            # print the notes only
+.\scripts\publish-notes.ps1                    # fill the dialog, then tag after you save
+.\scripts\publish-notes.ps1 -Since 28b9fd4     # first run, before any roblox-published-* tag exists
+.\scripts\publish-notes.ps1 -Title "Hotfix: ring" -Note "Tested in FFA 32"
+```
+Commit (and export Studio scripts) before running it: uncommitted changes are not in the notes.
