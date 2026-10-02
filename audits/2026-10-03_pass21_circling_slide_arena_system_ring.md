@@ -148,3 +148,14 @@ Seven arena scripts in Studio no longer matched git (a newer rewrite). They were
   - This explains why the ghosts were never on the server.
 - **Fix:** `QuinSpawner` sets every Quin model to `ModelStreamingMode.Persistent`, so the whole model is always on every client as one unit (the drone and spectator cameras need far Quins too).
 - **Verified, FFA 32 after 25 s:** the client sees all 32 Quin bodies every frame, each attached to its root and animated: 0 detached, 0 without a root, 0 visible-and-unanimated.
+
+## 6. The ghosts, real cause (pass 21e)
+- **Evidence:** the owner's recording (`this one.gif`) shows smooth, untextured, low-poly grey figures in a T-pose, floating and leaning. Two or three appear at once for 2-3 frames, then vanish.
+- **Cause:** `ReplicatedStorage.QuinType.QuinMale` had **`LevelOfDetail = StreamingMesh`**. With streaming on, the engine draws a generated low-detail stand-in for such a model (grey, low-poly, built from the bind pose) for the moments when its real parts are not on the client.
+  - Section 5 (streaming) was close: the model streaming made the parts come and go.
+  - But the visible ghost is the engine's stand-in mesh, not a leftover body part.
+  - Section 5's `Persistent` setting alone did not stop it.
+- **Fix:**
+  - Both templates are set to `LevelOfDetail = Disabled`. This is a property of the place file: **save the place**.
+  - `QuinSpawner` sets `Disabled` on every clone, so a re-imported rig cannot bring it back.
+- **Not verified:** the stand-ins never showed in Claude's own runs, so the owner needs to confirm.
