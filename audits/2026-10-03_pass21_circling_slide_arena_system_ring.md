@@ -130,9 +130,7 @@ Seven arena scripts in Studio no longer matched git (a newer rewrite). They were
 
 ### "Ghost shirts" at both spawn sides
 - **What they are:** T-posed Quin torsos sticking out of ArenaGround.
-- **Cause:**
-  - The orchestrator spawns at the QuinSpawn pads (y = -0.95) + 2, which put the root about 6 studs below standing height, so the body started buried to the shoulders.
-  - The client hides a new Quin until a clip drives it, but revealed it after 3 s regardless, so a Quin that did not get going showed in its bind pose.
+- **Cause found first (wrong):** the spawn height. Spawning only put the root about 1.5 studs low; `getSpawnPositions` already adds 5. The real cause is in section 5.
 - **Fix:**
   - `QuinSpawner.spawn` stands every Quin's root at floor + its standing height, found by ray, for every caller.
   - The orchestrator keeps that height when it turns them to face each other.
@@ -141,3 +139,12 @@ Seven arena scripts in Studio no longer matched git (a newer rewrite). They were
   - Arena System 4v4: all 8 Quins at y 7.43-7.58 on their first frame (standing height).
   - 16v16 and Arena runs: no Quin un-animated or below standing height on the client, 0 errors.
 - **Not reproduced:** the buried bodies did not appear in this build's runs, so the fix is to the cause found in the code, not to an observed reproduction.
+
+## 5. The ghosts, actual cause (pass 21d)
+- **What the owner saw:** FFA 32, the ghosts appeared mid-game on the spawn ring while the Quins were moving, and never in pre-game.
+- **Streaming:** Workspace instance streaming is on, and the Quin models used `ModelStreamingMode.Default`, so their parts stream in and out one by one.
+  - With the player away from the fight, the client held **0** of the 24 Quin bodies.
+  - A body mesh kept on a client without the rest of its rig is not animated, so it stood frozen in the bind pose (the T-posed torso) where the Quin had been.
+  - This explains why the ghosts were never on the server.
+- **Fix:** `QuinSpawner` sets every Quin model to `ModelStreamingMode.Persistent`, so the whole model is always on every client as one unit (the drone and spectator cameras need far Quins too).
+- **Verified, FFA 32 after 25 s:** the client sees all 32 Quin bodies every frame, each attached to its root and animated: 0 detached, 0 without a root, 0 visible-and-unanimated.

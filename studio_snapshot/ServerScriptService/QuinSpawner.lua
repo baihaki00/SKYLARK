@@ -218,6 +218,12 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 		warn(string.format("[QuinSpawner] Template %s has model scale %.3f; animation translation will be scaled by it. Rebuild it as a scale-1 Model.", template:GetFullName(), clone:GetScale()))
 	end
 	clone.Name = string.format("Quin_%s_%s", selectedGender, quinInstance.QuinId:sub(-4))
+	-- Instance streaming is on. With the default model streaming mode a Quin's parts streamed in
+	-- and out one by one as it moved around the arena, and a body mesh left behind on a client
+	-- without the rest of its rig stood frozen in its bind pose: the T-posed "ghost" torsos seen
+	-- mid-game where Quins had been. Persistent: the whole model is always on every client, as
+	-- one unit (the drone and spectator cameras need far Quins too).
+	clone.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 
 	-- Crucial Rig Sanitation: Ensure RootJoint Part0 and Part1 are strictly internal to the clone
 	local hrp = clone:FindFirstChild("HumanoidRootPart")
