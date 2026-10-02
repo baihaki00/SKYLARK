@@ -286,6 +286,25 @@ local function heightAboveStand(rootPart, humanoid)
 	return rootPart.Position.Y - standY
 end
 
+-- Set-down latch: once the per-frame guard has started setting a falling body down onto the
+-- floor, nothing else may re-aim the mover until it touches. A 10 Hz update landing on that same
+-- frame re-applied full slam speed (~600 studs/s), the body punched 4-7 studs into the floor and
+-- the Humanoid sprang it back up ~5 studs: the dive "bob". Live A/B: Workspace attribute PJSetDownLatch.
+local SET_DOWN_MAX_TIME = 0.3 -- seconds; past this the latch lets go (something blocked the body)
+local function setDownLatched(data)
+	local switch = Workspace:GetAttribute("PJSetDownLatch")
+	local on = switch == true or (switch == nil and CombatConfig.ProjectileJump_SetDownLatch ~= false)
+	return on and data.settingDown == true and not data.touchedDown
+		and os.clock() - (data.settingDownAt or 0) < SET_DOWN_MAX_TIME
+end
+
+-- Set-down snap (pass 22E, see the touchdown guard). Live A/B: Workspace attribute PJSetDownSnap;
+-- off falls back to the velocity set-down with the latch above.
+local function setDownSnapOn()
+	local switch = Workspace:GetAttribute("PJSetDownSnap")
+	return switch == true or (switch == nil and CombatConfig.ProjectileJump_SetDownSnap ~= false)
+end
+
 -- Tracks come from the shared per-humanoid cache (a fresh LoadAnimation per jump leaked a
 -- track on the Animator every time)
 local function playAnim(humanoid, id)
@@ -557,17 +576,58 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		-- Touchdown: the body used to hit the floor first and lie sliding on it until the next
 		-- update noticed. On contact the mover is held still and Impact follows.
 		local fallSpeed = -rootPart.AssemblyLinearVelocity.Y
-		if fallSpeed >= 20 then
+		if setDownSnapOn() then
+			-- Set-down snap: once the floor is within the next frame's travel the body is placed
+			-- on it at standing height and touchdown is taken there and then. Velocity set-downs
+			-- ("cover exactly the rest of the way") overshot whenever the next physics frame ran
+			-- longer than the last, and a 10 Hz update could re-apply slam speed on the same frame:
+			-- the body punched 2-7 studs into the floor and the Humanoid sprang it back up (the
+			-- dive "bob"). The jump is at most one frame of travel, unseen at these speeds.
+			if fallSpeed >= 20 and data.phase ~= "Init" then
+				local vel = rootPart.AssemblyLinearVelocity
+				local standOffset = (humanoid.HipHeight or 2.0) + rootPart.Size.Y / 2
+				local standPos
+				-- A floor rising into the path (a low dive crossing onto a platform): the straight-down
+				-- probe only sees it once the body is inside it, so the feet probe along the flight too
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
+				params.RespectCanCollide = true
+				local feet = rootPart.Position - Vector3.new(0, standOffset, 0)
+				local hit = Workspace:Raycast(feet, vel * dt * 1.5, params)
+				if hit and hit.Normal.Y > 0.5 then
+					standPos = hit.Position + Vector3.new(0, standOffset, 0)
+				else
+					local gap = heightAboveStand(rootPart, humanoid)
+					if gap <= math.max(fallSpeed * dt * 1.5, 1.0) then
+						standPos = rootPart.Position - Vector3.new(0, gap, 0)
+					end
+				end
+				if standPos then
+					rootPart.CFrame = rootPart.CFrame.Rotation + standPos
+					rootPart.AssemblyLinearVelocity = Vector3.zero
+					lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
+					lv.VectorVelocity = Vector3.zero
+					data.touchedDown = true
+				end
+			end
+			return
+		end
+		local latched = setDownLatched(data)
+		if fallSpeed >= 20 or latched then
 			local gap = heightAboveStand(rootPart, humanoid)
 			if gap <= 1.0 then
 				data.touchedDown = true
 				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 				lv.VectorVelocity = Vector3.zero
-			elseif gap <= fallSpeed * dt * 1.5 then
+			elseif gap <= fallSpeed * dt * 1.5 or latched then
 				-- The floor is within the next frame's travel: cover exactly the rest of the way
 				-- (stopping here left a fast dive hanging up to a dozen studs in the air)
 				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 				lv.VectorVelocity = Vector3.new(0, -gap / math.max(dt, 1 / 240), 0)
+				if not data.settingDown then
+					data.settingDownAt = os.clock()
+				end
 				data.settingDown = true
 			end
 		end
@@ -663,6 +723,9 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 	if data.touchedDown and data.phase ~= "Impact" then
 		switchPhase(data, "Impact")
+	end
+	if setDownLatched(data) then
+		return ProjectileJumpState -- the guard is setting the body down this frame (see setDownLatched)
 	end
 
 
@@ -1118,7 +1181,10 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 			-- (a dive stopped by a wall eases off it on the way down instead of dragging on the face)
 			local offWall = data.wallNormal and Vector3.new(data.wallNormal.X, 0, data.wallNormal.Z) * 6 or Vector3.zero
-			lv.VectorVelocity = Vector3.new(0, -Config.SlamSpeed * Config.SlamSpeedMultiplier, 0) + offWall
+			-- (capped so one 60 Hz frame never carries it past the floor: from ~8 studs up a full
+			-- slam-speed frame travelled 9 and sank the body into the ground)
+			local dropSpeed = math.min(Config.SlamSpeed * Config.SlamSpeedMultiplier, standGap * 60)
+			lv.VectorVelocity = Vector3.new(0, -dropSpeed, 0) + offWall
 			return ProjectileJumpState
 		end
 

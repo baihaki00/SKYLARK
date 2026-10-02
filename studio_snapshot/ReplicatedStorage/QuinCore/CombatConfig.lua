@@ -586,6 +586,8 @@ CombatConfig.ProjectileJump_DashWallProbeTime = 0.15 -- seconds of dive travel p
 CombatConfig.ProjectileJump_StallTime = 0.4         -- seconds without progress...
 CombatConfig.ProjectileJump_StallDistance = 1.5     -- ...of less than this many studs ends the phase
 CombatConfig.ProjectileJump_MaxStateTime = 8        -- seconds: hard cap on a whole jump
+CombatConfig.ProjectileJump_SetDownLatch = true -- once the touchdown guard starts setting a dive down, no update re-aims it (pass 22E: the dive bob)
+CombatConfig.ProjectileJump_SetDownSnap = true -- a dive whose floor is within the next frame's travel is placed on it at standing height (pass 22E: velocity set-downs overshot into the floor)
 -- Foot slide (pass 22C). The start-run push-off clip (Movement.IdleToRun / StartSprint) played over
 -- an accelerating body slid on ~65% of its frames at any speed - the gait starts from rest on its
 -- own (true brings the overlay back). Fight plants the body while its own strike plays.

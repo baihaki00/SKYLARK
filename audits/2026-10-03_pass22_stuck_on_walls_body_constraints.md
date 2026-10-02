@@ -143,3 +143,47 @@ Bug found on the way: `hasForeignLocomotion` saw the blend's own strafe tracks a
 - How often a foot slides at all is about unchanged in Fight. What is left in those bands comes with the body turning while a foot is planted (item F's foot pin), not from the clip choice.
 - Before the mid-stance phases, the blend was *worse* than the switches (Fight 29.0% vs 22.3%). The out-of-step feet were the cause.
 - 0 server errors. Arena System reached IN_GAME. P to possess works.
+
+## E. Projectile-jump dive bob
+
+### Metric
+FFA 32, server, every projectile jump traced frame by frame:
+- `PJPhase`;
+- root vertical speed;
+- gap to standing height over the floor below.
+
+A landing **sinks** when, within 0.8 s of touchdown, the root goes more than 2 studs below standing height. The Humanoid then springs it back up, which is the visible bob.
+
+### Cause
+The touchdown guard (per frame) set a fast dive down with an "exact" velocity: cover the rest of the gap in one frame. That overshot in three ways:
+1. **Re-aim on the same frame.** A 10 Hz state update landing on that frame re-applied full slam speed (about 600 studs/s, 10 studs a frame).
+2. **Longer next frame.** The next physics frame ran longer than the one the velocity was computed from; 32 Quins make server frame time vary.
+3. **Floor out of view.**
+   - Impact's slam-drop from about 8 studs up, started while still rising, so the guard never saw it coming.
+   - A low dash crossing onto a raised platform: the straight-down probe sees the platform only once the body is inside it.
+
+The body went 2-7 studs into the floor and popped back up about 5 studs.
+
+### Fix (`ProjectileJump_SetDownSnap`, live A/B: Workspace attribute `PJSetDownSnap`)
+- **Set-down snap.** Once the floor is within the next frame's travel, the body is placed on it at standing height and touchdown is taken there and then. The jump is at most one frame of travel, which can't be seen at 400+ studs/s.
+- **Feet probe along the flight path.** The feet also probe along the flight path, so a floor rising into the path is found before the body enters it.
+- **Impact slam-drop cap.** The drop is capped so one 60 Hz frame never carries it past the floor.
+- **Fallback when the snap is off.** The velocity set-down still works, now with a latch (`ProjectileJump_SetDownLatch`) so no update re-aims it mid set-down.
+
+### Result
+
+| | landings | sinks |
+|---|---|---|
+| baseline (first trace) | 166 | about 2 visible pops (a sink then a 5-stud rebound) |
+| latch only | 131 | 7 (5.3%), vs 11 / 128 (8.6%) with it off |
+| snap on vs off (A/B, alternating 15 s) | 94 / 93 | **2** (2.1%) vs 9 (9.7%) |
+| snap always on, 3 min | 218 | **0** |
+
+The 2 in the A/B run were dives that began while the switch was flipping.
+
+### Regression
+- No jump runs over 6 s. 0 server errors.
+- **Course (JUMPONOBSTACLES):** the runner hops the 19-stud step in one spot hop and lands at standing height.
+  - With the same code, Chase then stalled in two places in two runs: at the 5-stud block (x −249, SkidPlan "SHORT") in one, at the 14-stud block (x −149) in the other.
+  - The landing change doesn't touch either. Listed for G.
+- Arena System reached IN_GAME. P to possess works.
