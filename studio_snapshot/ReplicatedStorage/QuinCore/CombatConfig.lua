@@ -549,6 +549,17 @@ CombatConfig.Hurdle_MaxRise = 11                 -- studs: thin obstacles (up to
 CombatConfig.Nav_StoneMinClimb = 8               -- studs a target must stand above before stepping stones are used (NavigationModule.nextStone)
 CombatConfig.Nav_StoneMaxHop = 60                -- studs: longest single hop onto a stepping stone
 CombatConfig.Nav_StoneMaxRise = 40               -- studs: highest single hop (a spot jump)
+CombatConfig.Locomotion_FacingFollowsMotion = true -- the body faces its actual motion while steering (false: AutoRotate faces the steer heading)
+CombatConfig.Locomotion_FacingIntoTurn = 0.3     -- share of the way from the motion toward the steer heading (a runner looks into its turn)
+CombatConfig.Locomotion_FacingResponsiveness = 35 -- AlignOrientation responsiveness of the steering facing
+CombatConfig.Locomotion_FacingMotionMinSpeed = 6 -- studs/s: below this it faces the steer heading (turning on the spot, starting off)
+CombatConfig.Locomotion_FacingLeadTime = 0.11     -- seconds of the motion's turn the facing target leads by (the facing constraint's own lag)
+CombatConfig.SecondaryMotion_TorsoFrequency = 3.5 -- Hz: spine/neck spring (heavier and slower than the arms' SecondaryMotion_Frequency)
+CombatConfig.SecondaryMotion_TorsoDamping = 1.0   -- spine/neck spring damping ratio (1 = settles without overshoot)
+CombatConfig.SecondaryMotion_Inertia = 1.0        -- scale on the body acceleration the springs feel (they run in the body's frame)
+CombatConfig.SecondaryMotion_MaxAcceleration = 80 -- studs/s^2: body acceleration the springs feel is capped (jump launches, knockbacks)
+CombatConfig.SecondaryMotion_Leash = 1.5          -- studs a spring may lag its bone tip; held there beyond (no reset flicker)
+CombatConfig.SecondaryMotion_AccelerationResponse = 6 -- 1/s: low-pass on the body acceleration the springs feel (replicated velocity arrives in steps)
 CombatConfig.Overwatch_EdgeInset = 3           -- studs kept from the edge
 CombatConfig.Overwatch_EngageRange = 30        -- an enemy this close at the same height is fought up there
 CombatConfig.Retreat_RendezvousValue = 15      -- extra worth of a platform per ally already on it (up to 3)

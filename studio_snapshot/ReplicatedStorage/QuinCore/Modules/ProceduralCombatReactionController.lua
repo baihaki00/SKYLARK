@@ -1158,20 +1158,33 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 	local caps = { upper = maxUpper, fore = maxFore, spine = maxSpine, neck = maxNeck }
 	local fastClip = CombatConfig.SecondaryMotion_FastClipSpeed or 12 -- studs/s of a tip relative to the body
 	local omega = 2 * math.pi * frequency
-	local rootVelocity = self.rootPart.AssemblyLinearVelocity
-	-- A body placed by CFrame (a teleport, a snap) moves further than its velocity explains:
-	-- the springs start again from the clip instead of whipping after it
-	local rootPosition = self.rootPart.Position
-	if self.smRootPos and ((rootPosition - self.smRootPos) - rootVelocity * dt).Magnitude > 1.0 then
-		self.smState = nil
+	-- The springs run in the body's own frame. In world space they tracked the bone tips through
+	-- the body's replicated position, which arrives in small steps (and far Quins' animation is
+	-- stepped too): on the short spine bones a few hundredths of a stud of that became degrees of
+	-- turn every frame, a high-frequency shiver from the waist up (4-7 reversals/s at the upper
+	-- spine, 11/s for the worst Quins). In the body's frame those steps cancel; the sway comes
+	-- from the body's smoothed acceleration (inertia, as the body tilt uses) and the clip's own
+	-- motion - the same physics, without the noise.
+	local rootCF = self.rootPart.CFrame
+	local inertia = CombatConfig.SecondaryMotion_Inertia or 1
+	-- (its own, smoother copy of the body acceleration: the lean's copy follows the replicated
+	-- velocity, which arrives in ~20 Hz steps, and its ripple kept the spine twitching)
+	local rawBody = self.leanAcceleration or Vector3.zero
+	self.smAcceleration = (self.smAcceleration or rawBody):Lerp(rawBody, 1 - math.exp(-(CombatConfig.SecondaryMotion_AccelerationResponse or 6) * dt))
+	local bodyAcceleration = rootCF:VectorToObjectSpace(self.smAcceleration) * inertia
+	-- Saturated: a running body's sway does not grow with a projectile jump's launch or a
+	-- knockback (thousands of studs/s^2 of horizontal acceleration pushed the springs past their
+	-- reset distance every other frame, and the torso flipped between bent and straight)
+	local maxAcceleration = CombatConfig.SecondaryMotion_MaxAcceleration or 80
+	if bodyAcceleration.Magnitude > maxAcceleration then
+		bodyAcceleration = bodyAcceleration.Unit * maxAcceleration
 	end
-	self.smRootPos = rootPosition
 	self.smState = self.smState or {}
 
-	-- The clip's tips, before any bone here is turned
+	-- The clip's tips (in the body's frame), before any bone here is turned
 	local tips = {}
 	for i, entry in ipairs(self.smBones) do
-		tips[i] = chainTip(entry)
+		tips[i] = rootCF:PointToObjectSpace(chainTip(entry))
 	end
 
 	-- Springs (sub-stepped: a 6 Hz spring at a 20 fps frame is past stable for one step)
@@ -1190,14 +1203,31 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 		s.prevTip = tip
 		s.cv = s.cv and s.cv:Lerp(rawVelocity, math.clamp(25 * dt, 0, 1)) or rawVelocity
 		local clipVelocity = s.cv
+		-- The torso is heavy: the spine and neck sway slower and settle without bouncing
+		-- (at the arms' 6 Hz under-damped spring they overshot and rebounded 3-4 times a
+		-- second); the arms keep their livelier spring
+		local kind = self.smBones[i].kind
+		local w, z = omega, zeta
+		if kind == "spine" or kind == "neck" then
+			w = 2 * math.pi * (CombatConfig.SecondaryMotion_TorsoFrequency or 3.5)
+			z = CombatConfig.SecondaryMotion_TorsoDamping or 1.0
+		end
 		for _ = 1, steps do
-			local acceleration = (tip - s.x) * (omega * omega) + (clipVelocity - s.v) * (2 * zeta * omega)
+			local acceleration = (tip - s.x) * (w * w) + (clipVelocity - s.v) * (2 * z * w) - bodyAcceleration
 			s.v += acceleration * h
 			s.x += s.v * h
 		end
+		-- A soft leash instead of a reset: past it the spring is held at the leash, so a hard
+		-- shove bends the bone to its cap and holds it rather than flicking it every frame
+		local leash = CombatConfig.SecondaryMotion_Leash or 1.5
+		local offset = s.x - tip
+		if offset.Magnitude > leash then
+			s.x = tip + offset.Unit * leash
+			s.v = clipVelocity
+		end
 		-- Fade out while the clip moves the arm fast; rate-limited (a per-frame weight from a
 		-- per-frame speed flickered and turned the arm up to 20 degrees between frames)
-		local relativeSpeed = (clipVelocity - rootVelocity).Magnitude
+		local relativeSpeed = clipVelocity.Magnitude -- (already relative to the body)
 		local targetWeight = math.clamp(1 - (relativeSpeed - fastClip) / fastClip, 0, 1)
 		local current = s.weight or targetWeight
 		local rate = targetWeight < current and 14 or 4
@@ -1222,7 +1252,7 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 		if weight > 0.01 then
 			local boneW = entry.bone.TransformedWorldCFrame
 			local current = chainTip(entry) - boneW.Position
-			local wanted = self.smState[i].x - boneW.Position
+			local wanted = rootCF:PointToWorldSpace(self.smState[i].x) - boneW.Position
 			if current.Magnitude > 1e-3 and wanted.Magnitude > 1e-3 then
 				local cu, wu = current.Unit, wanted.Unit
 				local axis = cu:Cross(wu)

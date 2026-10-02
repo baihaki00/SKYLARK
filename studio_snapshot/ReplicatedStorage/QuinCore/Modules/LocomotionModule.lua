@@ -184,6 +184,94 @@ end
 -- acceleration every frame until the goal expires.
 local steerConns = setmetatable({}, { __mode = "k" })
 
+-- Facing follows the motion. With AutoRotate the body snapped to face the steer heading while
+-- the Humanoid's velocity follows that heading ~0.1 s behind, so on any curve the body faced
+-- ahead of where it was going (9-17 degrees on sustained turns, the more the tighter): the run
+-- cycle drove one way while the body moved another. While the steer driver moves the body it
+-- owns the facing: the actual velocity, turned a little into the turn (a runner looks where it
+-- goes), smoothed by an AlignOrientation. Below walking pace and in reversals it faces the
+-- heading as before. Any other active AlignOrientation (a state's own facing: Fight's lock on
+-- its target, a jump, a recovery) takes precedence, and AutoRotate comes back.
+local FACING_NAME = "SteerFacing"
+
+local function otherAlignActive(rootPart)
+	for _, child in ipairs(rootPart:GetChildren()) do
+		if child:IsA("AlignOrientation") and child.Enabled and child.Name ~= FACING_NAME then
+			return true
+		end
+	end
+	return false
+end
+
+local function releaseFacing(data, humanoid, rootPart)
+	if not data.ownsFacing then return end
+	data.ownsFacing = false
+	local align = rootPart and rootPart:FindFirstChild(FACING_NAME)
+	if align then align.Enabled = false end
+	if humanoid and humanoid.Parent then humanoid.AutoRotate = true end
+end
+
+local function claimFacing(data, humanoid, rootPart)
+	local align = rootPart:FindFirstChild(FACING_NAME)
+	if not align then
+		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+		att.Name = "RootAttachment"
+		align = Instance.new("AlignOrientation")
+		align.Name = FACING_NAME
+		align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		align.Attachment0 = att
+		align.RigidityEnabled = false
+		align.Responsiveness = CombatConfig.Locomotion_FacingResponsiveness or 35
+		align.MaxTorque = 400000
+		align.MaxAngularVelocity = 14
+		align.CFrame = CFrame.lookAt(Vector3.zero, flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1)))
+		align.Parent = rootPart
+	end
+	if not data.ownsFacing then
+		align.CFrame = CFrame.lookAt(Vector3.zero, flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1)))
+	end
+	align.Enabled = true
+	data.ownsFacing = true
+	humanoid.AutoRotate = false
+end
+
+local function updateFacing(data, rootPart, dt)
+	local align = rootPart:FindFirstChild(FACING_NAME)
+	local heading = data.groundIntentDirection
+	if not align or not heading then return end
+	local v = rootPart.AssemblyLinearVelocity
+	local flat = Vector3.new(v.X, 0, v.Z)
+	local facing = heading
+	if flat.Magnitude > (CombatConfig.Locomotion_FacingMotionMinSpeed or 6) then
+		local motion = flat.Unit
+		-- The constraint trails a turning target by ~0.11 s (a turn rate of 3 rad/s left the
+		-- body 17 degrees behind its motion); the target leads by the motion's own turn rate
+		-- times that, so the body arrives on its motion instead of trailing it
+		local motionYaw = math.atan2(motion.X, motion.Z)
+		local rate = 0
+		if data.prevMotionYaw and dt and dt > 0 then
+			local delta = (motionYaw - data.prevMotionYaw + math.pi) % (2 * math.pi) - math.pi
+			rate = delta / dt
+		end
+		data.prevMotionYaw = motionYaw
+		data.motionTurnRate = (data.motionTurnRate or 0) + (rate - (data.motionTurnRate or 0)) * math.min(1, (dt or 0.016) * 12)
+		local lead = math.clamp(data.motionTurnRate * (CombatConfig.Locomotion_FacingLeadTime or 0.11), -0.6, 0.6)
+		local leadYaw = motionYaw + lead
+		local led = Vector3.new(math.sin(leadYaw), 0, math.cos(leadYaw))
+		if motion:Dot(heading) > -0.2 then
+			local intoTurn = CombatConfig.Locomotion_FacingIntoTurn or 0.3
+			local blended = led + (heading - motion) * intoTurn
+			if blended.Magnitude > 0.05 then
+				facing = blended.Unit
+			end
+		end
+	else
+		data.prevMotionYaw = nil
+		data.motionTurnRate = 0
+	end
+	align.CFrame = CFrame.lookAt(Vector3.zero, facing)
+end
+
 local function ensureSteerDriver(fighter, humanoid, rootPart)
 	if steerConns[fighter] then return end
 	local conn
@@ -193,6 +281,10 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			conn:Disconnect()
 			steerConns[fighter] = nil
 			return
+		end
+		if data.ownsFacing and (not data.steerTarget or os.clock() > (data.steerUntil or 0) or activeSlides[fighter]
+			or humanoid.PlatformStand or otherAlignActive(rootPart)) then
+			releaseFacing(data, humanoid, rootPart)
 		end
 		if not data.steerTarget or os.clock() > (data.steerUntil or 0) then return end
 		if activeSlides[fighter] or humanoid.PlatformStand or fighter:GetAttribute("IsPlayerControlled") == true then return end
@@ -215,6 +307,9 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 		local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
 		if flat.Magnitude < 0.1 then return end
 		humanoid:Move(LocomotionModule.resolveGroundIntent(fighter, rootPart, flat.Unit, frameDt), false)
+		if data.ownsFacing then
+			updateFacing(data, rootPart, frameDt)
+		end
 	end)
 	steerConns[fighter] = conn
 end
@@ -224,6 +319,10 @@ function LocomotionModule.cancelSteer(fighter)
 	local data = locoData[fighter]
 	if data then
 		data.steerUntil = 0
+		if data.ownsFacing then
+			local humanoid = fighter:FindFirstChildOfClass("Humanoid")
+			releaseFacing(data, humanoid, fighter:FindFirstChild("HumanoidRootPart"))
+		end
 	end
 end
 
@@ -317,7 +416,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local skidCooldown = CombatConfig.Locomotion_SkidCooldown or 0.70
 	local skidLockout = CombatConfig.Locomotion_SkidLockout or 0.65
 
-	local isStrafing = (fighter:GetAttribute("IsStrafing") == true) or (humanoid.AutoRotate == false)
+	local isStrafing = (fighter:GetAttribute("IsStrafing") == true) or (humanoid.AutoRotate == false and not data.ownsFacing)
 
 	-- Skid plants need traction: never trigger one in the air or during tactical strafing/feints
 	if not isStrafing and currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 and not isHumanoidAirborne(humanoid) then
@@ -364,7 +463,13 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	-- 3. Issue the resolved curved heading to the humanoid. Both player and AI
 	-- use this same ground-intent result and Move translation API; arrival deceleration eliminated!
 	if not isStrafing then
-		humanoid.AutoRotate = true
+		local aiDriven = useDriver and CombatConfig.Locomotion_FacingFollowsMotion ~= false
+		if aiDriven and not otherAlignActive(rootPart) then
+			claimFacing(data, humanoid, rootPart)
+		else
+			releaseFacing(data, humanoid, rootPart)
+			humanoid.AutoRotate = true
+		end
 	end
 	humanoid:Move(driveDirection, false)
 
