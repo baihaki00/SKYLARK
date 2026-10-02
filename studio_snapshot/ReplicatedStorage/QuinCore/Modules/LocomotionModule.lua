@@ -239,6 +239,14 @@ local function updateFacing(data, rootPart, dt)
 	local align = rootPart:FindFirstChild(FACING_NAME)
 	local heading = data.groundIntentDirection
 	if not align or not heading then return end
+	if data.reversal and data.reversal.phase == "pivot" then
+		-- turning on the planted foot: the body turns with the heading, led by the constraint's
+		-- lag (without the lead it trailed the turn by 30-45 degrees and drove out crabwise)
+		data.prevMotionYaw = nil
+		data.motionTurnRate = 0
+		align.CFrame = CFrame.lookAt(Vector3.zero, data.reversal.facing or heading)
+		return
+	end
 	local v = rootPart.AssemblyLinearVelocity
 	local flat = Vector3.new(v.X, 0, v.Z)
 	local facing = heading
@@ -272,6 +280,23 @@ local function updateFacing(data, rootPart, dt)
 	align.CFrame = CFrame.lookAt(Vector3.zero, facing)
 end
 
+-- Reversals (plant and pivot). A sharp reversal at a run used to drop to ~40% speed and then
+-- swing round a running U-turn at 17-25 studs/s: about 24 studs of loop, the body spinning at
+-- up to 670 degrees/s while the run cycle played, the feet skating. A runner reverses by
+-- braking along its line, turning on the planted foot near a standstill and driving out:
+--   brake: heading held on the old line, hard deceleration down to the pivot speed;
+--   pivot: the speed held at the pivot speed while the heading turns (the slow-speed turn
+--          rate), the body turning with it;
+--   then the ordinary acceleration toward the goal.
+local reversalRay = RaycastParams.new()
+reversalRay.FilterType = Enum.RaycastFilterType.Exclude
+reversalRay.RespectCanCollide = true
+
+local function groundAhead(rootPart, direction)
+	reversalRay.FilterDescendantsInstances = { rootPart.Parent }
+	return Workspace:Raycast(rootPart.Position + direction * 4, Vector3.new(0, -16, 0), reversalRay) ~= nil
+end
+
 local function ensureSteerDriver(fighter, humanoid, rootPart)
 	if steerConns[fighter] then return end
 	local conn
@@ -286,27 +311,89 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			or humanoid.PlatformStand or otherAlignActive(rootPart)) then
 			releaseFacing(data, humanoid, rootPart)
 		end
-		if not data.steerTarget or os.clock() > (data.steerUntil or 0) then return end
-		if activeSlides[fighter] or humanoid.PlatformStand or fighter:GetAttribute("IsPlayerControlled") == true then return end
+		local steering = data.steerTarget and os.clock() <= (data.steerUntil or 0)
+		if not steering or activeSlides[fighter] or humanoid.PlatformStand or fighter:GetAttribute("IsPlayerControlled") == true then
+			if data.reversal then
+				-- (a reversal only lives under continuous steering)
+				data.reversal = nil
+				fighter:SetAttribute("ReversalPhase", nil)
+			end
+			return
+		end
 
 		frameDt = math.clamp(frameDt, 0.001, 0.05)
 		local target = data.steerSpeed or humanoid.WalkSpeed
 		if os.clock() < (data.landingHoldUntil or 0) then
 			target = 0 -- absorbing a landing: brake first, move on as the body rises
 		end
+		local toTarget = data.steerTarget - rootPart.Position
+		local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
+		local decel = CombatConfig.Locomotion_BrakingDeceleration or 140.0
+
+		local reversal = data.reversal
+		if reversal and (os.clock() - reversal.started > 1.2 or isHumanoidAirborne(humanoid)) then
+			data.reversal = nil
+			reversal = nil
+		end
+		if reversal then
+			local pivotSpeed = CombatConfig.Locomotion_ReversalPivotSpeed or 6
+			if reversal.phase == "brake" then
+				local v = rootPart.AssemblyLinearVelocity
+				if Vector3.new(v.X, 0, v.Z).Magnitude <= pivotSpeed + 1 or os.clock() - reversal.started > 0.45
+					or not groundAhead(rootPart, reversal.dir) then
+					reversal.phase = "pivot"
+				else
+					decel = CombatConfig.Locomotion_ReversalBrake or 150
+				end
+			end
+			target = math.min(target, pivotSpeed)
+			if reversal.phase == "pivot" then
+				local heading = data.groundIntentDirection
+				local look = flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1))
+				local alignedCos = CombatConfig.Locomotion_ReversalAlignedCos or 0.9
+				if flat.Magnitude < 0.1 or (heading and heading:Dot(flat.Unit) > alignedCos and look:Dot(flat.Unit) > alignedCos - 0.1) then
+					data.reversal = nil -- facing the new way: drive out
+					reversal = nil
+				end
+			end
+		end
+		fighter:SetAttribute("ReversalPhase", reversal and reversal.phase or nil)
+
 		local speed = humanoid.WalkSpeed
 		if speed < target then
 			speed = math.min(speed + (CombatConfig.Locomotion_Acceleration or 80.0) * frameDt, target)
 		elseif speed > target then
-			speed = math.max(speed - (CombatConfig.Locomotion_BrakingDeceleration or 140.0) * frameDt, target)
+			speed = math.max(speed - decel * frameDt, target)
 		end
 		humanoid.WalkSpeed = speed
 		data.currentSpeed = speed
 
-		local toTarget = data.steerTarget - rootPart.Position
-		local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
+		if reversal and reversal.phase == "brake" then
+			data.groundIntentDirection = reversal.dir
+			humanoid:Move(reversal.dir, false)
+			if data.ownsFacing then
+				updateFacing(data, rootPart, frameDt)
+			end
+			return
+		end
 		if flat.Magnitude < 0.1 then return end
-		humanoid:Move(LocomotionModule.resolveGroundIntent(fighter, rootPart, flat.Unit, frameDt), false)
+		if reversal and data.groundIntentDirection then
+			-- the pivot turns at a stepping pace (at the slow-speed turn rate it spun round in
+			-- 0.2 s, faster than feet can step round)
+			local heading = data.groundIntentDirection
+			local current = math.atan2(heading.X, heading.Z)
+			local delta = shortestAngleDelta(math.atan2(flat.X, flat.Z), current)
+			local maxStep = (CombatConfig.Locomotion_ReversalTurnRate or 7) * frameDt
+			local nextAngle = current + math.clamp(delta, -maxStep, maxStep)
+			data.groundIntentDirection = Vector3.new(math.sin(nextAngle), 0, math.cos(nextAngle))
+			local remaining = delta - math.clamp(delta, -maxStep, maxStep)
+			local lead = (CombatConfig.Locomotion_ReversalTurnRate or 7) * (CombatConfig.Locomotion_FacingLeadTime or 0.11)
+			local facingAngle = nextAngle + math.clamp(remaining, -lead, lead)
+			reversal.facing = Vector3.new(math.sin(facingAngle), 0, math.cos(facingAngle))
+			humanoid:Move(data.groundIntentDirection, false)
+		else
+			humanoid:Move(LocomotionModule.resolveGroundIntent(fighter, rootPart, flat.Unit, frameDt), false)
+		end
 		if data.ownsFacing then
 			updateFacing(data, rootPart, frameDt)
 		end
@@ -319,6 +406,10 @@ function LocomotionModule.cancelSteer(fighter)
 	local data = locoData[fighter]
 	if data then
 		data.steerUntil = 0
+		if data.reversal then
+			data.reversal = nil
+			fighter:SetAttribute("ReversalPhase", nil)
+		end
 		if data.ownsFacing then
 			local humanoid = fighter:FindFirstChildOfClass("Humanoid")
 			releaseFacing(data, humanoid, fighter:FindFirstChild("HumanoidRootPart"))
@@ -426,7 +517,18 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 
 		-- Sharp reversal: >= 115 degrees cut (cos theta < -0.42)
 		-- Fully procedural turnaround: kinetic plant friction, procedural mass drop, braking pitch, and grey smoke burst!
-		if cosTheta < -0.42 and (now - (data.lastSkidTime or 0)) >= skidCooldown then
+		if cosTheta < -0.42 and (now - (data.lastSkidTime or 0)) >= skidCooldown and not data.reversal
+			and useDriver and CombatConfig.Locomotion_ReversalPivot ~= false then
+			-- Plant and pivot (see groundAhead): the driver brakes along the old line, turns, drives out
+			local pivotSpeed = CombatConfig.Locomotion_ReversalPivotSpeed or 6
+			local turnDuration = math.max(currentSpeed - pivotSpeed, 0) / (CombatConfig.Locomotion_ReversalBrake or 150) + 0.3
+			data.lastSkidTime = now
+			data.skidEndTime = now + turnDuration
+			data.reversal = { dir = curDir, phase = "brake", started = now }
+			fighter:SetAttribute("SkidTurnTime", now)
+			fighter:SetAttribute("SkidTurnDuration", turnDuration)
+			VfxModule.createArcaneFootBurst(fighter, rootPart.Position, curDir)
+		elseif cosTheta < -0.42 and (now - (data.lastSkidTime or 0)) >= skidCooldown then
 			local turnDuration = skidLockout
 			data.lastSkidTime = now
 			data.skidEndTime = now + turnDuration
@@ -458,6 +560,9 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 			-- VFX: Stylized grey foot smoke burst along turf scrape vector (zero physics parts)
 			VfxModule.createArcaneFootBurst(fighter, rootPart.Position, curDir)
 		end
+	end
+	if data.reversal and data.reversal.phase == "brake" then
+		driveDirection = data.reversal.dir -- (the driver holds the old line while it brakes)
 	end
 
 	-- 3. Issue the resolved curved heading to the humanoid. Both player and AI

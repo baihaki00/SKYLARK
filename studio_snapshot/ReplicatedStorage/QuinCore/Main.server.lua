@@ -454,6 +454,16 @@ task.spawn(function()
 			continue
 		end
 
+		-- With DevGoal set (Studio only) the Quin runs at that point on its normal locomotion;
+		-- a test moves the goal to make it turn (pivots, reversals).
+		local devGoal = Quin:GetAttribute("DevGoal")
+		if devGoal and game:GetService("RunService"):IsStudio() then
+			LocomotionModule.steer(Quin, humanoid, rootPart, devGoal, Quin:GetAttribute("DevGoalSpeed") or 40, 0.1)
+			GaitModule.update(humanoid, rootPart, 0.1)
+			task.wait(0.1)
+			continue
+		end
+
 		-- === Inert Laboratory Rig Bypass ===
 		-- When marked IsInert or IsTester (without explicit combat mode active), keep Quin completely passive
 		local isInert = Quin:GetAttribute("IsInert") == true

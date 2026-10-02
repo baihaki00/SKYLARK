@@ -554,6 +554,12 @@ CombatConfig.Locomotion_FacingIntoTurn = 0.3     -- share of the way from the mo
 CombatConfig.Locomotion_FacingResponsiveness = 35 -- AlignOrientation responsiveness of the steering facing
 CombatConfig.Locomotion_FacingMotionMinSpeed = 6 -- studs/s: below this it faces the steer heading (turning on the spot, starting off)
 CombatConfig.Locomotion_FacingLeadTime = 0.11     -- seconds of the motion's turn the facing target leads by (the facing constraint's own lag)
+-- Reversals (> 115 degrees at a run): brake along the line, pivot near a standstill, drive out
+CombatConfig.Locomotion_ReversalPivot = true       -- false: the old running U-turn (speed dropped to 40%, then turned at grip)
+CombatConfig.Locomotion_ReversalBrake = 150        -- studs/s^2 deceleration of the brake phase
+CombatConfig.Locomotion_ReversalPivotSpeed = 6     -- studs/s held while the body turns round
+CombatConfig.Locomotion_ReversalTurnRate = 7       -- rad/s heading turn of the pivot (0.45 s for a half turn)
+CombatConfig.Locomotion_ReversalAlignedCos = 0.9   -- the pivot ends once heading (and body, 0.1 looser) face the goal this closely
 CombatConfig.SecondaryMotion_TorsoFrequency = 3.5 -- Hz: spine/neck spring (heavier and slower than the arms' SecondaryMotion_Frequency)
 CombatConfig.SecondaryMotion_TorsoDamping = 1.0   -- spine/neck spring damping ratio (1 = settles without overshoot)
 CombatConfig.SecondaryMotion_Inertia = 1.0        -- scale on the body acceleration the springs feel (they run in the body's frame)
