@@ -280,3 +280,10 @@ do
 		focusParts[player] = nil
 	end)
 end
+
+-- The Quins' social layer (pack leaders, respect customs, arena events). Started here so its loop
+-- belongs to a script that lives all session (Main is cloned into each Quin and dies with it).
+do
+	local SocialSystem = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SocialSystem"))
+	SocialSystem.start()
+end

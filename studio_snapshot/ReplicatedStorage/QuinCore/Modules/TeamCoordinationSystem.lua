@@ -74,45 +74,20 @@ function TeamCoordinationSystem.evaluateRole(quinModel, nearbyAllies, nearbyEnem
 		return "Wingman"
 	end
 
-	-- 5. Check for PACK LEADER vs FOLLOWER:
-	-- The leader is the ally with the highest confidence in the cluster (or highest HP)
-	local isLeader = true
-	local foundLeaderModel = nil
-	local highestAllyConfidence = -1
-
-	for _, aEntry in ipairs(nearbyAllies) do
-		local aModel = aEntry.model
-		if aModel and aModel.Parent then
-			local aConf = aModel:GetAttribute("CurrentConfidence") or (aModel:GetAttribute("Pers_Confidence") or 0.6)
-			local aRole = aModel:GetAttribute("TeamRole")
-			if aRole == "PackLeader" then
-				isLeader = false
-				foundLeaderModel = aModel
-				break
-			end
-			if aConf > highestAllyConfidence then
-				highestAllyConfidence = aConf
-				foundLeaderModel = aModel
-			end
-		end
-	end
-
-	if isLeader and (confidence >= highestAllyConfidence or confidence >= 0.70) then
+	-- 5. PACK LEADER vs FOLLOWER: leaders emerge from battlefield results (SocialLeaders), capped
+	-- per team; a follower is near one. Whether it follows a signal is its own decision, so the
+	-- role no longer pulls it onto the leader's target by itself.
+	if quinModel:GetAttribute("SocialRole") == "Leader" then
 		quinModel:SetAttribute("TeamRole", "PackLeader")
 		quinModel:SetAttribute("AssignedLeader", "")
 		quinModel:SetAttribute("GuardedAlly", "")
-		-- Broadcast current target as team focus
-		local myTarget = quinModel:GetAttribute("CurrentTarget")
-		if myTarget and myTarget ~= "" then
-			quinModel:SetAttribute("TeamFocusTarget", myTarget)
-		end
 		return "PackLeader"
-	else
-		quinModel:SetAttribute("TeamRole", "Follower")
-		quinModel:SetAttribute("AssignedLeader", foundLeaderModel and foundLeaderModel.Name or "")
-		quinModel:SetAttribute("GuardedAlly", "")
-		return "Follower"
 	end
+	local leaderName = quinModel:GetAttribute("FollowingLeader")
+	quinModel:SetAttribute("TeamRole", leaderName and "Follower" or "Squad")
+	quinModel:SetAttribute("AssignedLeader", leaderName or "")
+	quinModel:SetAttribute("GuardedAlly", "")
+	return leaderName and "Follower" or "Squad"
 end
 
 -- Get recommended focus target based on team role
@@ -120,7 +95,7 @@ function TeamCoordinationSystem.getTeamFocusTarget(quinModel)
 	if not quinModel then return nil end
 	local role = quinModel:GetAttribute("TeamRole")
 
-	if role == "Follower" then
+	if role == "Follower" and false then -- (leader signals are followed by decision now: SocialLeaders)
 		local leaderName = quinModel:GetAttribute("AssignedLeader")
 		if leaderName and leaderName ~= "" then
 			local leaderModel = workspace:FindFirstChild(leaderName) or (workspace:FindFirstChild("QuinServer") and workspace.QuinServer:FindFirstChild(leaderName))

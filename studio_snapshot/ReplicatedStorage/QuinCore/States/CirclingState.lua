@@ -172,6 +172,10 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	if showdownRole == "Spectator" or showdownRole == "Watching" then
 		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
 	end
+	-- A place it decided to walk to (a leader's regroup, a respect custom): it goes there first
+	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).followMoveIntent(fighter, humanoid, rootPart, 0.1) then
+		return CirclingState
+	end
 
 	-- Respect-custom duel: kept on the ceremony space, no jumping away
 	local inShowdown = (showdownRole == "Duelist") -- (a respect-custom duel)

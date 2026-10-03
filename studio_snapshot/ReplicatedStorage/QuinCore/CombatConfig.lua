@@ -711,5 +711,39 @@ CombatConfig.Social = {
 	-- Arena event levels, lowest to highest (SocialSystem.raiseEvent never goes down)
 	EventLevels = { "Normal", "Interesting", "Notable", "LeaderShowdown", "RespectCustom",
 		"UnexpectedLeaderDefeat", "HonorableComeback", "BigClutch", "Historic" },
+	Parts = { "SocialLeaders" }, -- modules that register with the social tick
+	-- Pack leaders (Modules/SocialLeaders): a role that emerges from battlefield results
+	Leaders = {
+		Enabled = true,
+		Caps = { { 1, 0 }, { 2, 1 }, { 5, 2 }, { 9, 4 } }, -- { team size at least, leaders at most }: 1v1 0, 2-4 1, 5-8 2, 9+ 4
+		ElectionInterval = 2,     -- seconds between leadership checks
+		StandingPerKill = 1.0,    -- standing = kills + damage / StandingDamagePerPoint + health * weight + followed * weight
+		StandingDamagePerPoint = 150,
+		StandingHealthWeight = 0.6,
+		StandingPerFollow = 0.15,
+		MinStanding = 2.0,        -- nobody leads before having done something
+		StandoutMargin = 1.0,     -- ... and standing this far above the team's average
+		LeaderSpacing = 60,       -- studs between two leaders of a team (each leads its part of the field)
+		FollowRadius = 120,       -- studs: allies within this follow the nearest leader
+		NoticeRadius = 40,
+		CredStart = 0.6, CredFloor = 0.25, CredGain = 0.06, CredLoss = 0.08, CredDisaster = 0.15,
+		DownTooLong = 5,          -- seconds knocked down / recovering before leadership passes on
+		GiveUpHealth = 0.22,      -- a leader this hurt with no ally near gives the role up
+		OutshineMargin = 1.5, OutshineTime = 8,
+		-- Signals
+		SignalCooldown = 6, SignalRadius = 70,
+		ProtectHealth = 0.35,
+		JudgeAfter = 8, AttackSuccessDamage = 0.04, -- share of the target's max health lost in JudgeAfter (1000 HP; one attacker deals ~26 HP in 8 s: 0.25 judged 22 of 24 bad, 0.08 still 27 of 33)
+		ReemergeCooldown = 30,    -- seconds before a Quin that lost the role can lead again
+		-- Following (each ally decides): p = trust * 0.6 + credibility * 0.4 - penalties
+		TrustStart = 0.5, TrustGain = 0.06, TrustLoss = 0.08, NeverFollowTrust = 0.2,
+		FollowTrustWeight = 0.6, FollowCredWeight = 0.4,
+		FollowEngagedPenalty = 0.15, FollowDangerPenalty = 0.3, FollowDistancePenalty = 0.2, -- (engaged 0.25: 89% of signals ignored early in a 16v16)
+		ReactMin = 0.3, ReactMax = 1.4, -- seconds before an ally answers (trusting ones answer fast)
+		FocusTime = 8, FocusScore = 70, -- a followed attack signal: targeting bonus and how long it lasts
+		RegroupTime = 5, GuardTime = 10,
+		InterceptTrust = 0.65, InterceptScore = 45, -- trusting followers turn on an enemy going for their leader
+		WitnessRadius = 30,
+	},
 }
 return CombatConfig

@@ -8,6 +8,7 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local Cognition = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Cognition"))
 
+local SocialSystem = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SocialSystem"))
 local TargetingModule = {}
 
 -- Utility-based target evaluation and selection
@@ -183,7 +184,11 @@ function TargetingModule.selectTarget(quinModel, localState)
 				huntedScore = (CombatConfig.Targeting_HuntedScore or 60) * (quinModel:GetAttribute("Pers_Awareness") or 0.65)
 			end
 
-			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore
+			-- 13. Social layer (SocialSystem): a leader's attack signal this Quin chose to follow, an
+			-- enemy going for the leader it trusts, a Quin it holds off (respect custom)
+			local socialScore = SocialSystem.targetScore(quinModel, model)
+
+			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + socialScore
 
 			if utility > bestUtility then
 				bestUtility = utility
@@ -191,6 +196,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 
 				-- Build explainable debug reason
 				local reasons = {}
+				if socialScore > 20 then table.insert(reasons, "Leader's signal / guarding the leader") end
 				if tauntScore > 0 then table.insert(reasons, "Humble the showoff (aura farming)") end
 				if rivalryScore > 0 then table.insert(reasons, "Historical Rivalry") end
 				if grudgeScore > 0 then table.insert(reasons, "Revengeful grudge") end

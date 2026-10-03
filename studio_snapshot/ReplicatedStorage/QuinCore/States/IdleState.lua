@@ -86,6 +86,10 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 		return IdleState
 	end
+	-- A place it decided to walk to (a leader's regroup, a respect custom): it goes there first
+	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).followMoveIntent(fighter, humanoid, rootPart, 0.1) then
+		return IdleState
+	end
 
 	-- Energy recovery while idle
 	local energy = fighter:GetAttribute("Energy") or 100

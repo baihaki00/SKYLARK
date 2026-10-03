@@ -26,7 +26,9 @@ local SocialSystem = {}
 
 local CFG = CombatConfig.Social or {}
 local tickers = {} -- { name = string, fn = function(dt, now) }
-local started = false
+local partsLoaded = false
+local loopGeneration = 0
+local lastBeat = -math.huge -- os.clock() of the loop's last tick
 
 local function serverNow()
 	return Workspace:GetServerTimeNow()
@@ -199,8 +201,19 @@ end
 -- Tick
 -- ============================================================================
 
-function SocialSystem.addTicker(name, fn)
-	table.insert(tickers, { name = name, fn = fn })
+-- fn(dt, now) runs every tick; reset() runs when the fighters are cleaned up (new match)
+function SocialSystem.addTicker(name, fn, reset)
+	table.insert(tickers, { name = name, fn = fn, reset = reset })
+end
+
+-- What the social layer adds to a candidate's targeting utility (TargetingModule term 13):
+-- huge negative for a Quin this one holds off (respect custom), plus followed leader signals
+function SocialSystem.targetScore(quin, candidate)
+	if quin:GetAttribute("SocialHoldOff") == candidate.Name then
+		return -1e6
+	end
+	local leaderScore = SocialSystem.leaderTargetScore
+	return leaderScore and leaderScore(quin, candidate) or 0
 end
 
 function SocialSystem.reset()
@@ -211,22 +224,46 @@ function SocialSystem.reset()
 	end
 end
 
+-- Starts the social tick (ServerScriptService.Server at game start; each Quin's Main calls it
+-- too). A thread dies with the script that started it, and Main is cloned into every Quin: the
+-- loop started by the first Quin's Main died when that Quin was cleaned up between matches.
+-- So start() restarts a loop that has stopped beating, and only the newest loop runs.
 function SocialSystem.start()
-	if started or CFG.Enabled == false then return end
-	started = true
+	if CFG.Enabled == false then return end
+	if os.clock() - lastBeat < 2 then return end -- running
 	Workspace:SetAttribute("ArenaEventLevel", Workspace:GetAttribute("ArenaEventLevel") or "Normal")
+	-- the parts of the social layer register their tickers when loaded
+	if not partsLoaded then
+		partsLoaded = true
+		for _, partName in ipairs(CFG.Parts or {}) do
+			local part = Modules:FindFirstChild(partName)
+			local ok, err = part and pcall(require, part)
+			if not ok then warn("[Social] could not load " .. partName .. ": " .. tostring(err)) end
+		end
+	end
+	loopGeneration += 1
+	local generation = loopGeneration
+	lastBeat = os.clock()
 	task.spawn(function()
 		local last = os.clock()
-		while true do
+		local ticks = 0
+		while generation == loopGeneration do
+			lastBeat = os.clock()
 			task.wait(1 / (CFG.TickRate or 4))
 			local now = os.clock()
 			local dt = now - last
 			last = now
+			ticks += 1
 			for _, t in ipairs(tickers) do
 				local ok, err = pcall(t.fn, dt, now)
 				if not ok then
 					warn("[Social] " .. t.name .. ": " .. tostring(err))
+					Workspace:SetAttribute("SocialLastError", t.name .. ": " .. tostring(err))
 				end
+			end
+			-- (telemetry: the social tick is alive, and how many parts it runs)
+			if ticks % 8 == 0 then
+				Workspace:SetAttribute("SocialTicks", ticks .. " x" .. #tickers)
 			end
 		end
 	end)
