@@ -60,9 +60,26 @@ It ends when another mode starts: `CurrentMode` changes, or the new mode clears 
 | A | animation only |
 | B | basic IK: a foot that would sink is pushed up onto the ground |
 | C | foot placement: ground-relative foot height, lock while planted, slope tilt, pelvis drop |
-| D | C + engine parts: knee hinges instead of poles, head LookAt, part on a hand bone, trail, hanging tag |
+| D | full procedural: C with knee hinges, plus ten full-body layers and engine parts (part on a hand bone, trail, hanging tag) |
 
 Each Quin's label shows the current programme part and its planted-foot numbers (above ground, inside ground, slide).
+
+**Lane D layers** (panel at the bottom left; each button writes `D_<Name>` on `Workspace.IKLab`):
+
+| Layer | Rule |
+|---|---|
+| Lean | the body tilts toward its acceleration (starts, stops, turns) and forward with speed |
+| SlopeLean | and uphill on a slope |
+| PelvisSpring | the pelvis follows the feet on a spring and dips on landing |
+| HipTwist | the pelvis turns toward the leg that is forward |
+| SpineCounter | the lower spine takes back part of the lean and twist, and turns into a turn |
+| Look | QuinCore's `LookController` on the blue ball: only when it is in front, capped, spring-smoothed |
+| ArmLag | the arms hang the way a loose arm would under the body's acceleration |
+| Point | arm IK: the left hand points at the ball when it is in front and within 60 studs |
+| Toes | a toe that would dig into the ground bends flat |
+| Breath | the chest rises and falls at idle |
+
+Lean, SlopeLean, PelvisSpring and HipTwist move the root before the engine solves the legs, so the feet stay planted. The rest are written into `Bone.Transform` after animation and IK, once per animation step.
 
 **Bar at the bottom of the screen:**
 - **Prev / Next, << Category / Category >>:** play any clip of `AnimationConfig` (read with `getAllPaths()`, so new clips appear by themselves). A looping clip that travels (1.5 studs/s or more, measured from the clip) carries the Quins up and down the course; any other clip is played standing on the rubble.

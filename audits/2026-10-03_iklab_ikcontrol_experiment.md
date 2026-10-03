@@ -142,3 +142,21 @@ Script cost per rig per frame: 17-25 microseconds, all lanes. Engine solve cost 
 - Checked in Play: start by DevCommand and by the card's remote, Movement.Jog (9.2 studs/s) on the
   course, Attacks.Kicks.HighKick standing, orbit camera 13.8 studs from lane C, start of Pose Viewer
   removes the lab, no script errors. The card itself was not clicked by hand.
+
+---
+
+# Fourth round (same day): lane D becomes "full procedural"
+
+Owner: put every procedural layer on D, cost no object, then stress test.
+
+- Engine `IKControl` LookAt removed; QuinCore's `LookController` drives head, neck and upper back
+  (target override = the blue ball), so the in-front gate and the caps come from the game's own code.
+- Root level (before the leg solve, feet stay planted): Lean (acceleration + speed), SlopeLean,
+  PelvisSpring (with a landing dip), HipTwist.
+- Pose level (Bone.Transform after animation and IK, once per animation step): SpineCounter
+  (Spine, Spine1), ArmLag, Toes, Breath. Arm IK: Point (left hand, IKControl Position).
+- Each layer has a switch (`D_<Name>`, panel at the bottom left).
+- Checked: starts with no script errors; D root tilt 4.5 deg walking the side slope and 6.9 deg peak
+  strafing; no NaN over 8.5 s. Not yet measured: run, circles and jumps with the layers on, each
+  layer on its own, Point and Look actually engaging near the ball.
+- Stride warping, inertial blending and hand contact IK are not implemented.

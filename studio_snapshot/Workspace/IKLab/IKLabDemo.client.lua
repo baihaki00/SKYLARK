@@ -9,8 +9,10 @@
 	  B  + basic IK: a foot that would sink into the ground is pushed up onto it
 	  C  + foot placement: feet follow the ground height, stay locked while planted,
 	       tilt to the slope, and the pelvis drops so the lower foot can reach
-	  D  C + engine features that need no per-frame code: knee hinges instead of poles,
-	       head LookAt, a part fixed to a hand bone, a trail, a hanging tag on a ball socket
+	  D  everything: C with knee hinges, plus the full-body layers further down (lean, slope
+	       lean, pelvis spring, hip twist, spine counter-rotation, QuinCore's LookController,
+	       arm lag, arm IK pointing, toe bend, breathing) and engine parts (a part fixed to a
+	       hand bone, a trail, a hanging tag). Each layer has a switch: attribute D_<Name>.
 
 	Two programmes:
 	  Tour         walk, run, jog, strafe both ways and walk backward over the course, turn in
@@ -46,14 +48,16 @@ local lab = script.Parent
 local course = lab:WaitForChild("Course")
 local lookTarget = lab:WaitForChild("LookTarget")
 local template = ReplicatedStorage:WaitForChild("QuinType"):WaitForChild("QuinMale")
-local AnimationConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationConfig"))
+local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
+local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
+local LookController = require(QuinCore:WaitForChild("Modules"):WaitForChild("LookController"))
 
 local MODE_NAME = "IKLab"
 local LANES = {
 	{ key = "A", z = 512, mode = "anim", title = "A  animation only" },
 	{ key = "B", z = 520, mode = "basic", title = "B  + basic IK" },
 	{ key = "C", z = 528, mode = "full", title = "C  + foot placement" },
-	{ key = "D", z = 536, mode = "full", plants = true, title = "D  C + engine parts" },
+	{ key = "D", z = 536, mode = "full", plants = true, full = true, title = "D  full procedural" },
 }
 local SIDES = { "Left", "Right" }
 local BODY = { "Hips", "Spine2", "Head", "LeftArm", "LeftForeArm", "LeftHand", "RightArm", "RightForeArm", "RightHand", "LeftLeg", "RightLeg", "LeftFoot", "RightFoot", "LeftToeBase", "RightToeBase" }
@@ -80,6 +84,32 @@ local REACH_LIMIT = 0.97 -- of the leg length; a fully straight leg pops
 local ALIGN_FADE_LIFT = 0.8 -- slope alignment fades out as the foot lifts
 local IK_FADE_RATE = 25 -- IK weight in and out around a jump (1/s)
 local REVERSAL_MIN_SPEED = 0.3 -- studs/s; slower changes are not counted as vibration
+
+-- full-body layers (lane D)
+local GRAVITY = 196.2
+local ACCEL_LIMIT = 150 -- studs/s^2; a take-off or a teleport is not a real acceleration
+local ACCEL_SMOOTH_RATE = 12
+local LEAN_PER_ACCEL = 0.004 -- radians of body tilt per stud/s^2 (a turn at a run gives about 15 degrees)
+local LEAN_PER_SPEED = 0.004 -- radians of forward tilt per stud/s
+local SLOPE_LEAN = 0.35 -- share of the slope angle the body leans uphill
+local LEAN_MAX = math.rad(17)
+local COUNTER_LEAN = 0.4 -- share of the lean the spine takes back, so the head stays more level
+local PELVIS_OMEGA, PELVIS_DAMPING = 14, 0.8
+local LANDING_DIP = 0.2 -- pelvis speed gained per stud/s of fall speed at touchdown
+local TWIST_PER_STUD = 0.035 -- radians of pelvis yaw per stud one foot is ahead of the other
+local TWIST_MAX = math.rad(8)
+local TURN_LOOK = 0.07 -- radians the chest turns into a turn per rad/s
+local TURN_LOOK_MAX = math.rad(14)
+local ARM_OMEGA, ARM_DAMPING = 14, 0.45 -- loose: the arms overshoot a little
+local ARM_MAX = math.rad(25)
+local POINT_RANGE, POINT_CONE, POINT_WEIGHT = 60, math.rad(60), 0.7
+local TOE_FADE = 0.4 -- studs above the ground over which the toe bend fades out
+local BREATH_HZ, BREATH_ANGLE = 0.25, math.rad(1.2)
+local LAYERS = { "Lean", "SlopeLean", "PelvisSpring", "HipTwist", "SpineCounter", "Look", "ArmLag", "Point", "Toes", "Breath" }
+
+local function layerOn(name: string): boolean
+	return lab:GetAttribute("D_" .. name) ~= false
+end
 
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Include
@@ -392,6 +422,8 @@ end
 ----------------------------------------------------------------------------------------
 local Rig = {}
 Rig.__index = Rig
+local FullBody = {} -- lane D's layers, defined after Rig
+FullBody.__index = FullBody
 
 function Rig.new(index: number, lane, parent: Instance)
 	local self = setmetatable({}, Rig)
@@ -447,6 +479,9 @@ function Rig.new(index: number, lane, parent: Instance)
 	end
 	if lane.plants then
 		self:buildPlants()
+	end
+	if lane.full then
+		self.full = FullBody.new(self)
 	end
 	self:buildLabel()
 	return self
@@ -511,16 +546,6 @@ end
 
 -- Engine features that run with no code after this set-up.
 function Rig:buildPlants()
-	local look = Instance.new("IKControl")
-	look.Name = "HeadLook"
-	look.Type = Enum.IKControlType.LookAt
-	look.ChainRoot = self.bone("Neck")
-	look.EndEffector = self.bone("Head")
-	look.Target = lookTarget
-	look.Weight = 0.7
-	look.SmoothTime = 0.15
-	look.Parent = self.humanoid
-
 	local function prop(name: string, size: Vector3, color: Color3): Part
 		local part = Instance.new("Part")
 		part.Name = name
@@ -756,6 +781,9 @@ function Rig:update(dt: number)
 	local base = CFrame.new(x, self.rootY + Conductor.air, z) * CFrame.Angles(0, Conductor.yaw, 0)
 	self.speed = Conductor.cut and 0 or ((base.Position - self.base.Position) * Vector3.new(1, 0, 1)).Magnitude / dt
 	self.base = base
+	if self.full then
+		self.full:observe(base, dt)
+	end
 	self.ikWeight += ((Conductor.airborne and 0 or 1) - self.ikWeight) * decay(IK_FADE_RATE, dt)
 
 	if self.mode == "anim" then
@@ -829,14 +857,21 @@ function Rig:placeFeet(base: CFrame, dt: number)
 
 		local footY = foot.groundY + ankleHeight[side] + lift
 		local rot = CFrame.Angles(0, yaw + yawOffset, 0) * clip.Rotation
-		wanted[side] = { flat = flat, y = footY, hip = hip, rot = rot }
+		wanted[side] = { flat = flat, y = footY, hip = hip, rot = rot, forward = -clip.Position.Z }
 		lowest = math.min(lowest, footY - world.Y)
 	end
 
 	-- the pelvis follows the foot that has to go lowest, so that leg can reach
 	local pelvisGoal = Conductor.airborne and 0 or math.clamp(lowest, PELVIS_MIN, PELVIS_MAX)
-	self.pelvis += (pelvisGoal - self.pelvis) * decay(PELVIS_RATE, dt)
+	if self.full then
+		self.pelvis = self.full:pelvis(self.pelvis, pelvisGoal, dt)
+	else
+		self.pelvis += (pelvisGoal - self.pelvis) * decay(PELVIS_RATE, dt)
+	end
 	local rootCF = base + Vector3.new(0, self.pelvis, 0)
+	if self.full then
+		rootCF = self.full:tiltRoot(rootCF, wanted.Right.forward - wanted.Left.forward, dt)
+	end
 	self.root.CFrame = rootCF
 
 	for _, side in SIDES do
@@ -889,6 +924,214 @@ function Rig:publish()
 		out.tagGap = (self.tagTop.WorldPosition - self.tagHang.WorldPosition).Magnitude
 	end
 	lab:SetAttribute("Metrics_" .. self.lane.key, HttpService:JSONEncode(out))
+end
+
+----------------------------------------------------------------------------------------
+-- Full-body layers (lane D). Each is one small rule on top of the clip, switched by D_<Name>.
+--
+--   Root level, set before the engine solves the legs, so the feet stay where they are:
+--     Lean          the body tilts toward its acceleration (starts, stops, turns) and forward with speed
+--     SlopeLean     ... and uphill on a slope
+--     PelvisSpring  the pelvis follows the feet on a spring and dips on landing
+--     HipTwist      the pelvis turns toward the leg that is forward
+--   Pose level, written into Bone.Transform after animation and IK (upper body and toes only):
+--     SpineCounter  the lower spine takes back part of the lean and the hip twist, and turns into a turn
+--     Look          QuinCore's LookController: head, neck and upper back follow a target in front
+--     ArmLag        the arms hang the way a loose arm would under the body's acceleration
+--     Point         arm IK: the left hand points at the look target when it is in front and near
+--     Toes          a toe that would dig into the ground bends flat
+--     Breath        the chest rises and falls at idle
+----------------------------------------------------------------------------------------
+local function springStep(value, velocity, goal, omega: number, damping: number, dt: number)
+	velocity += ((goal - value) * (omega * omega) - velocity * (2 * damping * omega)) * dt
+	return value + velocity * dt, velocity
+end
+
+-- turn a bone by a rotation given in world space, on top of its current pose
+local function rotateWorld(bone: Bone, rotation: CFrame)
+	local world = bone.TransformedWorldCFrame.Rotation
+	bone.Transform *= world:Inverse() * rotation * world
+end
+
+local FLAT = Vector3.new(1, 0, 1)
+local DOWN = Vector3.new(0, -1, 0)
+
+function FullBody.new(rig)
+	local self = setmetatable({}, FullBody)
+	self.rig = rig
+	self.velocity, self.accel, self.yawRate = Vector3.zero, Vector3.zero, 0
+	self.lean, self.leanVel = Vector3.zero, Vector3.zero -- world, horizontal; length = tilt in radians
+	self.groundNormal = Vector3.yAxis
+	self.pelvisVel = 0
+	self.twist = 0
+	self.armSwing, self.armSwingVel = Vector3.zero, Vector3.zero -- how far a hanging arm is off straight down
+	self.pointWeight = 0
+	self.clock = 0
+	self.wasAirborne = false
+
+	self.spine = { rig.bone("Spine"), rig.bone("Spine1") } -- Spine2, Neck and Head belong to LookController
+	self.arms = { { rig.bone("LeftArm"), rig.bone("LeftForeArm") }, { rig.bone("RightArm"), rig.bone("RightForeArm") } }
+	self.toes = { Left = rig.bone("LeftToeBase"), Right = rig.bone("RightToeBase") }
+	self.look = LookController.new(rig.model, nil)
+
+	-- arm IK for Point
+	self.shoulder = rig.bone("LeftArm")
+	self.pointTarget = Instance.new("Attachment")
+	self.pointTarget.Name = "PointTarget"
+	self.pointTarget.Parent = rig.root
+	local elbow = Instance.new("Attachment")
+	elbow.Name = "ElbowPole"
+	elbow.Position = Vector3.new(-2.5, -1.5, 1.5) -- out, down and behind
+	elbow.Parent = rig.root
+	local ik = Instance.new("IKControl")
+	ik.Name = "PointIK"
+	ik.Type = Enum.IKControlType.Position
+	ik.ChainRoot = self.shoulder
+	ik.EndEffector = rig.bone("LeftHand")
+	ik.Target = self.pointTarget
+	ik.Pole = elbow
+	ik.SmoothTime = 0
+	ik.Weight = 0
+	ik.Parent = rig.humanoid
+	self.pointIK = ik
+	return self
+end
+
+-- Once per frame before the solve: how the body is moving, and every layer's state.
+function FullBody:observe(base: CFrame, dt: number)
+	local step = math.min(dt, 1 / 30) -- springs stay stable through a slow frame
+	self.clock += step
+	local yaw = Conductor.yaw
+	if Conductor.cut or not self.prevBase then
+		self.velocity, self.accel, self.yawRate = Vector3.zero, Vector3.zero, 0
+	else
+		local velocity = (base.Position - self.prevBase.Position) / dt
+		local accel = (velocity - self.velocity) / dt
+		if accel.Magnitude > ACCEL_LIMIT then
+			accel = accel.Unit * ACCEL_LIMIT
+		end
+		self.accel = self.accel:Lerp(accel, decay(ACCEL_SMOOTH_RATE, dt))
+		self.velocity = velocity
+		self.yawRate += (wrapAngle(yaw - self.prevYaw) / dt - self.yawRate) * decay(ACCEL_SMOOTH_RATE, dt)
+	end
+	self.prevBase, self.prevYaw = base, yaw
+
+	local _, normal = castDown(base.Position.X, base.Position.Y, base.Position.Z)
+	self.groundNormal = self.groundNormal:Lerp(normal, decay(8, dt)).Unit
+
+	-- landing: the fall speed goes into the pelvis spring
+	if self.wasAirborne and not Conductor.airborne then
+		self.pelvisVel -= math.clamp(-self.velocity.Y * LANDING_DIP, 0, 10)
+	end
+	self.wasAirborne = Conductor.airborne
+
+	-- lean
+	local lean = Vector3.zero
+	if layerOn("Lean") then
+		lean += self.accel * FLAT * LEAN_PER_ACCEL + self.velocity * FLAT * LEAN_PER_SPEED
+	end
+	if layerOn("SlopeLean") then
+		lean -= self.groundNormal * FLAT * SLOPE_LEAN * math.min(1, (self.velocity * FLAT).Magnitude / 5)
+	end
+	if lean.Magnitude > LEAN_MAX then
+		lean = lean.Unit * LEAN_MAX
+	end
+	self.lean, self.leanVel = springStep(self.lean, self.leanVel, lean, 7, 1, step)
+
+	-- arms: a loose arm hangs along gravity minus the body's acceleration (it floats in free fall)
+	local hang = DOWN * GRAVITY - self.accel
+	local swing = layerOn("ArmLag") and hang.Magnitude > 20 and hang.Unit - DOWN or Vector3.zero
+	self.armSwing, self.armSwingVel = springStep(self.armSwing, self.armSwingVel, swing, ARM_OMEGA, ARM_DAMPING, step)
+
+	-- point: only at something in front and near
+	local shoulder = self.shoulder.TransformedWorldCFrame.Position
+	local to = lookTarget.Position - shoulder
+	local direction = base:VectorToObjectSpace(to.Unit)
+	local inFront = math.abs(math.atan2(-direction.X, -direction.Z)) < POINT_CONE
+	local want = layerOn("Point") and inFront and to.Magnitude < POINT_RANGE and not Conductor.airborne
+	self.pointWeight += ((want and POINT_WEIGHT or 0) - self.pointWeight) * decay(4, step)
+	self.pointTarget.WorldPosition = shoulder + to.Unit * self.pointIK:GetChainLength() * 0.9
+	self.pointIK.Weight = self.pointWeight
+end
+
+function FullBody:pelvis(current: number, goal: number, dt: number): number
+	if not layerOn("PelvisSpring") then
+		self.pelvisVel = 0
+		return current + (goal - current) * decay(PELVIS_RATE, dt)
+	end
+	local value
+	value, self.pelvisVel = springStep(current, self.pelvisVel, goal, PELVIS_OMEGA, PELVIS_DAMPING, math.min(dt, 1 / 30))
+	return math.clamp(value, PELVIS_MIN - 0.5, PELVIS_MAX)
+end
+
+-- forwardGap: how far the right foot is ahead of the left in the clip (studs, root space)
+function FullBody:tiltRoot(rootCF: CFrame, forwardGap: number, dt: number): CFrame
+	local twist = layerOn("HipTwist") and math.clamp(forwardGap * TWIST_PER_STUD, -TWIST_MAX, TWIST_MAX) or 0
+	self.twist += (twist - self.twist) * decay(15, dt)
+	local out = rootCF * CFrame.Angles(0, self.twist, 0)
+	local amount = self.lean.Magnitude
+	if amount > 1e-4 then
+		-- tilt about the ground under the body, toward the lean
+		local pivot = rootCF.Position - Vector3.new(0, ROOT_HEIGHT, 0)
+		out = CFrame.new(pivot) * CFrame.fromAxisAngle(Vector3.yAxis:Cross(self.lean.Unit), amount) * CFrame.new(-pivot) * out
+	end
+	return out
+end
+
+-- Every rendered frame: the head follows its target (LookController keeps its own state).
+function FullBody:lookAt(dt: number)
+	if layerOn("Look") then
+		self.look:setTargetOverride(lookTarget.Position)
+		self.look:update(dt)
+	end
+end
+
+-- Once per animation step, after animation and IK: the pose-level layers.
+function FullBody:pose()
+	local rig = self.rig
+	local amount = self.lean.Magnitude
+
+	if layerOn("SpineCounter") then
+		local yaw = -self.twist + math.clamp(self.yawRate * TURN_LOOK, -TURN_LOOK_MAX, TURN_LOOK_MAX)
+		local rotation = CFrame.Angles(0, yaw / 2, 0)
+		if amount > 1e-4 then
+			rotation = CFrame.fromAxisAngle(Vector3.yAxis:Cross(self.lean.Unit), -amount * COUNTER_LEAN / 2) * rotation
+		end
+		for _, bone in self.spine do
+			rotateWorld(bone, rotation)
+		end
+	end
+
+	if layerOn("Breath") then
+		local idle = rig.weights[IDLE.path] or 0
+		local angle = math.sin(self.clock * 2 * math.pi * BREATH_HZ) * BREATH_ANGLE * idle
+		rotateWorld(self.spine[2], CFrame.fromAxisAngle(rig.root.CFrame.RightVector, angle))
+	end
+
+	if self.armSwing.Magnitude > 1e-3 then
+		local axis, angle = CFrame.fromRotationBetweenVectors(DOWN, (DOWN + self.armSwing).Unit):ToAxisAngle()
+		angle = math.min(angle, ARM_MAX)
+		for _, arm in self.arms do
+			rotateWorld(arm[1], CFrame.fromAxisAngle(axis, angle))
+			rotateWorld(arm[2], CFrame.fromAxisAngle(axis, angle * 0.5)) -- the forearm trails a little more
+		end
+	end
+
+	if layerOn("Toes") and not Conductor.airborne then
+		for side, toe in self.toes do
+			local foot = rig.feet[side]
+			local world = toe.TransformedWorldCFrame
+			local near = 1 - math.clamp((world.Position.Y - foot.groundY - 0.15) / TOE_FADE, 0, 1)
+			local along = world.UpVector -- the toe bone points along its Y axis
+			local into = along:Dot(foot.normal)
+			if near > 0 and into < 0 then
+				local flat = along - foot.normal * into
+				if flat.Magnitude > 0.1 then
+					rotateWorld(toe, CFrame.identity:Lerp(CFrame.fromRotationBetweenVectors(along, flat.Unit), near))
+				end
+			end
+		end
+	end
 end
 
 ----------------------------------------------------------------------------------------
@@ -1058,6 +1301,41 @@ local function buildHud(): (ScreenGui, TextLabel)
 	hint.Text = "right mouse: orbit\nwheel: zoom"
 	hint.Parent = bar
 
+	-- lane D's layers, one switch each
+	local panel = Instance.new("Frame")
+	panel.AnchorPoint = Vector2.new(0, 1)
+	panel.Position = UDim2.new(0, 16, 1, -16)
+	panel.Size = UDim2.fromOffset(150, 30 + #LAYERS * 26)
+	panel.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
+	panel.BackgroundTransparency = 0.15
+	panel.Parent = gui
+	Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
+	local heading = hint:Clone()
+	heading.Position = UDim2.fromOffset(0, 2)
+	heading.Size = UDim2.new(1, 0, 0, 24)
+	heading.Text = "Lane D layers"
+	heading.TextSize = 13
+	heading.Parent = panel
+	for index, name in LAYERS do
+		local b = Instance.new("TextButton")
+		b.Position = UDim2.fromOffset(8, 28 + (index - 1) * 26)
+		b.Size = UDim2.new(1, -16, 0, 22)
+		b.TextColor3 = Color3.new(1, 1, 1)
+		b.Font = Enum.Font.GothamBold
+		b.TextSize = 12
+		b.Parent = panel
+		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+		local function show()
+			b.Text = name .. (layerOn(name) and "  ON" or "  off")
+			b.BackgroundColor3 = layerOn(name) and Color3.fromRGB(40, 110, 70) or Color3.fromRGB(70, 45, 45)
+		end
+		b.MouseButton1Click:Connect(function()
+			lab:SetAttribute("D_" .. name, not layerOn(name))
+			show()
+		end)
+		show()
+	end
+
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	return gui, title
 end
@@ -1172,6 +1450,27 @@ local function start()
 		for _, connection in connections do
 			connection:Disconnect()
 		end
+	end)
+
+	-- pose-level layers: after animation and IK, before the frame is drawn. The engine rewrites
+	-- every bone on each animation step, so the edits are made once per step.
+	local poseFresh = false
+	table.insert(connections, RunService.PreAnimation:Connect(function()
+		poseFresh = true
+	end))
+	RunService:BindToRenderStep("IKLabPose", Enum.RenderPriority.Last.Value - 1, function(dt)
+		for _, rig in rigs do
+			if rig.full then
+				rig.full:lookAt(dt)
+				if poseFresh then
+					rig.full:pose()
+				end
+			end
+		end
+		poseFresh = false
+	end)
+	table.insert(cleanup, function()
+		RunService:UnbindFromRenderStep("IKLabPose")
 	end)
 	table.insert(connections, UserInputService.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
