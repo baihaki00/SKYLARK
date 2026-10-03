@@ -459,6 +459,12 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	-- ============================================================
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	local maxSpeed = (fighter:GetAttribute("Speed") or 40) * speedMult
+	-- A badly hurt Quin cannot run as fast as the one after it: a chase ends in a catch
+	local healthRatio = humanoid.Health / math.max(1, humanoid.MaxHealth)
+	local woundedFrom = CombatConfig.Retreat_WoundedFrom or 0.25
+	if healthRatio < woundedFrom then
+		maxSpeed *= 1 - (CombatConfig.Retreat_WoundedSlow or 0.2) * (1 - healthRatio / woundedFrom)
+	end
 	local lastUpdate = data.lastUpdateTime or (now - 0.05)
 	local dt = math.clamp(now - lastUpdate, 0.016, 0.25)
 	data.lastUpdateTime = now

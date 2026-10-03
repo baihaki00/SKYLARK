@@ -49,14 +49,24 @@ share back to 25-35% from 200 to 270 s, 13-17% in the last 30 s. 4-5 Quins Waiti
 Strikes over the run: hit 66%, whiff 7%, interrupted 21%, blocked 6% (baseline 66 / 8 / 18 / 8).
 No script errors.
 
+### Follow-up: a badly hurt Quin flees slower (owner: "go ahead")
+
+`RetreatState`: below `Retreat_WoundedFrom` (25% health) the flee speed falls off, down to
+`Retreat_WoundedSlow` (20%) less at death's door. Only the flee is slowed; chasing and fighting
+speeds are unchanged.
+
+16v16, run to the end: 17 knockouts by 300 s (13 before this, 1 at baseline); fight share stays
+24-27% through 280-310 s (was 13-17%); 1 v 11 at 340 s; the match ended by elimination at 403 s
+(21 knockouts; the last minute is the respect custom for the lone survivor). Strikes: hit 65%,
+whiff 7%, interrupted 20%, blocked 7%. No script errors.
+
 ### Open
 
-- The match still does not end inside the nominal 300 s (19 of 32 left); the last stretch slows
-  again (Retreat 20% at 300 s).
+- Before the follow-up the match did not end inside the nominal 300 s (19 of 32 left). With it,
+  one run ended at 403 s; one run is not a distribution.
 - A real Arena match (`MatchEndsAt` published and cleared) was not run. The `clock` dev hook and
   the forced 6 v 4 "battle of wits" case were not run on their own; the Pass 34 lull recipe was
   not re-run.
-- Fleeing Quins run as fast as their chasers, so a chase only ends when the runner turns.
 
 ## B. Mind panel
 
