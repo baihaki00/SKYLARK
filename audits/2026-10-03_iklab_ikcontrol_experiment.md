@@ -160,3 +160,95 @@ Owner: put every procedural layer on D, cost no object, then stress test.
   strafing; no NaN over 8.5 s. Not yet measured: run, circles and jumps with the layers on, each
   layer on its own, Point and Look actually engaging near the ball.
 - Stride warping, inertial blending and hand contact IK are not implemented.
+
+---
+
+# Fifth round (2026-10-04): the three missing layers, thighs, the stress test
+
+Owner: build stride warping, inertial blending and hand contact IK, then stress test everything;
+the thighs on D need work and a leg flashes while strafing.
+
+## A measurement error found first
+
+The body numbers were read at `PreAnimation`. When the engine runs several animation steps per
+drawn frame (Studio in the background: about 4), the steps in between show the pose without the
+pose-level edits, which only exist in the drawn frame. D's head and hands read as flickering at
+20-50 times the clip's acceleration; nothing of the kind was on screen. Measurements are now taken
+in the render step, after the edits. The old "turn in place" body numbers (knee x11-30) were the
+same artifact for a different reason and are gone too. Earlier rounds' body numbers for B and C
+are unaffected (IK is solved in the animation step); D's round 4 numbers are not to be trusted.
+
+## Thighs and the strafe flash
+
+D had knee hinges and no pole, so nothing fixed the thigh's twist. Now, in C and D, the knee pole
+is placed every frame where the clip's own knee points (the knee is baked with the foot and hip).
+
+| Knee against the clip (lane C) | pole fixed in front (round 2) | pole from the clip's knee |
+|---|---|---|
+| Strafe: rotation / position | 72 deg / 0.82 studs | 17 deg / 0.33 |
+| Backward | 32 deg | 29 deg |
+| Run | 16 deg | 10 deg |
+
+With that pole, a hinge on top changes nothing measurable (strafe: knee 17 vs 16 deg, peak 28 vs 39
+studs/s, slide 0.22 vs 0.20), so `KneeHinge` is off by default. In the final run D's legs in the
+strafe match C's (knee peak 32-39, foot peak 24-42 studs/s, acceleration 1.1-1.2 times the clip's).
+
+## The three layers
+
+- **StrideWarp**: when the body moves slower or faster than the clip's feet, the step is shortened
+  or stretched about the hip along the clip's travel. New tour parts play the walk clip with the body
+  at 0.6 and 1.4 times its speed. Body slower: planted-foot slide 2.15 (A) / 0.35 (C) / 0.15 (D)
+  studs/s, knee 71 -> 41 deg off the clip. Body faster: 1.61 / 0.53 / 0.53: no gain. The foot lock
+  already hides most of a mismatch; warping helps only when the body is slower.
+- **Contact**: the hand nearest a rail within arm's reach rests on it (arm IK, one hand; rails beside
+  lane D over the ramp, plateau and stairs, `Workspace.IKLab.Rails`). Hand to rail: 0.23 studs at
+  IK weight 0.85. The hand travels to the rail at up to 170-235 studs/s for a frame when a run brings
+  it in reach.
+- **Inertial** (a new clip takes over at once and the last pose is carried into it): built, measured,
+  **off by default**. The upper body carries over well. The legs pop: the engine solves leg IK before
+  the pose can be edited, so a carried pose cannot be handed to it. A jump with it: knee and foot
+  acceleration 3.2-6.9 times the clip's, peaks 170-540 studs/s; with the plain cross-fade 1.0-1.1
+  times and 27-59.
+
+## Final run, defaults (A / B / C / D, 228 fps)
+
+| Scenario | Planted-foot slide studs/s | D: hips / head / hand offset from the clip, studs | D: worst acceleration against the clip (any group) |
+|---|---|---|---|
+| Walk | 0.45 / 0.45 / 0.17 / 0.21 | 0.35 / 0.43 / 0.56 | 1.3 |
+| Run | 2.28 / 1.96 / 0.04 / 0.05 | 0.45 / 0.62 / 0.91 | 1.1 |
+| Jog | 1.12 / 1.06 / 0.09 / 0.09 | 0.35 / 0.45 / 0.54 | 1.6 (hand) |
+| Strafe left | 0.37 / 0.32 / 0.14 / 0.25 | 0.35 / 0.45 / 0.86 | 1.5 (hand) |
+| Strafe right | 0.40 / 0.30 / 0.12 / 0.17 | 0.29 / 0.36 / 0.39 | 1.2 |
+| Backward | 0.45 / 0.46 / 0.18 / 0.24 | 0.31 / 0.36 / 0.75 | 1.3 |
+| Circle walk | 1.36 / 1.33 / 0.18 / 0.22 | 0.23 / 0.33 / 0.60 | 1.1 |
+| Circle run | 1.99 / 1.70 / 0.04 / 0.05 | 0.92 / 1.33 / 1.12 | 1.1 |
+| Turn in place | 1.69 / 1.69 / 0.11 / 0.11 | 0.02 / 0.07 / 0.43 | (clip nearly still) |
+| In the air | - | 0.76 / 0.93 / 0.86 | 1.1 |
+| After landing | 2.62 / 2.70 / 0.03 / 0.00 | 0.46 / 0.66 / 0.46 | 1.0 |
+
+D's feet slide a little more than C's in walk, strafe and backward (0.21-0.25 against 0.14-0.18):
+the root-level layers move the hip the legs reach from.
+
+## Cost (full-procedural Quins beside the four lanes)
+
+| Full Quins | Script per animation step | Script per drawn frame | Frame rate |
+|---|---|---|---|
+| 1 | 0.16 ms | 0.02 ms | 240 (cap) |
+| 17 | 0.63 ms | 0.17 ms | 241 |
+| 33 | 1.10 ms | 0.35 ms | 188 |
+| 65 | 2.24 ms | 0.78 ms | 119 |
+
+About 35 microseconds of script per full Quin per animation step and 12 per drawn frame. The frame
+rate falls faster than the script time explains (65 Quins: 8.4 ms a frame, 3 ms of it script): the
+rest is the engine (animation, IK, skinning), not split further.
+
+## Not done
+
+- Each layer on its own (only Inertial and KneeHinge were toggled).
+- The foot flutter, the stair-edge dips at a run, the tag's wobble, the trail.
+- Look and Point engaging near the ball (Point's range was cut to 30 studs; lane D passes 40 away).
+
+## A faster way to edit a Studio script
+
+A local `python -m http.server` in `studio_snapshot` and `HttpService:GetAsync` from an Edit-mode
+command: the script is edited on disk with ordinary tools, then pushed (compile-checked first).

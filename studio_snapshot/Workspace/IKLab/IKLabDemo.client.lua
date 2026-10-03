@@ -9,14 +9,20 @@
 	  B  + basic IK: a foot that would sink into the ground is pushed up onto it
 	  C  + foot placement: feet follow the ground height, stay locked while planted,
 	       tilt to the slope, and the pelvis drops so the lower foot can reach
-	  D  everything: C with knee hinges, plus the full-body layers further down (lean, slope
-	       lean, pelvis spring, hip twist, spine counter-rotation, QuinCore's LookController,
-	       arm lag, arm IK pointing, toe bend, breathing) and engine parts (a part fixed to a
-	       hand bone, a trail, a hanging tag). Each layer has a switch: attribute D_<Name>.
+	  D  everything: C plus the full-body layers further down (lean, slope lean, pelvis
+	       spring, hip twist, stride warp, spine counter-rotation, QuinCore's LookController,
+	       arm lag, arm IK for pointing and for a hand on a rail, toe bend, breathing) and
+	       engine parts (a part fixed to a hand bone, a trail, a hanging tag). Two more are
+	       there but off, because they measured no better: a blend that carries the last pose
+	       into a new clip, and knee hinges. Each layer has a switch: attribute D_<Name>.
+
+	In C and D the knee bends the way the clip's own knee does: the pole is placed every frame
+	from the baked knee. B keeps a pole fixed in front of the body.
 
 	Two programmes:
-	  Tour         walk, run, jog, strafe both ways and walk backward over the course, turn in
-	               place, walk and run circles, run and jump.
+	  Tour         the walk clip with the body going slower and faster than the clip, then
+	               walk, run, jog, strafe both ways and walk backward over the course, turn
+	               in place, walk and run circles, run and jump.
 	  Single clip  any clip of QuinCore's AnimationConfig (Prev / Next). A looping clip that
 	               travels carries the Quins up and down the course; any other clip is played
 	               standing on the rubble.
@@ -34,8 +40,10 @@
 	  Focus      "" = camera frames all lanes, else "A".. "D" = orbit that Quin
 	             (hold right mouse to look around, wheel to zoom)
 	  TimeScale  playback speed (1, 0.3, 0.1)
+	  Crowd      extra full-procedural Quins (set before the mode starts), for the cost test
 	  Paused
-	Results: attributes Metrics_A .. Metrics_D (JSON), refreshed when a programme part ends.
+	Results: attributes Metrics_A .. Metrics_D (JSON), refreshed when a programme part ends;
+	Perf (rigs, script milliseconds per frame before the solve and at the pose step, fps).
 ]]
 
 local Players = game:GetService("Players")
@@ -59,6 +67,7 @@ local LANES = {
 	{ key = "C", z = 528, mode = "full", title = "C  + foot placement" },
 	{ key = "D", z = 536, mode = "full", plants = true, full = true, title = "D  full procedural" },
 }
+local CROWD_Z = { 546, 554, 498, 490, 482, 474 } -- open floor either side of the course
 local SIDES = { "Left", "Right" }
 local BODY = { "Hips", "Spine2", "Head", "LeftArm", "LeftForeArm", "LeftHand", "RightArm", "RightForeArm", "RightHand", "LeftLeg", "RightLeg", "LeftFoot", "RightFoot", "LeftToeBase", "RightToeBase" }
 
@@ -102,13 +111,51 @@ local TURN_LOOK = 0.07 -- radians the chest turns into a turn per rad/s
 local TURN_LOOK_MAX = math.rad(14)
 local ARM_OMEGA, ARM_DAMPING = 14, 0.45 -- loose: the arms overshoot a little
 local ARM_MAX = math.rad(25)
-local POINT_RANGE, POINT_CONE, POINT_WEIGHT = 60, math.rad(60), 0.7
+local POINT_RANGE, POINT_CONE, POINT_WEIGHT = 30, math.rad(60), 0.7
+local CONTACT_WEIGHT = 0.85 -- how firmly a hand goes to a rail within reach
+local POLE_REACH = 3 -- studs from the knee to its pole
+local STRIDE_MIN_SPEED = 1.5 -- studs/s of clip travel below which there is no stride to warp
+local STRIDE_MIN, STRIDE_MAX = 0.5, 1.6 -- how far a stride is shortened or stretched
+local INERTIAL_TIME = 0.25 -- seconds over which the pose carried into a new clip is let go
+local SWITCH_JUMP = 0.5 -- a clip weight asked to change by this much at once is a switch, not a blend
 local TOE_FADE = 0.4 -- studs above the ground over which the toe bend fades out
 local BREATH_HZ, BREATH_ANGLE = 0.25, math.rad(1.2)
-local LAYERS = { "Lean", "SlopeLean", "PelvisSpring", "HipTwist", "SpineCounter", "Look", "ArmLag", "Point", "Toes", "Breath" }
+local LAYERS = { "Lean", "SlopeLean", "PelvisSpring", "HipTwist", "StrideWarp", "SpineCounter", "Look", "ArmLag", "Point", "Contact", "Toes", "Breath", "Inertial", "KneeHinge" }
+-- Off unless switched on, because they measured no better or worse than without:
+--   KneeHinge  with the knee pole placed from the clip, a hinge on top changes nothing measurable
+--   Inertial   the upper body carries over well, but the legs pop: the engine solves the leg IK
+--              before the pose can be edited (a jump: knee and foot acceleration 3-7 times the
+--              clip's with it, 1.3 times with the plain cross-fade)
+local LAYER_OFF_BY_DEFAULT = { KneeHinge = true, Inertial = true }
 
 local function layerOn(name: string): boolean
-	return lab:GetAttribute("D_" .. name) ~= false
+	local switch = lab:GetAttribute("D_" .. name)
+	if switch == nil then
+		return not LAYER_OFF_BY_DEFAULT[name]
+	end
+	return switch == true
+end
+
+-- rails a hand can rest on (the Contact layer); kept out of the ground rays
+local rails = lab:FindFirstChild("Rails")
+local railParams = OverlapParams.new()
+railParams.FilterType = Enum.RaycastFilterType.Include
+railParams.FilterDescendantsInstances = { rails }
+
+-- The nearest point on top of a rail within reach of a shoulder, or nil
+local function nearestRailPoint(shoulder: Vector3, reach: number): Vector3?
+	if not rails then return nil end
+	local best, bestDistance = nil, reach
+	for _, part in workspace:GetPartBoundsInRadius(shoulder, reach, railParams) do
+		local half = part.Size / 2
+		local p = part.CFrame:PointToObjectSpace(shoulder)
+		local point = part.CFrame * Vector3.new(math.clamp(p.X, -half.X, half.X), half.Y, math.clamp(p.Z, -half.Z, half.Z))
+		local distance = (point - shoulder).Magnitude
+		if distance < bestDistance then
+			best, bestDistance = point, distance
+		end
+	end
+	return best
 end
 
 local rayParams = RaycastParams.new()
@@ -193,15 +240,16 @@ local TOUR_CLIPS = { IDLE, GAITS.Walk.clip, GAITS.Jog.clip, GAITS.Run.clip, GAIT
 ----------------------------------------------------------------------------------------
 -- Baked clip data: where each foot and hip joint is, in root space, through the clip.
 ----------------------------------------------------------------------------------------
-local Baked = {} -- [clip.path] = { foot = {Left = {CFrame}, ...}, hip = {...}, travel = Vector3 }
+local Baked = {} -- [clip.path] = { foot = {Left = {CFrame}, ...}, hip = {...}, knee = {...}, travel = Vector3 }
 local ankleHeight = { Left = 0.46, Right = 0.46 } -- foot bone above the sole, standing
 
-local function sampleBaked(baked, side: string, t: number): (CFrame, Vector3)
+local function sampleBaked(baked, side: string, t: number): (CFrame, Vector3, Vector3)
 	local f = (t % 1) * BAKE_SAMPLES
 	local i = math.floor(f)
 	local a = f - i
 	local i0, i1 = i % BAKE_SAMPLES + 1, (i + 1) % BAKE_SAMPLES + 1
-	return baked.foot[side][i0]:Lerp(baked.foot[side][i1], a), baked.hip[side][i0]:Lerp(baked.hip[side][i1], a)
+	return baked.foot[side][i0]:Lerp(baked.foot[side][i1], a), baked.hip[side][i0]:Lerp(baked.hip[side][i1], a),
+		baked.knee[side][i0]:Lerp(baked.knee[side][i1], a)
 end
 
 local function gaitTravel(gait): Vector3
@@ -224,12 +272,13 @@ end
 resetConductor()
 
 function Conductor:pose(index: number, lane): (number, number)
+	local back = (lane.row or 0) * 9 -- crowd rows follow behind
 	if self.mode == "course" then
-		return self.x, lane.z
+		return self.x - back, lane.z
 	elseif self.mode == "flat" then
-		return self.x, 448 + index * 8
+		return self.x - back, 448 + ((index - 1) % 13 + 1) * 8
 	end
-	return -645 + (index - 1) * 27 + self.radius * math.cos(self.theta), 468 + self.radius * math.sin(self.theta)
+	return -645 + ((index - 1) % 4) * 27 + self.radius * math.cos(self.theta), 468 + self.radius * math.sin(self.theta)
 end
 
 local function frame(): number
@@ -276,8 +325,9 @@ local function turnInPlace(yaw: number)
 end
 
 -- Cross the course (or part of it) with one gait: turn to suit the gait, speed up, go, brake.
-local function pass(tag: string, gait, toX: number)
-	local speedMax = gaitSpeed(gait)
+-- speedScale: the body's speed against the clip's own (1 = matched; the feet slide otherwise)
+local function pass(tag: string, gait, toX: number, speedScale: number?)
+	local speedMax = gaitSpeed(gait) * (speedScale or 1)
 	local dir = math.sign(toX - Conductor.x)
 	turnInPlace(gaitYaw(gait, Vector3.new(dir, 0, 0)))
 	Conductor.tag = tag
@@ -374,6 +424,8 @@ end
 local function tour()
 	while true do
 		Conductor.mode, Conductor.x, Conductor.cut = "course", X_START, true
+		pass("WalkSlow", GAITS.Walk, COURSE_X0 + 24, 0.6)
+		pass("WalkFast", GAITS.Walk, X_START, 1.4)
 		pass("Walk", GAITS.Walk, X_END)
 		pass("Run", GAITS.Run, X_START)
 		pass("StrafeLeft", GAITS.StrafeLeft, COURSE_X0 + 72)
@@ -461,7 +513,8 @@ function Rig.new(index: number, lane, parent: Instance)
 		self.history[name] = {}
 	end
 
-	self.tracks, self.weights = {}, {} -- by clip path, loaded when first needed
+	self.tracks, self.weights, self.goals = {}, {}, {} -- by clip path, loaded when first needed
+	self.timeScale = 1
 	self:track(IDLE)
 
 	self.feet = {}
@@ -483,7 +536,9 @@ function Rig.new(index: number, lane, parent: Instance)
 	if lane.full then
 		self.full = FullBody.new(self)
 	end
-	self:buildLabel()
+	if not lane.crowd then
+		self:buildLabel()
+	end
 	return self
 end
 
@@ -521,22 +576,25 @@ function Rig:buildIK()
 		ik.Target = target
 		ik.SmoothTime = 0 -- targets are already smoothed here; engine smoothing only adds lag
 		ik.Weight = 0
+		-- The pole says which way the knee bends. It starts in front of the knee (all basic IK
+		-- ever has); foot placement moves it every frame to where the clip's own knee points.
+		local pole = Instance.new("Attachment")
+		pole.Name = side .. "KneePole"
+		pole.Position = Vector3.new(sign * 0.6, -2.5, -6)
+		pole.Parent = self.root
+		ik.Pole = pole
+		self.feet[side].pole = pole
 		if self.lane.plants then
-			-- a hinge between the two leg bones keeps the knee bending forward; no pole needed
+			-- a hinge between the two leg bones: the knee can only fold one way (layer KneeHinge)
 			local hinge = Instance.new("HingeConstraint")
 			hinge.Name = side .. "KneeHinge"
 			hinge.Attachment0 = self.legs[side].hip
 			hinge.Attachment1 = self.legs[side].knee
 			hinge.LimitsEnabled = true
 			hinge.LowerAngle, hinge.UpperAngle = 0, 150
+			hinge.Enabled = false
 			hinge.Parent = self.mesh
-		else
-			-- the pole rides with the body, in front of the knee
-			local pole = Instance.new("Attachment")
-			pole.Name = side .. "KneePole"
-			pole.Position = Vector3.new(sign * 0.6, -2.5, -6)
-			pole.Parent = self.root
-			ik.Pole = pole
+			self.feet[side].hinge = hinge
 		end
 		ik.Parent = self.humanoid
 		self.feet[side].target = target
@@ -621,13 +679,24 @@ end
 
 -- Follow the conductor's clip weights and rates. A clip nobody asks for is stopped.
 function Rig:driveTracks(dt: number, scale: number)
+	self.timeScale = scale
 	for path in Conductor.weights do
 		self:track(Library.byPath[path])
 	end
+	local carry = self.full ~= nil and layerOn("Inertial")
 	for path, track in self.tracks do
 		local clip = Library.byPath[path]
 		local goal = Conductor.weights[path] or 0
-		self.weights[path] += (goal - self.weights[path]) * decay(WEIGHT_RATE, dt)
+		if carry then
+			-- no cross-fade: the new clip takes over at once and the last pose is carried into it
+			if math.abs(goal - (self.goals[path] or 0)) > SWITCH_JUMP or (Conductor.restart[path] and goal > 0) then
+				self.full:beginSwitch()
+			end
+			self.weights[path] = goal
+		else
+			self.weights[path] += (goal - self.weights[path]) * decay(WEIGHT_RATE, dt)
+		end
+		self.goals[path] = goal
 		local weight = self.weights[path]
 		if goal == 0 and weight < 0.005 then
 			if track.IsPlaying then track:Stop(0) end
@@ -649,28 +718,44 @@ function Rig:driveTracks(dt: number, scale: number)
 end
 
 -- The foot pose the clips ask for, in root space, blended like the tracks are.
-function Rig:clipFoot(side: string, lookAhead: number): (CFrame, Vector3, number)
-	local pos, hip, total = Vector3.zero, Vector3.zero, 0
+function Rig:clipFoot(side: string, lookAhead: number): (CFrame, Vector3, number, Vector3)
+	local pos, hip, knee, total = Vector3.zero, Vector3.zero, Vector3.zero, 0
 	local rot = CFrame.identity
 	for path, track in self.tracks do
 		local baked = Baked[path]
 		local w = track.IsPlaying and track.WeightCurrent or 0
 		if baked and w > 0.01 and track.Length > 0 then
-			local cf, h = sampleBaked(baked, side, (track.TimePosition + lookAhead * track.Speed) / track.Length)
+			local cf, h, k = sampleBaked(baked, side, (track.TimePosition + lookAhead * track.Speed) / track.Length)
 			pos += cf.Position * w
 			hip += h * w
+			knee += k * w
 			total += w
 			rot = rot:Lerp(cf.Rotation, w / total) -- blended, so a cross-fade never pops the foot
 		end
 	end
 	if total == 0 then
-		local cf, h = sampleBaked(Baked[IDLE.path], side, 0)
-		return cf, h, 0
+		local cf, h, k = sampleBaked(Baked[IDLE.path], side, 0)
+		return cf, h, 0, k
 	end
 	pos /= total
 	hip /= total
+	knee /= total
 	local lift = math.max(0, pos.Y + ROOT_HEIGHT - ankleHeight[side])
-	return CFrame.new(pos) * rot, hip, lift
+	return CFrame.new(pos) * rot, hip, lift, knee
+end
+
+-- How fast, and which way, the clips say the body travels (root space, studs/s)
+function Rig:clipTravel(): Vector3
+	local travel, total = Vector3.zero, 0
+	for path, track in self.tracks do
+		local baked = Baked[path]
+		local w = track.IsPlaying and track.WeightCurrent or 0
+		if baked and w > 0.01 then
+			travel += baked.travel * (w * track.Speed / self.timeScale)
+			total += w
+		end
+	end
+	return total > 0 and travel / total or Vector3.zero
 end
 
 -- Is the clip holding this foot still on the ground? Low is not enough: a strafe shuffles low feet.
@@ -817,9 +902,20 @@ function Rig:placeFeet(base: CFrame, dt: number)
 	local wanted = {}
 	local lowest = math.huge
 	local yaw = Conductor.yaw
+	local stride, strideDir = 1, nil
+	local carried = false
+	if self.full then
+		stride, strideDir = self.full:strideScale(base, dt)
+		carried = self.full:takeFootSwitch()
+	end
 	for _, side in SIDES do
 		local foot = self.feet[side]
-		local clip, hip, lift = self:clipFoot(side, dt)
+		local clip, hip, lift, knee = self:clipFoot(side, dt)
+		local bend = knee - (hip + clip.Position) / 2 -- which way the clip's knee points: out from the hip-to-foot line
+		if strideDir then
+			-- stretch or shorten the step about the hip, along the way the clip travels
+			clip += strideDir * ((clip.Position - hip):Dot(strideDir) * (stride - 1))
+		end
 		local world = base * clip
 		local flat = Vector3.new(world.X, 0, world.Z)
 		local yawOffset = 0
@@ -843,10 +939,16 @@ function Rig:placeFeet(base: CFrame, dt: number)
 				foot.release, foot.releaseYaw, foot.releaseT, foot.lock = foot.lock - flat, wrapAngle(foot.lockYaw - yaw), 0, nil
 				fade = 1
 			end
+			if carried and foot.lastFlat then
+				-- a new clip took over: the foot leaves from where it was, not from where the clip puts it
+				foot.release, foot.releaseYaw, foot.releaseT = foot.lastFlat - flat, 0, 0
+				fade = 1
+			end
 			foot.releaseT += dt
 			flat += foot.release * fade
 			yawOffset = foot.releaseYaw * fade
 		end
+		foot.lastFlat = flat
 
 		-- ground under the foot, smoothed so a step edge does not snap the leg
 		local y, normal = castDown(flat.X, world.Y + 4, flat.Z)
@@ -857,7 +959,7 @@ function Rig:placeFeet(base: CFrame, dt: number)
 
 		local footY = foot.groundY + ankleHeight[side] + lift
 		local rot = CFrame.Angles(0, yaw + yawOffset, 0) * clip.Rotation
-		wanted[side] = { flat = flat, y = footY, hip = hip, rot = rot, forward = -clip.Position.Z }
+		wanted[side] = { flat = flat, y = footY, hip = hip, knee = knee, bend = bend, rot = rot, forward = -clip.Position.Z }
 		lowest = math.min(lowest, footY - world.Y)
 	end
 
@@ -888,6 +990,14 @@ function Rig:placeFeet(base: CFrame, dt: number)
 		local tilt = CFrame.identity:Lerp(CFrame.fromRotationBetweenVectors(Vector3.yAxis, foot.normal), align)
 		foot.target.WorldCFrame = CFrame.new(position) * tilt * w.rot
 		foot.ik.Weight = self.ikWeight
+
+		-- the knee bends the way the clip's knee does
+		if w.bend.Magnitude > 0.05 then
+			foot.pole.WorldPosition = rootCF * w.knee + rootCF:VectorToWorldSpace(w.bend.Unit) * POLE_REACH
+		end
+		if foot.hinge then
+			foot.hinge.Enabled = layerOn("KneeHinge")
+		end
 	end
 end
 
@@ -965,45 +1075,119 @@ function FullBody.new(rig)
 	self.pelvisVel = 0
 	self.twist = 0
 	self.armSwing, self.armSwingVel = Vector3.zero, Vector3.zero -- how far a hanging arm is off straight down
-	self.pointWeight = 0
+	self.stride = 1
 	self.clock = 0
 	self.wasAirborne = false
 
 	self.spine = { rig.bone("Spine"), rig.bone("Spine1") } -- Spine2, Neck and Head belong to LookController
-	self.arms = { { rig.bone("LeftArm"), rig.bone("LeftForeArm") }, { rig.bone("RightArm"), rig.bone("RightForeArm") } }
+	self.arms = { Left = { rig.bone("LeftArm"), rig.bone("LeftForeArm") }, Right = { rig.bone("RightArm"), rig.bone("RightForeArm") } }
 	self.toes = { Left = rig.bone("LeftToeBase"), Right = rig.bone("RightToeBase") }
 	self.look = LookController.new(rig.model, nil)
+	self.lookDt = 0
 
-	-- arm IK for Point
-	self.shoulder = rig.bone("LeftArm")
-	self.pointTarget = Instance.new("Attachment")
-	self.pointTarget.Name = "PointTarget"
-	self.pointTarget.Parent = rig.root
-	local elbow = Instance.new("Attachment")
-	elbow.Name = "ElbowPole"
-	elbow.Position = Vector3.new(-2.5, -1.5, 1.5) -- out, down and behind
-	elbow.Parent = rig.root
-	local ik = Instance.new("IKControl")
-	ik.Name = "PointIK"
-	ik.Type = Enum.IKControlType.Position
-	ik.ChainRoot = self.shoulder
-	ik.EndEffector = rig.bone("LeftHand")
-	ik.Target = self.pointTarget
-	ik.Pole = elbow
-	ik.SmoothTime = 0
-	ik.Weight = 0
-	ik.Parent = rig.humanoid
-	self.pointIK = ik
+	-- the pose carried into a new clip (Inertial): the upper body bone by bone, the hips through the root
+	self.hips = rig.bone("Hips")
+	self.carryBones = {}
+	for _, name in { "Spine", "Spine1", "Spine2", "Neck", "Head", "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand", "RightShoulder", "RightArm", "RightForeArm", "RightHand" } do
+		table.insert(self.carryBones, rig.bone(name))
+	end
+	self.carryLegs = {} -- leg bones: carried only as far as the IK lets go of them (a jump)
+	for _, name in { "LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase", "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase" } do
+		local bone = rig.bone(name)
+		table.insert(self.carryBones, bone)
+		self.carryLegs[bone] = true
+	end
+	self.lastLocal = {} -- bone -> its Transform as last drawn
+	self.carry = nil -- bone -> the offset that turns the new clip's pose back into the last one
+	self.hipsCarry = CFrame.identity -- the same for the hips, in root space
+	self.hipsLast = nil
+	self.carryT = INERTIAL_TIME
+	self.switchPending, self.footSwitch = false, 0
+
+	-- arm IK: a hand on a rail (Contact, either hand) or pointing (Point, the left hand)
+	self.reach = {}
+	for _, side in SIDES do
+		local sign = side == "Left" and -1 or 1
+		local target = Instance.new("Attachment")
+		target.Name = side .. "HandTarget"
+		target.Parent = rig.root
+		local elbow = Instance.new("Attachment")
+		elbow.Name = side .. "ElbowPole"
+		elbow.Position = Vector3.new(sign * 2.5, -1.5, 1.5) -- out, down and behind
+		elbow.Parent = rig.root
+		local ik = Instance.new("IKControl")
+		ik.Name = side .. "HandIK"
+		ik.Type = Enum.IKControlType.Position
+		ik.ChainRoot = rig.bone(side .. "Arm")
+		ik.EndEffector = rig.bone(side .. "Hand")
+		ik.Target = target
+		ik.Pole = elbow
+		ik.SmoothTime = 0
+		ik.Weight = 0
+		ik.Parent = rig.humanoid
+		self.reach[side] = { shoulder = rig.bone(side .. "Arm"), target = target, ik = ik, weight = 0, goal = nil }
+	end
 	return self
+end
+
+-- eased 0..1
+local function ease(s: number): number
+	s = math.clamp(s, 0, 1)
+	return s * s * (3 - 2 * s)
+end
+
+-- How much of the carried pose is still held
+function FullBody:carryKeep(): number
+	return 1 - ease(self.carryT / INERTIAL_TIME)
+end
+
+-- A new clip takes over this frame (Rig:driveTracks)
+function FullBody:beginSwitch()
+	self.switchPending = true
+	self.footSwitch = 2 -- (the track weights reach the foot targets a frame later)
+end
+
+function FullBody:takeFootSwitch(): boolean
+	if self.footSwitch > 0 then
+		self.footSwitch -= 1
+		return true
+	end
+	return false
+end
+
+-- Stride warp: when the body moves slower or faster than the clips' feet do, the step is
+-- shortened or stretched along the clip's travel, so a planted foot stays planted.
+function FullBody:strideScale(base: CFrame, dt: number): (number, Vector3?)
+	local goal, direction = 1, nil
+	if layerOn("StrideWarp") and not Conductor.airborne then
+		local travel = self.rig:clipTravel()
+		if travel.Magnitude >= STRIDE_MIN_SPEED then
+			direction = travel.Unit
+			local actual = base:VectorToObjectSpace(self.velocity * FLAT):Dot(direction)
+			goal = math.clamp(actual / travel.Magnitude, STRIDE_MIN, STRIDE_MAX)
+		end
+	end
+	self.stride += (goal - self.stride) * decay(10, dt)
+	if not direction or math.abs(self.stride - 1) < 0.01 then
+		return 1, nil
+	end
+	return self.stride, direction
 end
 
 -- Once per frame before the solve: how the body is moving, and every layer's state.
 function FullBody:observe(base: CFrame, dt: number)
 	local step = math.min(dt, 1 / 30) -- springs stay stable through a slow frame
 	self.clock += step
+	self.carryT += dt
 	local yaw = Conductor.yaw
 	if Conductor.cut or not self.prevBase then
 		self.velocity, self.accel, self.yawRate = Vector3.zero, Vector3.zero, 0
+		-- (nothing is carried across a cut: not a hand's goal, not a pose)
+		for _, arm in self.reach do
+			arm.goal, arm.weight = nil, 0
+		end
+		self.carry, self.hipsCarry, self.hipsLast = nil, CFrame.identity, nil
+		self.switchPending, self.footSwitch, self.carryT = false, 0, INERTIAL_TIME
 	else
 		local velocity = (base.Position - self.prevBase.Position) / dt
 		local accel = (velocity - self.velocity) / dt
@@ -1043,15 +1227,47 @@ function FullBody:observe(base: CFrame, dt: number)
 	local swing = layerOn("ArmLag") and hang.Magnitude > 20 and hang.Unit - DOWN or Vector3.zero
 	self.armSwing, self.armSwingVel = springStep(self.armSwing, self.armSwingVel, swing, ARM_OMEGA, ARM_DAMPING, step)
 
-	-- point: only at something in front and near
-	local shoulder = self.shoulder.TransformedWorldCFrame.Position
-	local to = lookTarget.Position - shoulder
-	local direction = base:VectorToObjectSpace(to.Unit)
-	local inFront = math.abs(math.atan2(-direction.X, -direction.Z)) < POINT_CONE
-	local want = layerOn("Point") and inFront and to.Magnitude < POINT_RANGE and not Conductor.airborne
-	self.pointWeight += ((want and POINT_WEIGHT or 0) - self.pointWeight) * decay(4, step)
-	self.pointTarget.WorldPosition = shoulder + to.Unit * self.pointIK:GetChainLength() * 0.9
-	self.pointIK.Weight = self.pointWeight
+	-- hands: the hand nearest a rail within reach rests on it (one hand: the other stays free);
+	-- a free left hand points at the look target when that is in front and near
+	local railSide, railPoint, railDistance = nil, nil, math.huge
+	if layerOn("Contact") and not Conductor.airborne then
+		for _, side in SIDES do
+			local arm = self.reach[side]
+			local shoulder = arm.shoulder.TransformedWorldCFrame.Position
+			local point = nearestRailPoint(shoulder, arm.ik:GetChainLength() * 0.97)
+			-- (the hand already on a rail keeps it unless the other is clearly nearer)
+			local distance = point and (point - shoulder).Magnitude - (arm.onRail and 0.5 or 0) or math.huge
+			if distance < railDistance then
+				railSide, railPoint, railDistance = side, point, distance
+			end
+		end
+	end
+	for _, side in SIDES do
+		local arm = self.reach[side]
+		local shoulder = arm.shoulder.TransformedWorldCFrame.Position
+		local length = arm.ik:GetChainLength()
+		local goal, weight, rate = nil, 0, 4
+		arm.onRail = side == railSide
+		if arm.onRail then
+			goal, weight, rate = railPoint, CONTACT_WEIGHT, 8
+		end
+		if not goal and side == "Left" and layerOn("Point") and not Conductor.airborne then
+			local to = lookTarget.Position - shoulder
+			local direction = base:VectorToObjectSpace(to.Unit)
+			if math.abs(math.atan2(-direction.X, -direction.Z)) < POINT_CONE and to.Magnitude < POINT_RANGE then
+				goal, weight = shoulder + to.Unit * length * 0.9, POINT_WEIGHT
+			end
+		end
+		arm.weight += (weight - arm.weight) * decay(rate, step)
+		if goal then
+			-- the hand travels to a new goal; it does not jump there
+			arm.goal = arm.goal and arm.weight > 0.05 and arm.goal:Lerp(goal, decay(14, step)) or goal
+			arm.target.WorldPosition = arm.goal
+		elseif arm.weight < 0.02 then
+			arm.goal = nil
+		end
+		arm.ik.Weight = arm.weight
+	end
 end
 
 function FullBody:pelvis(current: number, goal: number, dt: number): number
@@ -1075,21 +1291,26 @@ function FullBody:tiltRoot(rootCF: CFrame, forwardGap: number, dt: number): CFra
 		local pivot = rootCF.Position - Vector3.new(0, ROOT_HEIGHT, 0)
 		out = CFrame.new(pivot) * CFrame.fromAxisAngle(Vector3.yAxis:Cross(self.lean.Unit), amount) * CFrame.new(-pivot) * out
 	end
-	return out
+	-- the hips' share of a carried pose: moving the root moves the hips and leaves the feet to the IK
+	return out * self:hipsCarryNow()
 end
 
--- Every rendered frame: the head follows its target (LookController keeps its own state).
-function FullBody:lookAt(dt: number)
+function FullBody:hipsCarryNow(): CFrame
+	local keep = self:carryKeep()
+	return keep > 0 and CFrame.identity:Lerp(self.hipsCarry, keep) or CFrame.identity
+end
+
+-- Once per animation step, after animation and IK: the pose-level layers.
+-- dt: the time since the last step (LookController's spring).
+function FullBody:pose(dt: number)
+	local rig = self.rig
+	local amount = self.lean.Magnitude
+
+	-- the head follows its target (QuinCore's LookController: in front only, capped, on a spring)
 	if layerOn("Look") then
 		self.look:setTargetOverride(lookTarget.Position)
 		self.look:update(dt)
 	end
-end
-
--- Once per animation step, after animation and IK: the pose-level layers.
-function FullBody:pose()
-	local rig = self.rig
-	local amount = self.lean.Magnitude
 
 	if layerOn("SpineCounter") then
 		local yaw = -self.twist + math.clamp(self.yawRate * TURN_LOOK, -TURN_LOOK_MAX, TURN_LOOK_MAX)
@@ -1111,9 +1332,13 @@ function FullBody:pose()
 	if self.armSwing.Magnitude > 1e-3 then
 		local axis, angle = CFrame.fromRotationBetweenVectors(DOWN, (DOWN + self.armSwing).Unit):ToAxisAngle()
 		angle = math.min(angle, ARM_MAX)
-		for _, arm in self.arms do
-			rotateWorld(arm[1], CFrame.fromAxisAngle(axis, angle))
-			rotateWorld(arm[2], CFrame.fromAxisAngle(axis, angle * 0.5)) -- the forearm trails a little more
+		for side, arm in self.arms do
+			-- (an arm the IK is holding to a goal is left where the IK put it)
+			local loose = angle * (1 - self.reach[side].weight)
+			if loose > 1e-3 then
+				rotateWorld(arm[1], CFrame.fromAxisAngle(axis, loose))
+				rotateWorld(arm[2], CFrame.fromAxisAngle(axis, loose * 0.5)) -- the forearm trails a little more
+			end
 		end
 	end
 
@@ -1132,6 +1357,53 @@ function FullBody:pose()
 			end
 		end
 	end
+
+	self:carryPose()
+end
+
+-- Inertial: a new clip takes over at once, and the pose that was on screen is carried into it
+-- and let go over INERTIAL_TIME. (A cross-fade shows a mix of two poses that neither clip has.)
+-- Runs last, so what it carries is the pose as drawn, every other layer included.
+function FullBody:carryPose()
+	local root = self.rig.root.CFrame
+	-- the hips relative to the root as it would be with nothing carried
+	local hipsNow = self:hipsCarryNow() * root:ToObjectSpace(self.hips.TransformedWorldCFrame)
+
+	if self.switchPending and self.hipsLast then
+		self.switchPending = false
+		local plain = root * self:hipsCarryNow():Inverse()
+		local hipsClip = root:ToObjectSpace(self.hips.TransformedWorldCFrame) -- the new clip's hips
+		self.carry = {}
+		for _, bone in self.carryBones do
+			self.carry[bone] = bone.Transform:Inverse() * self.lastLocal[bone]
+		end
+		self.hipsCarry = self.hipsLast * hipsClip:Inverse()
+		self.carryT = 0
+		-- this step was solved before the switch was known: put the hips back by hand, once
+		local world = self.hips.TransformedWorldCFrame
+		self.hips.Transform *= world:Inverse() * (plain * self.hipsLast) -- so its world CFrame becomes plain * hipsLast
+		hipsNow = self.hipsLast
+	end
+	self.switchPending = false
+
+	if self.carry then
+		local keep = self:carryKeep()
+		if keep <= 0 then
+			self.carry = nil
+		else
+			local free = 1 - self.rig.ikWeight -- how far the legs are the clip's, not the IK's
+			for bone, offset in self.carry do
+				local share = self.carryLegs[bone] and keep * free or keep
+				if share > 0.001 then
+					bone.Transform *= CFrame.identity:Lerp(offset, share)
+				end
+			end
+		end
+	end
+	for _, bone in self.carryBones do
+		self.lastLocal[bone] = bone.Transform
+	end
+	self.hipsLast = hipsNow
 end
 
 ----------------------------------------------------------------------------------------
@@ -1160,13 +1432,14 @@ local function bake(rig, clip): boolean
 		rig.weights[path] = 0
 	end
 	track:Play(0, 1, 0)
-	local baked = { foot = { Left = {}, Right = {} }, hip = { Left = {}, Right = {} }, travel = Vector3.zero, length = track.Length }
+	local baked = { foot = { Left = {}, Right = {} }, hip = { Left = {}, Right = {} }, knee = { Left = {}, Right = {} }, travel = Vector3.zero, length = track.Length }
 	for i = 1, BAKE_SAMPLES do
 		track.TimePosition = (i - 1) / BAKE_SAMPLES * track.Length
 		for _ = 1, 3 do RunService.Heartbeat:Wait() end
 		for _, side in SIDES do
 			baked.foot[side][i] = rig.root.CFrame:ToObjectSpace(rig.legs[side].foot.TransformedWorldCFrame)
 			baked.hip[side][i] = rig.root.CFrame:PointToObjectSpace(rig.legs[side].hip.TransformedWorldCFrame.Position)
+			baked.knee[side][i] = rig.root.CFrame:PointToObjectSpace(rig.legs[side].knee.TransformedWorldCFrame.Position)
 		end
 	end
 	track:Stop(0)
@@ -1372,6 +1645,13 @@ local function start()
 	for index, lane in LANES do
 		table.insert(rigs, Rig.new(index, lane, runtime))
 	end
+	local lanes = table.clone(rigs) -- the four that are measured
+	-- the cost test: more full-procedural Quins on the open floor beside the course
+	for i = 1, lab:GetAttribute("Crowd") or 0 do
+		local z = CROWD_Z[(i - 1) % #CROWD_Z + 1]
+		table.insert(rigs, Rig.new(#rigs + 1, { key = "X" .. i, z = z, row = (i - 1) // #CROWD_Z, mode = "full", full = true, crowd = true, title = "" }, runtime))
+	end
+	local perf = { frames = 0, steps = 0, before = 0, pose = 0, time = 0 } -- frames: drawn; steps: animation steps
 
 	local hud, title = buildHud()
 	table.insert(cleanup, function() hud:Destroy() end)
@@ -1420,7 +1700,7 @@ local function start()
 	RunService:BindToRenderStep("IKLabCamera", Enum.RenderPriority.Last.Value, function(dt)
 		local focus = lab:GetAttribute("Focus") or ""
 		local centre, offset
-		local first, last = rigs[1].root.Position, rigs[#rigs].root.Position
+		local first, last = lanes[1].root.Position, lanes[#lanes].root.Position
 		if focus == "" then
 			centre = (first + last) / 2 - Vector3.new(0, 1.5, 0)
 			local distance = 16 + (first - last).Magnitude * 0.75
@@ -1458,16 +1738,38 @@ local function start()
 	table.insert(connections, RunService.PreAnimation:Connect(function()
 		poseFresh = true
 	end))
+	-- The measurements are taken here too, from the pose as it is about to be drawn. (The engine
+	-- can run several animation steps per drawn frame; read at PreAnimation, the steps in between
+	-- show the pose without these edits and look like a flicker that is never on screen.)
+	local poseDt = 0
+	local cutSeen = true -- the rigs were moved discontinuously since the last measurement
 	RunService:BindToRenderStep("IKLabPose", Enum.RenderPriority.Last.Value - 1, function(dt)
+		poseDt += dt
+		if not poseFresh then return end
+		local started = os.clock()
 		for _, rig in rigs do
 			if rig.full then
-				rig.full:lookAt(dt)
-				if poseFresh then
-					rig.full:pose()
-				end
+				rig.full:pose(poseDt)
 			end
 		end
-		poseFresh = false
+		perf.pose += os.clock() - started
+		perf.frames += 1
+
+		if not busy and programme and not lab:GetAttribute("Paused") then
+			local elapsed = poseDt * (lab:GetAttribute("TimeScale") or 1)
+			local tag = Conductor.tag
+			local footKey = Conductor.mode == "course" and tag .. ":" .. sectionAt(Conductor.x) or tag
+			local continuous = not cutSeen -- (a cut starts the history again)
+			for _, rig in lanes do
+				rig:measureFeet(elapsed, footKey, continuous)
+				rig:sampleBody()
+			end
+			for _, rig in lanes do
+				rig:measureBody(lanes[1], elapsed, tag, continuous)
+			end
+			cutSeen = false
+		end
+		poseFresh, poseDt = false, 0
 	end)
 	table.insert(cleanup, function()
 		RunService:UnbindFromRenderStep("IKLabPose")
@@ -1504,19 +1806,13 @@ local function start()
 			for _, rig in rigs do rig:driveTracks(0, scale) end
 			return
 		end
+		perf.steps += 1
 
-		-- 1. measure what was drawn last frame (a cut frame starts the history again)
-		local continuous = not Conductor.cut
+		-- 1. last step's cut has been acted on
 		local tag = Conductor.tag
 		local footKey = Conductor.mode == "course" and tag .. ":" .. sectionAt(Conductor.x) or tag
-		for _, rig in rigs do
-			rig:measureFeet(dt, footKey, continuous)
-			rig:sampleBody()
-		end
-		for _, rig in rigs do
-			rig:measureBody(rigs[1], dt, tag, continuous)
-		end
 		Conductor.cut = false
+		local started = os.clock()
 
 		-- 2. advance the shared movement script
 		local ok, message = coroutine.resume(programme, dt)
@@ -1526,7 +1822,7 @@ local function start()
 			return
 		end
 		if message == "publish" then
-			for _, rig in rigs do rig:publish() end
+			for _, rig in lanes do rig:publish() end
 			coroutine.resume(programme, dt)
 		end
 
@@ -1536,11 +1832,24 @@ local function start()
 			rig:update(dt)
 		end
 		Conductor.restart = {}
+		if Conductor.cut then
+			cutSeen = true
+		end
+
+		-- what all this costs: script time before the solve and at the pose step, per frame
+		perf.before += os.clock() - started
+		perf.time += dt / scale
+		if perf.time >= 1 then
+			lab:SetAttribute("Perf", string.format("rigs %d (full %d)  per animation step %.2f ms (%.0f steps/s)  per drawn frame %.2f ms (%.0f fps)",
+				#rigs, #rigs - 3, perf.before / perf.steps * 1000, perf.steps / perf.time,
+				perf.pose / math.max(1, perf.frames) * 1000, perf.frames / perf.time))
+			perf.frames, perf.steps, perf.before, perf.pose, perf.time = 0, 0, 0, 0, 0
+		end
 
 		labelTimer += dt
 		if labelTimer > 0.25 then
 			labelTimer = 0
-			for _, rig in rigs do
+			for _, rig in lanes do
 				local m = rig.footStats[footKey]
 				if m and m.contact > 0 then
 					rig.label.Text = string.format("%s\n%s\nabove %.2f  inside %.2f\nslide %.1f studs/s", rig.lane.title, footKey, m.float / m.contact, m.pen / m.frames, m.slideN > 0 and m.slide / m.slideN or 0)

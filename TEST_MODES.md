@@ -78,16 +78,20 @@ Each Quin's label shows the current programme part and its planted-foot numbers 
 | Point | arm IK: the left hand points at the ball when it is in front and within 60 studs |
 | Toes | a toe that would dig into the ground bends flat |
 | Breath | the chest rises and falls at idle |
+| StrideWarp | the step is shortened or stretched when the body's speed is not the clip's |
+| Contact | the hand nearest a rail within reach rests on it (rails beside lane D) |
+| Inertial (off) | a new clip takes over at once and the last pose is carried into it; the legs pop, so it is off |
+| KneeHinge (off) | a hinge between the leg bones; no gain over the knee pole placed from the clip |
 
 Lean, SlopeLean, PelvisSpring and HipTwist move the root before the engine solves the legs, so the feet stay planted. The rest are written into `Bone.Transform` after animation and IK, once per animation step.
 
 **Bar at the bottom of the screen:**
 - **Prev / Next, << Category / Category >>:** play any clip of `AnimationConfig` (read with `getAllPaths()`, so new clips appear by themselves). A looping clip that travels (1.5 studs/s or more, measured from the clip) carries the Quins up and down the course; any other clip is played standing on the rubble.
-- **Tour:** the full programme: walk, run, strafe left, backward, jog, strafe right over the course, then walk and run circles, then run and three jumps.
+- **Tour:** the full programme: the walk clip with the body slower and faster than the clip, then walk, run, strafe left, backward, jog, strafe right over the course, then walk and run circles, then run and three jumps.
 - **All / Look at A-D:** camera on all lanes, or orbiting one Quin (hold right mouse to look around, wheel to zoom).
 - **1x / 0.3x / 0.1x, Pause.**
 
-The buttons only write attributes on `Workspace.IKLab` (`Clip`, `Focus`, `TimeScale`, `Paused`); a script or MCP agent can set the same attributes. Measurements are published as JSON in `Metrics_A` .. `Metrics_D` (feet per programme part and terrain; every tracked bone against lane A).
+The buttons only write attributes on `Workspace.IKLab` (`Clip`, `Focus`, `TimeScale`, `Paused`); a script or MCP agent can set the same attributes. `Crowd` (set before the mode starts) adds that many full-procedural Quins for the cost test; `Perf` reports script time and frame rate. Measurements are published as JSON in `Metrics_A` .. `Metrics_D` (feet per programme part and terrain; every tracked bone against lane A).
 
 **Starting it:** Quin Manager > TEST MODES > IK Lab; or `GameCommand:FireServer("ik_lab")`; or (Studio tools) `workspace:SetAttribute("DevCommand", "ik_lab")`. It ends when `CurrentMode` changes; the client removes its rigs, bar and camera.
 
