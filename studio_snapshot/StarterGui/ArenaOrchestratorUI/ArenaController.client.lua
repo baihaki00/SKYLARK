@@ -510,7 +510,7 @@ local toggleDefs = {
     { key = "Announcer",         name = "ARIA Stadium Announcer" },
     { key = "ProceduralMusic",   name = "Stadium Audio & Playlists" },
     { key = "CrowdFX",           name = "Procedural Crowd FX (stands cheer, boo & chant)" },
-    { key = "ProceduralTerrain", name = "Procedural Terrain Obstacles  [not built yet]", stub = true },
+    { key = "ProceduralTerrain", name = "Procedural Arena Generation (mirrored, seeded)" },
     { key = "Fireworks",         name = "Atmospheric Fireworks Show" },
     { key = "Drones",            name = "Spectator Camera Drones" },
     { key = "Screen",            name = "3D Arena Screen Jumbotron" },

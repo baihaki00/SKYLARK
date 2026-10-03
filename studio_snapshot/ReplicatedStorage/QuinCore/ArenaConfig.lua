@@ -167,7 +167,7 @@ ArenaConfig.DefaultToggles = {
     Drones              = true,  -- Spectator camera drones (launch at T-4 of the countdown, outro in post-game)
     ProceduralMusic     = true,
     CrowdFX             = true,  -- Procedural spatial crowd (ArenaCrowdManager, ArenaConfig.CrowdFX)
-    ProceduralTerrain   = false, -- If false, uses existing edit-mode parts
+    ProceduralTerrain   = true,  -- Procedural arena layout (ArenaGenerator, ArenaConfig.ArenaGeneration); off = the edit-mode parts
 }
 
 ArenaConfig.AriaGapAfterGeneration = 5 -- seconds between ARIA's 'generation completed' and the preparation-room guide
@@ -239,6 +239,63 @@ ArenaConfig.CrowdFX = {
     },
     Chant = { Bed = "ChantBed", Phrase = "ShortChantPhrase" },
     Winner = { For = "MassiveCelebration", Against = "MassiveDisappointment", Draw = "MassiveShock" },
+}
+
+-- Procedural arena layout (ServerScriptService.ArenaGenerator), built during ARENA_GENERATION.
+-- One half is generated and point-mirrored through the arena centre, so both sides are equal.
+-- The edit-mode obstacles (EditLayoutNames) are only put aside and come back when the match ends.
+ArenaConfig.ArenaGeneration = {
+    MaxHeight = 400,          -- generation volume above ArenaGround (the scan sweeps this high)
+    PlatformMaxHeight = 300,  -- highest platform top above the ground
+    CenterClear = 200,        -- empty square in the middle (studs per side)
+    WallMargin = 12,          -- studs kept free along the arena edge
+    Spacing = 18,             -- studs between pieces (a Quin fits through)
+    VerticalClearance = 10,   -- studs between stacked pieces
+    PlacementTries = 40,
+    -- Spawn options (one per seed): TeamAlpha's anchor as a fraction of the half size (X, Z);
+    -- TeamBeta's is the mirror. Two edges and two midpoints.
+    SpawnOptions = {
+        { Name = "Edge N-S", Alpha = { 0, 0.8 } },
+        { Name = "Edge E-W", Alpha = { -0.8, 0 } },
+        { Name = "Midpoint NW-SE", Alpha = { -0.55, 0.55 } },
+        { Name = "Midpoint NE-SW", Alpha = { 0.55, 0.55 } },
+    },
+    SpawnClusterRadius = 30,  -- fighters spawn scattered inside this radius of their anchor
+    SpawnSpacing = 7,
+    SpawnClearRadius = 50,    -- no pieces this close to an anchor
+    MaxSpawnPoints = 16,
+    -- Platforms up to LadderMaxHeight get a spiral of stepping stones (each a normal jump);
+    -- higher ones are projectile-jump perches
+    LadderMaxHeight = 60,
+    Stone = { Rise = 8, Hop = 13, Size = 10, Thickness = 2 },
+    Pieces = {                -- per side; { min, max } ranges
+        High = { Count = { 2, 4 }, LadderedShare = 0.5, MinHeight = 24, Width = { 26, 56 }, Thickness = { 3, 6 } },
+        Float = { Count = { 2, 4 }, Width = { 12, 30 }, Thickness = { 2, 6 }, Underside = { 10, 40 } },
+        Low = { Count = { 3, 5 }, Width = { 14, 36 }, Height = { 4, 10 } },
+        Cover = { Count = { 6, 10 }, Width = { 6, 34 }, Height = { 4, 24 }, Depth = { 4, 26 } },
+    },
+    -- Traversal check (grid flood fill from TeamAlpha's spawn)
+    GridCell = 4,
+    RouteWidth = 6,           -- studs a route must keep open
+    UnderpassClearance = 9,   -- a piece this high off the ground can be walked under
+    VaultHeight = 6.8,        -- a piece this low can be vaulted (TraversalModule.Config.VaultHeight)
+    MinReachableShare = 0.97, -- share of the open floor that must be reachable (no closed pockets)
+    -- Show (fractions of the ARENA_GENERATION phase)
+    ScanShare = 0.1,
+    ShuffleUntil = 0.62,
+    SeedInterval = 0.14,      -- seconds between candidate seeds ("tutututu")
+    MaxTries = 600,
+    MaterializeTime = 3.0,
+    FixedSeed = nil,          -- a number replays one layout
+    HoloColor = Color3.fromRGB(0, 170, 255),
+    HoloRejectColor = Color3.fromRGB(120, 90, 255),
+    HoloMaterial = Enum.Material.Neon, -- (ForceField was nearly invisible from the stands)
+    HoloTransparency = 0.55,
+    GlitchShare = 0.25,       -- share of hologram pieces that jitter on each switch
+    GlitchJitter = 4,
+    GrassColors = { Color3.fromRGB(62, 104, 50), Color3.fromRGB(44, 82, 40) }, -- darker than ArenaGround so pieces read
+    SolidMaterial = Enum.Material.SmoothPlastic,
+    EditLayoutNames = { "OB", "highplatform" },
 }
 
 return ArenaConfig

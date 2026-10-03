@@ -21,6 +21,7 @@ local ArenaAria = require(ServerScriptService:WaitForChild("ArenaAriaManager"))
 local ArenaFireworks = require(ServerScriptService:WaitForChild("ArenaFireworksManager"))
 local ArenaDroneManager = require(ServerScriptService:WaitForChild("ArenaDroneManager"))
 local ArenaCrowd = require(ServerScriptService:WaitForChild("ArenaCrowdManager"))
+local ArenaGenerator = require(ServerScriptService:WaitForChild("ArenaGenerator"))
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 
 local Orchestrator = {}
@@ -257,11 +258,23 @@ local function spawnFighters()
         local _, center, _, radius = DroneTrajectories.getArenaMetrics()
         local count = math.max(2, teamSize)
         local r = math.clamp((radius or 150) * 0.55, 40, 120)
+        if ArenaGenerator.isActive() then
+            r = math.min(r, ArenaGenerator.getCenterClearHalf() - 12) -- (the generated centre is the open ground)
+        end
         for i = 1, count do
             local angle = (i / count) * math.pi * 2
             local pos = center + Vector3.new(math.cos(angle) * r, 2, math.sin(angle) * r)
             local q = QuinSpawner.spawn((i % 2 == 1) and "Male" or "Female", pos, nil)
             settle(q, CFrame.lookAt(pos, Vector3.new(center.X, pos.Y, center.Z)))
+        end
+    elseif ArenaGenerator.isActive() then
+        -- Generated arena: each team spawns scattered round its anchor (mirrored pattern)
+        for _, team in ipairs({ "TeamAlpha", "TeamBeta" }) do
+            local points, facing = ArenaGenerator.getSpawnPoints(team, teamSize)
+            for i, p in ipairs(points or {}) do
+                local gender = ((i % 2 == 1) == (team == "TeamAlpha")) and "Male" or "Female"
+                settle(QuinSpawner.spawn(gender, p, team), CFrame.lookAt(p, Vector3.new(facing.X, p.Y, facing.Z)))
+            end
         end
     else
         -- Team Battle: two lines facing each other
@@ -343,14 +356,36 @@ local function runMatchLifecycle()
     igniteHolograms() -- (an Arena Open skipped before T+5s still brings them up)
 
     -- PHASE 2: ARENA GENERATION
-    epoch = beginPhase("ARENA_GENERATION", duration("ArenaGeneration"), "ARENA GENERATION", "CONFIGURING COMBAT SECTOR")
+    local generationTime = duration("ArenaGeneration")
+    epoch = beginPhase("ARENA_GENERATION", generationTime, "ARENA GENERATION", "CONFIGURING COMBAT SECTOR")
     if toggle("Announcer") then
         ArenaAria.speak("ARIA_ArenaGenerationCommence")
     end
-    -- (no procedural terrain generator exists yet: the edit-mode arena parts are used)
     -- "Generation completed" is only announced once the generation sequence has finished (it used
     -- to play at 55% of the phase, while the bar was still filling)
-    local generationCompleted = waitPhase(epoch)
+    local generationCompleted
+    if toggle("ProceduralTerrain") then
+        -- Hologram seed sweep -> lock -> materialize (ArenaGenerator); SKIP hurries it, and the
+        -- phase waits for it to finish so nobody is spawned into a half-built arena
+        local generationEpoch = epoch
+        local finished = false
+        task.spawn(function()
+            local ok, err = pcall(ArenaGenerator.runSequence, generationTime, function()
+                return skipEpoch ~= generationEpoch
+            end)
+            if not ok then
+                warn("[ArenaSystemOrchestrator] Arena generation failed: " .. tostring(err))
+            end
+            finished = true
+        end)
+        generationCompleted = waitPhase(epoch)
+        while not finished do
+            task.wait(0.1)
+        end
+    else
+        ArenaGenerator.restore() -- (toggle off: the edit-mode arena)
+        generationCompleted = waitPhase(epoch)
+    end
 
     -- PHASE 3: PREPARATION ROOM. Fighters calibrating in the backrooms: none on the field.
     QuinSpawner.cleanAll()
@@ -575,6 +610,7 @@ function Orchestrator.stopMatch()
     ArenaAria.stopAll()
     ArenaAudio.stopAll(1.0)
     ArenaCrowd.setPhase("IDLE")
+    ArenaGenerator.restore() -- the edit-mode arena comes back
     ArenaFireworks.stopAll()
     ArenaDroneManager.resetDrones()
     QuinSpawner.cleanAll()
