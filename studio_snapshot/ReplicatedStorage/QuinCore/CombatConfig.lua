@@ -711,7 +711,23 @@ CombatConfig.Social = {
 	-- Arena event levels, lowest to highest (SocialSystem.raiseEvent never goes down)
 	EventLevels = { "Normal", "Interesting", "Notable", "LeaderShowdown", "RespectCustom",
 		"UnexpectedLeaderDefeat", "HonorableComeback", "BigClutch", "Historic" },
-	Parts = { "SocialLeaders" }, -- modules that register with the social tick
+	Parts = { "SocialLeaders", "SocialShowdown" }, -- modules that register with the social tick
+	-- Leader showdowns (Modules/SocialShowdown): opposing leaders who see each other decide what it means
+	Showdown = {
+		Enabled = true,
+		RecognizeRange = 60,      -- studs, with a clear line of sight
+		RecognizeTime = 2,        -- seconds of mutual sight before they recognise each other
+		PairCooldown = 45,        -- seconds before the same two leaders decide again
+		MaxActive = 1,            -- showdowns at once (keeps them notable)
+		-- outcome weights (plus: engage grows with both leaders' credibility and health; refuse
+		-- with the weaker one's injuries; ignore when either is swamped)
+		EngageWeight = 0.3, ApproachWeight = 0.25, RefuseWeight = 0.15, IgnoreWeight = 0.2,
+		MaxTime = 30, BreakDistance = 120,
+		DuelScore = 150,          -- targeting bonus on the opponent during a showdown
+		AvoidPenalty = 80,        -- targeting penalty: others leave the duellists alone
+		InterceptRadius = 35, InterceptTrust = 0.45, InterceptChance = 0.6, -- (trust starts at 0.5: 0.55 meant nobody stepped in early on)
+		SpaceRadius = 45,
+	},
 	-- Pack leaders (Modules/SocialLeaders): a role that emerges from battlefield results
 	Leaders = {
 		Enabled = true,

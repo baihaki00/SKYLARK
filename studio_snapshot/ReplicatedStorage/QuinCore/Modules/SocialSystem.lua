@@ -208,12 +208,23 @@ end
 
 -- What the social layer adds to a candidate's targeting utility (TargetingModule term 13):
 -- huge negative for a Quin this one holds off (respect custom), plus followed leader signals
+local targetTerms = {} -- extra targeting terms from the parts (showdown, respect custom)
+
+function SocialSystem.addTargetTerm(fn)
+	table.insert(targetTerms, fn)
+end
+
 function SocialSystem.targetScore(quin, candidate)
 	if quin:GetAttribute("SocialHoldOff") == candidate.Name then
 		return -1e6
 	end
+	local score = 0
 	local leaderScore = SocialSystem.leaderTargetScore
-	return leaderScore and leaderScore(quin, candidate) or 0
+	if leaderScore then score += leaderScore(quin, candidate) end
+	for _, term in ipairs(targetTerms) do
+		score += term(quin, candidate)
+	end
+	return score
 end
 
 function SocialSystem.reset()
