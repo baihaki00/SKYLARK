@@ -36,6 +36,10 @@ local stash = nil           -- { { part, parent } } edit-mode parts put aside
 local spawnPadHome = nil    -- { { part, cframe } } QuinSpawn parts' edit-mode places
 local pool = {}             -- hologram / generated parts
 local running = false
+local treeTemplate = nil    -- clone of the edit-mode tree model (CFG.Trees.Template)
+local fxToken = nil         -- the running flicker loop
+local shownCount = 0        -- hologram blocks on show
+local scanlines = {}
 
 -- ============================================================================
 -- Arena geometry
@@ -153,6 +157,16 @@ local function generate(seed)
 	end
 
 	local P = CFG.Pieces
+	local T = CFG.Trees
+	local tops = {}  -- platform tops (trees may grow there)
+	local trees = {} -- { cf (base, yawed), scale }
+
+	local function addTree(pos, baseY, owner)
+		local scale = range(rng, T.Scale)
+		table.insert(trees, { cf = CFrame.new(pos.X, baseY, pos.Z) * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0), scale = scale })
+		table.insert(placed, { pos = Vector3.new(pos.X, 0, pos.Z), r = T.Footprint / 2, y0 = baseY, y1 = baseY + T.Height * scale, owner = owner })
+	end
+
 	-- High platforms first (they need room for their stepping stones)
 	for _ = 1, irange(rng, P.High.Count) do
 		local laddered = rng:NextNumber() < P.High.LadderedShare
@@ -189,10 +203,25 @@ local function generate(seed)
 				end
 				if ok then
 					add(cf, size, laddered and "High" or "Perch", owner)
+					table.insert(tops, { cf = cf * CFrame.new(0, size.Y / 2, 0), size = size, top = floorY + top, owner = owner })
 					for _, s in ipairs(stones) do
 						add(s.cf, s.size, "Stone", owner)
 					end
 					break
+				end
+			end
+		end
+	end
+
+	-- Trees on wide platform tops
+	if T then
+		for _, top in ipairs(tops) do
+			local w = math.min(top.size.X, top.size.Z)
+			if w >= T.MinPlatformWidth and rng:NextNumber() < T.OnPlatformChance then
+				local inset = w / 2 - T.Footprint / 2
+				local p = top.cf:PointToWorldSpace(Vector3.new(rng:NextNumber(-inset, inset), 0, rng:NextNumber(-inset, inset)))
+				if fits(p, T.Footprint / 2, top.top, top.top + T.Height, top.owner) then
+					addTree(p, top.top, top.owner)
 				end
 			end
 		end
@@ -212,6 +241,14 @@ local function generate(seed)
 			return Vector3.new(range(rng, P.Low.Width), range(rng, P.Low.Height), range(rng, P.Low.Width))
 		end, function() return floorY end)
 	end
+	-- Walls (long, thin, tall: cover lines)
+	if P.Wall then
+		for _ = 1, irange(rng, P.Wall.Count) do
+			tryPlace("Wall", function()
+				return Vector3.new(range(rng, P.Wall.Length), range(rng, P.Wall.Height), range(rng, P.Wall.Thickness))
+			end, function() return floorY end)
+		end
+	end
 	-- Ground cover (random in X, Y and Z)
 	for _ = 1, irange(rng, P.Cover.Count) do
 		tryPlace("Cover", function()
@@ -219,11 +256,28 @@ local function generate(seed)
 		end, function() return floorY end)
 	end
 
+	-- Trees on the ground
+	if T then
+		for _ = 1, irange(rng, T.Ground) do
+			for _ = 1, CFG.PlacementTries do
+				local spot = randomSpot()
+				if fits(spot, T.Footprint / 2, floorY, floorY + T.Height) then
+					addTree(spot, floorY)
+					break
+				end
+			end
+		end
+	end
+
 	-- Mirror everything to the other half
 	local count = #pieces
 	for i = 1, count do
 		local p = pieces[i]
 		table.insert(pieces, { cf = mirrorCFrame(center, p.cf), size = p.size, kind = p.kind })
+	end
+	local treeCount = #trees
+	for i = 1, treeCount do
+		table.insert(trees, { cf = mirrorCFrame(center, trees[i].cf), scale = trees[i].scale })
 	end
 
 	-- Spawn group: scattered points round the anchor, the same pattern mirrored
@@ -244,7 +298,7 @@ local function generate(seed)
 
 	return {
 		seed = seed, option = option.Name, center = center, floorY = floorY,
-		alphaAnchor = alphaAnchor, betaAnchor = betaAnchor, pieces = pieces,
+		alphaAnchor = alphaAnchor, betaAnchor = betaAnchor, pieces = pieces, trees = trees,
 		spawns = { TeamAlpha = alphaSpawns, TeamBeta = betaSpawns },
 	}
 end
@@ -261,7 +315,12 @@ local function validate(layout)
 	local minX, minZ = center.X - halfX, center.Z - halfZ
 	local blocked = {}
 	local inflate = CFG.RouteWidth / 2
-	for _, p in ipairs(layout.pieces) do
+	local blockers = table.clone(layout.pieces)
+	for _, t in ipairs(layout.trees or {}) do
+		local trunk = CFG.Trees.TrunkBlock * t.scale
+		table.insert(blockers, { cf = t.cf + Vector3.new(0, 10, 0), size = Vector3.new(trunk, 20, trunk) })
+	end
+	for _, p in ipairs(blockers) do
 		local bottom = p.cf.Position.Y - p.size.Y / 2 - floorY
 		local top = p.cf.Position.Y + p.size.Y / 2 - floorY
 		-- blocks walking: sits low enough to hit a Quin and is too tall to vault
@@ -376,27 +435,158 @@ local function poolPart(i)
 	return part
 end
 
-local function showHologram(layout, valid, glitch)
-	local n = #layout.pieces
-	for i, p in ipairs(layout.pieces) do
-		local part = poolPart(i)
-		holoStyle(part, valid)
-		local jitter = Vector3.zero
-		if glitch and math.random() < CFG.GlitchShare then
-			jitter = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * CFG.GlitchJitter
-			part.Transparency = 0.9
-		end
-		part.Size = p.size
-		part.CFrame = p.cf + jitter
+-- TV static: a particle snow inside a hologram block
+local function setStatic(part, on)
+	if not CFG.StaticNoise then return end
+	local e = part:FindFirstChild("Static")
+	if not e and on then
+		e = Instance.new("ParticleEmitter")
+		e.Name = "Static"
+		e.Shape = Enum.ParticleEmitterShape.Box
+		e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+		e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		e.Lifetime = NumberRange.new(0.04, 0.12)
+		e.Speed = NumberRange.new(0)
+		e.Size = NumberSequence.new(0.9)
+		e.LightEmission = 1
+		e.LockedToPart = true
+		e.Color = ColorSequence.new(Color3.new(1, 1, 1), CFG.HoloColor)
+		e.Transparency = NumberSequence.new(0.15)
+		e.Parent = part
 	end
-	for i = n + 1, #pool do
-		if pool[i] and pool[i].Parent then
-			pool[i].Transparency = 1
+	if e then
+		e.Rate = math.clamp(part.Size.X * part.Size.Y * part.Size.Z / 300, CFG.StaticRate[1], CFG.StaticRate[2])
+		e.Enabled = on
+	end
+end
+
+-- Scanner frames: thin neon bars round the arena edge, jumping to random heights on every
+-- switch (full planes washed the whole arena cyan)
+local function setScanlines(on, topY)
+	if not on then
+		for _, frame in ipairs(scanlines) do
+			for _, bar in ipairs(frame) do bar:Destroy() end
+		end
+		scanlines = {}
+		return
+	end
+	local center, halfX, halfZ, floorY = metrics()
+	local w = CFG.ScanlineWidth or 0.8
+	for i = 1, CFG.Scanlines or 0 do
+		local frame = scanlines[i]
+		if not frame or not frame[1].Parent then
+			frame = {}
+			for k = 1, 4 do
+				local bar = Instance.new("Part")
+				bar.Name = "GenScanline"
+				bar.Anchored = true
+				bar.CanCollide, bar.CanQuery, bar.CanTouch, bar.CastShadow = false, false, false, false
+				bar.Material = Enum.Material.Neon
+				bar.Color = CFG.HoloColor
+				bar.Size = (k <= 2) and Vector3.new(halfX * 2, w, w) or Vector3.new(w, w, halfZ * 2)
+				bar.Parent = folder()
+				frame[k] = bar
+			end
+			scanlines[i] = frame
+		end
+		local y = floorY + math.random() * (topY or 60)
+		local transparency = 0.15 + math.random() * 0.5
+		local spots = {
+			Vector3.new(center.X, y, center.Z - halfZ), Vector3.new(center.X, y, center.Z + halfZ),
+			Vector3.new(center.X - halfX, y, center.Z), Vector3.new(center.X + halfX, y, center.Z),
+		}
+		for k, bar in ipairs(frame) do
+			bar.CFrame = CFrame.new(spots[k])
+			bar.Transparency = transparency
 		end
 	end
 end
 
+-- Blocks to draw for a layout: its pieces, then a trunk and a canopy per tree
+local function holoShapes(layout)
+	local shapes = {}
+	for _, p in ipairs(layout.pieces) do
+		table.insert(shapes, { cf = p.cf, size = p.size })
+	end
+	for _, t in ipairs(layout.trees or {}) do
+		local s = t.scale
+		table.insert(shapes, { cf = t.cf * CFrame.new(0, 11 * s, 0), size = Vector3.new(3 * s, 22 * s, 3 * s) })
+		table.insert(shapes, { cf = t.cf * CFrame.new(0, 31 * s, 0), size = Vector3.new(22 * s, 18 * s, 22 * s) })
+	end
+	return shapes
+end
+
+local function highestTop(layout)
+	local top = 20
+	for _, p in ipairs(layout.pieces) do
+		top = math.max(top, p.cf.Position.Y + p.size.Y / 2 - layout.floorY)
+	end
+	return top
+end
+
+-- glitch = a switch in the seed sweep: transparency spread, jitter, tears, white flashes, static
+local function showHologram(layout, valid, glitch)
+	local shapes = holoShapes(layout)
+	local spread = CFG.HoloTransparencyRange or { CFG.HoloTransparency, CFG.HoloTransparency }
+	for i, sh in ipairs(shapes) do
+		local part = poolPart(i)
+		holoStyle(part, valid)
+		local size, cf = sh.size, sh.cf
+		if glitch then
+			part.Transparency = lerp(spread[1], spread[2], math.random())
+			if math.random() < CFG.GlitchShare then
+				cf = cf + Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * CFG.GlitchJitter
+			end
+			if math.random() < (CFG.TearShare or 0) then
+				local k = 1 + math.random() * (CFG.TearStretch or 0)
+				size = Vector3.new(size.X * k, size.Y * (0.6 + math.random() * 0.4), size.Z)
+			end
+			if math.random() < (CFG.FlashShare or 0) then
+				part.Color = Color3.new(1, 1, 1)
+				part.Transparency = 0.05
+			end
+		end
+		part.Size = size
+		part.CFrame = cf
+		setStatic(part, glitch)
+	end
+	for i = #shapes + 1, #pool do
+		if pool[i] and pool[i].Parent then
+			pool[i].Transparency = 1
+			setStatic(pool[i], false)
+		end
+	end
+	return #shapes
+end
+
+-- Between switches random blocks blink (pop / nearly gone)
+local function startFlicker()
+	local token = {}
+	fxToken = token
+	task.spawn(function()
+		while fxToken == token do
+			local n = shownCount
+			if n > 0 then
+				for _ = 1, math.max(1, math.floor(n * CFG.FlickerShare)) do
+					local p = pool[math.random(1, n)]
+					if p and p.Parent then
+						p.Transparency = (math.random() < 0.5) and 0.92 or 0.12
+					end
+				end
+			end
+			task.wait(1 / CFG.FlickerRate)
+		end
+	end)
+end
+
+local function stopFlicker()
+	fxToken = nil
+end
+
 local function clearPool()
+	stopFlicker()
+	scanlines = {}
+	shownCount = 0
 	for _, part in ipairs(pool) do
 		if part then part:Destroy() end
 	end
@@ -420,9 +610,57 @@ local function stashEditLayout()
 			table.insert(stash, { part = part, parent = part.Parent })
 		end
 	end
+	for _, model in ipairs(Workspace:GetDescendants()) do
+		if model:IsA("Model") and table.find(CFG.EditLayoutModels or {}, model.Name) and not model:FindFirstAncestorOfClass("Model") then
+			local pivot = model:GetPivot().Position
+			if math.abs(pivot.X - center.X) <= halfX and math.abs(pivot.Z - center.Z) <= halfZ then
+				table.insert(stash, { part = model, parent = model.Parent })
+			end
+		end
+	end
 	for _, entry in ipairs(stash) do
 		entry.part.Parent = box
 	end
+end
+
+local function ensureTreeTemplate()
+	if treeTemplate or not CFG.Trees then return treeTemplate end
+	local function find(root)
+		for _, d in ipairs(root:GetDescendants()) do
+			if d:IsA("Model") and d.Name == CFG.Trees.Template then return d end
+		end
+		return nil
+	end
+	local source = find(Workspace) or (ServerStorage:FindFirstChild("ArenaEditLayoutStash") and find(ServerStorage.ArenaEditLayoutStash))
+	if source then
+		treeTemplate = source:Clone()
+	else
+		warn("[ArenaGenerator] No tree model named " .. CFG.Trees.Template .. "; generated arenas have no trees")
+	end
+	return treeTemplate
+end
+
+-- A tree clone standing on t.cf (base point, yawed), faded in
+local function spawnTree(t, parent)
+	if not treeTemplate then return nil end
+	local tree = treeTemplate:Clone()
+	tree:PivotTo(CFrame.new(t.cf.Position) * t.cf.Rotation * treeTemplate:GetPivot().Rotation)
+	if t.scale ~= 1 then tree:ScaleTo(t.scale) end
+	local bb, size = tree:GetBoundingBox()
+	tree:PivotTo(tree:GetPivot() + (t.cf.Position - Vector3.new(bb.X, bb.Y - size.Y / 2, bb.Z)))
+	tree:SetAttribute("GenKind", "Tree")
+	local fades = {}
+	for _, p in ipairs(tree:GetDescendants()) do
+		if p:IsA("BasePart") then
+			table.insert(fades, { part = p, to = p.Transparency })
+			p.Transparency = 1
+		end
+	end
+	tree.Parent = parent
+	for _, f in ipairs(fades) do
+		TweenService:Create(f.part, TweenInfo.new(0.5), { Transparency = f.to }):Play()
+	end
+	return tree
 end
 
 local function unstashEditLayout()
@@ -495,6 +733,8 @@ local function materialize(layout, seconds)
 			task.wait(0.05)
 			part.Transparency = 0.7
 			task.wait(0.05)
+			local static = part:FindFirstChild("Static")
+			if static then static:Destroy() end
 			part.Name = "OB"
 			part.Material = CFG.SolidMaterial
 			part.Color = shade
@@ -507,8 +747,22 @@ local function materialize(layout, seconds)
 			TweenService:Create(part, TweenInfo.new(math.min(0.6, seconds * 0.2)), { Transparency = 0 }):Play()
 		end)
 	end
+	-- trees: their hologram trunk + canopy give way to the real tree
+	local base = #layout.pieces
+	for k, t in ipairs(layout.trees or {}) do
+		local holoA, holoB = pool[base + 2 * k - 1], pool[base + 2 * k]
+		pool[base + 2 * k - 1], pool[base + 2 * k] = false, false
+		local height = t.cf.Position.Y - floorY + 30
+		task.delay(seconds * 0.8 * math.min(1, height / topMost), function()
+			if holoA then holoA:Destroy() end
+			if holoB then holoB:Destroy() end
+			local f = folder()
+			if f then spawnTree(t, f) end
+		end)
+	end
 	for i = #layout.pieces + 1, #pool do
-		if pool[i] then pool[i]:Destroy() pool[i] = nil end
+		if pool[i] then pool[i]:Destroy() end
+		pool[i] = nil
 	end
 	task.wait(seconds)
 end
@@ -558,6 +812,7 @@ function Gen.runSequence(duration, isCancelled)
 		running = false
 		return false
 	end
+	ensureTreeTemplate()
 	stashEditLayout()
 	refreshCatalogue()
 	folder()
@@ -578,6 +833,7 @@ function Gen.runSequence(duration, isCancelled)
 	local seedRng = Random.new()
 	local chosen, lastGood = nil, nil
 	local tries = 0
+	startFlicker()
 	while true do
 		local seed = CFG.FixedSeed or seedRng:NextInteger(1, 0xFFFFFF)
 		local layout = generate(seed)
@@ -586,7 +842,8 @@ function Gen.runSequence(duration, isCancelled)
 		if ok then lastGood = layout end
 		local done = (os.clock() >= shuffleUntil or hurry()) and ok
 		if not hurry() or done then
-			showHologram(layout, ok, not done)
+			shownCount = showHologram(layout, ok, not done)
+			setScanlines(not done, highestTop(layout))
 			progress(math.min(frac(), CFG.ShuffleUntil), string.format("SEED %06X • %s • %s", seed, layout.option:upper(), ok and "ROUTES OK" or ("REJECTED: " .. why:upper())))
 			if not done then playFx("SeedTick") end
 		end
@@ -604,6 +861,8 @@ function Gen.runSequence(duration, isCancelled)
 		end
 	end
 
+	stopFlicker()
+	setScanlines(false)
 	if not chosen then
 		warn("[ArenaGenerator] No traversable layout found; keeping the edit-mode arena")
 		clearPool()
@@ -618,11 +877,18 @@ function Gen.runSequence(duration, isCancelled)
 	progress(math.max(frac(), CFG.ShuffleUntil), string.format("SEED %06X LOCKED • %s", chosen.seed, chosen.option:upper()))
 	playFx("SeedLock")
 	if not hurry() then
+		-- white flash pulses: the seed is locked
 		for _ = 1, 3 do
-			for i = 1, #chosen.pieces do pool[i].Transparency = CFG.HoloTransparency * 0.4 end
-			task.wait(0.12)
-			for i = 1, #chosen.pieces do pool[i].Transparency = CFG.HoloTransparency end
-			task.wait(0.18)
+			for i = 1, shownCount do
+				local p = pool[i]
+				if p then p.Color = Color3.new(1, 1, 1) p.Transparency = 0.05 end
+			end
+			task.wait(0.08)
+			for i = 1, shownCount do
+				local p = pool[i]
+				if p then p.Color = CFG.HoloColor p.Transparency = CFG.HoloTransparency end
+			end
+			task.wait(0.22)
 		end
 	end
 
@@ -637,8 +903,8 @@ function Gen.runSequence(duration, isCancelled)
 	refreshCatalogue()
 	progress(1, string.format("ARENA READY • SEED %06X", chosen.seed))
 	Workspace:SetAttribute("ArenaSeed", string.format("%06X", chosen.seed))
-	print(string.format("[ArenaGenerator] Seed %06X locked after %d candidates: %s, %d pieces (%d per side)",
-		chosen.seed, tries, chosen.option, #chosen.pieces, #chosen.pieces / 2))
+	print(string.format("[ArenaGenerator] Seed %06X locked after %d candidates: %s, %d pieces + %d trees (half each side)",
+		chosen.seed, tries, chosen.option, #chosen.pieces, #(chosen.trees or {})))
 	running = false
 	return true
 end

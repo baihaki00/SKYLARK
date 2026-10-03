@@ -190,19 +190,20 @@ ArenaConfig.CrowdFX = {
     MaxEmitters = 6,
     RollOffMin = 90,          -- full level within this distance of an emitter
     RollOffMax = 1100,
-    Volume = 1.0,             -- crowd channel (ArenaCrowdChannel, under the arena master)
-    DuckMultiplier = 0.75,    -- crowd level while ARIA speaks
-    BedVolume = 0.28,         -- murmur loops, every emitter
-    LayerVolume = 0.30,       -- mood loops (every other emitter), at full excitement
-    ChantVolume = 0.38,
-    ReactVolume = 0.42,       -- small/medium one-shots
-    MajorVolume = 0.55,       -- big one-shots (eliminations, kick-off, winner)
+    -- (levels: the owner's baseline from the CROWD MIX sliders, 2026-10-03)
+    Volume = 0.20,            -- crowd channel (ArenaCrowdChannel, under the arena master)
+    DuckMultiplier = 0.15,    -- crowd level while ARIA speaks
+    BedVolume = 0.31,         -- murmur loops, every emitter
+    LayerVolume = 0.58,       -- mood loops (every other emitter), at full excitement
+    ChantVolume = 0.37,
+    ReactVolume = 0.61,       -- small/medium one-shots
+    MajorVolume = 0.87,       -- big one-shots (eliminations, kick-off, winner)
     Crossfade = 2.5,          -- seconds for loop changes
     MaxOneShots = 12,         -- one-shots playing at once, whole stadium
     MinorGap = 0.5,           -- seconds between minor reactions, whole stadium
     SectionCooldown = 3.0,    -- seconds before a section reacts to a minor moment again
     PitchJitter = 0.04,       -- +/- playback speed per sound, so copies never phase
-    AnthemStemScale = 0.45,   -- each section's copy of an anthem _CrowdFX / _DrumFX stem
+    AnthemStemScale = 0.25,   -- each section's copy of an anthem _CrowdFX / _DrumFX stem
     -- Excitement (0..1, per team): rises with the team's hits and decays to Rest
     ExcitementRest = 0.3,
     ExcitementDecay = 0.05,   -- per second
@@ -249,7 +250,7 @@ ArenaConfig.ArenaGeneration = {
     PlatformMaxHeight = 300,  -- highest platform top above the ground
     CenterClear = 200,        -- empty square in the middle (studs per side)
     WallMargin = 12,          -- studs kept free along the arena edge
-    Spacing = 18,             -- studs between pieces (a Quin fits through)
+    Spacing = 14,             -- studs between pieces (a Quin fits through; the route check guards the rest)
     VerticalClearance = 10,   -- studs between stacked pieces
     PlacementTries = 40,
     -- Spawn options (one per seed): TeamAlpha's anchor as a fraction of the half size (X, Z);
@@ -269,10 +270,23 @@ ArenaConfig.ArenaGeneration = {
     LadderMaxHeight = 60,
     Stone = { Rise = 8, Hop = 13, Size = 10, Thickness = 2 },
     Pieces = {                -- per side; { min, max } ranges
-        High = { Count = { 2, 4 }, LadderedShare = 0.5, MinHeight = 24, Width = { 26, 56 }, Thickness = { 3, 6 } },
-        Float = { Count = { 2, 4 }, Width = { 12, 30 }, Thickness = { 2, 6 }, Underside = { 10, 40 } },
-        Low = { Count = { 3, 5 }, Width = { 14, 36 }, Height = { 4, 10 } },
-        Cover = { Count = { 6, 10 }, Width = { 6, 34 }, Height = { 4, 24 }, Depth = { 4, 26 } },
+        High = { Count = { 4, 7 }, LadderedShare = 0.5, MinHeight = 24, Width = { 40, 80 }, Thickness = { 3, 6 } },
+        Float = { Count = { 3, 6 }, Width = { 12, 30 }, Thickness = { 2, 6 }, Underside = { 10, 40 } },
+        Low = { Count = { 4, 7 }, Width = { 14, 36 }, Height = { 4, 10 } },
+        Cover = { Count = { 10, 16 }, Width = { 6, 34 }, Height = { 4, 24 }, Depth = { 4, 26 } },
+        Wall = { Count = { 3, 6 }, Length = { 30, 70 }, Thickness = { 3, 5 }, Height = { 12, 28 } },
+    },
+    -- Trees: clones of the edit-mode Workspace model named Template, on the ground and on the
+    -- tops of wide platforms (mirrored like everything else)
+    Trees = {
+        Template = "Tree",
+        Ground = { 4, 7 },          -- per side
+        OnPlatformChance = 0.6,     -- per platform at least MinPlatformWidth wide
+        MinPlatformWidth = 34,
+        Scale = { 0.85, 1.2 },
+        Footprint = 12,             -- studs kept free round a trunk
+        Height = 45,                -- studs (template size; scaled)
+        TrunkBlock = 8,             -- studs of trunk that block walking (route check)
     },
     -- Traversal check (grid flood fill from TeamAlpha's spawn)
     GridCell = 4,
@@ -296,6 +310,19 @@ ArenaConfig.ArenaGeneration = {
     GrassColors = { Color3.fromRGB(62, 104, 50), Color3.fromRGB(44, 82, 40) }, -- darker than ArenaGround so pieces read
     SolidMaterial = Enum.Material.SmoothPlastic,
     EditLayoutNames = { "OB", "highplatform" },
+    EditLayoutModels = { "Tree" }, -- edit-mode models on the arena floor, put aside the same way
+    -- Seed-sweep FX: per-switch pop (transparency spread, tears, white flashes), flicker between
+    -- switches, TV static inside every hologram block, scanlines across the volume
+    HoloTransparencyRange = { 0.12, 0.85 },
+    TearShare = 0.3,          -- share of blocks stretched sideways on a switch
+    TearStretch = 0.35,
+    FlashShare = 0.12,        -- share of blocks flashing white on a switch
+    FlickerRate = 18,         -- per second, between switches
+    FlickerShare = 0.15,
+    StaticNoise = true,       -- ParticleEmitter snow inside each hologram block
+    StaticRate = { 8, 45 },   -- particles per second (scaled by block volume)
+    Scanlines = 3,            -- scanner frames (neon bars round the arena edge) jumping height on every switch
+    ScanlineWidth = 0.8,
 }
 
 return ArenaConfig

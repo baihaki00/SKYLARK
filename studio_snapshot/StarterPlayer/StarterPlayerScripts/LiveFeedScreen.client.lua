@@ -23,6 +23,12 @@ local ArenaRibbonConfig = {
     -- Ring geometry
     RingRadius = 80,             -- studs (the 120-stud globe's surface is at 60: a close band, Universal-globe style)
     RingTilt = 18,               -- degrees the ring leans off level (owner: Universal Studios globe look)
+    -- "Coin dancing on a table": the lean's direction travels round the globe while the lean
+    -- itself breathes between RingTiltMin and RingTiltMax (capped so the ticker stays readable)
+    RingTiltMin = 6,
+    RingTiltMax = 18,
+    RingPrecessSpeed = 0.35,     -- radians per second the high side travels round
+    RingTiltPulseSpeed = 0.45,   -- radians per second of the lean breathing in and out
     RingHeight = 12,             -- studs of LED band
     PanelCount = 48,             -- polygon panels (more = rounder)
     PanelThickness = 0.6,
@@ -35,10 +41,10 @@ local ArenaRibbonConfig = {
     RingSweepTime = 0.8,         -- seconds for the light-up to travel round the ring
     YawRotationSpeed = 0.04,     -- radians per second of slow orbital turn
     TickerSpeed = 110,           -- pixels per second of ticker scroll
-    GlobeHoverAmp = 10.0,        -- studs of vertical float for ArenaGlobe
-    GlobeHoverSpeed = 0.48,
-    ScreenHoverAmp = 14.0,       -- studs of vertical float for ArenaScreen
-    ScreenHoverSpeed = 0.58,
+    GlobeHoverAmp = 1.75,        -- studs either way: 3.5 studs of travel for ArenaGlobe (owner: 3-4 studs, slower)
+    GlobeHoverSpeed = 0.3,
+    ScreenHoverAmp = 1.75,       -- studs either way for ArenaScreen
+    ScreenHoverSpeed = 0.34,
 
     -- Look
     TextSizeRatio = 0.62,        -- ticker text height as a share of the band
@@ -462,7 +468,12 @@ local function onRenderStep(dt)
     tickerScroll = (tickerScroll + ArenaRibbonConfig.TickerSpeed * dt) % ringPixels
 
     -- the ring rides the globe's hover, tilted like the Universal globe's ring, turning slowly
-    local center = CFrame.new(globePos) * CFrame.Angles(math.rad(ArenaRibbonConfig.RingTilt or 0), 0, 0) * CFrame.Angles(0, yawAngle, 0)
+    local tiltMin = ArenaRibbonConfig.RingTiltMin or ArenaRibbonConfig.RingTilt or 0
+    local tiltMax = math.max(tiltMin, ArenaRibbonConfig.RingTiltMax or ArenaRibbonConfig.RingTilt or 0)
+    local tiltDeg = tiltMin + (tiltMax - tiltMin) * (0.5 + 0.5 * math.sin(t * ArenaRibbonConfig.RingTiltPulseSpeed))
+    local leanDir = t * ArenaRibbonConfig.RingPrecessSpeed
+    local leanAxis = Vector3.new(math.cos(leanDir), 0, math.sin(leanDir))
+    local center = CFrame.new(globePos) * CFrame.fromAxisAngle(leanAxis, math.rad(tiltDeg)) * CFrame.Angles(0, yawAngle, 0)
     local radius = ArenaRibbonConfig.RingRadius
     local trimOffset = ArenaRibbonConfig.RingHeight * 0.5 + ArenaRibbonConfig.TrimHeight * 0.5
     local count = #ringPanels
