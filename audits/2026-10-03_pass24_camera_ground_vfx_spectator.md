@@ -55,3 +55,43 @@ Traps found:
 **Verified**
 - FFA 8: cracks render (screenshot), 0 loose small parts in the workspace.
 - 16v16 for 50 s: 0 errors, 32 alive, 35 marks on the floor (under the cap).
+
+## 24b. Fly Spectator by default, mouse-look, first person (`SmoothCamera`)
+
+### Fly Spectator is the default
+- The game opens in `FREEFLY`, not on the Roblox avatar.
+- While not walking, the avatar is **parked**: hidden for this player (`LocalTransparencyModifier`, re-applied every frame, because a respawned body loads its parts after `CharacterAdded`) and its default controls disabled, so WASD flies only the camera.
+- **B** toggles walking as the avatar. **R** always returns to flying.
+- When a spectated Quin dies or a possessed one is released, the camera returns to flying, not to the avatar.
+- While a Quin is possessed, PlayerQuinController owns the controls and the costume; the parking code leaves them alone.
+- **Two fly cameras, one key:** the Quin Manager (`AnimationLabController`) had its own fly camera bound to B as well, which fought SmoothCamera every frame (the camera stayed scripted after B). B now belongs to SmoothCamera; the panel's Cam button still toggles the panel camera, and its "[B]" labels are gone.
+
+### Mouse-look without holding a button
+- In flying and spectating modes the view follows the mouse (`LockCenter`, re-asserted every frame, since Roblox scripts reset `MouseBehavior`).
+- **Middle mouse** (or **L**) frees and re-locks the cursor for clicking buttons.
+- The cursor is also free while the Quin Manager or Arena System window is open, or a text box has focus.
+- Entering any flying or spectating mode starts with mouse-look on.
+- Hold-to-look and the old L lock are gone.
+- The camera publishes `Camera` attributes `SpectatorMode` and `FirstPerson` for tests and other scripts.
+
+### First person (Play As Quin)
+- Scrolling in past the closest orbit zoom (4 studs) puts the camera at the costume's head bone, 0.3 studs forward, eye height smoothed.
+- The view turns with the mouse, not with the head animation.
+- The costume's parts get `LocalTransparencyModifier = 1` (this player only).
+- Scrolling out, releasing or the Quin leaving restores the body and the orbit.
+- Your own shadow stays visible, as in most first-person games.
+
+### Streaming follows the camera
+StreamingEnabled streams around the character, which the fly camera leaves behind, and after a release there is no character at all.
+- The client sends the camera position about twice a second (`ReplicatedStorage.CameraFocus`).
+- The new block at the end of `ServerScriptService.Server` moves an invisible anchored part (`workspace.StreamFocus`) there and sets it as `player.ReplicationFocus`, except while wearing a costume (possession sets the focus to the costume).
+- My Studio tools cannot add scripts to ServerScriptService, hence the existing script.
+
+### Verified (Play)
+- **Start:** `FREEFLY`, `LockCenter`, avatar hidden 18/18. W flies the camera 239 studs and the avatar moves 0.
+- **L / menu:** L frees and re-locks; the Quin Manager open frees the cursor, and closing it re-locks.
+- **B / R:** B gives the normal camera, avatar visible, W walks 12.8 studs. R flies again, avatar hidden.
+- **First person:** P possesses; scrolling in gives first person (camera 0.34 studs from the head, costume 4/4 hidden, screenshot clean). Scrolling out restores 4/4 and the orbit.
+- **Release:** P releases back to `FREEFLY` with mouse-look on. The respawned avatar is hidden 18/18 and doesn't move with W.
+- **Streaming:** the focus is on `StreamFocus` at the camera.
+- **Arena System:** reaches IN_GAME with 0 errors.

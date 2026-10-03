@@ -104,8 +104,10 @@ local function findSpawnLocation()
 	return workspace:FindFirstChild("SpawnLocation", true) or workspace:FindFirstChildOfClass("SpawnLocation")
 end
 
-local cameraMode = "DEFAULT" -- Default to normal player avatar!
-shared.SpectatorState = { Mode = "DEFAULT" }
+-- Fly Spectator is the default (pass 24): the game opens in the free camera above the arena; the
+-- avatar is parked, hidden and still. B walks as the avatar, R (or B again) flies.
+local cameraMode = "FREEFLY"
+shared.SpectatorState = { Mode = "FREEFLY" }
 local playerSpawnObj = findSpawnLocation()
 local cameraPos = playerSpawnObj and (playerSpawnObj.Position + Vector3.new(0, 15, 30)) or Vector3.new(161, 159, -722.5)
 local yaw = 0
@@ -123,29 +125,167 @@ local isRightMouseDown = false
 local isToggleLocked = false
 
 -- === MOUSE CONTROLS ===
+-- Mouse look (pass 24): in the free camera and while spectating or playing a Quin the view follows
+-- the mouse with no button held (it needed a held button or L). The middle mouse button (or L)
+-- frees the cursor to click buttons and locks it again; the cursor is also free while a menu
+-- window is open (Quin Manager, Arena System) or a text box has focus.
+local cursorFree = false
+local lastCameraMode = nil
+
+local function menuOpen()
+	local playerGui = player:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then return false end
+	local lab = playerGui:FindFirstChild("AnimationLabUI")
+	local labFrame = lab and lab.Enabled and lab:FindFirstChild("MainFrame")
+	if labFrame and labFrame.Visible then return true end
+	local arena = playerGui:FindFirstChild("ArenaOrchestratorUI")
+	local arenaWindow = arena and arena.Enabled and arena:FindFirstChild("ArenaMainWindow", true)
+	if arenaWindow and arenaWindow:IsA("GuiObject") and arenaWindow.Visible then return true end
+	return false
+end
+
+local function lookActive()
+	return cameraMode ~= "DEFAULT" and not cursorFree and not menuOpen() and UserInputService:GetFocusedTextBox() == nil
+end
+
+-- Re-asserted every frame: Roblox's own scripts reset MouseBehavior
 local function updateMouseBehavior()
 	if cameraMode == "DEFAULT" then return end
-	if isLeftMouseDown or isRightMouseDown or isToggleLocked then
-		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+	if lookActive() then
+		if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		end
 		UserInputService.MouseIconEnabled = false
 	else
-		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		end
 		UserInputService.MouseIconEnabled = true
 	end
 end
 
 local function lockMouse()
-	if cameraMode == "DEFAULT" then return end
-	isToggleLocked = true
+	cursorFree = false
 	updateMouseBehavior()
 end
 
 local function unlockMouse()
+	cursorFree = true
 	isToggleLocked = false
 	isLeftMouseDown = false
 	isRightMouseDown = false
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
+end
+
+-- === AVATAR WHILE NOT WALKING (pass 24) ===
+-- Outside DEFAULT the avatar is parked: hidden for this player and its controls off, so WASD flies
+-- the camera instead of also walking the body. While a Quin is possessed PlayerQuinController owns
+-- the controls and the costume, so this leaves them alone.
+local defaultControls = nil
+local function getDefaultControls()
+	if defaultControls then return defaultControls end
+	local playerScripts = player:FindFirstChild("PlayerScripts")
+	local playerModule = playerScripts and playerScripts:FindFirstChild("PlayerModule")
+	if playerModule then
+		local ok, module = pcall(require, playerModule)
+		if ok and module and module.GetControls then
+			defaultControls = module:GetControls()
+		end
+	end
+	return defaultControls
+end
+
+local function isPossessing()
+	local quin = shared.PlayerControlledQuin or _G.PlayerControlledQuin
+	return quin ~= nil and quin.Parent ~= nil
+end
+
+local avatarApplied = nil -- last applied state (true = walking avatar)
+local function applyAvatarState(active)
+	if isPossessing() then avatarApplied = nil return end
+	local character = player.Character
+	if character and character:GetAttribute("IsCostume") == true then return end
+	if avatarApplied ~= active then
+		avatarApplied = active
+		local controls = getDefaultControls()
+		if controls then
+			if active then controls:Enable() else controls:Disable() end
+		end
+		if active and character then
+			for _, d in ipairs(character:GetDescendants()) do
+				if d:IsA("BasePart") or d:IsA("Decal") then d.LocalTransparencyModifier = 0 end
+			end
+		end
+	end
+	-- hidden every frame while parked: a respawned body loads its parts after CharacterAdded, and
+	-- Roblox's transparency controller writes the modifier too
+	if not active and character then
+		for _, d in ipairs(character:GetDescendants()) do
+			if (d:IsA("BasePart") or d:IsA("Decal")) and d.LocalTransparencyModifier < 1 then
+				d.LocalTransparencyModifier = 1
+			end
+		end
+	end
+end
+player.CharacterAdded:Connect(function()
+	avatarApplied = nil -- a new body: controls applied again
+end)
+
+-- === FIRST PERSON WHEN ZOOMED IN (Play As Quin, pass 24) ===
+-- Scrolling in past the closest orbit zoom puts the camera at the possessed Quin's eyes and hides
+-- its body for this player (LocalTransparencyModifier); scrolling out, releasing or dying brings
+-- the orbit and the body back.
+local firstPerson = false
+local fpEye = nil
+local hiddenBody = nil -- { model = Model, parts = { BasePart | Decal } }
+
+local function showBody()
+	if not hiddenBody then return end
+	for _, d in ipairs(hiddenBody.parts) do
+		if d.Parent then d.LocalTransparencyModifier = 0 end
+	end
+	if hiddenBody.conn then hiddenBody.conn:Disconnect() end
+	hiddenBody = nil
+end
+
+local function hideBody(model)
+	if hiddenBody and hiddenBody.model ~= model then showBody() end
+	if not hiddenBody then
+		hiddenBody = { model = model, parts = {} }
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("BasePart") or d:IsA("Decal") then table.insert(hiddenBody.parts, d) end
+		end
+		hiddenBody.conn = model.DescendantAdded:Connect(function(d)
+			if d:IsA("BasePart") or d:IsA("Decal") then table.insert(hiddenBody.parts, d) end
+		end)
+	end
+	-- (every frame: Roblox's transparency controller also writes these)
+	for _, d in ipairs(hiddenBody.parts) do
+		if d.Parent then d.LocalTransparencyModifier = 1 end
+	end
+end
+
+local function leaveFirstPerson()
+	if firstPerson then
+		firstPerson = false
+		fpEye = nil
+		targetDistance = minZoom + 1.5
+		currentDistance = minZoom
+	end
+	showBody()
+end
+
+-- === STREAMING AROUND THE CAMERA (pass 24) ===
+-- StreamingEnabled streams the world around the character, which the free camera leaves behind
+-- (and after a release there is no character at all): the camera position is sent to the server
+-- (CameraFocusServer), which moves this player's ReplicationFocus with it.
+local lastFocusSend = 0
+local focusSent = false
+local function sendStreamFocus(position)
+	local event = game:GetService("ReplicatedStorage"):FindFirstChild("CameraFocus")
+	if not event then return end
+	event:FireServer(position)
 end
 
 -- Helper to verify an object and all its ancestors are truly visible
@@ -217,13 +357,7 @@ UserInputService.WindowFocusReleased:Connect(function()
 	unlockMouse()
 end)
 
-UserInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
-	if UserInputService.MouseBehavior == Enum.MouseBehavior.Default then
-		if not isLeftMouseDown and not isRightMouseDown then
-			isToggleLocked = false
-		end
-	end
-end)
+-- (the look lock is re-asserted every frame in the render loop: updateMouseBehavior)
 
 -- Check active spectated Quin (ONLY returns AI Quin or explicitly possessed Quin, NEVER player avatar)
 local function getActiveSpectatedQuin()
@@ -276,20 +410,29 @@ UserInputService.InputBegan:Connect(function(input, gp)
 			smoothPitch = pitch
 			shared.SpectatedQuin = nil
 			workspace:SetAttribute("SpectatedQuin", "")
+			lockMouse()
 			print("[SmoothCamera] Entered Freefly mode.")
 		end
 		return
 	end
 
-	-- Hotkey R returns to default player avatar
+	-- Hotkey R: back to the free camera (Fly Spectator) from anything
 	if input.KeyCode == Enum.KeyCode.R and not gp then
-		cameraMode = "DEFAULT"
-		shared.SpectatorState.Mode = cameraMode
+		if cameraMode ~= "FREEFLY" then
+			cameraMode = "FREEFLY"
+			shared.SpectatorState.Mode = cameraMode
+			cameraPos = Camera.CFrame.Position
+			local look = Camera.CFrame.LookVector
+			yaw = math.deg(math.atan2(-look.X, -look.Z))
+			pitch = math.deg(math.asin(math.clamp(look.Y, -1, 1)))
+			smoothYaw = yaw
+			smoothPitch = pitch
+		end
 		shared.SpectatedQuin = nil
 		_G.SpectatedQuin = nil
 		workspace:SetAttribute("SpectatedQuin", "")
-		unlockMouse()
-		print("[SmoothCamera] Returned to default player avatar.")
+		lockMouse()
+		print("[SmoothCamera] Fly Spectator.")
 		return
 	end
 
@@ -298,26 +441,12 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		return
 	end
 
-	-- Mouse Controls: Left Click or Right Click to look around
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		if gp or isClickOnGui(input.Position) then
-			-- Clicked on GUI (e.g. Spectator HUD button/card)
-			return
-		end
-		isLeftMouseDown = true
-		updateMouseBehavior()
-
-	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-		if gp or isClickOnGui(input.Position) then return end
-		isRightMouseDown = true
-		updateMouseBehavior()
-
-	-- Toggle hands-free look lock with L
-	elseif input.KeyCode == Enum.KeyCode.L then
-		if isToggleLocked then
-			unlockMouse()
-		else
+	-- Middle mouse (or L): free the cursor to click buttons / lock it again for mouse look
+	if input.UserInputType == Enum.UserInputType.MouseButton3 or (input.KeyCode == Enum.KeyCode.L and not gp) then
+		if cursorFree then
 			lockMouse()
+		else
+			unlockMouse()
 		end
 
 	-- Mouse Unlock keys
@@ -326,20 +455,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-UserInputService.InputEnded:Connect(function(input, gp)
-	if cameraMode == "DEFAULT" then return end
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		if isLeftMouseDown then
-			isLeftMouseDown = false
-			updateMouseBehavior()
-		end
-	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-		if isRightMouseDown then
-			isRightMouseDown = false
-			updateMouseBehavior()
-		end
-	end
-end)
+-- (no hold-to-look: nothing to release on InputEnded)
 
 -- Scroll wheel
 UserInputService.InputChanged:Connect(function(input, gp)
@@ -347,7 +463,17 @@ UserInputService.InputChanged:Connect(function(input, gp)
 	if cameraMode == "DEFAULT" then return end
 	if input.UserInputType == Enum.UserInputType.MouseWheel then
 		if cameraMode == "QUIN_SPECTATE" then
-			targetDistance = math.clamp(targetDistance - input.Position.Z * zoomSpeed, minZoom, maxZoom)
+			local zoomingIn = input.Position.Z > 0
+			if firstPerson then
+				if not zoomingIn then
+					leaveFirstPerson()
+				end
+			elseif zoomingIn and targetDistance <= minZoom + 0.01 and isPossessing() then
+				firstPerson = true
+				fpEye = nil
+			else
+				targetDistance = math.clamp(targetDistance - input.Position.Z * zoomSpeed, minZoom, maxZoom)
+			end
 		else
 			-- In freefly, wheel nudges camera forward/backward along view
 			local forward = Camera.CFrame.LookVector
@@ -378,6 +504,23 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 
 	-- Check if a Quin is selected from the HUD or player possessed
 	local targetHRP, quinModel = getActiveSpectatedQuin()
+
+	-- First person only on the Quin this player is playing
+	if firstPerson and (not quinModel or quinModel ~= (shared.PlayerControlledQuin or _G.PlayerControlledQuin)) then
+		leaveFirstPerson()
+	end
+	applyAvatarState(cameraMode == "DEFAULT" and not targetHRP)
+	local nowClock = os.clock()
+	if cameraMode ~= "DEFAULT" and not isPossessing() then
+		if nowClock - lastFocusSend > 0.5 then
+			lastFocusSend = nowClock
+			focusSent = true
+			sendStreamFocus(Camera.CFrame.Position)
+		end
+	elseif focusSent and not isPossessing() then
+		focusSent = false
+		sendStreamFocus(nil)
+	end
 	if targetHRP then
 		if cameraMode ~= "QUIN_SPECTATE" then
 			cameraMode = "QUIN_SPECTATE"
@@ -393,10 +536,25 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			end
 		end
 	elseif cameraMode == "QUIN_SPECTATE" then
-		cameraMode = "DEFAULT"
+		-- the spectated Quin is gone (died, released): back to the free camera where the view is
+		cameraMode = "FREEFLY"
 		shared.SpectatorState.Mode = cameraMode
-		unlockMouse()
+		cameraPos = Camera.CFrame.Position
+		local look = Camera.CFrame.LookVector
+		yaw = math.deg(math.atan2(-look.X, -look.Z))
+		pitch = math.deg(math.asin(math.clamp(look.Y, -1, 1)))
+		smoothYaw = yaw
+		smoothPitch = pitch
 	end
+	-- entering any flying / spectating mode starts with mouse look on
+	if cameraMode ~= lastCameraMode then
+		if cameraMode ~= "DEFAULT" and lastCameraMode ~= nil then
+			cursorFree = false
+		end
+		lastCameraMode = cameraMode
+		Camera:SetAttribute("SpectatorMode", cameraMode) -- (for tests and other scripts)
+	end
+	Camera:SetAttribute("FirstPerson", firstPerson or nil)
 
 	-- If in DEFAULT avatar mode, restore Roblox Custom camera and let player control character freely
 	if cameraMode == "DEFAULT" then
@@ -418,8 +576,10 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 
 	Camera.CameraType = Enum.CameraType.Scriptable
 
-	-- Mouse rotation (Continuous, unconstrained 360-degree rotation)
-	local isHoldingLook = isLeftMouseDown or isRightMouseDown or isToggleLocked
+	-- Mouse rotation (Continuous, unconstrained 360-degree rotation): follows the mouse whenever
+	-- the cursor is not freed (pass 24)
+	updateMouseBehavior()
+	local isHoldingLook = lookActive()
 	if isHoldingLook then
 		local delta = UserInputService:GetMouseDelta()
 		yaw = yaw - delta.X * flySensitivity
@@ -497,6 +657,33 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		cameraPos = Vector3.new(cameraPos.X, math.clamp(cameraPos.Y, minAltitude, maxAltitude), cameraPos.Z)
 
 		Camera.CFrame = CFrame.new(cameraPos) * rotCF
+
+	elseif firstPerson and quinModel and targetHRP then
+		-- === FIRST PERSON (possessed Quin, zoomed all the way in) ===
+		-- Eyes at the head bone, a little forward; the view turns with the mouse, not with the
+		-- head's animation (head bob and snaps would be sickening)
+		local head = quinModel:FindFirstChild("mixamorig:Head", true)
+		local rotCF = CFrame.Angles(0, math.rad(yaw), 0) * CFrame.Angles(math.rad(pitch), 0, 0)
+		local flatLook = Vector3.new(rotCF.LookVector.X, 0, rotCF.LookVector.Z)
+		local eye
+		if head and head:IsA("Bone") then
+			eye = head.TransformedWorldCFrame.Position
+		elseif head and head:IsA("BasePart") then
+			eye = head.Position
+		else
+			eye = targetHRP.Position + Vector3.new(0, 2.6, 0)
+		end
+		eye += Vector3.new(0, 0.15, 0) + (flatLook.Magnitude > 0.01 and flatLook.Unit * 0.3 or Vector3.zero)
+		fpEye = fpEye and fpEye:Lerp(eye, 1 - math.exp(-25 * dt)) or eye
+		smoothYaw, smoothPitch = yaw, pitch
+		currentDistance = minZoom
+		if math.abs(currentCamFov - baseFOV) > 0.05 then
+			currentCamFov = currentCamFov + (baseFOV - currentCamFov) * (1 - math.exp(-8.0 * dt))
+			Camera.FieldOfView = currentCamFov
+		end
+		hideBody(quinModel)
+		Camera.CFrame = CFrame.new(fpEye) * rotCF
+		cameraPos = fpEye
 
 	else
 		-- === QUIN SPECTATE (ORBIT WITH SUSPENSION & DYNAMIC GYRO) ===

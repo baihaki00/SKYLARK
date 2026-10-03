@@ -210,3 +210,73 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 print("[Server] All QuinCore server services initialized successfully. Default speed: 1.0x")
+
+-- ============================================================
+-- STREAMING AROUND THE FLY SPECTATOR CAMERA (pass 24)
+-- StreamingEnabled streams the world around each player's character. The Fly Spectator camera
+-- (StarterPlayerScripts.SmoothCamera) leaves the parked avatar behind, and after a Play As Quin
+-- release there is no character at all, so the client sends its camera position (~2/s) and this
+-- moves an invisible anchored part there and makes it the player's ReplicationFocus.
+-- nil = stream around the character again. While the player wears a Quin costume the possess
+-- code above sets the focus to the costume and this leaves it alone.
+-- ============================================================
+do
+	local cameraFocusEvent = ReplicatedStorage:FindFirstChild("CameraFocus")
+	if not cameraFocusEvent then
+		cameraFocusEvent = Instance.new("RemoteEvent")
+		cameraFocusEvent.Name = "CameraFocus"
+		cameraFocusEvent.Parent = ReplicatedStorage
+	end
+	local focusFolder = workspace:FindFirstChild("StreamFocus")
+	if not focusFolder then
+		focusFolder = Instance.new("Folder")
+		focusFolder.Name = "StreamFocus"
+		focusFolder.Parent = workspace
+	end
+	local FOCUS_LIMIT = 50000 -- studs from the origin; anything beyond is junk
+	local focusParts = {}
+
+	local function focusPart(player)
+		local part = focusParts[player]
+		if part and part.Parent then return part end
+		part = Instance.new("Part")
+		part.Name = "Focus_" .. player.UserId
+		part.Size = Vector3.new(1, 1, 1)
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.Transparency = 1
+		part.Parent = focusFolder
+		focusParts[player] = part
+		return part
+	end
+
+	cameraFocusEvent.OnServerEvent:Connect(function(player, position)
+		local character = player.Character
+		if character and character:GetAttribute("IsCostume") == true then
+			return -- playing a Quin: the costume is the focus
+		end
+		if typeof(position) ~= "Vector3" then
+			if player.ReplicationFocus and player.ReplicationFocus == focusParts[player] then
+				player.ReplicationFocus = nil
+			end
+			return
+		end
+		if position.X ~= position.X or position.Y ~= position.Y or position.Z ~= position.Z
+			or position.Magnitude > FOCUS_LIMIT then
+			return
+		end
+		local part = focusPart(player)
+		part.Position = position
+		if player.ReplicationFocus ~= part then
+			player.ReplicationFocus = part
+		end
+	end)
+
+	game:GetService("Players").PlayerRemoving:Connect(function(player)
+		local part = focusParts[player]
+		if part then part:Destroy() end
+		focusParts[player] = nil
+	end)
+end

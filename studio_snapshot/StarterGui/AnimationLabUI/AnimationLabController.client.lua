@@ -298,13 +298,9 @@ end
 -- Input Listeners for Freecam
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe or UserInputService:GetFocusedTextBox() then return end
-	-- B toggles the free camera (F flies the body: TheArchitectCode)
-	if input.KeyCode == Enum.KeyCode.B then
-		if _G.ToggleCamMode then
-			_G.ToggleCamMode()
-		end
-		return
-	end
+	-- (B belongs to the Fly Spectator camera, StarterPlayerScripts.SmoothCamera, since pass 24:
+	-- this panel's own fly camera answering B as well fought it every frame. The panel's Cam
+	-- button still toggles it.)
 	if not isFreecamActive then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton2 then
 		isRightMouseDown = true
@@ -501,7 +497,7 @@ camToggleBtn.BackgroundColor3 = Color3.fromRGB(45, 52, 70)
 camToggleBtn.TextColor3 = C_TEXT
 camToggleBtn.Font = Enum.Font.GothamBold
 camToggleBtn.TextSize = 10
-camToggleBtn.Text = "Cam: Char [B]"
+camToggleBtn.Text = "Cam: Char"
 camToggleBtn.Parent = titleBar
 applyCorner(camToggleBtn, 6)
 
@@ -519,10 +515,10 @@ end
 local function toggleCamMode()
 	if isFreecamActive then
 		stopFreecam()
-		updateCamBtnDisplay("Cam: Char [B]")
+		updateCamBtnDisplay("Cam: Char")
 	else
 		startFreecam()
-		updateCamBtnDisplay("Cam: Fly [B]")
+		updateCamBtnDisplay("Cam: Fly")
 	end
 end
 
