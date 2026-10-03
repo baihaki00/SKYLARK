@@ -10,6 +10,8 @@ local Workspace = game:GetService("Workspace")
 local RS = game:GetService("ReplicatedStorage")
 
 local ArenaConfig = require(RS.QuinCore.ArenaConfig)
+-- Crowd (ArenaCrowdManager): anthem _CrowdFX / _DrumFX stems play through the stand emitters
+local ArenaCrowd = require(game:GetService("ServerScriptService"):WaitForChild("ArenaCrowdManager"))
 
 local ArenaAudio = {}
 
@@ -206,37 +208,55 @@ function ArenaAudio.playAnthem(anthemPrefix, volume, fadeTime)
     currentMusicType = "StadiumAnthem"
     
     for _, template in ipairs(stemsToPlay) do
-        local sound = Instance.new("Sound")
-        sound.Name = "ActiveAnthem_" .. template.Name
-        sound.SoundId = template.SoundId
-        sound.Looped = false
-        sound.Volume = 0
-        sound.RollOffMinDistance = ArenaConfig.AudioSettings.SpeakerMinDistance
-        sound.RollOffMaxDistance = ArenaConfig.AudioSettings.SpeakerMaxDistance
-        sound.RollOffMode = ArenaConfig.AudioSettings.SpeakerRollOffMode
-        
-        -- Route ARIA vocals to AriaChannel, Drums & Crowd to MusicChannel
         local nameUpper = string.upper(template.Name)
-        if string.find(nameUpper, "ARIA", 1, true) or string.find(nameUpper, "VOCAL", 1, true) then
-            sound.SoundGroup = ariaChannel
-        else
-            sound.SoundGroup = musicChannel
-        end
-        
-        sound.Parent = arenaGlobe
-        sound.TimePosition = 0
-        sound:Play()
-        
         local volWeight = 1.0
         if string.find(nameUpper, "DRUM", 1, true) then
             volWeight = 0.95
         elseif string.find(nameUpper, "CROWD", 1, true) then
             volWeight = 0.85
         end
-        
-        local targetVol = volume * volWeight
-        TweenService:Create(sound, TweenInfo.new(fadeTime), { Volume = targetVol }):Play()
-        activeAnthemStems[sound] = volWeight
+
+        -- Crowd and drum stems sound like the stadium, so they come from the stands (one copy per
+        -- stand section); everything else plays from the ArenaGlobe speaker
+        local parents = { arenaGlobe }
+        local isStandStem = string.find(nameUpper, "CROWD", 1, true) or string.find(nameUpper, "DRUM", 1, true)
+        if isStandStem then
+            local emitters = ArenaCrowd.getStemEmitters()
+            if #emitters > 0 then
+                parents = emitters
+                volWeight *= ArenaCrowd.getStemScale()
+            end
+        end
+
+        for _, parent in ipairs(parents) do
+            local sound = Instance.new("Sound")
+            sound.Name = "ActiveAnthem_" .. template.Name
+            sound.SoundId = template.SoundId
+            sound.Looped = false
+            sound.Volume = 0
+            if parent == arenaGlobe then
+                sound.RollOffMinDistance = ArenaConfig.AudioSettings.SpeakerMinDistance
+                sound.RollOffMaxDistance = ArenaConfig.AudioSettings.SpeakerMaxDistance
+                sound.RollOffMode = ArenaConfig.AudioSettings.SpeakerRollOffMode
+            else
+                sound.RollOffMinDistance, sound.RollOffMaxDistance = ArenaCrowd.getRollOff()
+                sound.RollOffMode = Enum.RollOffMode.InverseTapered
+            end
+
+            -- Route ARIA vocals to AriaChannel, Drums & Crowd to MusicChannel
+            if string.find(nameUpper, "ARIA", 1, true) or string.find(nameUpper, "VOCAL", 1, true) then
+                sound.SoundGroup = ariaChannel
+            else
+                sound.SoundGroup = musicChannel
+            end
+
+            sound.Parent = parent
+            sound.TimePosition = 0
+            sound:Play()
+
+            TweenService:Create(sound, TweenInfo.new(fadeTime), { Volume = volume * volWeight }):Play()
+            activeAnthemStems[sound] = volWeight
+        end
     end
     
     print(string.format("[ArenaAudio] Stadium Anthem '%s' started with %d stems on ArenaGlobe (Volume: %.2f)",
@@ -491,6 +511,7 @@ function ArenaAudio.duck(multiplier, tweenTime)
     multiplier = multiplier or ArenaConfig.AudioSettings.DuckingMultiplier
     tweenTime = tweenTime or ArenaConfig.AudioSettings.DuckTweenTime
     duckCount = duckCount + 1
+    ArenaCrowd.duck(true, tweenTime)
     
     if activeMusicSound and activeMusicSound.Parent then
         local targetVol = channelVolumes.Music * multiplier
@@ -518,6 +539,7 @@ function ArenaAudio.unduck(tweenTime)
     duckCount = math.max(0, duckCount - 1)
     
     if duckCount == 0 then
+        ArenaCrowd.duck(false, tweenTime)
         if activeMusicSound and activeMusicSound.Parent then
             TweenService:Create(activeMusicSound, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 Volume = channelVolumes.Music
@@ -544,6 +566,7 @@ function ArenaAudio.stopAll(fadeTime)
     fadeTime = fadeTime or 0.8
     duckCount = 0
     isDucked = false
+    ArenaCrowd.duck(false, 0.3)
     
     ArenaAudio.stopAnthem(fadeTime)
     

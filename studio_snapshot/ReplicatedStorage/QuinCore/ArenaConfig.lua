@@ -166,7 +166,7 @@ ArenaConfig.DefaultToggles = {
     Fireworks           = true,
     Drones              = true,  -- Spectator camera drones (launch at T-4 of the countdown, outro in post-game)
     ProceduralMusic     = true,
-    CrowdFX             = false, -- Reserved / Later
+    CrowdFX             = true,  -- Procedural spatial crowd (ArenaCrowdManager, ArenaConfig.CrowdFX)
     ProceduralTerrain   = false, -- If false, uses existing edit-mode parts
 }
 
@@ -179,4 +179,66 @@ ArenaConfig.DroneVisuals = {
     LabelFadeAfter = 3,       -- seconds
     LabelFadeTime = 1,        -- seconds
 }
+-- Procedural spatial crowd (ServerScriptService.ArenaCrowdManager). Sounds load from the CrowdFX
+-- folder tree (<Group>/<Category>/<Sound>): every name below is a Category folder, never a sound id.
+-- Emitters are spread along each stand part named EmitterPartName, so a row sounds like a row.
+ArenaConfig.CrowdFX = {
+    Folder = { "argoniaonion", "ArenaOne", "ArenaSoundFX", "CrowdFX" }, -- under Workspace
+    EmitterPartName = "CrowdFX",
+    EmitterSpacing = 110,     -- studs between emitters along a stand row
+    MinEmitters = 2,
+    MaxEmitters = 6,
+    RollOffMin = 90,          -- full level within this distance of an emitter
+    RollOffMax = 1100,
+    Volume = 1.0,             -- crowd channel (ArenaCrowdChannel, under the arena master)
+    DuckMultiplier = 0.75,    -- crowd level while ARIA speaks
+    BedVolume = 0.28,         -- murmur loops, every emitter
+    LayerVolume = 0.30,       -- mood loops (every other emitter), at full excitement
+    ChantVolume = 0.38,
+    ReactVolume = 0.42,       -- small/medium one-shots
+    MajorVolume = 0.55,       -- big one-shots (eliminations, kick-off, winner)
+    Crossfade = 2.5,          -- seconds for loop changes
+    MaxOneShots = 12,         -- one-shots playing at once, whole stadium
+    MinorGap = 0.5,           -- seconds between minor reactions, whole stadium
+    SectionCooldown = 3.0,    -- seconds before a section reacts to a minor moment again
+    PitchJitter = 0.04,       -- +/- playback speed per sound, so copies never phase
+    AnthemStemScale = 0.45,   -- each section's copy of an anthem _CrowdFX / _DrumFX stem
+    -- Excitement (0..1, per team): rises with the team's hits and decays to Rest
+    ExcitementRest = 0.3,
+    ExcitementDecay = 0.05,   -- per second
+    HeavyHitFraction = 0.02,  -- damage / MaxHealth counted as a heavy hit
+    TenseWhenAlive = 1,       -- tension once a team (or the FFA field) is down to this many (+1 in FFA)
+    ChantEvery = { 22, 40 },  -- seconds between chants (IN_GAME)
+    ChantLength = { 9, 15 },
+    -- Murmur bed and mood layer per arena phase (Level scales BedVolume / LayerVolume)
+    Phases = {
+        ARENA_OPEN = { Bed = "CrowdMedium", Level = 0.8, Cue = "MediumApplause" },
+        ARENA_GENERATION = { Bed = "CrowdMedium", Level = 0.6 },
+        PREPARATION_ROOM = { Bed = "CrowdLow", Level = 0.7 },
+        TELEPORTING_QUINS = { Bed = "CrowdMedium", Level = 0.9, Cue = "MediumCheer" },
+        STADIUM_ANTHEM = { Bed = "CrowdLow", Level = 0.35 },
+        PRE_GAME = { Bed = "CrowdBusy", Level = 1.0, Layer = "ExcitedCrowd", LayerLevel = 0.7 },
+        IN_GAME = { Bed = "CrowdBusy", TenseBed = "CrowdTense", Level = 1.0, Cue = "HugeRoar", CueMajor = true },
+        WINNER_DETERMINATION = { Bed = "CrowdBusy", Level = 1.0 },
+        POST_GAME = { Bed = "CrowdMedium", Level = 0.6, Cue = "MediumApplause" },
+    },
+    -- Mood layers in play (by team excitement / tension)
+    Moods = { Calm = "CalmCrowd", Excited = "ExcitedCrowd", Tense = "TenseCrowd", Angry = "AngryCrowd", Celebration = "CelebrationCrowd" },
+    ExcitedAbove = 0.55,
+    AngryTime = 8,            -- seconds a team's sections boo (AngryCrowd) after losing a fighter
+    -- Reactions: For = sections backing the team that did it, Against = the other team's sections
+    Reactions = {
+        LightHit = { For = "ScatteredCheer", Chance = 0.10 },
+        HeavyHit = { For = "MediumCheer", Against = "SmallGroan", Chance = 0.45 },
+        Knockdown = { For = "MediumRoar", Against = "ShortGasp", Chance = 0.8 },
+        Elimination = { For = "HugeCheer", Against = "MassiveDisappointment", Chance = 1.0, Major = true },
+        -- FFA (every section neutral)
+        NeutralHeavy = { For = "MediumCheer", Chance = 0.35 },
+        NeutralKnockdown = { For = "ShortGasp", Chance = 0.6 },
+        NeutralElimination = { For = "HugeRoar", Chance = 1.0, Major = true },
+    },
+    Chant = { Bed = "ChantBed", Phrase = "ShortChantPhrase" },
+    Winner = { For = "MassiveCelebration", Against = "MassiveDisappointment", Draw = "MassiveShock" },
+}
+
 return ArenaConfig

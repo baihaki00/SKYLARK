@@ -20,6 +20,7 @@ local ArenaScreen = require(ServerScriptService:WaitForChild("ArenaScreenManager
 local ArenaAria = require(ServerScriptService:WaitForChild("ArenaAriaManager"))
 local ArenaFireworks = require(ServerScriptService:WaitForChild("ArenaFireworksManager"))
 local ArenaDroneManager = require(ServerScriptService:WaitForChild("ArenaDroneManager"))
+local ArenaCrowd = require(ServerScriptService:WaitForChild("ArenaCrowdManager"))
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 
 local Orchestrator = {}
@@ -177,6 +178,7 @@ local function beginPhase(name, seconds, title, subtitle)
     phaseEndTime = os.clock() + seconds
     print(string.format("[ArenaSystemOrchestrator] Entering Phase: %s (%.0fs)", name, seconds))
     ArenaScreen.setSequence(name, title, subtitle, seconds)
+    ArenaCrowd.setPhase(name)
     replicateState()
     return skipEpoch
 end
@@ -317,6 +319,8 @@ end
 
 local function runMatchLifecycle()
     local mode = activeConfig.Mode
+    ArenaCrowd.resetMatch(mode)
+    ArenaCrowd.setEnabled(toggle("CrowdFX"))
 
     -- PHASE 1: ARENA OPEN. Globe + screen materialize at T+5s.
     Workspace:SetAttribute("ArenaHologramsActive", false)
@@ -378,6 +382,7 @@ local function runMatchLifecycle()
         ArenaAria.speak("ARIA_TeleportingQuinsToDesignatedAreas")
     end
     spawnFighters()
+    ArenaCrowd.assignTeams(mode) -- stand sections pick a side; kept until the match ends
     if not waitPhase(epoch) then
         ArenaAria.stopAll()
     end
@@ -448,6 +453,7 @@ local function runMatchLifecycle()
     ArenaAudio.stopInGameMusic(2.0)
     local victoryTime = duration("WinnerDetermination")
     epoch = beginPhase("WINNER_DETERMINATION", victoryTime, nil, nil)
+    ArenaCrowd.onWinner(winnerTeam)
     ArenaScreen.showWinner(winnerName, reason)
     if toggle("Fireworks") then
         ArenaFireworks.launchWinnerShow(victoryTime)
@@ -568,6 +574,7 @@ function Orchestrator.stopMatch()
 
     ArenaAria.stopAll()
     ArenaAudio.stopAll(1.0)
+    ArenaCrowd.setPhase("IDLE")
     ArenaFireworks.stopAll()
     ArenaDroneManager.resetDrones()
     QuinSpawner.cleanAll()
@@ -603,6 +610,7 @@ remotes.UpdateToggles.OnServerEvent:Connect(function(player, newToggles)
         for k, v in pairs(newToggles) do
             activeConfig.Toggles[k] = (v == true)
         end
+        ArenaCrowd.setEnabled(toggle("CrowdFX") and currentPhase ~= "IDLE")
         replicateState()
     end
 end)

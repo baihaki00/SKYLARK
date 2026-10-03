@@ -488,7 +488,7 @@ togSecHeader.LayoutOrder = 1
 togSecHeader.Parent = rightCol
 
 local togglesContainer = Instance.new("Frame")
-togglesContainer.Size = UDim2.new(1, 0, 0, 175)
+togglesContainer.Size = UDim2.new(1, 0, 0, 198)
 togglesContainer.BackgroundColor3 = C_CARD
 togglesContainer.LayoutOrder = 2
 togglesContainer.Parent = rightCol
@@ -509,6 +509,7 @@ togPad.Parent = togglesContainer
 local toggleDefs = {
     { key = "Announcer",         name = "ARIA Stadium Announcer" },
     { key = "ProceduralMusic",   name = "Stadium Audio & Playlists" },
+    { key = "CrowdFX",           name = "Procedural Crowd FX (stands cheer, boo & chant)" },
     { key = "ProceduralTerrain", name = "Procedural Terrain Obstacles  [not built yet]", stub = true },
     { key = "Fireworks",         name = "Atmospheric Fireworks Show" },
     { key = "Drones",            name = "Spectator Camera Drones" },
