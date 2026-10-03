@@ -189,3 +189,14 @@ One-click diagnostic scenes live in the in-game **Quin Manager** (pill button "Q
 .\scripts\publish-notes.ps1 -Title "Hotfix: ring" -Note "Tested in FFA 32"
 ```
 Commit (and export Studio scripts) before running it: uncommitted changes are not in the notes.
+
+---
+
+## 12. Combat animations
+
+**[COMBAT_ANIMATION_GUIDE.md](COMBAT_ANIMATION_GUIDE.md)** holds:
+- the animation-event (marker) naming convention the combat code reads (`HitStart`, `HitEnd`, `Recover`, `GuardUp`, `EvadeStart`, `Impact`, ...);
+- every combat clip in use, with its asset ID and which ones are shared;
+- the full list of strike, block, dodge and hit-reaction clips the combat needs.
+
+Follow it when adding or renaming combat clips or markers.
