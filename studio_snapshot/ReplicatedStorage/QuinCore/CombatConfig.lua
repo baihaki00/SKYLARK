@@ -527,6 +527,9 @@ CombatConfig.Vfx_FootprintImage = "rbxassetid://86571610584273" -- owner's boot 
 CombatConfig.Vfx_FootprintImageLeft = ""      -- optional left-foot image ("" = the right image, mirrored)
 CombatConfig.Vfx_FootprintImageSize = Vector2.new(312, 900) -- pixel size of Vfx_FootprintImage (needed to mirror it for the left foot)
 CombatConfig.Vfx_FootprintImageTransparency = 0.6 -- owner: opacity 0.4
+CombatConfig.Vfx_FootprintHold = 6             -- seconds a footprint stays fully visible
+CombatConfig.Vfx_FootprintFade = 3             -- ...then seconds it takes to fade out
+CombatConfig.Vfx_GroundMarkLimit = 120         -- marks on the floor at once; past it the oldest fades out quickly
 CombatConfig.Vfx_FootprintLength = 1.2        -- studs heel to toe (the rig's foot: ankle to ball 0.69)
 CombatConfig.Vfx_FootprintWidth = 0.48
 CombatConfig.Vfx_FootprintCentreOffset = 0.42 -- studs from the ankle toward the toes where the print is centred

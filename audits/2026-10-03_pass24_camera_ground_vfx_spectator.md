@@ -103,3 +103,18 @@ StreamingEnabled streams around the character, which the fly camera leaves behin
 - The image keeps its proportions (`ScaleType.Fit`).
 - For left steps, with no `Vfx_FootprintImageLeft`, the same image is drawn flipped (negative `ImageRectSize`).
 - **Verified by screenshot:** prints show the sole with the crest, toes in the direction of travel; left prints on the runner's left (mirrored), right on its right.
+
+## 24d. Footprints fade out instead of vanishing
+
+**Owner's notes**
+- Opacity 0.4 (`Vfx_FootprintImageTransparency` 0.6).
+- Prints should not just disappear. They faded over their whole 2.5 s life, slowly then fast, which read as vanishing.
+
+**Ground marks now hold, then fade**
+- A mark stays fully visible for a hold time, then fades out (Sine in-out).
+- Footprints: `Vfx_FootprintHold` 6 s, then `Vfx_FootprintFade` 3 s.
+- Streaks and cracks: hold = their old lifetime, fade = half of it.
+
+**The limit no longer drops new marks.** At `Vfx_GroundMarkLimit` (120 standing marks, was 60) the oldest mark fades out over 0.4 s to make room.
+
+**Measured** (one new print): fully visible to 6 s; 0.07 transparent at 6.5 s, 0.50 at 7.5 s, 0.93 at 8.5 s; gone at 9.3 s. 16v16 for 45 s: peak 176 marks (120 standing plus those fading), 0 errors.

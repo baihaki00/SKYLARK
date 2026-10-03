@@ -1082,10 +1082,41 @@ local function floorUnder(point)
 	return hit and hit.Position or nil
 end
 
+-- Marks on the floor, oldest first: at the limit the oldest one fades away quickly to make room
+-- (new marks used to be skipped once 60 were down)
+local activeDecals = {}
+
+local function fadeDecal(entry, seconds)
+	if entry.fading then return end
+	entry.fading = true
+	if entry.canvas.Parent then
+		TweenService:Create(entry.canvas, TweenInfo.new(seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { GroupTransparency = 1 }):Play()
+	end
+	task.delay(seconds, function()
+		local index = table.find(activeDecals, entry)
+		if index then table.remove(activeDecals, index) end
+		markCount = #activeDecals
+		entry.carrier:Destroy()
+	end)
+end
+
 -- A flat carrier lying on the floor at `position`, its length (Z) along `forward`; returns the
--- canvas to draw on (fades out over `lifetime`), or nil when the mark limit is reached
-local function groundDecal(position, forward, sizeX, sizeZ, lifetime)
-	if CombatConfig.Vfx_GroundMarks == false or markCount >= MARK_LIMIT then return nil end
+-- canvas to draw on. The mark stays fully visible for `hold` seconds, then fades out over `fade`
+-- seconds (`fade` defaults to half the hold).
+local function groundDecal(position, forward, sizeX, sizeZ, hold, fade)
+	if CombatConfig.Vfx_GroundMarks == false then return nil end
+	local limit = CombatConfig.Vfx_GroundMarkLimit or MARK_LIMIT
+	local standing = 0
+	for _, old in ipairs(activeDecals) do
+		if not old.fading then standing += 1 end
+	end
+	for _, old in ipairs(activeDecals) do
+		if standing < limit then break end
+		if not old.fading then
+			fadeDecal(old, 0.4)
+			standing -= 1
+		end
+	end
 	local flat = Vector3.new(forward.X, 0, forward.Z)
 	if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
 	local folder = workspace:FindFirstChild("GroundDecals")
@@ -1120,12 +1151,13 @@ local function groundDecal(position, forward, sizeX, sizeZ, lifetime)
 	canvas.Parent = gui
 	carrier.Parent = folder
 
-	markCount += 1
-	lifetime = lifetime or 3.5
-	TweenService:Create(canvas, TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { GroupTransparency = 1 }):Play()
-	task.delay(lifetime, function()
-		markCount -= 1
-		carrier:Destroy()
+	hold = hold or 3.5
+	fade = fade or hold * 0.5
+	local entry = { carrier = carrier, canvas = canvas }
+	table.insert(activeDecals, entry)
+	markCount = #activeDecals
+	task.delay(hold, function()
+		fadeDecal(entry, fade)
 	end)
 	return canvas
 end
@@ -1239,7 +1271,8 @@ function VfxModule.createFootprint(fighter, side)
 	if not floor then return end
 	local length = CombatConfig.Vfx_FootprintLength or 1.2
 	local width = CombatConfig.Vfx_FootprintWidth or 0.48
-	local canvas = groundDecal(Vector3.new(centre.X, floor.Y, centre.Z), along, width, length, 2.5)
+	local canvas = groundDecal(Vector3.new(centre.X, floor.Y, centre.Z), along, width, length,
+		CombatConfig.Vfx_FootprintHold or 6, CombatConfig.Vfx_FootprintFade or 3)
 	if not canvas then return end
 	local image = CombatConfig.Vfx_FootprintImage
 	local mirror = false
