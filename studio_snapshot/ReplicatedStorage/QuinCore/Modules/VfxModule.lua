@@ -1242,12 +1242,24 @@ function VfxModule.createFootprint(fighter, side)
 	local canvas = groundDecal(Vector3.new(centre.X, floor.Y, centre.Z), along, width, length, 2.5)
 	if not canvas then return end
 	local image = CombatConfig.Vfx_FootprintImage
-	if side == "Left" and (CombatConfig.Vfx_FootprintImageLeft or "") ~= "" then
-		image = CombatConfig.Vfx_FootprintImageLeft
+	local mirror = false
+	if side == "Left" then
+		if (CombatConfig.Vfx_FootprintImageLeft or "") ~= "" then
+			image = CombatConfig.Vfx_FootprintImageLeft
+		else
+			mirror = true -- one right-foot image serves both feet, flipped for the left
+		end
 	end
 	canvas.Parent.Parent:SetAttribute("Foot", side) -- (which foot made it: debug and tests)
 	if (image or "") ~= "" then
-		decalImage(canvas, image, 0.2)
+		local label = decalImage(canvas, image, CombatConfig.Vfx_FootprintImageTransparency or 0.25)
+		label.ScaleType = Enum.ScaleType.Fit -- keep the drawing's proportions
+		local size = CombatConfig.Vfx_FootprintImageSize
+		if mirror and typeof(size) == "Vector2" then
+			-- a negative rect width draws the image flipped left to right
+			label.ImageRectOffset = Vector2.new(size.X, 0)
+			label.ImageRectSize = Vector2.new(-size.X, size.Y)
+		end
 	else
 		drawSole(canvas, side == "Left" and 1 or -1)
 	end

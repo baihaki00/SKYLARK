@@ -523,8 +523,10 @@ CombatConfig.Vfx_LandingDust = true                    -- smoke burst where a bo
 CombatConfig.Vfx_SlideSmoke = true                     -- smoke trailing a slide
 CombatConfig.Vfx_GroundMarks = true                    -- fading scuffs on the turf: slide streaks, skid marks, sprint footprints (max 60 at once)
 -- Ground decals (pass 24, VfxModule): drawn shapes on the floor; set an image asset id to replace a drawing
-CombatConfig.Vfx_FootprintImage = ""          -- boot print, toe pointing up in the image (right foot; "" = drawn sole)
-CombatConfig.Vfx_FootprintImageLeft = ""      -- optional left-foot image ("" = the right image is used for both)
+CombatConfig.Vfx_FootprintImage = "rbxassetid://86571610584273" -- owner's boot print (SKYLARK ICONS/FOOTPRINT.png): right foot, toe up ("" = drawn sole)
+CombatConfig.Vfx_FootprintImageLeft = ""      -- optional left-foot image ("" = the right image, mirrored)
+CombatConfig.Vfx_FootprintImageSize = Vector2.new(312, 900) -- pixel size of Vfx_FootprintImage (needed to mirror it for the left foot)
+CombatConfig.Vfx_FootprintImageTransparency = 0.25
 CombatConfig.Vfx_FootprintLength = 1.2        -- studs heel to toe (the rig's foot: ankle to ball 0.69)
 CombatConfig.Vfx_FootprintWidth = 0.48
 CombatConfig.Vfx_FootprintCentreOffset = 0.42 -- studs from the ankle toward the toes where the print is centred

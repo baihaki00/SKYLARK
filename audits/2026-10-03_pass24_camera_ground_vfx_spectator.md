@@ -95,3 +95,11 @@ StreamingEnabled streams around the character, which the fly camera leaves behin
 - **Release:** P releases back to `FREEFLY` with mouse-look on. The respawned avatar is hidden 18/18 and doesn't move with W.
 - **Streaming:** the focus is on `StreamFocus` at the camera.
 - **Arena System:** reaches IN_GAME with 0 errors.
+
+## 24c. Owner's footprint image
+
+- The owner drew `SKYLARK ICONS/FOOTPRINT.png`: 312×900, toe up, big toe on the left, so a right foot. It is uploaded to Roblox as `rbxassetid://86571610584273`.
+- `Vfx_FootprintImage` is set to it, with `Vfx_FootprintImageSize` = (312, 900) and `Vfx_FootprintImageTransparency` 0.25.
+- The image keeps its proportions (`ScaleType.Fit`).
+- For left steps, with no `Vfx_FootprintImageLeft`, the same image is drawn flipped (negative `ImageRectSize`).
+- **Verified by screenshot:** prints show the sole with the crest, toes in the direction of travel; left prints on the runner's left (mirrored), right on its right.
