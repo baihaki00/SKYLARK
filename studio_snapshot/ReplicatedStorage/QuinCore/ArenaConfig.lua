@@ -258,6 +258,7 @@ ArenaConfig.CrowdFX = {
         -- lulls (SocialTension): the stands get restless, then cheer whoever moves first
         StalemateTense = "AngryCrowd",
         StalemateBroken = "MediumCheer",
+        ClockRunningOut = "ExcitedCrowd",
     },
     HushLevel = 0.45,         -- crowd level during a respect custom (the stadium goes quiet)
 }

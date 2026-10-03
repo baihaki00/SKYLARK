@@ -42,6 +42,11 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 
 	local scores = {}
 	local decisionReasons = {}
+	local reasonKeys = {} -- a stable key per reason (ThoughtVoice phrases them for the mind panel)
+	local function because(key, text)
+		table.insert(decisionReasons, text)
+		table.insert(reasonKeys, key)
+	end
 
 	-- Phase 2 Awareness Attributes
 	local isBullied     = tacticalContext.BeingBullied or false
@@ -56,7 +61,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	if isSurrounded then attackBase = attackBase - 25 end
 	if isBullied and (confidence > 0.60 or aggression > 0.70) then
 		attackBase = attackBase + 35 -- Cornered fighter counter-attack instinct
-		table.insert(decisionReasons, "Bullied but aggressive: counter-striking")
+		because("CounterStrike", "Bullied but aggressive: counter-striking")
 	end
 	scores["Attack"] = attackBase * (1 + (aggression - 0.5) * 1.0) * (1 + (confidence - 0.5) * 0.6)
 
@@ -78,27 +83,27 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	local retreatBase = 15
 	if hpRatio < 0.40 then
 		retreatBase = retreatBase + 55
-		table.insert(decisionReasons, "Health low")
+		because("HealthLow", "Health low")
 	end
 	if isOutnumbered then
 		retreatBase = retreatBase + 40
-		table.insert(decisionReasons, "Outnumbered by local enemies")
+		because("Outnumbered", "Outnumbered by local enemies")
 	end
 	if isSurrounded then
 		retreatBase = retreatBase + 50
-		table.insert(decisionReasons, "Multi-quadrant surround detected")
+		because("Surrounded", "Multi-quadrant surround detected")
 	end
 	if isBullied and (confidence < 0.55 or hpRatio < 0.45) then
 		retreatBase = retreatBase + 45
-		table.insert(decisionReasons, "Being focused by multiple enemies")
+		because("Focused", "Being focused by multiple enemies")
 	end
 	if energyRatio < 0.20 then
 		retreatBase = retreatBase + 30
-		table.insert(decisionReasons, "Energy depleted")
+		because("EnergyLow", "Energy depleted")
 	end
 	if confidence < 0.35 then
 		retreatBase = retreatBase + 25
-		table.insert(decisionReasons, "Confidence broken")
+		because("ConfidenceBroken", "Confidence broken")
 	end
 	-- Phase 13: Tactical Escape Worth vs Last Stand Valuation
 	local escapeFeasibility = tacticalContext.EscapeFeasibility or quinModel:GetAttribute("EscapeFeasibility") or 0.6
@@ -121,14 +126,14 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		end
 		quinModel:SetAttribute("LastStandMode", true)
 		scores["Attack"] = (scores["Attack"] or 50) * (1.6 + aggression * 0.6)
-		table.insert(decisionReasons, "Last Stand: escape futile, fighting to inflict maximum damage")
+		because("LastStand", "Last Stand: escape futile, fighting to inflict maximum damage")
 	elseif reinforcingAllyApproaching then
 		-- DEFEND & DELAY: Reinforcing ally is rushing to help; guard/delay rather than fleeing away
 		scores["Retreat"] = retreatBase * 0.15
 		scores["Guard"] = (scores["Guard"] or 30) + 55
 		scores["Circling"] = (scores["Circling"] or 20) + 45
 		quinModel:SetAttribute("LastStandMode", false)
-		table.insert(decisionReasons, "Reinforcing ally approaching: defending to buy time")
+		because("HoldForAlly", "Reinforcing ally approaching: defending to buy time")
 	else
 		-- RETREAT EVALUATED: Escape is viable and tactically valuable
 		quinModel:SetAttribute("LastStandMode", false)
@@ -141,7 +146,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	if showdownRole == "Duelist" then
 		scores["Retreat"] = 0
 		scores["Attack"] = (scores["Attack"] or 50) + 40
-		table.insert(decisionReasons, "Respect custom: Stand and fight (zero retreat)")
+		because("DuelNoRetreat", "Respect custom: Stand and fight (zero retreat)")
 	end
 
 	-- Hysteresis sticky bonus: if currently actively retreating and still viable, stick with it
@@ -157,11 +162,11 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		scores["Guard"] = (scores["Guard"] or 0) + 20
 		scores["Attack"] = (scores["Attack"] or 0) + 10
 		scores["Retreat"] = (scores["Retreat"] or 0) * 0.7
-		table.insert(decisionReasons, "On high ground: holding vantage")
+		because("HoldHighGround", "On high ground: holding vantage")
 	elseif hasOverhead and (isOutnumbered or isBullied or hpRatio < 0.35) then
 		-- Pressured with a climbable platform overhead: reposition up to it for safety
 		scores["Reposition"] = (scores["Reposition"] or 0) + 30
-		table.insert(decisionReasons, "Seeking overhead high ground")
+		because("SeekHighGround", "Seeking overhead high ground")
 	end
 
 	-- 4. GUARD / DEFEND: Block incoming attacks or hold ground
@@ -170,7 +175,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	if dist <= 12 and hpRatio < 0.5 then guardBase = guardBase + 25 end
 	if isUnderRear and rearDist <= 12 then
 		guardBase = guardBase + 35
-		table.insert(decisionReasons, "Guarding against critical rear flanker")
+		because("RearThreat", "Guarding against critical rear flanker")
 	end
 	scores["Guard"] = guardBase * (1 + (protectiveness - 0.5) * 0.9) * (1 - (aggression - 0.5) * 0.5)
 
@@ -186,7 +191,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	local protectBase = 10
 	if allyNeedsHelp and allyCount > 0 then
 		protectBase = protectBase + 75 -- Massive situational incentive to rescue distressed ally
-		table.insert(decisionReasons, "Nearby ally in critical condition")
+		because("AllyInDanger", "Nearby ally in critical condition")
 	elseif allyCount > 0 and not isOutnumbered then
 		protectBase = protectBase + 20
 	end
@@ -202,7 +207,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	local targetSpecial = targetModel and targetModel:GetAttribute("CurrentSpecial")
 	if targetSpecial and dist <= 30 and energyRatio >= 0.35 then
 		specialBase = specialBase + 50
-		table.insert(decisionReasons, "Opposing special detected: counter-fire clash instinct")
+		because("ClashInstinct", "Opposing special detected: counter-fire clash instinct")
 	end
 	scores["UseSpecial"] = specialBase * (1 + (specialPreference - 0.5) * 1.3)
 
@@ -220,7 +225,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		auraFarmBase = 30
 		if confidence > 0.65 then auraFarmBase = auraFarmBase + 25 end
 		if quirky == "Showoff" then auraFarmBase = auraFarmBase + 40 end
-		table.insert(decisionReasons, "Uncontested: charging elemental aura")
+		because("ChargeAura", "Uncontested: charging elemental aura")
 	end
 	scores["AuraFarm"] = auraFarmBase * (1 + (confidence - 0.5) * 1.1)
 
@@ -229,7 +234,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	if targetIsAuraFarming then
 		scores["Dash"] = (scores["Dash"] or 0) + 40
 		scores["Pursue"] = (scores["Pursue"] or 0) + 35
-		table.insert(decisionReasons, "Target aura farming: close distance to humble showoff")
+		because("PunishShowoff", "Target aura farming: close distance to humble showoff")
 	end
 
 	-- Phase 10: Quirky Modulation
@@ -239,27 +244,27 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		scores["Dash"] = (scores["Dash"] or 0) + 20
 		scores["Guard"] = (scores["Guard"] or 0) * 0.6
 		scores["Reposition"] = (scores["Reposition"] or 0) * 0.6
-		table.insert(decisionReasons, "Quirky: Charger")
+		because("QuirkCharger", "Quirky: Charger")
 	elseif quirky == "Observer" then
 		scores["Reposition"] = (scores["Reposition"] or 0) + 35
 		scores["Guard"] = (scores["Guard"] or 0) + 20
 		scores["Attack"] = (scores["Attack"] or 0) * 0.8
-		table.insert(decisionReasons, "Quirky: Observer")
+		because("QuirkObserver", "Quirky: Observer")
 	elseif quirky == "Overconfident" then
 		scores["Retreat"] = (scores["Retreat"] or 0) * 0.4
 		scores["Attack"] = (scores["Attack"] or 0) * 1.3
-		table.insert(decisionReasons, "Quirky: Overconfident")
+		because("QuirkOverconfident", "Quirky: Overconfident")
 	elseif quirky == "Low-Confidence" then
 		if hpRatio < 0.50 then
 			scores["Retreat"] = (scores["Retreat"] or 0) * 1.5
 		end
-		table.insert(decisionReasons, "Quirky: Low-Confidence")
+		because("QuirkLowConfidence", "Quirky: Low-Confidence")
 	elseif quirky == "Revengeful" then
 		local grudgeTarget = quinModel:GetAttribute("GrudgeTarget")
 		if grudgeTarget and tacticalContext and tacticalContext.BestTarget and tacticalContext.BestTarget.Name == grudgeTarget then
 			scores["Attack"] = (scores["Attack"] or 0) + 40
 			scores["Pursue"] = (scores["Pursue"] or 0) + 30
-			table.insert(decisionReasons, "Quirky: Revengeful")
+			because("QuirkRevenge", "Quirky: Revengeful")
 		end
 	end
 
@@ -277,11 +282,11 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		scores["Guard"] = (scores["Guard"] or 0) * (1 - 0.5 * urgency)
 		scores["Reposition"] = (scores["Reposition"] or 0) * (1 - 0.6 * urgency)
 		scores["AuraFarm"] = (scores["AuraFarm"] or 0) * (1 - urgency)
-		table.insert(decisionReasons, hunting and "Hunting the one who beat our leader" or string.format("Restless (urgency %.2f): making a move", urgency))
+		because(hunting and "Hunting" or "Restless", hunting and "Hunting the one who beat our leader" or string.format("Restless (urgency %.2f): making a move", urgency))
 	elseif quinModel:GetAttribute("SocialPosture") == "Waiting" then
 		scores["Retreat"] = (scores["Retreat"] or 0) * (TCFG.WaitingRetreat or 0.5)
 		scores["Guard"] = (scores["Guard"] or 0) + (TCFG.WaitingGuard or 15)
-		table.insert(decisionReasons, "Waiting for the other side to move first")
+		because("WaitingThemOut", "Waiting for the other side to move first")
 	end
 
 	-- Select action with highest utility score
@@ -301,7 +306,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	if currentAction and currentActionScore > -math.huge and bestAction ~= currentAction then
 		if bestScore < (currentActionScore + hysteresisDelta) then
 			bestAction = currentAction
-			table.insert(decisionReasons, string.format("Action commitment hysteresis (held %s)", currentAction))
+			because("Committed", string.format("Action commitment hysteresis (held %s)", currentAction))
 		end
 	end
 
@@ -313,9 +318,15 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		else
 			critical = critical * (1 - (TCFG.SurvivalCut or 0.8) * urgency) -- (a long lull: even the nearly dead make a stand)
 		end
+		if quinModel:GetAttribute("SocialLastStand") then
+			critical = 0 -- (losing on time, time all but gone, or it has run enough: running saves nothing)
+			if hpRatio < (CombatConfig.RetreatCriticalHealth or 0.20) then
+				because("NothingToLose", "Nearly dead but not running: nothing left to save itself for")
+			end
+		end
 		if hpRatio < critical and confidence < (CombatConfig.RetreatConfidenceThreshold or 0.70) then
 			bestAction = "Retreat"
-			table.insert(decisionReasons, "Near death - survival instinct")
+			because("SurvivalInstinct", "Near death - survival instinct")
 		end
 	end
 
@@ -339,6 +350,21 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 
 	quinModel:SetAttribute("TacticalState", tacticalState)
 	quinModel:SetAttribute("RecommendedAction", bestAction)
+
+	-- For the Quin a spectator is watching (QuinMindPanel): what it decided, why, and what else
+	-- it weighed. "action|tactical state|reason keys|best three options"
+	if quinModel:GetAttribute("MindWatched") then
+		local ranked = {}
+		for action, score in pairs(scores) do
+			table.insert(ranked, { action = action, score = score })
+		end
+		table.sort(ranked, function(a, b) return a.score > b.score end)
+		local options = {}
+		for i = 1, math.min(3, #ranked) do
+			options[i] = string.format("%s:%.0f", ranked[i].action, ranked[i].score)
+		end
+		quinModel:SetAttribute("Mind", string.format("%s|%s|%s|%s", bestAction, tacticalState, table.concat(reasonKeys, ","), table.concat(options, ",")))
+	end
 
 	-- Optional toggleable debug telemetry matching specification
 	local debugEnabled = workspace:GetAttribute("TacticalDebugEnabled") or quinModel:GetAttribute("TacticalDebug")

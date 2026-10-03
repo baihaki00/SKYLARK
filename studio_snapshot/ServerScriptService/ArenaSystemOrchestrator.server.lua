@@ -454,6 +454,9 @@ local function runMatchLifecycle()
     -- PHASE 7: IN-GAME. Quins released; ends on an elimination or the game time limit.
     Workspace:SetAttribute("MatchStarted", true)
     epoch = beginPhase("IN_GAME", duration("GameTime"), "COMBAT ENGAGEMENT", "SECTOR ALPHA VS SECTOR BETA")
+    -- (the Quins know how long they have: SocialTension)
+    Workspace:SetAttribute("MatchLength", duration("GameTime"))
+    Workspace:SetAttribute("MatchEndsAt", Workspace:GetServerTimeNow() + duration("GameTime"))
     if not toggle("TimerPreGame") then
         ArenaAudio.playWarhorn(1.0)
         if toggle("Drones") then
@@ -484,6 +487,7 @@ local function runMatchLifecycle()
     local winnerName, winnerTeam, reason = decideWinner(mode)
     matchStats.Winner, matchStats.WinnerTeam, matchStats.EndReason = winnerName, winnerTeam, reason
     Workspace:SetAttribute("MatchStarted", false)
+    Workspace:SetAttribute("MatchEndsAt", nil)
     pacifyAllQuins()
     ArenaAudio.stopInGameMusic(2.0)
     local victoryTime = duration("WinnerDetermination")

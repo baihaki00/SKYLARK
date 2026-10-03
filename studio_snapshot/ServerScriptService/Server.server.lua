@@ -281,6 +281,40 @@ do
 	end)
 end
 
+-- The mind panel (StarterPlayerScripts.QuinMindPanel): a spectator's client says which Quin it is
+-- watching, and only that Quin publishes its reasoning (DecisionSystem writes its "Mind").
+do
+	local mindEvent = ReplicatedStorage:FindFirstChild("MindWatchEvent")
+	if not mindEvent then
+		mindEvent = Instance.new("RemoteEvent")
+		mindEvent.Name = "MindWatchEvent"
+		mindEvent.Parent = ReplicatedStorage
+	end
+	local watching = {} -- player -> Quin model
+
+	local function unwatch(player)
+		local model = watching[player]
+		watching[player] = nil
+		if not (model and model.Parent) then return end
+		for _, other in pairs(watching) do
+			if other == model then return end -- someone else still watches it
+		end
+		model:SetAttribute("MindWatched", nil)
+		model:SetAttribute("Mind", nil)
+	end
+
+	mindEvent.OnServerEvent:Connect(function(player, quinName)
+		unwatch(player)
+		local folder = Workspace:FindFirstChild("QuinServer")
+		local model = type(quinName) == "string" and folder and folder:FindFirstChild(quinName)
+		if model then
+			watching[player] = model
+			model:SetAttribute("MindWatched", true)
+		end
+	end)
+	Players.PlayerRemoving:Connect(unwatch)
+end
+
 -- The Quins' social layer (pack leaders, respect customs, arena events). Started here so its loop
 -- belongs to a script that lives all session (Main is cloned into each Quin and dies with it).
 do

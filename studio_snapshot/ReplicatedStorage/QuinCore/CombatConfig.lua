@@ -771,6 +771,21 @@ CombatConfig.Social = {
 		RetreatCut = 0.85, PursueBoost = 0.8, PursueAdd = 35, AttackBoost = 0.4, DashAdd = 30,
 		WaitingRetreat = 0.5, WaitingGuard = 15,
 		SurvivalCut = 0.8,        -- at full urgency the near-death flee threshold drops by this share (0.2 -> 0.04)
+		-- the drought: no knockout while the field is hurt (baseline 16v16: careful from about 30% average health)
+		KillHurtFrom = 0.45, KillHurtSpan = 0.2, -- average field health at which it starts to count, and the span to full weight
+		KillGrace = 20,           -- weighted seconds without a knockout before it presses on anyone
+		KillFull = 30,            -- ... and this many more until it presses in full
+		KillRelief = 15,          -- seconds a knockout takes off it
+		-- the match clock: the last part of the match presses, on the side losing on time most
+		NominalMatchTime = 300,   -- seconds from the first exchange, for modes with no clock of their own
+		ClockFrom = 0.6,          -- share of the match gone at which the clock starts to press
+		ClockAheadShare = 0.25, ClockEvenShare = 0.6, -- how much of it the side ahead / a level field feels (behind: all)
+		ClockCrowdAt = 0.75,      -- clock pressure at which the stands notice (ClockRunningOut)
+		-- its own stalling: time spent avoiding the fight, late in the match
+		StallFull = 15, StallDrain = 6, StallWeight = 0.5,
+		FutileHealth = 0.25, FutilePush = 0.3, -- nearly dead on the side losing on time: nothing to save itself for
+		LastStandClock = 0.8,     -- clock pressure felt at which nobody on that side runs any more
+		StallLastStand = { 0.9, 0.4 }, -- stall meter at which a Quin has run enough and turns to fight, and at which that has worn off
 	},
 	-- Leader showdowns (Modules/SocialShowdown): opposing leaders who see each other decide what it means
 	Showdown = {
