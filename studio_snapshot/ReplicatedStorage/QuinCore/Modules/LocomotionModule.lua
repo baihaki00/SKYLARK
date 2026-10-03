@@ -18,6 +18,7 @@ local AudioModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("Audio
 local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
 local TraversalModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TraversalModule"))
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
+local BodyAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("BodyAwareness"))
 
 local LocomotionModule = {}
 
@@ -392,7 +393,9 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			reversal.facing = Vector3.new(math.sin(facingAngle), 0, math.cos(facingAngle))
 			humanoid:Move(data.groundIntentDirection, false)
 		else
-			humanoid:Move(LocomotionModule.resolveGroundIntent(fighter, rootPart, flat.Unit, frameDt), false)
+			-- (someone standing in the way is walked round, not through)
+			local desired = BodyAwareness.adjust(fighter, rootPart, flat.Unit, speed)
+			humanoid:Move(LocomotionModule.resolveGroundIntent(fighter, rootPart, desired, frameDt), false)
 		end
 		if data.ownsFacing then
 			updateFacing(data, rootPart, frameDt)

@@ -56,6 +56,8 @@ local PHRASES = {
 	["Waiting:Stall"] = { any = { "I've been keeping away a while now..." } },
 	["Waiting:Futile"] = { any = { "Hanging on isn't going to save me." } },
 
+	InMyWay = { any = { "Someone's in my way. Go round.", "Mind the body. Round him." } },
+
 	-- SocialRespect roles
 	["Respect:Hesitating"] = { any = { "Wait. He's alone.", "Ease off. He's the last one." } },
 	["Respect:Watching"] = { any = { "Let them settle it.", "This one is between them." } },
@@ -107,7 +109,7 @@ function ThoughtVoice.say(key: string, aggression: number?): string
 end
 
 -- The thought keys that hold right now.
--- facts: { action, reasons = {keys}, posture, why, respectRole, lost }
+-- facts: { action, reasons = {keys}, posture, why, respectRole, inWay, lost }
 function ThoughtVoice.keys(facts): { string }
 	local keys = {}
 	if facts.respectRole then
@@ -121,6 +123,9 @@ function ThoughtVoice.keys(facts): { string }
 		if not (social[key] and facts.posture) then
 			table.insert(keys, key)
 		end
+	end
+	if facts.inWay then
+		table.insert(keys, "InMyWay")
 	end
 	if #keys == 0 then
 		if facts.lost then

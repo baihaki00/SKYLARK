@@ -454,6 +454,18 @@ CombatConfig.Retreat_ArriveDistance = 10               -- studs from the destina
 CombatConfig.Retreat_LostSightTime = 2.5               -- seconds out of the pursuer's sight to count as having lost it
 CombatConfig.Retreat_LostSightMinDistance = 40         -- ... and at least this far from it
 CombatConfig.Retreat_FleeAgainDistance = 40            -- a Quin keeping away runs again when its target comes this close
+-- Bodies in the way (Modules/BodyAwareness): a moving Quin steers round the Quins on its path
+CombatConfig.BodyAwareness = {
+	Enabled = true,
+	LookTime = 0.75,    -- seconds of travel it looks ahead (a sprint needs the room: it turns slowly at speed)...
+	MinLook = 5, MaxLook = 28, -- ...kept between these (studs)
+	PathWidth = 3.6,    -- half the width of its path: two bodies (2.4 wide each) and a little air
+	HeightBand = 5,     -- bodies this far above or below are not on its path
+	PersonalSpace = 4, PersonalWeight = 0.7, -- a body this close beside it is eased away from, this strongly at touching distance
+	Gain = 1.6,         -- how hard one body squarely in the way bends the route
+	MaxSwerve = 0.9,    -- the most the route bends (sideways per unit forward: about 42 degrees)
+	NoticeWeight = 0.25, -- how much a body must be in the way to be noticed (BodyInWay, the mind panel)
+}
 CombatConfig.Retreat_WoundedFrom = 0.25                -- health ratio below which a fleeing Quin starts to slow
 CombatConfig.Retreat_WoundedSlow = 0.2                 -- share of its run speed lost by the time it is at death's door
 CombatConfig.Chase_TrailGiveUpConfidence = 0.6         -- memory confidence below which an unseen target is given up (minus 0.5 x persistence)

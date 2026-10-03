@@ -228,6 +228,7 @@ local function refresh()
 		posture = model:GetAttribute("SocialPosture"),
 		why = model:GetAttribute("SocialWhy"),
 		respectRole = model:GetAttribute("RespectRole"),
+		inWay = model:GetAttribute("BodyInWay") ~= nil,
 		lost = state == "Idle" and (target == nil or target == ""),
 	})
 	local now, clock = {}, os.clock()
