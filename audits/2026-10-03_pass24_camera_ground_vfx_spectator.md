@@ -118,3 +118,16 @@ StreamingEnabled streams around the character, which the fly camera leaves behin
 **The limit no longer drops new marks.** At `Vfx_GroundMarkLimit` (120 standing marks, was 60) the oldest mark fades out over 0.4 s to make room.
 
 **Measured** (one new print): fully visible to 6 s; 0.07 transparent at 6.5 s, 0.50 at 7.5 s, 0.93 at 8.5 s; gone at 9.3 s. 16v16 for 45 s: peak 176 marks (120 standing plus those fading), 0 errors.
+
+## 24e. Landing impact: grey, hold then fade
+
+**Owner's notes:** not green, grey; fade out like the footprints.
+
+- **Crack lines:** `Vfx_LandingCrackColor` (46, 46, 48).
+- **Dust ring and crushed centre:** light grey (128) and mid grey (84), opaque enough to read grey on the green turf. See-through grey had only tinted the grass.
+- **Thrown debris:** grey rubble particles.
+- **Hold then fade:** the crack stays 6 s (`Vfx_LandingCrackHold`), then fades over 3 s (`Vfx_LandingCrackFade`).
+
+**Verified**
+- Screenshot: the crack reads grey.
+- One new crack: fully visible to 6 s; 0.07 at 6.5 s, 0.51 at 7.5 s, 0.94 at 8.5 s; gone at 9.3 s.

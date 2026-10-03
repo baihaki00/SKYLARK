@@ -1069,6 +1069,7 @@ end
 local GROUND_PPS = 64 -- SurfaceGui pixels per stud
 local DECAL_COLOR = MARK_COLOR
 local DECAL_DARK = Color3.fromRGB(24, 34, 27)
+local IMPACT_GREY = Color3.fromRGB(46, 46, 48) -- landing cracks and scorch: grey, not turf green (owner)
 local TREAD_COLOR = Color3.fromRGB(78, 104, 82)
 
 local decalRay = RaycastParams.new()
@@ -1314,13 +1315,16 @@ function VfxModule.createLandingImpact(source, strength, element)
 	-- crack (only a real impact cracks the ground)
 	if strength >= 0.45 then
 		local size = 3 + strength * 5
-		local canvas = groundDecal(floor, Vector3.new(math.random() - 0.5, 0, math.random() - 0.5), size, size, 4 + strength * 3)
+		local canvas = groundDecal(floor, Vector3.new(math.random() - 0.5, 0, math.random() - 0.5), size, size,
+			CombatConfig.Vfx_LandingCrackHold or 6, CombatConfig.Vfx_LandingCrackFade or 3)
 		if canvas then
 			if (CombatConfig.Vfx_LandingCrackImage or "") ~= "" then
 				decalImage(canvas, CombatConfig.Vfx_LandingCrackImage, 0.1, math.random(0, 359))
 			else
-				blob(canvas, 0.5, 0.5, 0.6, 0.6, DECAL_DARK, 0.8, 0.5) -- faint scorch
-				blob(canvas, 0.5, 0.5, 0.3, 0.3, DECAL_DARK, 0.45, 0.5) -- crushed centre
+				local crackColor = CombatConfig.Vfx_LandingCrackColor or IMPACT_GREY
+				-- (opaque enough to read grey on green turf: see-through grey just tinted the grass)
+				blob(canvas, 0.5, 0.5, 0.62, 0.62, Color3.fromRGB(128, 128, 130), 0.55, 0.5) -- dust ring
+				blob(canvas, 0.5, 0.5, 0.32, 0.32, Color3.fromRGB(84, 84, 86), 0.2, 0.5) -- crushed centre
 				-- a jagged line: short segments that wander and thin out toward the tip
 				local function crackLine(x, y, angle, length, thick, segments)
 					local step = length / segments
@@ -1329,7 +1333,7 @@ function VfxModule.createLandingImpact(source, strength, element)
 						local nx, ny = x + math.cos(angle) * step, y + math.sin(angle) * step
 						local w = thick * (1 - (k - 1) / (segments + 1))
 						-- (a touch longer than the step so the joints close)
-						blob(canvas, (x + nx) / 2, (y + ny) / 2, step * 1.15, w, DECAL_DARK, 0.15 + k * 0.05, 0.5, math.deg(angle))
+						blob(canvas, (x + nx) / 2, (y + ny) / 2, step * 1.15, w, CombatConfig.Vfx_LandingCrackColor or IMPACT_GREY, 0.15 + k * 0.05, 0.5, math.deg(angle))
 						x, y = nx, ny
 					end
 					return x, y, angle
@@ -1354,7 +1358,7 @@ function VfxModule.createLandingImpact(source, strength, element)
 	-- clods of earth thrown up and falling back
 	local clods = Instance.new("ParticleEmitter")
 	clods.Texture = SMOKE_TEXTURE
-	clods.Color = ColorSequence.new(Color3.fromRGB(58, 48, 38), Color3.fromRGB(40, 52, 40))
+	clods.Color = ColorSequence.new(Color3.fromRGB(92, 92, 95), Color3.fromRGB(58, 58, 60)) -- grey rubble
 	clods.LightEmission = 0
 	clods.LightInfluence = 1
 	clods.Size = NumberSequence.new(0.18 + strength * 0.12, 0.08)

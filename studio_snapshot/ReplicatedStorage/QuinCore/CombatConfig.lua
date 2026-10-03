@@ -535,6 +535,9 @@ CombatConfig.Vfx_FootprintWidth = 0.48
 CombatConfig.Vfx_FootprintCentreOffset = 0.42 -- studs from the ankle toward the toes where the print is centred
 CombatConfig.Vfx_LandingImpact = true         -- crack + scorch decal, ground dust and earth clods where a body slams down
 CombatConfig.Vfx_LandingCrackImage = ""       -- crack image ("" = drawn crack)
+CombatConfig.Vfx_LandingCrackColor = Color3.fromRGB(46, 46, 48) -- drawn crack and scorch colour (grey)
+CombatConfig.Vfx_LandingCrackHold = 6         -- seconds a landing crack stays fully visible
+CombatConfig.Vfx_LandingCrackFade = 3         -- ...then seconds it takes to fade out
 
 -- === Projectile jump landing ===
 -- The horizontal part of the arrival speed carries the body along the ground: a steep dive
