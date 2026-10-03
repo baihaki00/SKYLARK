@@ -131,7 +131,9 @@ function CirclingState.enter(fighter, humanoid, rootPart)
 	circlingData[fighter] = {
 		enterTime = now,
 		lastUpdateTime = now,
-		duration = duration * (CombatConfig.Circling_DurationScale or 0.7),
+		-- (a restless or hunting Quin does not circle for long)
+		duration = duration * (CombatConfig.Circling_DurationScale or 0.7)
+			* (1 - 0.6 * (fighter:GetAttribute("SocialHunt") and 1 or (fighter:GetAttribute("SocialUrgency") or 0))),
 		direction = math.random() > 0.5 and 1 or -1,
 		tension = tension,
 		currentAnim = nil,
@@ -188,6 +190,14 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 
 	local data = circlingData[fighter]
 	if not data then return require(script.Parent:WaitForChild("FightState")) end
+
+	-- Respect-custom standoff: the gap and pace come from the ceremony (it closes in, a walk
+	-- becomes a prowl), and nothing here ends it: one of them breaks it (SocialRespect)
+	local standoffGap = fighter:GetAttribute("SocialStandoff")
+	if standoffGap then
+		data.idealRadius = standoffGap
+		data.tension = fighter:GetAttribute("SocialStandoffPace") == "run" and "run" or "walk"
+	end
 
 	-- Prone / Cockroach protection: if flat on ground, immediately recover
 	if rootPart.CFrame.UpVector.Y < 0.6 and SpatialModule.isGrounded(rootPart) then
@@ -250,7 +260,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true)
 
 	local now = tick()
-	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway then
+	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway and not standoffGap then
 		if now - data.enterTime >= data.duration or distance < minCircleRange then
 			-- Tension snapped at close quarters: dash/attack into FightState!
 			local dashMin = CombatConfig.DashMinDistance or 10
@@ -266,7 +276,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- An opening ends the standoff early: the target has turned its back (it is busy with
 	-- someone else, or walking away) and is within a dash. Aggressive Quins take it sooner.
-	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway and (now - data.enterTime) >= (CombatConfig.Circling_OpeningMinTime or 0.5) then
+	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway and not standoffGap and (now - data.enterTime) >= (CombatConfig.Circling_OpeningMinTime or 0.5) then
 		local toMe = flatUnit(rootPart.Position - targetHRP.Position, nil)
 		local targetFacing = flatUnit(targetHRP.CFrame.LookVector, nil)
 		local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6

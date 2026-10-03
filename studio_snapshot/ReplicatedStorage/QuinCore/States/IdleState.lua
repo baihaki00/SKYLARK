@@ -72,6 +72,7 @@ function IdleState.exit(fighter, humanoid, rootPart)
 	-- the rig with no pose underneath for a few frames on every Idle -> Chase.
 	local gyro = rootPart and rootPart:FindFirstChild("IdleGyro")
 	if gyro then gyro:Destroy() end
+	if humanoid then humanoid.AutoRotate = true end
 	idleData[fighter] = nil
 end
 
@@ -82,7 +83,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Walks where it decided to watch from, then stands and watches
 		local SocialSystem = require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem)
 		if not SocialSystem.followMoveIntent(fighter, humanoid, rootPart, 0.1) then
-			humanoid:Move(Vector3.zero)
+			SocialSystem.watch(fighter, humanoid, rootPart, 0.1)
 		end
 		return IdleState
 	end

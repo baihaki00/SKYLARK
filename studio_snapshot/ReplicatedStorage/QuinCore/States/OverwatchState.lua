@@ -201,8 +201,13 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("ProjectileJumpState"))
 	end
 
+	-- A Quin that is restless (a lull dragged on) or hunting does not hold a platform for long
+	local urgency = fighter:GetAttribute("SocialHunt") and 1 or (fighter:GetAttribute("SocialUrgency") or 0)
+	local watchFor = data.watchFor * (1 - 0.8 * urgency)
+	local maxWatch = (CombatConfig.Overwatch_MaxWatch or 25) * (1 - 0.75 * urgency)
+
 	-- Watched long enough and wants back in: dive on someone it can see below
-	if watched >= data.watchFor and fighter:GetAttribute("RecommendedAction") ~= "Retreat" then
+	if watched >= watchFor and fighter:GetAttribute("RecommendedAction") ~= "Retreat" then
 		local canDive = CombatConfig.EnableProjectileJump ~= false and fighter:GetAttribute("EnableProjectileJump") ~= false
 			and (fighter:GetAttribute("Energy") or 100) >= (CombatConfig.ProjectileJumpMinEnergy or 40)
 			and (tick() - (fighter:GetAttribute("LastProjectileJumpTime") or 0)) >= (CombatConfig.ProjectileJump_Cooldown or 14.0)
@@ -218,7 +223,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 			return require(script.Parent:WaitForChild("ProjectileJumpState"))
 		end
 	end
-	if watched >= (CombatConfig.Overwatch_MaxWatch or 25) then
+	if watched >= maxWatch then
 		RuntimeTracer.checkpoint(fighter, "Overwatch: watch over, climbing down")
 		return require(script.Parent:WaitForChild("ChaseState"))
 	end

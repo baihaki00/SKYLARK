@@ -450,6 +450,11 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
 	end
 
+	-- Respect-custom standoff: nobody strikes until one of them breaks it
+	if fighter:GetAttribute("SocialStandoff") then
+		return require(script.Parent:WaitForChild("CirclingState"))
+	end
+
 	-- Respect-custom duel: kept on the ceremony space, no jumping away
 	local inShowdown = (showdownRole == "Duelist") -- (a respect-custom duel)
 	if inShowdown then

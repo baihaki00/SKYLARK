@@ -648,6 +648,8 @@ end
 
 function Crowd.setPhase(name)
 	phase = name
+	-- (the Quins know when the stands are watching: SocialTension)
+	Workspace:SetAttribute("CrowdPhase", enabled and name or nil)
 	if name == "IDLE" then
 		Crowd.setEnabled(false)
 		Crowd.resetMatch(matchMode)

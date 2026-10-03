@@ -122,11 +122,52 @@ end
 function SocialSystem.followMoveIntent(quin, humanoid, rootPart, dt)
 	local point, speed = SocialSystem.getMoveIntent(quin, rootPart)
 	if not point then return false end
+	-- (walking: the locomotion owns facing, not a watcher's gyro)
+	local gyro = rootPart:FindFirstChild("IdleGyro")
+	if gyro then gyro:Destroy() end
 	local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
 	local GaitModule = require(Modules:WaitForChild("GaitModule"))
 	LocomotionModule.steer(quin, humanoid, rootPart, Vector3.new(point.X, rootPart.Position.Y, point.Z), speed, dt or 0.1)
 	GaitModule.update(humanoid, rootPart, dt or 0.1)
 	return true
+end
+
+-- For a Quin that has stepped back and is watching (spectators, the hesitating, the reserved):
+-- it settles to a stop through the gait into its idle stance (not frozen mid-stride), and turns
+-- its body, unhurried, toward what it is watching (SocialWatchPoint).
+function SocialSystem.watch(quin, humanoid, rootPart, dt)
+	local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
+	local GaitModule = require(Modules:WaitForChild("GaitModule"))
+	local AnimationModule = require(Modules:WaitForChild("AnimationModule"))
+	LocomotionModule.brake(quin, humanoid, rootPart, dt or 0.1)
+	GaitModule.update(humanoid, rootPart, dt or 0.1)
+	AnimationModule.ensureBaseIdle(humanoid)
+	local point = quin:GetAttribute("SocialWatchPoint")
+	if typeof(point) ~= "Vector3" then return end
+	local flat = Vector3.new(point.X - rootPart.Position.X, 0, point.Z - rootPart.Position.Z)
+	if flat.Magnitude < 1 then return end
+	local gyro = rootPart:FindFirstChild("IdleGyro") -- (IdleState.exit removes it)
+	if not gyro then
+		gyro = Instance.new("AlignOrientation")
+		gyro.Name = "IdleGyro"
+		gyro.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+		att.Name = "RootAttachment"
+		gyro.Attachment0 = att
+		gyro.RigidityEnabled = false
+		gyro.Responsiveness = CFG.WatchTurnResponsiveness or 6
+		gyro.MaxTorque = 100000
+		gyro.MaxAngularVelocity = CFG.WatchTurnRate or 3
+		gyro.CFrame = rootPart.CFrame
+		gyro.Parent = rootPart
+		humanoid.AutoRotate = false
+	end
+	gyro.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
+end
+
+-- A respect-custom standoff: the gap the duellist keeps while circling (nil when none)
+function SocialSystem.standoffGap(quin)
+	return quin and quin:GetAttribute("SocialStandoff") or nil
 end
 
 -- ============================================================================

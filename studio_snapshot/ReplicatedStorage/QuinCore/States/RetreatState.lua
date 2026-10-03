@@ -378,8 +378,10 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		-- The run is finished before the Quin reconsiders. Leaving the fight is what makes the
 		-- reason to leave go away (no longer outnumbered once it is out of the crowd), so
 		-- reconsidering mid-run turned every retreat into a 2.5 s out-and-back.
+		-- (a restless or hunting Quin does not finish the run: it has somewhere else to be)
 		local runFinished = (result.targetPosition - rootPart.Position).Magnitude <= (CombatConfig.Retreat_ArriveDistance or 10) + 8
 			or elapsed >= (CombatConfig.Retreat_PlanHold or 4.0)
+			or fighter:GetAttribute("SocialHunt") ~= nil or (fighter:GetAttribute("SocialUrgency") or 0) >= 0.6
 		local recAction = fighter:GetAttribute("RecommendedAction")
 		if recAction and recAction ~= "Retreat" and nearestThreatDist > 20 and runFinished then
 			RuntimeTracer.checkpoint(fighter, "Retreat complete -> " .. recAction)

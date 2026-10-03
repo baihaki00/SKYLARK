@@ -711,7 +711,7 @@ CombatConfig.Social = {
 	-- Arena event levels, lowest to highest (SocialSystem.raiseEvent never goes down)
 	EventLevels = { "Normal", "Interesting", "Notable", "LeaderShowdown", "RespectCustom",
 		"UnexpectedLeaderDefeat", "HonorableComeback", "BigClutch", "Historic" },
-	Parts = { "SocialLeaders", "SocialShowdown", "SocialRespect" }, -- modules that register with the social tick
+	Parts = { "SocialLeaders", "SocialShowdown", "SocialRespect", "SocialTension" }, -- modules that register with the social tick
 	-- Respect custom, Honorable Comeback, Big Clutch (Modules/SocialRespect)
 	Respect = {
 		Enabled = true,
@@ -732,9 +732,45 @@ CombatConfig.Social = {
 		PlatformDelay = 3,
 		CeremonyRadius = 80, CeremonyStepWidth = 12, CeremonyRise = 3, CeremonyRiseTime = 2.5,
 		CeremonyTierHeight = 0.4, DuelEdgeMargin = 12,     -- each step of the dais stays under a Quin's collision-body clearance (0.5)
-		DuelStartDistance = 30, DuelStartTimeout = 30,
-		ComebackReactions = { attack = 0.15, hesitate = 0.2, backAway = 0.15, oneAtATime = 0.25, coordinated = 0.1, avenge = 0.1, finish = 0.05 },
-		BigClutchKills = 2, StillnessTime = 2.5,
+		DuelStartDistance = 30, DuelStartTimeout = 30, -- (timeout: the walk-in gives up waiting and the standoff starts)
+		-- the standoff on the dais: they circle each other, closing from StartGap to MinGap over
+		-- StandoffTime, walking then prowling; the nerve to go in grows as the circle tightens
+		StandoffStartGap = 34, StandoffMinGap = 9, StandoffTime = { 7, 16 }, StandoffMinTime = 3,
+		StandoffProwlAt = 0.45, StandoffBreakRate = 0.05, StandoffBreakGrowth = 0.6,
+		DuelSoftZone = 30, DuelGravity = 0.7, -- the dais pulls the fight back (a pull, not a wall)
+		OffDaisWander = 6,        -- seconds a duellist may brawl off the dais before it works its way back
+		-- spectators: think every WatchThink seconds; keep WatchMin from the fight; drift with it
+		-- when it moves more than WatchTolerance; pace along the edge (more when it is heated)
+		WatchThink = { 2, 5 }, WatchMin = 22, WatchTolerance = 15,
+		PaceChance = 0.25, PaceHeat = 0.4, PaceArc = { 0.12, 0.3 }, HeatDecay = 4,
+		-- the comeback: a beat of shock, then a hunting pack (avenge = pack with a grudge); the
+		-- reserved ones watch from ReservedDistance and join after ReservedJoin seconds, when the
+		-- survivor drops below ReservedJoinHP, or (chance per kill) when another one goes down
+		ShockTime = { 1.4, 2.4 },
+		ComebackReactions = { pack = 0.6, avenge = 0.15, reserved = 0.25 },
+		ReservedJoin = { 10, 25 }, ReservedJoinHP = 0.35, ReservedJoinOnKill = 0.5, ReservedDistance = { 30, 45 },
+		HuntRetreatHealth = 0.08, -- a hunter only runs when this close to dead
+		HuntSpeedBoost = 0.12, BaseRunSpeed = 40, -- hunters run this much faster (BaseRunSpeed: the states' default Speed)
+		BigClutchKills = 2, StillnessTime = 1.8,
+	},
+	-- Lulls (Modules/SocialTension): a chase-and-retreat that drags on makes them restless
+	Tension = {
+		Enabled = true,
+		LullDamageRate = 0.03,    -- field health lost per second (fractions of max health) below which it is a lull
+		LullGrace = 8,            -- seconds of lull before anyone grows restless
+		LullFull = 25,            -- ... and this many more until everyone has
+		LullRecover = 3,          -- real fighting winds the clock back this many times faster
+		CrowdFactor = 1.35,       -- with a crowd in the stands the clock runs faster
+		PatienceRange = { 0.2, 0.8 }, -- tension a Quin stands (aggressive at the low end)
+		AheadPatience = 0.5,      -- the side ahead waits longer (its share of the field above half, times this)
+		WaitFrom = 0.1,           -- from this tension the patient ones hold their ground ("you move first")
+		UrgencyRise = 0.6, UrgencyFall = 0.25,
+		ContagionRadius = 45, ContagionLevel = 0.75, -- allies near one that goes go with it
+		ResponseRadius = 60, ResponseLevel = 0.85,   -- the one it goes for answers it
+		-- what urgency does to a decision (DecisionSystem)
+		RetreatCut = 0.85, PursueBoost = 0.8, PursueAdd = 35, AttackBoost = 0.4, DashAdd = 30,
+		WaitingRetreat = 0.5, WaitingGuard = 15,
+		SurvivalCut = 0.8,        -- at full urgency the near-death flee threshold drops by this share (0.2 -> 0.04)
 	},
 	-- Leader showdowns (Modules/SocialShowdown): opposing leaders who see each other decide what it means
 	Showdown = {

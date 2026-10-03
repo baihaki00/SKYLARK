@@ -187,9 +187,11 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 				return require(script.Parent:WaitForChild("CirclingState"))
 			end
 		end
-		-- Nobody within reach. On a high platform that is a place worth holding.
+		-- Nobody within reach. On a high platform that is a place worth holding (not for a Quin
+		-- that is restless or hunting: it goes after someone)
 		local OverwatchState = require(script.Parent:WaitForChild("OverwatchState"))
-		if OverwatchState.canHold(fighter, rootPart) then
+		local urgency = fighter:GetAttribute("SocialHunt") and 1 or (fighter:GetAttribute("SocialUrgency") or 0)
+		if urgency < 0.5 and OverwatchState.canHold(fighter, rootPart) then
 			return OverwatchState
 		end
 		if target then

@@ -241,12 +241,23 @@ ArenaConfig.CrowdFX = {
     Chant = { Bed = "ChantBed", Phrase = "ShortChantPhrase" },
     Winner = { For = "MassiveCelebration", Against = "MassiveDisappointment", Draw = "MassiveShock" },
     -- The Quins' social events (SocialSystem): a whole-stadium one-shot per event
+    -- One-shot per arena event (SocialSystem). The respect custom reads, from the stands:
+    -- "they're circling..." -> a gasp when one goes in -> "WHAT? did he just beat the leader??"
+    -- -> "they're all going after him" -> "ANOTHER one down??" -> "he's a real fighter" ->
+    -- "...oh, he's down. never mind"  or  "HE WON. WHAT A CLUTCH"
     SocialReactions = {
         LeaderShowdown = "MediumRoar",
+        StandoffBreak = "ShortGasp",
         UnexpectedLeaderDefeat = "MassiveShock",
-        HonorableComeback = "HugeRoar",
-        BigClutch = "MassiveCelebration",
-        Historic = "HugeCheer",
+        HonorableComeback = "ExcitedCrowd",
+        ComebackHunt = "MediumRoar",
+        ComebackKill = "MassiveShock",
+        BigClutch = "HugeRoar",
+        ComebackFall = "MassiveDisappointment",
+        Historic = "MassiveCelebration",
+        -- lulls (SocialTension): the stands get restless, then cheer whoever moves first
+        StalemateTense = "AngryCrowd",
+        StalemateBroken = "MediumCheer",
     },
     HushLevel = 0.45,         -- crowd level during a respect custom (the stadium goes quiet)
 }

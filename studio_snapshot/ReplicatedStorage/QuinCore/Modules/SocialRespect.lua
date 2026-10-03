@@ -11,14 +11,21 @@
 -- the custom is agreed: everyone walks to a spot round the arena centre at its own time and pace
 -- (mostly walking, some jog, a few run), imperfectly placed; the survivor eases off and waits; a
 -- ceremony platform rises at the centre if the centre is clear; the opponents' leader (or their
--- best) walks in, the survivor walks in, and only those two may fight.
+-- best) walks in, the survivor walks in.
+--   standoff        the two circle each other, closing in, walking then prowling, until one of
+--                   them breaks the tension and goes in; only those two may fight
+--   spectators      stand and watch, pace along the edge when it gets heated, and drift with the
+--                   fight if it moves (the dais pulls the fight back; it is not a wall)
 --   leader wins     the custom ends, spectators drift back
---   survivor wins   Honorable Comeback: every remaining opponent reacts on its own (hesitate,
---                   attack, back away, wait its turn, attack together, avenge)
+--   survivor wins   Honorable Comeback: a beat of shock, then most of them turn on the survivor
+--                   together (a hunting pack: no retreating now); a few hold back and watch,
+--                   and join when it turns
 --   2 more kills    Big Clutch (the arena stops and stares);  winning it all: Historic
 --
 -- Publishes: RespectRole (Hesitating / Watching / Spectator / Duelist / Honored),
--- RespectCandidate, Workspace RespectCustomActive / RespectStats, arena events.
+-- RespectCandidate, SocialStandoff / SocialStandoffPace (the circling gap and pace, CirclingState),
+-- SocialWatchPoint (where a watcher faces, IdleState), SocialHunt (DecisionSystem: hunting),
+-- Workspace RespectCustomActive / RespectStats, arena events (crowd).
 
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -40,7 +47,7 @@ local lastHP = {}       -- model -> health last tick
 local matchStart = os.clock()
 local thresholdMul = nil
 local custom = nil      -- the running custom
-local stats = { candidates = 0, accepted = 0, outcomes = {}, comebackReactions = {} }
+local stats = { candidates = 0, accepted = 0, outcomes = {}, comebackReactions = {}, standoffBreaks = {} }
 
 local function now() return os.clock() end
 local function rootOf(m) return m and m:FindFirstChild("HumanoidRootPart") end
@@ -55,6 +62,15 @@ local function flatDist(a, b)
 end
 local function rand(r) return r[1] + math.random() * (r[2] - r[1]) end
 local function bump(t, k) t[k] = (t[k] or 0) + 1 end
+local function lerp(a, b, t) return a + (b - a) * t end
+local function smooth(x) x = math.clamp(x, 0, 1) return x * x * (3 - 2 * x) end
+local function aggressionOf(m) return m:GetAttribute("Pers_Aggression") or 0.6 end
+local function bearing(v)
+	return v.Magnitude > 0.5 and v.Unit or Vector3.new(math.cos(math.random() * 6.28), 0, math.sin(math.random() * 6.28))
+end
+local function onCircle(center, angle, radius)
+	return center + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+end
 
 local function setRole(m, role)
 	if m and m.Parent and m:GetAttribute("RespectRole") ~= role then m:SetAttribute("RespectRole", role) end
@@ -113,7 +129,7 @@ end
 
 local function buildPlatform(center, floorY)
 	local r = CFG.CeremonyRadius or 80
-	if not centreClear(center, r + (CFG.CeremonyStepWidth or 6)) then return nil end
+	if not centreClear(center, ceremonyEdge()) then return nil end
 	local folder = Instance.new("Folder")
 	folder.Name = "RespectCeremony"
 	folder.Parent = (Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")) or Workspace
@@ -158,20 +174,23 @@ local function sinkPlatform(platform)
 	task.delay(2.7, function() platform.folder:Destroy() end)
 end
 
--- Duellists stay on the dais (SocialSystem.constrainToCeremony is called by Main and the states)
+-- The dais pulls the duellists back toward its middle (SocialSystem.constrainToCeremony is
+-- called by Main and the states). A pull, not a wall: it grows past the margin, then fades out
+-- well off the dais, so a brawl can spill off it and find its way back.
 local function ceremonyConstraint(rootPart)
-	if not (custom and custom.phase == "Duel" and custom.platform) then return end
+	if not (custom and (custom.phase == "Duel" or custom.phase == "Standoff") and custom.platform) then return end
 	local m = rootPart.Parent
 	if not (m and m:GetAttribute("RespectRole") == "Duelist") then return end -- (never pulls spectators in)
 	local offset = flat(rootPart.Position - custom.center)
-	local limit = (CFG.CeremonyRadius or 80) - (CFG.DuelEdgeMargin or 12)
-	if offset.Magnitude > limit then
-		local inward = -offset.Unit
-		local v = rootPart.AssemblyLinearVelocity
-		local outward = flat(v):Dot(-inward)
-		if outward > 0 then
-			rootPart.AssemblyLinearVelocity = v + inward * (outward + 6)
-		end
+	local over = offset.Magnitude - ((CFG.CeremonyRadius or 80) - (CFG.DuelEdgeMargin or 12))
+	if over <= 0 then return end
+	local zone = CFG.DuelSoftZone or 30
+	local weight = over < zone and over / zone or math.max(0, 1 - (over - zone) / zone)
+	local inward = -offset.Unit
+	local v = rootPart.AssemblyLinearVelocity
+	local outward = flat(v):Dot(-inward)
+	if outward > 0 and weight > 0 then
+		rootPart.AssemblyLinearVelocity = v + inward * outward * (CFG.DuelGravity or 0.7) * weight
 	end
 end
 SocialSystem.ceremonyConstraint = ceremonyConstraint
@@ -191,8 +210,7 @@ end
 local function onStage(o, s, stage)
 	local ro, rs = rootOf(o), rootOf(s)
 	if not (ro and rs) then return end
-	local away = flat(ro.Position - rs.Position)
-	away = away.Magnitude > 0.5 and away.Unit or Vector3.new(1, 0, 0)
+	local away = bearing(flat(ro.Position - rs.Position))
 	if stage == 1 then
 		-- stops, steps back, a look at the survivor, a look at an ally and a nod: "cool down"
 		setRole(o, "Hesitating")
@@ -210,6 +228,7 @@ local function onStage(o, s, stage)
 		setRole(o, "Watching")
 		SocialSystem.setMoveIntent(o, rs.Position + away * (32 + math.random() * 8), "walk", 5)
 	end
+	o:SetAttribute("SocialWatchPoint", rs.Position)
 end
 
 local acceptCustom -- forward
@@ -257,11 +276,12 @@ local function recognise(s, opponents, dt)
 	end
 end
 
-local function clearRecognition(opponents)
+local function clearRecognition()
 	for o in pairs(rec) do
 		if o.Parent and (o:GetAttribute("RespectRole") == "Hesitating" or o:GetAttribute("RespectRole") == "Watching") then
 			setRole(o, nil)
 			SocialSystem.clearMoveIntent(o)
+			o:SetAttribute("SocialWatchPoint", nil)
 		end
 	end
 	rec = {}
@@ -281,8 +301,7 @@ end
 
 local function spectatorSpot(o, center)
 	local ro = rootOf(o)
-	local dir = ro and flat(ro.Position - center) or Vector3.new(1, 0, 0)
-	dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(math.cos(math.random() * 6.28), 0, math.sin(math.random() * 6.28))
+	local dir = bearing(ro and flat(ro.Position - center) or Vector3.zero)
 	-- its own bearing, a little off: nobody crosses the arena to a numbered seat
 	local a = math.atan2(dir.Z, dir.X) + (math.random() - 0.5) * 0.5
 	local gap
@@ -290,8 +309,7 @@ local function spectatorSpot(o, center)
 	if roll < (CFG.CloseShare or 0.15) then gap = rand(CFG.CloseGap or { 3, 8 })
 	elseif roll < (CFG.CloseShare or 0.15) + (CFG.FarShare or 0.1) then gap = rand(CFG.FarGap or { 50, 70 })
 	else gap = rand(CFG.RingGap or { 10, 40 }) end
-	local r = ceremonyEdge() + gap
-	return center + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+	return onCircle(center, a, ceremonyEdge() + gap)
 end
 
 acceptCustom = function(s, opponents)
@@ -305,8 +323,8 @@ acceptCustom = function(s, opponents)
 		if alive(o) and score > best then leader, best = o, score end
 	end
 	if not leader then return end
-	custom = { survivor = s, leader = leader, center = center, phase = "Gathering", since = now(),
-		opponents = {}, spots = {}, faced = {}, jumps = {}, released = {}, queue = {} }
+	custom = { survivor = s, leader = leader, center = center, focus = center, heat = 0, phase = "Gathering", since = now(),
+		opponents = {}, spots = {}, faced = {}, watch = {}, jumps = {}, hunters = {}, reserved = {}, duelHP = {}, speeds = {} }
 	Workspace:SetAttribute("RespectCustomActive", true)
 	SocialSystem.raiseEvent("RespectCustom", { text = s.Name .. " is given a proper fight", survivor = s, leader = leader })
 	print(string.format("[Social] Respect custom: %s (contribution %.1f) faces %s", s.Name, contribution(s), leader.Name))
@@ -334,12 +352,14 @@ acceptCustom = function(s, opponents)
 				custom.spots[o] = spot
 				local delay = rand(CFG.Delay or { 0.5, 4 })
 				local pace = pickPace()
+				custom.watch[o] = { pref = flat(spot - center).Magnitude, nextThink = now() + delay + rand(CFG.WatchThink or { 2, 5 }) }
+				o:SetAttribute("SocialWatchPoint", center)
 				task.delay(delay, function()
 					if custom and custom.spots[o] and o.Parent then
 						SocialSystem.setMoveIntent(o, spot, pace, 40)
 					end
 				end)
-				-- a look at the survivor before it goes, sometimes a nod to an ally
+				-- a look at the survivor before it goes
 				SocialSystem.lookAt(o, s, delay * 0.8 + 0.4)
 			end
 		end
@@ -348,12 +368,9 @@ acceptCustom = function(s, opponents)
 	local R = ceremonyEdge() + 8
 	for _, m in ipairs({ s, leader }) do
 		local rm = rootOf(m)
-		if rm then
-			local dir = flat(rm.Position - center)
-			dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(1, 0, 0)
-			if flat(rm.Position - center).Magnitude < R then
-				SocialSystem.setMoveIntent(m, center + dir * R, "walk", 12)
-			end
+		m:SetAttribute("SocialWatchPoint", center)
+		if rm and flat(rm.Position - center).Magnitude < R then
+			SocialSystem.setMoveIntent(m, center + bearing(flat(rm.Position - center)) * R, "walk", 12)
 		end
 	end
 	-- the ceremony space, once nobody stands where it rises
@@ -374,44 +391,165 @@ local function restoreJumps()
 	custom.jumps = {}
 end
 
-local function startDuel()
-	custom.phase = "Duel"
-	custom.duelAt = now()
-	local s, l = custom.survivor, custom.leader
+local function clearStandoff(m)
+	if m and m.Parent then
+		m:SetAttribute("SocialStandoff", nil)
+		m:SetAttribute("SocialStandoffPace", nil)
+	end
+end
+
+-- The two meet on the dais and circle each other before anyone goes in
+local function startStandoff()
+	local c = custom
+	local s, l = c.survivor, c.leader
+	c.phase = "Standoff"
 	snapshotJump(s)
 	snapshotJump(l)
 	setRole(s, "Duelist")
 	setRole(l, "Duelist")
 	s:SetAttribute("TargetOverride", l.Name)
 	l:SetAttribute("TargetOverride", s.Name)
+	local gap0 = math.clamp(flatDist(s, l), (CFG.StandoffMinGap or 9) + 8, CFG.StandoffStartGap or 34)
+	c.standoff = { at = now(), duration = rand(CFG.StandoffTime or { 7, 16 }), gap0 = gap0, hp = {} }
+	for _, m in ipairs({ s, l }) do
+		SocialSystem.clearMoveIntent(m)
+		m:SetAttribute("SocialWatchPoint", nil)
+		m:SetAttribute("SocialStandoff", gap0)
+		m:SetAttribute("SocialStandoffPace", "walk")
+		c.standoff.hp[m] = humOf(m) and humOf(m).Health
+	end
 	SocialSystem.acknowledge(l, s)
 	SocialSystem.acknowledge(s, l, 0.5)
-	print(string.format("[Social] The final fight: %s vs %s", s.Name, l.Name))
+	SocialSystem.raiseEvent("Standoff", { text = s.Name .. " and " .. l.Name })
+	print(string.format("[Social] Standoff: %s and %s (%.1f s planned)", s.Name, l.Name, c.standoff.duration))
 end
 
-local function endCustom(outcome, keepSurvivorFighting)
+-- One of them has had enough: it goes in, and the duel is on
+local function breakStandoff(breaker, reason)
+	local c = custom
+	local other = breaker == c.survivor and c.leader or c.survivor
+	clearStandoff(c.survivor)
+	clearStandoff(c.leader)
+	c.phase = "Duel"
+	c.duelAt = now()
+	bump(stats.standoffBreaks, reason)
+	local rb, ro, hum = rootOf(breaker), rootOf(other), humOf(breaker)
+	if rb and ro and hum then
+		local d = flat(ro.Position - rb.Position).Magnitude
+		if d >= (CombatConfig.DashMinDistance or 10) and d <= (CombatConfig.DashMaxDistance or 28) then
+			local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
+			pcall(LocomotionModule.dash, breaker, hum, rb, ro.Position, d)
+		end
+		breaker:SetAttribute("ForceState", d <= (CombatConfig.CombatRange or 8) * 2.5 and "Fight" or "Chase")
+	end
+	SocialSystem.raiseEvent("StandoffBreak", { text = breaker.Name })
+	print(string.format("[Social] The final fight: %s goes in on %s (%s, after %.1f s)", breaker.Name, other.Name, reason, now() - c.standoff.at))
+end
+
+local function updateStandoff(c, dt)
+	local s, l = c.survivor, c.leader
+	local so = c.standoff
+	local t = now() - so.at
+	local p = math.clamp(t / so.duration, 0, 1)
+	-- the circle closes in (a spiral), and the walk turns to a prowl as it tightens
+	local gap = lerp(so.gap0, CFG.StandoffMinGap or 9, smooth(p))
+	for i, m in ipairs({ s, l }) do
+		local wobble = math.sin(t * 0.9 + i * 1.7) * 1.5
+		m:SetAttribute("SocialStandoff", math.floor((gap + wobble) * 10 + 0.5) / 10)
+		local prowlAt = (CFG.StandoffProwlAt or 0.45) * (1.3 - aggressionOf(m) * 0.6)
+		m:SetAttribute("SocialStandoffPace", p >= prowlAt and "run" or "walk")
+		-- struck: the other one broke it
+		local h = humOf(m)
+		if h and so.hp[m] and h.Health < so.hp[m] - 1 then
+			breakStandoff(i == 1 and l or s, "struck")
+			return
+		end
+		so.hp[m] = h and h.Health
+	end
+	if t < (CFG.StandoffMinTime or 3) then return end
+	-- the nerve to go in grows as the circle tightens; aggressive ones go sooner
+	local rate = (CFG.StandoffBreakRate or 0.05) + (CFG.StandoffBreakGrowth or 0.6) * p * p
+	for _, m in ipairs({ s, l }) do
+		if math.random() < rate * (0.5 + aggressionOf(m)) * dt * 0.5 then
+			breakStandoff(m, "nerve")
+			return
+		end
+	end
+	if p >= 1 then
+		breakStandoff(aggressionOf(s) >= aggressionOf(l) and s or l, "closed in")
+	end
+end
+
+-- Spectators: stand and watch, pace along the edge when it is heated, drift with the fight
+local function updateSpectators(c, dt)
+	local s, l = c.survivor, c.leader
+	local target = c.center
+	if (c.phase == "Standoff" or c.phase == "Duel") and alive(s) and alive(l) then
+		target = (rootOf(s).Position + rootOf(l).Position) / 2
+		target = Vector3.new(target.X, c.center.Y, target.Z)
+	end
+	c.focus = c.focus:Lerp(target, math.min(1, dt * 0.6))
+	c.heat = c.heat * math.exp(-dt / (CFG.HeatDecay or 4))
+	-- (only a fight that has left the dais draws them in: while it is on the dais they keep to the edge)
+	local shift = math.max(0, flat(c.focus - c.center).Magnitude - ((CFG.CeremonyRadius or 80) - (CFG.DuelEdgeMargin or 12)))
+	local minD = CFG.WatchMin or 22
+	for o, w in pairs(c.watch) do
+		if not alive(o) then
+			c.watch[o] = nil
+		elseif (c.faced[o] or now() - c.since > 25) and now() >= w.nextThink and not o:GetAttribute("SocialMoveTo") then
+			w.nextThink = now() + rand(CFG.WatchThink or { 2, 5 })
+			o:SetAttribute("SocialWatchPoint", c.focus)
+			local ro = rootOf(o)
+			local off = flat(ro.Position - c.focus)
+			local d = off.Magnitude
+			local dir = bearing(off)
+			local a = math.atan2(dir.Z, dir.X)
+			-- the further the fight has moved off the middle, the closer they come in after it
+			local want = math.clamp(w.pref - shift, minD + 10, w.pref)
+			if d < minD then
+				SocialSystem.setMoveIntent(o, c.focus + dir * (minD + rand({ 6, 12 })), d < minD * 0.6 and "jog" or "walk", 4)
+			elseif math.abs(d - want) > (CFG.WatchTolerance or 15) then
+				local dest = onCircle(c.focus, a + (math.random() - 0.5) * 0.4, want)
+				SocialSystem.setMoveIntent(o, dest, math.abs(d - want) > 40 and "jog" or "walk", 8)
+			else
+				local chance = (CFG.PaceChance or 0.25) + (CFG.PaceHeat or 0.4) * math.min(1, c.heat) + (aggressionOf(o) - 0.5) * 0.3
+				if math.random() < chance then
+					local arc = rand(CFG.PaceArc or { 0.12, 0.3 }) * (math.random() < 0.5 and -1 or 1)
+					SocialSystem.setMoveIntent(o, onCircle(c.focus, a + arc, d + (math.random() - 0.5) * 4), "walk", 5)
+				end
+			end
+		end
+	end
+end
+
+local HUNT_ATTRIBUTES = { "SocialHunt", "SocialStandoff", "SocialStandoffPace", "SocialWatchPoint", "ComebackReaction" }
+
+local function endCustom(outcome)
 	if not custom then return end
 	bump(stats.outcomes, outcome)
 	print("[Social] Respect custom ends: " .. outcome)
 	restoreJumps()
 	local c = custom
 	custom = nil
+	for m, base in pairs(c.speeds) do
+		if m.Parent then m:SetAttribute("Speed", base or nil) end
+	end
 	Workspace:SetAttribute("RespectCustomActive", false)
-	SocialSystem.raiseEvent("RespectCustomEnd", { text = outcome }) -- (below the current level: only signals)
+	SocialSystem.raiseEvent("RespectCustomEnd", { text = outcome }) -- (a plain signal, no level)
 	sinkPlatform(c.platform)
 	for _, m in ipairs(SocialSystem.fighters()) do
-		if m:GetAttribute("RespectRole") then
-			-- spectators drift back at their own time
-			task.delay(math.random() * 4, function()
-				if m.Parent then
-					setRole(m, nil)
-					SocialSystem.clearMoveIntent(m)
-					if m:GetAttribute("TargetOverride") == c.survivor.Name or m:GetAttribute("TargetOverride") == c.leader.Name then
-						m:SetAttribute("TargetOverride", nil)
-					end
-				end
-			end)
+		local function release()
+			if not m.Parent then return end
+			setRole(m, nil)
+			SocialSystem.clearMoveIntent(m)
+			for _, key in ipairs(HUNT_ATTRIBUTES) do m:SetAttribute(key, nil) end
+			local override = m:GetAttribute("TargetOverride")
+			if override == c.survivor.Name or override == c.leader.Name then
+				m:SetAttribute("TargetOverride", nil)
+			end
 		end
+		-- spectators drift back at their own time
+		if m:GetAttribute("RespectRole") then task.delay(math.random() * 4, release) else release() end
 	end
 	if c.survivor.Parent then
 		c.survivor:SetAttribute("RespectCandidate", nil)
@@ -444,110 +582,145 @@ local function afterClutch(s)
 	end
 end
 
--- The comeback: each remaining opponent reacts on its own
+-- A hunter goes after the survivor: no standing back, no retreating (DecisionSystem reads SocialHunt)
+local function hunt(o)
+	local c = custom
+	if not (c and c.phase == "Comeback" and alive(o) and alive(c.survivor)) then return end
+	if not c.hunters[o] then
+		-- adrenaline: a hunter runs a little faster than it normally would (an even race never closes)
+		local base = o:GetAttribute("Speed")
+		c.speeds[o] = base or false
+		o:SetAttribute("Speed", (base or CFG.BaseRunSpeed or 40) * (1 + (CFG.HuntSpeedBoost or 0.12)))
+	end
+	c.hunters[o] = true
+	setRole(o, nil)
+	SocialSystem.clearMoveIntent(o)
+	o:SetAttribute("SocialWatchPoint", nil)
+	o:SetAttribute("TargetOverride", c.survivor.Name)
+	o:SetAttribute("SocialHunt", c.survivor.Name)
+	o:SetAttribute("ForceState", "Chase")
+end
+
+-- The comeback: the leader is down. A beat of shock, then each decides: most turn on the
+-- survivor together, a few hold back and watch
 local function comeback()
-	local s = custom.survivor
-	custom.phase = "Comeback"
-	custom.comebackKills = s:GetAttribute("MatchKills") or 0
+	local c = custom
+	local s = c.survivor
+	c.phase = "Comeback"
+	c.comebackKills = s:GetAttribute("MatchKills") or 0
+	c.lastKills = c.comebackKills
+	c.watch = {}
 	restoreJumps()
+	clearStandoff(s)
 	setRole(s, nil)
 	s:SetAttribute("TargetOverride", nil)
-	SocialSystem.raiseEvent("UnexpectedLeaderDefeat", { text = s.Name .. " beat " .. custom.leader.Name })
+	SocialSystem.raiseEvent("UnexpectedLeaderDefeat", { text = s.Name .. " beat " .. c.leader.Name })
 	task.delay(1.5, function()
-		if custom and custom.phase == "Comeback" then
+		if custom == c and c.phase == "Comeback" then
 			SocialSystem.raiseEvent("HonorableComeback", { text = s.Name })
 		end
 	end)
-	local W = CFG.ComebackReactions or {}
-	local kinds, total = {}, 0
-	for k, w in pairs(W) do table.insert(kinds, { k, w }) total += w end
-	local coordinatedGroup = {}
-	for _, o in ipairs(custom.opponents) do
-		if alive(o) and o ~= custom.leader then
-			local r, kind = math.random() * total, "attack"
-			for _, kw in ipairs(kinds) do
-				r -= kw[2]
-				if r <= 0 then kind = kw[1] break end
-			end
-			if kind == "finish" and hpRatio(s) > 0.35 then kind = "attack" end
-			bump(stats.comebackReactions, kind)
-			o:SetAttribute("ComebackReaction", kind)
-			SocialSystem.lookAt(o, s, 1.5)
-			setRole(o, "Watching") -- still standing back until its own moment
-			local function release(delay)
-				task.delay(delay, function()
-					if custom and o.Parent and alive(o) then
-						custom.released[o] = true
-						setRole(o, nil)
-						SocialSystem.clearMoveIntent(o)
-					end
-				end)
-			end
-			if kind == "attack" or kind == "finish" then release(0.5 + math.random())
-			elseif kind == "hesitate" then release(rand({ 4, 8 }))
-			elseif kind == "backAway" then
-				local ro, rs = rootOf(o), rootOf(s)
-				if ro and rs then SocialSystem.setMoveIntent(o, ro.Position + flat(ro.Position - rs.Position).Unit * 15, "walk", 4) end
-				release(rand({ 6, 10 }))
-			elseif kind == "avenge" then
-				o:SetAttribute("GrudgeTarget", s.Name)
-				release(1 + math.random())
-			elseif kind == "coordinated" then
-				table.insert(coordinatedGroup, o)
-			else -- oneAtATime
-				table.insert(custom.queue, o)
-			end
+	-- shock: everyone stops dead, stares at the survivor, at each other
+	local others = {}
+	for _, o in ipairs(c.opponents) do
+		if alive(o) and o ~= c.leader then table.insert(others, o) end
+	end
+	local rs = rootOf(s)
+	for i, o in ipairs(others) do
+		setRole(o, "Watching")
+		SocialSystem.clearMoveIntent(o)
+		o:SetAttribute("SocialWatchPoint", rs and rs.Position)
+		SocialSystem.lookAt(o, s, 1.0)
+		local other = others[(i % #others) + 1]
+		if other ~= o then
+			task.delay(0.9 + math.random() * 0.4, function() SocialSystem.lookAt(o, other, 0.7) end)
 		end
 	end
-	-- the coordinated ones look at each other, nod, and go together
-	if #coordinatedGroup > 0 then
-		for i, o in ipairs(coordinatedGroup) do
-			local other = coordinatedGroup[(i % #coordinatedGroup) + 1]
-			if other ~= o then SocialSystem.acknowledge(o, other, 0.6) end
-		end
-		task.delay(2.2, function()
-			for _, o in ipairs(coordinatedGroup) do
-				if custom and o.Parent and alive(o) then
-					custom.released[o] = true
-					setRole(o, nil)
+	task.delay(rand(CFG.ShockTime or { 1.4, 2.4 }), function()
+		if not (custom == c and c.phase == "Comeback" and alive(s)) then return end
+		local W = CFG.ComebackReactions or { pack = 0.6, avenge = 0.15, reserved = 0.25 }
+		local pack = {}
+		for _, o in ipairs(others) do
+			if alive(o) then
+				-- a hurt survivor draws them in; a hurt opponent is likelier to hold back
+				local wPack = (W.pack or 0.6) * (1 + (1 - hpRatio(s)) * 0.5)
+				local wAvenge = (W.avenge or 0.15) * (0.5 + (o:GetAttribute("FollowingLeader") == c.leader.Name and 1 or 0))
+				local wReserved = (W.reserved or 0.25) * (1 + (1 - hpRatio(o)))
+				local r = math.random() * (wPack + wAvenge + wReserved)
+				local kind = r < wPack and "pack" or (r < wPack + wAvenge and "avenge" or "reserved")
+				bump(stats.comebackReactions, kind)
+				o:SetAttribute("ComebackReaction", kind)
+				if kind == "reserved" then
+					c.reserved[o] = { joinAt = now() + rand(CFG.ReservedJoin or { 10, 25 }), nextThink = 0 }
+				else
+					if kind == "avenge" then o:SetAttribute("GrudgeTarget", s.Name) end
+					table.insert(pack, o)
 				end
 			end
-		end)
-	end
+		end
+		-- the pack: a look and a nod between them, then they go, a beat apart
+		for i, o in ipairs(pack) do
+			local other = pack[(i % #pack) + 1]
+			if other ~= o then SocialSystem.acknowledge(o, other, 0) end
+			task.delay(0.6 + math.random() * 0.8, function() hunt(o) end)
+		end
+		if #pack > 0 then
+			task.delay(1.2, function()
+				if custom == c then SocialSystem.raiseEvent("ComebackHunt", { text = s.Name }) end
+			end)
+		end
+	end)
 end
 
-local function updateComeback()
-	local s = custom.survivor
-	-- one at a time: the next steps in when nobody else from the queue is fighting
-	local busy = false
-	for o in pairs(custom.released) do
-		if o.Parent and alive(o) and o:GetAttribute("ComebackReaction") == "oneAtATime" then busy = true break end
-	end
-	if not busy and #custom.queue > 0 then
-		local o = table.remove(custom.queue, 1)
-		if alive(o) then
-			custom.released[o] = true
-			setRole(o, nil)
-			SocialSystem.lookAt(o, s, 1)
+local function updateComeback(c)
+	local s = c.survivor
+	local kills = s:GetAttribute("MatchKills") or 0
+	if kills > c.lastKills then
+		c.lastKills = kills
+		local clutchNow = not c.bigClutch and kills >= c.comebackKills + (CFG.BigClutchKills or 2)
+		if not clutchNow then SocialSystem.raiseEvent("ComebackKill", { text = s.Name }) end
+		-- another one down: some of the ones holding back are stung into it
+		for _, r in pairs(c.reserved) do
+			if math.random() < (CFG.ReservedJoinOnKill or 0.5) then r.joinAt = math.min(r.joinAt, now() + rand({ 0.5, 1.5 })) end
 		end
 	end
-	-- Big Clutch: the survivor keeps winning
-	if not custom.bigClutch and (s:GetAttribute("MatchKills") or 0) >= custom.comebackKills + (CFG.BigClutchKills or 2) then
-		custom.bigClutch = true
+	-- the ones holding back keep their distance and watch; they join when it turns
+	local rs = rootOf(s)
+	for o, r in pairs(c.reserved) do
+		if not alive(o) then
+			c.reserved[o] = nil
+		elseif now() >= r.joinAt or hpRatio(s) < (CFG.ReservedJoinHP or 0.35) then
+			c.reserved[o] = nil
+			SocialSystem.lookAt(o, s, 0.8)
+			hunt(o)
+		elseif rs and now() >= r.nextThink then
+			r.nextThink = now() + rand({ 1.5, 3 })
+			o:SetAttribute("SocialWatchPoint", rs.Position)
+			local off = flat(rootOf(o).Position - rs.Position)
+			local d = off.Magnitude
+			local band = CFG.ReservedDistance or { 30, 45 }
+			if d < band[1] or d > band[2] + 15 then
+				SocialSystem.setMoveIntent(o, rs.Position + bearing(off) * rand(band), d > band[2] + 40 and "jog" or "walk", 4)
+			end
+		end
+	end
+	-- Big Clutch: the survivor keeps winning; the arena stops and stares for a beat
+	if not c.bigClutch and kills >= c.comebackKills + (CFG.BigClutchKills or 2) then
+		c.bigClutch = true
 		SocialSystem.raiseEvent("BigClutch", { text = s.Name })
-		-- the arena stops and stares: a beat of stillness, looks at each other, at the survivor
 		local watchers = {}
 		for _, o in ipairs(SocialSystem.fighters()) do
-			if o ~= s and alive(o) then table.insert(watchers, o) end
+			if o ~= s then table.insert(watchers, o) end
 		end
 		for i, o in ipairs(watchers) do
-			local wasRole = o:GetAttribute("RespectRole")
+			local wasHunting = c.hunters[o]
 			setRole(o, "Watching")
+			SocialSystem.clearMoveIntent(o)
 			local other = watchers[(i % #watchers) + 1]
 			if other ~= o then SocialSystem.lookAt(o, other, 0.9) end
 			task.delay(1.0, function() SocialSystem.lookAt(o, s, 1.6) end)
-			task.delay(CFG.StillnessTime or 2.5, function()
-				if o.Parent and (custom == nil or custom.released[o]) then setRole(o, wasRole) end
+			task.delay(rand({ 0.8, 1.2 }) * (CFG.StillnessTime or 2.5), function()
+				if custom == c and wasHunting and o.Parent then hunt(o) end
 			end)
 		end
 	end
@@ -561,8 +734,21 @@ local function updateCustom(dt)
 	local c = custom
 	local s, l = c.survivor, c.leader
 	if not alive(s) then
-		endCustom(c.phase == "Comeback" and "survivor fell after the comeback" or "leader won")
+		if c.phase == "Comeback" then
+			SocialSystem.raiseEvent("ComebackFall", { text = s.Name })
+			endCustom(c.bigClutch and "survivor fell after the big clutch" or "survivor fell after the comeback")
+		else
+			endCustom("leader won")
+		end
 		return
+	end
+	-- how heated the fight is (the duellists' lost health), for the spectators
+	for _, m in ipairs({ s, l }) do
+		local h = humOf(m)
+		if h then
+			if c.duelHP[m] and h.Health < c.duelHP[m] then c.heat += (c.duelHP[m] - h.Health) / math.max(1, h.MaxHealth) * 8 end
+			c.duelHP[m] = h.Health
+		end
 	end
 	if c.phase == "Gathering" then
 		if not alive(l) then endCustom("leader lost before the fight") return end
@@ -577,8 +763,7 @@ local function updateCustom(dt)
 					occupied = true
 					-- anyone idling in the footprint steps out of it (not a duellist on its way)
 					if not m:GetAttribute("SocialMoveTo") then
-						local dir = off.Magnitude > 1 and off.Unit or Vector3.new(1, 0, 0)
-						SocialSystem.setMoveIntent(m, c.center + dir * (R + 6), "walk", 8)
+						SocialSystem.setMoveIntent(m, c.center + bearing(off) * (R + 6), "walk", 8)
 					end
 				end
 			end
@@ -604,39 +789,45 @@ local function updateCustom(dt)
 			end
 		end
 		-- the leader walks in last; the survivor answers
+		local half = (CFG.StandoffStartGap or 34) / 2
 		if c.walkInAt and now() >= c.walkInAt and not c.walking then
 			c.walking = true
 			local rl = rootOf(l)
-			local dir = rl and flat(rl.Position - c.center) or Vector3.new(1, 0, 0)
-			dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(1, 0, 0)
-			SocialSystem.setMoveIntent(l, c.center + dir * 12, "walk", 30)
+			local dir = bearing(rl and flat(rl.Position - c.center) or Vector3.zero)
+			c.walkDir = dir
+			SocialSystem.setMoveIntent(l, c.center + dir * half, "walk", 30)
 			task.delay(1.2, function()
 				if custom == c then
 					SocialSystem.lookAt(s, l, 1.5)
-					SocialSystem.setMoveIntent(s, c.center - dir * 12, "walk", 30)
+					SocialSystem.setMoveIntent(s, c.center - dir * half, "walk", 30)
 				end
 			end)
 		end
 		if c.walking then
-			local near = flatDist(s, l) < (CFG.DuelStartDistance or 30)
-				and flat(rootOf(s).Position - c.center).Magnitude < 40 and flat(rootOf(l).Position - c.center).Magnitude < 40
-			if near or now() - c.walkInAt > (CFG.DuelStartTimeout or 30) then startDuel() end
+			local arrived = flat(rootOf(s).Position - c.center).Magnitude < half + 10 and flat(rootOf(l).Position - c.center).Magnitude < half + 10
+			if arrived or now() - c.walkInAt > (CFG.DuelStartTimeout or 30) then startStandoff() end
 		end
 		-- spectators watch, now and then
 		if math.random() < 0.2 then
-			local list = c.opponents
-			local o = list[math.random(1, #list)]
+			local o = c.opponents[math.random(1, #c.opponents)]
 			if o and o ~= l and alive(o) then SocialSystem.lookAt(o, math.random() < 0.6 and s or l, 1.5 + math.random()) end
 		end
-	elseif c.phase == "Duel" then
+		updateSpectators(c, dt)
+	elseif c.phase == "Standoff" or c.phase == "Duel" then
 		if not alive(l) then comeback() return end
-		-- a duellist knocked or backed off the dais walks back up (the fight belongs on it)
-		if c.platform then
+		if c.phase == "Standoff" then updateStandoff(c, dt) end
+		-- a brawl that has spilled well off the dais works its way back, casually (between exchanges)
+		if c.phase == "Duel" and c.platform then
+			c.offSince = c.offSince or {}
 			for _, m in ipairs({ s, l }) do
-				local rm = rootOf(m)
-				local off = rm and flat(rm.Position - c.center)
-				if off and off.Magnitude > (CFG.CeremonyRadius or 80) and not m:GetAttribute("SocialMoveTo") then
-					SocialSystem.setMoveIntent(m, c.center + off.Unit * (CFG.CeremonyRadius or 80) * 0.5, "jog", 4)
+				local off = flat(rootOf(m).Position - c.center)
+				if off.Magnitude > (CFG.CeremonyRadius or 80) then
+					c.offSince[m] = c.offSince[m] or now()
+					if now() - c.offSince[m] > (CFG.OffDaisWander or 6) and not m:GetAttribute("SocialMoveTo") and m:GetAttribute("CurrentState") ~= "Fight" then
+						SocialSystem.setMoveIntent(m, c.center + off.Unit * (CFG.CeremonyRadius or 80) * rand({ 0.3, 0.6 }), "jog", 3)
+					end
+				else
+					c.offSince[m] = nil
 				end
 			end
 		end
@@ -644,8 +835,9 @@ local function updateCustom(dt)
 			local o = c.opponents[math.random(1, #c.opponents)]
 			if o and o ~= l and alive(o) then SocialSystem.lookAt(o, math.random() < 0.5 and s or l, 1.5 + math.random() * 1.5) end
 		end
+		updateSpectators(c, dt)
 	elseif c.phase == "Comeback" then
-		updateComeback()
+		updateComeback(c)
 		local anyLeft = false
 		for _, o in ipairs(c.opponents) do
 			if alive(o) then anyLeft = true break end
@@ -700,7 +892,7 @@ local function tick(dt)
 	if math.random() < 0.1 then
 		Workspace:SetAttribute("RespectStats", HttpService:JSONEncode({
 			candidates = stats.candidates, accepted = stats.accepted, outcomes = stats.outcomes,
-			comebackReactions = stats.comebackReactions, afterClutch = stats.afterClutch,
+			comebackReactions = stats.comebackReactions, afterClutch = stats.afterClutch, standoffBreaks = stats.standoffBreaks,
 			phase = custom and custom.phase or "none", thresholdMul = math.floor(thresholdMul * 100) / 100,
 		}))
 	end
@@ -711,7 +903,7 @@ local function reset()
 	rec, lastHP = {}, {}
 	matchStart = os.clock()
 	thresholdMul = nil
-	stats = { candidates = 0, accepted = 0, outcomes = {}, comebackReactions = {} }
+	stats = { candidates = 0, accepted = 0, outcomes = {}, comebackReactions = {}, standoffBreaks = {} }
 	Workspace:SetAttribute("RespectStats", nil)
 	Workspace:SetAttribute("RespectCustomActive", nil)
 	local old = Workspace:FindFirstChild("RespectCeremony", true)

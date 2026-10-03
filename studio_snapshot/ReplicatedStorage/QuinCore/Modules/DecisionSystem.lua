@@ -263,6 +263,27 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		end
 	end
 
+	-- Social pressure (SocialTension / SocialRespect): a lull that has dragged on makes a Quin
+	-- restless (urgency), and a hunting pack after the Quin that beat its leader is past caring
+	-- about running (SocialHunt). A Quin waiting out the other side holds its ground.
+	local TCFG = (CombatConfig.Social and CombatConfig.Social.Tension) or {}
+	local hunting = quinModel:GetAttribute("SocialHunt") ~= nil
+	local urgency = hunting and 1 or (quinModel:GetAttribute("SocialUrgency") or 0)
+	if urgency > 0 then
+		scores["Retreat"] = (scores["Retreat"] or 0) * (1 - (TCFG.RetreatCut or 0.85) * urgency)
+		scores["Pursue"] = (scores["Pursue"] or 0) * (1 + (TCFG.PursueBoost or 0.8) * urgency) + (TCFG.PursueAdd or 35) * urgency
+		scores["Attack"] = (scores["Attack"] or 0) * (1 + (TCFG.AttackBoost or 0.4) * urgency)
+		scores["Dash"] = (scores["Dash"] or 0) + (TCFG.DashAdd or 30) * urgency
+		scores["Guard"] = (scores["Guard"] or 0) * (1 - 0.5 * urgency)
+		scores["Reposition"] = (scores["Reposition"] or 0) * (1 - 0.6 * urgency)
+		scores["AuraFarm"] = (scores["AuraFarm"] or 0) * (1 - urgency)
+		table.insert(decisionReasons, hunting and "Hunting the one who beat our leader" or string.format("Restless (urgency %.2f): making a move", urgency))
+	elseif quinModel:GetAttribute("SocialPosture") == "Waiting" then
+		scores["Retreat"] = (scores["Retreat"] or 0) * (TCFG.WaitingRetreat or 0.5)
+		scores["Guard"] = (scores["Guard"] or 0) + (TCFG.WaitingGuard or 15)
+		table.insert(decisionReasons, "Waiting for the other side to move first")
+	end
+
 	-- Select action with highest utility score
 	local bestAction = "Attack"
 	local bestScore = -math.huge
@@ -286,7 +307,13 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 
 	-- Survival instinct hard override: near-death Quins retreat ONLY if escape is feasible and NOT in Last Stand!
 	if not isLastStand and escapeFeasibility >= (CombatConfig.EscapeFeasibilityThreshold or 0.20) then
-		if hpRatio < (CombatConfig.RetreatCriticalHealth or 0.20) and confidence < (CombatConfig.RetreatConfidenceThreshold or 0.70) then
+		local critical = CombatConfig.RetreatCriticalHealth or 0.20
+		if hunting then
+			critical = (CombatConfig.Social and CombatConfig.Social.Respect and CombatConfig.Social.Respect.HuntRetreatHealth) or 0.08
+		else
+			critical = critical * (1 - (TCFG.SurvivalCut or 0.8) * urgency) -- (a long lull: even the nearly dead make a stand)
+		end
+		if hpRatio < critical and confidence < (CombatConfig.RetreatConfidenceThreshold or 0.70) then
 			bestAction = "Retreat"
 			table.insert(decisionReasons, "Near death - survival instinct")
 		end

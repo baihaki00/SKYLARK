@@ -237,6 +237,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
 	local targetState = target:GetAttribute("CurrentState")
 
+	-- Respect-custom standoff: once within the circling gap it circles, it does not close in
+	local standoffGap = fighter:GetAttribute("SocialStandoff")
+	if standoffGap and distance <= standoffGap + 12 then
+		return require(script.Parent:WaitForChild("CirclingState"))
+	end
+
 	-- === PURSUIT TERMINATION INVARIANTS (Section 5) ===
 	-- 1. Target out of maximum chase range (> 800 studs)
 	if distance > (CombatConfig.ChaseRange or 800) then
