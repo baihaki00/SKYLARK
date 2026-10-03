@@ -305,3 +305,31 @@ of frames (closest 0.61, in the strafe run to the left); the clip's own arms are
 Baton, hanging tag and trail are a layer (`Props`), off by default.
 
 No IK Lab script errors; 208-235 fps with the four lanes.
+
+---
+
+# Seventh round (2026-10-04): limbs that look like sticks (in progress)
+
+Owner: D's knees turn inward, the legs and arms look like wood / sticks with no muscle.
+
+Measured and seen (front views of A and D at the same paused frame):
+- **Hands.** A Roblox arm `IKControl` (Position type) sets the hand bone's own Transform to identity
+  even at Weight 0. D's wrists had not moved since the arm IK was added (sd of the hand's rotation:
+  A 5-11 deg, D 0.0); the hands hung flat and open. The control is now enabled only while a hand
+  has a goal, and a held hand gets the clip's baked rotation back. After: A 7.9, D 7.9.
+- **Knees.** Against the planted foot, D's knee direction matches the clip's (walk +2 vs +4 deg, run
+  +8 vs +8, strafes -8 vs -8), hinge on or off. The inward knee is in the clips: at a run the knee is
+  more than 15 deg inward of the foot on 43% of planted frames (worst 27), walking 8% (worst 36).
+  New `KneeOverToe`: the knee may point at most 5 deg inward (25 outward) of the foot under it,
+  held-foot heading included. Not measured yet.
+- **Leg reach.** `REACH_LIMIT` 0.97 kept 28 deg of knee bend; D's knees never went under 20 deg
+  (clip: 8). Now 0.995. After: straightest knee A 8, D 8.
+- **Elbows.** The walk clip's arms are dead straight (under 5 deg) on 6-11% of frames. `SoftElbows`
+  keeps 10 deg. After: straightest elbow A 1, D 10.
+- **Arm sway** is now three parts (upper arm, forearm through the elbow hinge, hand through the
+  wrist) on three springs, not the arm as one piece. `SquareUp` is spread over three spine bones.
+  `Weight`: a footfall adds a small pelvis dip. None of these measured yet.
+
+State: pushed, runs with no script errors, 5 s smoke test only. Not done: the full tour and strafe
+test with the new layers (knee-over-toe result, arm clearance, foot targets, accelerations), front
+views after, and the port of D into QuinCore the owner asked for next.
