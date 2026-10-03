@@ -25,6 +25,7 @@ local Crowd = {}
 
 local library = nil        -- Category name -> { Sound templates }
 local lastPick = {}        -- Category -> last template (avoid back-to-back repeats)
+local badTemplates = {}    -- templates whose sound never loaded (skipped from then on)
 local sections = nil       -- { part, center, length, emitters = { {att, index, loops = {}} }, team, nextMinor }
 local crowdGroup = nil
 
@@ -134,8 +135,10 @@ local function pick(category)
 	if not list or #list == 0 then return nil end
 	local usable = {}
 	for _, s in ipairs(list) do
-		-- (a sound that failed to load reports no length)
-		if s.TimeLength > 0 and (s ~= lastPick[category] or #list == 1) then
+		-- (on the server a sound reports no length until it has loaded, so a length of 0 is not
+		-- proof of a broken sound: every crowd sound was skipped in a session where none had
+		-- loaded yet. A copy that never loads marks its template bad instead.)
+		if not badTemplates[s] and (s ~= lastPick[category] or #list == 1) then
 			table.insert(usable, s)
 		end
 	end
@@ -195,10 +198,24 @@ local function setLoop(emitter, slot, category, volume)
 		fadeOutAndDestroy(cur.sound, CFG.Crossfade)
 	end
 	local s = makeSound(template, emitter.att, true)
-	s.TimePosition = math.random() * math.max(0, template.TimeLength - 0.5)
+	if template.TimeLength > 0.5 then
+		s.TimePosition = math.random() * (template.TimeLength - 0.5)
+	end
 	s:Play()
 	fadeTo(s, volume, CFG.Crossfade)
-	emitter.loops[slot] = { sound = s, category = category, volume = volume }
+	local entry = { sound = s, category = category, volume = volume }
+	emitter.loops[slot] = entry
+	-- A loop that never loads (a failed upload) is dropped; the next director step picks another
+	task.delay(CFG.LoadTimeout or 6, function()
+		if s.Parent and not s.IsLoaded and s.TimeLength == 0 then
+			badTemplates[template] = true
+			warn("[ArenaCrowd] " .. template:GetFullName() .. " did not load; skipped from now on")
+			if emitter.loops[slot] == entry then
+				emitter.loops[slot] = nil
+			end
+			s:Destroy()
+		end
+	end)
 end
 
 local function releaseShot(entry)
@@ -234,10 +251,17 @@ local function oneShot(section, category, volume, delay, major)
 		entry.sound = s
 		s.Volume = volume
 		s:Play()
-		task.delay(template.TimeLength / s.PlaybackSpeed + 0.3, function()
+		-- (length unknown until loaded: Ended ends it, the timer is the fallback)
+		local life = (template.TimeLength > 0 and template.TimeLength or (CFG.OneShotFallbackLength or 8)) / s.PlaybackSpeed + 0.3
+		local done = false
+		local function finish()
+			if done then return end
+			done = true
 			releaseShot(entry)
 			s:Destroy()
-		end)
+		end
+		s.Ended:Connect(finish)
+		task.delay(life, finish)
 	end)
 end
 

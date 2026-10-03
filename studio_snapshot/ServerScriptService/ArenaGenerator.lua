@@ -397,17 +397,39 @@ local function folder()
 	return f
 end
 
-local function playFx(name)
+-- Generation sounds come from the arena centre (an invisible emitter in the generated folder,
+-- so restore() also silences them), routed through the arena master volume
+local function playFx(key)
+	local S = CFG.Sounds or {}
+	local name = S[key] or key
 	local a = arenaOne()
-	local fxFolder = a and a:FindFirstChild("ArenaSoundFX") and a.ArenaSoundFX:FindFirstChild("GenerationFX")
-	local template = fxFolder and fxFolder:FindFirstChild(name)
-	local g = ground()
-	if template and template:IsA("Sound") and g then
-		local s = template:Clone()
-		s.Parent = g
-		s:Play()
-		task.delay(math.max(template.TimeLength, 1) + 0.5, function() s:Destroy() end)
+	local sfx = a and a:FindFirstChild("ArenaSoundFX")
+	local template = sfx and (sfx:FindFirstChild(name) or (sfx:FindFirstChild("GenerationFX") and sfx.GenerationFX:FindFirstChild(name)))
+	local center, _, _, floorY = metrics()
+	local f = folder()
+	if not (template and template:IsA("Sound") and center and f) then return nil end
+	local emitter = f:FindFirstChild("GenAudio")
+	if not emitter then
+		emitter = Instance.new("Part")
+		emitter.Name = "GenAudio"
+		emitter.Anchored = true
+		emitter.Transparency = 1
+		emitter.Size = Vector3.new(1, 1, 1)
+		emitter.CanCollide, emitter.CanQuery, emitter.CanTouch, emitter.CastShadow = false, false, false, false
+		emitter.CFrame = CFrame.new(center.X, floorY + (S.Height or 25), center.Z)
+		emitter.Parent = f
 	end
+	local s = template:Clone()
+	s.RollOffMode = Enum.RollOffMode.InverseTapered
+	s.RollOffMinDistance = S.RollOffMin or 200
+	s.RollOffMaxDistance = S.RollOffMax or 1600
+	s.Volume = template.Volume * (S.Volume or 1)
+	local master = game:GetService("SoundService"):FindFirstChild("ArenaSpeakerGroup")
+	if master then s.SoundGroup = master end
+	s.Parent = emitter
+	s:Play()
+	task.delay(math.max(template.TimeLength, 1) + 0.5, function() s:Destroy() end)
+	return s
 end
 
 local function holoStyle(part, valid)
@@ -822,6 +844,7 @@ function Gen.runSequence(duration, isCancelled)
 	local function frac() return math.clamp((os.clock() - t0) / duration, 0, 1) end
 
 	-- 1. scan
+	playFx("Sweep")
 	if not hurry() then
 		progress(0, "SCANNING ARENA VOLUME")
 		scanSweep(duration * CFG.ScanShare)
@@ -894,13 +917,13 @@ function Gen.runSequence(duration, isCancelled)
 
 	-- 4. materialize
 	progress(math.max(frac(), 0.8), "MATERIALIZING SECTORS")
-	playFx("Materialize")
 	local remaining = math.max(0.5, duration - (os.clock() - t0) - 0.5)
 	materialize(chosen, hurry() and 0.6 or math.min(CFG.MaterializeTime, remaining))
 	current = chosen
 	active = true
 	applySpawnPads(chosen)
 	refreshCatalogue()
+	playFx("Finish")
 	progress(1, string.format("ARENA READY • SEED %06X", chosen.seed))
 	Workspace:SetAttribute("ArenaSeed", string.format("%06X", chosen.seed))
 	print(string.format("[ArenaGenerator] Seed %06X locked after %d candidates: %s, %d pieces + %d trees (half each side)",

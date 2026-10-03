@@ -372,13 +372,31 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 
 		-- If standing directly underneath the platform (< 16 studs flat), back up to maintain vantage LoS
-		if flatDistToTgt < 16.0 then
-			local flatLook = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
-			flatLook = (flatLook.Magnitude > 0.01) and flatLook.Unit or Vector3.new(0, 0, -1)
-			local rightVec = rootPart.CFrame.RightVector
-			local vantageTarget = rootPart.Position - flatLook * 22.0 + rightVec * 8.0
+		-- Back away from the platform to a spot straight out from the target (fixed while it moves
+		-- out along that line). It used to be set from the body's own facing every tick (22 behind,
+		-- 8 right), so turning towards it moved it: Quins under a perched target ran in circles
+		-- on the spot. Out there it watches, creeping in, until a way up opens.
+		local vantage = CombatConfig.HighGround_VantageDistance or 24
+		local outOfJumpReach = verticalGap > (CombatConfig.Jump_MaxReach or 12.0)
+		if flatDistToTgt < 16.0 or (outOfJumpReach and flatDistToTgt < vantage) then
+			local away = Vector3.new(rootPart.Position.X - targetHRP.Position.X, 0, rootPart.Position.Z - targetHRP.Position.Z)
+			if away.Magnitude < 1 then
+				local saved = fighter:GetAttribute("VantageDir")
+				if typeof(saved) ~= "Vector3" then
+					local a = math.random() * math.pi * 2
+					saved = Vector3.new(math.cos(a), 0, math.sin(a))
+					fighter:SetAttribute("VantageDir", saved)
+				end
+				away = saved
+			end
 			fighter:SetAttribute("ObstacleAwareness", "Positioning for High-Ground Vantage")
-			LocomotionModule.steer(fighter, humanoid, rootPart, vantageTarget, 20.0, 0.05)
+			if flatDistToTgt < 16.0 then
+				local vantageTarget = Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z) + away.Unit * vantage
+				LocomotionModule.steer(fighter, humanoid, rootPart, vantageTarget, 20.0, 0.05)
+			else
+				-- (a slow creep towards it keeps the body turned to the target)
+				LocomotionModule.steer(fighter, humanoid, rootPart, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z), 2.0, 0.05)
+			end
 			return ChaseState
 		end
 	end

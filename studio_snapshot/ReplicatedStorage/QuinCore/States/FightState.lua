@@ -299,9 +299,27 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- striking distance and never drives into (or through) its target
 	local lungeSpeed = CombatConfig.Combat_LungeMaxSpeed or 60
 	local lungeTime = math.min(effectiveDuration * 0.4, 0.35)
-	local lungeRoom = dist - (CombatConfig.Combat_LungeStopDistance or 5.5)
-	if lungeRoom > 0.25 then
-		KnockbackModule.applyLunge(fighter, rootPart.CFrame.LookVector, lungeSpeed, lungeTime, lungeRoom)
+	local stopDistance = CombatConfig.Combat_LungeStopDistance or 5.5
+	-- The step goes toward where the target will be at impact (its velocity, Combat_StrikeLead
+	-- ahead), not along the body's facing toward where it was
+	local function stepIn(timeLeft)
+		if not (fighter.Parent and targetHRP.Parent) then return end
+		local tv = targetHRP.AssemblyLinearVelocity
+		local aim = targetHRP.Position + Vector3.new(tv.X, 0, tv.Z) * timeLeft * (CombatConfig.Combat_StrikeLead or 0)
+		local offset = Vector3.new(aim.X - rootPart.Position.X, 0, aim.Z - rootPart.Position.Z)
+		local room = offset.Magnitude - stopDistance
+		if room > 0.25 then
+			KnockbackModule.applyLunge(fighter, offset.Unit, lungeSpeed, math.clamp(timeLeft, 0.08, lungeTime), room)
+		end
+	end
+	stepIn(impactDelay)
+	-- ...and again halfway through the wind-up, at a target that kept moving
+	if CombatConfig.Combat_StrikeTracking ~= false then
+		task.delay(impactDelay * 0.5, function()
+			if fighter:GetAttribute("AttackWindupUntil") == windupUntil and fighter:GetAttribute("StrikeInterrupted") ~= windupUntil then
+				stepIn(impactDelay * 0.5)
+			end
+		end)
 	end
 
 	-- Punch sound (precisely synchronized with strike apex)
@@ -376,6 +394,25 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		end
 		fighter:SetAttribute("StrikeResult", result)
 		fighter:SetAttribute("StrikeSeq", (fighter:GetAttribute("StrikeSeq") or 0) + 1)
+		-- A whiff recovers quickly: the follow-through is cut and the Quin can move and strike
+		-- again (whiffed clips used to play out in full: 0.6-1 s of swinging at air)
+		local recover = CombatConfig.Combat_WhiffRecovery
+		if result == "Whiff" and recover then
+			task.delay(recover * 0.5, function()
+				if fighter.Parent and fighter:GetAttribute("AttackWindupUntil") == windupUntil then
+					AnimationModule.stopCategory(humanoid, "Attacks", recover)
+				end
+			end)
+			task.delay(recover, function()
+				-- (the strike is over: defenders and the HUD stop reading it as an attack)
+				if fighter.Parent and fighter:GetAttribute("AttackWindupUntil") == windupUntil then
+					fighter:SetAttribute("Attacking", false)
+				end
+			end)
+			local until_ = tick() + recover
+			data.actionEndTime = math.min(data.actionEndTime or until_, until_)
+			data.attackFinishTime = math.min(data.attackFinishTime or until_, until_)
+		end
 	end)
 
 	return effectiveDuration, cancelDelay
@@ -735,6 +772,19 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- facing each other (21% of close fighting, up to 11 s at a time).
 		data.closingGap = true
 		return FightState
+	end
+	-- ...and only once the body faces the target (the facing gyro turns it meanwhile)
+	if action == "light" or action == "heavy" then
+		local toTarget = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z)
+		local look = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+		local facing = (toTarget.Magnitude > 0.01 and look.Magnitude > 0.01) and look.Unit:Dot(toTarget.Unit) or 1
+		if facing < (CombatConfig.Combat_StrikeFacingDot or 0.8) then
+			data.faceWaitSince = data.faceWaitSince or now
+			if now - data.faceWaitSince < (CombatConfig.Combat_StrikeFacingWait or 0.5) then
+				return FightState
+			end
+		end
+		data.faceWaitSince = nil
 	end
 	data.lastAttackTime = now
 	

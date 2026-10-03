@@ -310,7 +310,19 @@ ArenaConfig.ArenaGeneration = {
     GrassColors = { Color3.fromRGB(62, 104, 50), Color3.fromRGB(44, 82, 40) }, -- darker than ArenaGround so pieces read
     SolidMaterial = Enum.Material.SmoothPlastic,
     EditLayoutNames = { "OB", "highplatform" },
-    EditLayoutModels = { "Tree" }, -- edit-mode models on the arena floor, put aside the same way
+    EditLayoutModels = { "Tree" },
+    -- Sounds (by name, in ArenaSoundFX or ArenaSoundFX/GenerationFX), played from the arena centre
+    -- (where the generation happens), not the ArenaGlobe speaker
+    Sounds = {
+        Sweep = "ARENA_GENERATION1",  -- the generation run (10 s), from the scan
+        Finish = "ARENA_GENERATION2", -- arena complete, when the last block is solid
+        SeedTick = "SeedTick",        -- optional, per candidate switch
+        SeedLock = "SeedLock",        -- optional, when the good seed locks
+        Height = 25,                  -- studs above the floor
+        RollOffMin = 200,
+        RollOffMax = 1600,
+        Volume = 1.0,
+    }, -- edit-mode models on the arena floor, put aside the same way
     -- Seed-sweep FX: per-switch pop (transparency spread, tears, white flashes), flicker between
     -- switches, TV static inside every hologram block, scanlines across the volume
     HoloTransparencyRange = { 0.12, 0.85 },

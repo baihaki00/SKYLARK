@@ -414,6 +414,14 @@ CombatConfig.Combat_GroundKnockbackMinStuds = 10       -- ground knockback skid 
 CombatConfig.Combat_GroundKnockbackMaxStuds = 18
 CombatConfig.Combat_GroundKnockbackTime = 0.6          -- seconds the skid takes
 CombatConfig.Combat_StrikeRange = 9.0              -- a strike is only thrown at a target within this (the step-in covers the rest)
+-- Whiff audit (2026-10-03, 16v16): 45% of whiffs were thrown facing over 60 degrees off the
+-- target (6% of hits), and a strafing target was 8-14 studs off by the impact frame because the
+-- step-in went along the body's facing toward where the target had been
+CombatConfig.Combat_StrikeFacingDot = 0.8          -- a strike waits until the body faces the target this well (cos of the angle)...
+CombatConfig.Combat_StrikeFacingWait = 0.5         -- ...for at most this long (seconds), then goes anyway
+CombatConfig.Combat_StrikeLead = 0.6               -- the step-in aims at the target's position this share of its velocity ahead
+CombatConfig.Combat_StrikeTracking = true          -- re-aim the step-in halfway through the wind-up
+CombatConfig.Combat_WhiffRecovery = 0.2            -- seconds: a whiffed swing's follow-through is cut to this, then the Quin moves again
 CombatConfig.Combat_TradeWindow = 0.08               -- a strike this close to landing still comes out when its thrower is hit (a trade)
 CombatConfig.Combat_LungeMaxSpeed = 60             -- studs/s ceiling of the step-in; its real speed is whatever closes the gap
 CombatConfig.Combat_LungeStopDistance = 4.8            -- an attack lunge stops this far from the target (outside Melee_SweetSpotMin; a jab reaches 6.5)
