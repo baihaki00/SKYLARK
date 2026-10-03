@@ -711,7 +711,31 @@ CombatConfig.Social = {
 	-- Arena event levels, lowest to highest (SocialSystem.raiseEvent never goes down)
 	EventLevels = { "Normal", "Interesting", "Notable", "LeaderShowdown", "RespectCustom",
 		"UnexpectedLeaderDefeat", "HonorableComeback", "BigClutch", "Historic" },
-	Parts = { "SocialLeaders", "SocialShowdown" }, -- modules that register with the social tick
+	Parts = { "SocialLeaders", "SocialShowdown", "SocialRespect" }, -- modules that register with the social tick
+	-- Respect custom, Honorable Comeback, Big Clutch (Modules/SocialRespect)
+	Respect = {
+		Enabled = true,
+		MinRatio = 3,                 -- opponents facing a lone survivor
+		ContributionThreshold = 3.0,  -- kills + damage / DamagePerPoint + minutes * PerMinute
+		PerKill = 1.0, DamagePerPoint = 250, PerMinute = 0.5,
+		ThresholdJitter = { 0.8, 1.6 }, -- per-match multiplier on the threshold (keeps it rare)
+		PerceiveRange = 70,
+		RecRate = 0.1,               -- recognition per second (at the threshold contribution)
+		ContagionRate = 0.03, ContagionCap = 3,         -- ... plus this per hesitating ally within 30 studs
+		HitSetback = 1.5,             -- recognition lost when the survivor hits it
+		Stages = { Hesitate = 1, Observe = 2, Space = 3 },
+		AcceptShare = 0.5, AcceptMin = 2, -- share of opponents making space before the custom is agreed
+		-- spectator spots: studs beyond the ceremony edge (CeremonyRadius + CeremonyStepWidth)
+		RingGap = { 10, 40 }, CloseShare = 0.15, CloseGap = { 3, 8 }, FarShare = 0.1, FarGap = { 50, 70 },
+		Delay = { 0.5, 4 },           -- seconds before each spectator sets off
+		Paces = { walk = 0.7, jog = 0.2, run = 0.1 },
+		PlatformDelay = 3,
+		CeremonyRadius = 80, CeremonyStepWidth = 12, CeremonyRise = 3, CeremonyRiseTime = 2.5,
+		CeremonyTierHeight = 0.4, DuelEdgeMargin = 12,     -- each step of the dais stays under a Quin's collision-body clearance (0.5)
+		DuelStartDistance = 30, DuelStartTimeout = 30,
+		ComebackReactions = { attack = 0.15, hesitate = 0.2, backAway = 0.15, oneAtATime = 0.25, coordinated = 0.1, avenge = 0.1, finish = 0.05 },
+		BigClutchKills = 2, StillnessTime = 2.5,
+	},
 	-- Leader showdowns (Modules/SocialShowdown): opposing leaders who see each other decide what it means
 	Showdown = {
 		Enabled = true,

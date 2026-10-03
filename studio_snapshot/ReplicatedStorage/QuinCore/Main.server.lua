@@ -611,7 +611,7 @@ task.spawn(function()
 
 		-- === Tactical Perception & Emergent Decision Layer ===
 		local showdownRole = Quin:GetAttribute("RespectRole")
-		local isShowdownPerimeter = SocialSystem.isSpectator(Quin) -- (respect-custom spectators don't plan fights)
+		local isShowdownPerimeter = SocialSystem.standsDown(Quin) -- (stepped back for the respect custom: plans no fights)
 		local isBeamStruggling = (currentState.name == "BeamStruggle")
 
 		if not isShowdownPerimeter and not isBeamStruggling and rootPart and humanoid.Health > 0 then

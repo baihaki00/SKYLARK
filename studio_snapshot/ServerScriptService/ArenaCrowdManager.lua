@@ -41,6 +41,7 @@ local activeShots = {}    -- one-shots playing or about to: { sound, major, canc
 local lastMinorAt = 0
 local directorThread = nil
 local isDucked = false
+local isHushed = false -- the respect custom: the stadium goes quiet
 local levelsPrintToken = 0
 local watched = {}         -- fighter Model -> { connections }
 
@@ -682,10 +683,18 @@ function Crowd.onWinner(team)
 end
 
 -- ARIA ducking: the crowd dips with the music
+local function groupLevel()
+	return CFG.Volume * (isDucked and CFG.DuckMultiplier or 1) * (isHushed and (CFG.HushLevel or 0.45) or 1)
+end
+
 function Crowd.duck(on, t)
 	isDucked = on == true
-	local g = ensureGroup()
-	fadeTo(g, CFG.Volume * (isDucked and CFG.DuckMultiplier or 1), t or 0.4)
+	fadeTo(ensureGroup(), groupLevel(), t or 0.4)
+end
+
+function Crowd.hush(on, t)
+	isHushed = on == true
+	fadeTo(ensureGroup(), groupLevel(), t or 3)
 end
 
 -- Live mix from the Arena System panel (CROWD MIX sliders). Loops follow on the next director
@@ -717,8 +726,7 @@ function Crowd.setLevels(levels)
 		end
 	end
 	if not changed then return end
-	local g = ensureGroup()
-	fadeTo(g, CFG.Volume * (isDucked and CFG.DuckMultiplier or 1), 0.2)
+	fadeTo(ensureGroup(), groupLevel(), 0.2)
 	levelsPrintToken += 1
 	local token = levelsPrintToken
 	task.delay(1.5, function()
@@ -773,6 +781,28 @@ if not elimEvent then
 	elimEvent.Parent = ReplicatedStorage
 end
 elimEvent.Event:Connect(onEliminated)
+
+-- Arena events from the Quins' social layer (SocialSystem): the stands react to what emerges
+local socialEvent = ReplicatedStorage:FindFirstChild("ArenaSocialEvent")
+if not socialEvent then
+	socialEvent = Instance.new("BindableEvent")
+	socialEvent.Name = "ArenaSocialEvent"
+	socialEvent.Parent = ReplicatedStorage
+end
+socialEvent.Event:Connect(function(level)
+	local R = CFG.SocialReactions or {}
+	if level == "RespectCustom" then
+		Crowd.hush(true, 3)
+	elseif level == "RespectCustomEnd" then
+		Crowd.hush(false, 2)
+	elseif level == "UnexpectedLeaderDefeat" then
+		Crowd.hush(false, 0.5)
+	end
+	local category = R[level]
+	if category and enabled then
+		react(nil, category, 1, true)
+	end
+end)
 
 -- Studio test hook: Workspace attribute CrowdDevCommand = "winner <Team|Draw>" | "react <Team|all> <Category>"
 if game:GetService("RunService"):IsStudio() then

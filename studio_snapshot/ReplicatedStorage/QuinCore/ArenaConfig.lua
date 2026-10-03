@@ -240,6 +240,15 @@ ArenaConfig.CrowdFX = {
     },
     Chant = { Bed = "ChantBed", Phrase = "ShortChantPhrase" },
     Winner = { For = "MassiveCelebration", Against = "MassiveDisappointment", Draw = "MassiveShock" },
+    -- The Quins' social events (SocialSystem): a whole-stadium one-shot per event
+    SocialReactions = {
+        LeaderShowdown = "MediumRoar",
+        UnexpectedLeaderDefeat = "MassiveShock",
+        HonorableComeback = "HugeRoar",
+        BigClutch = "MassiveCelebration",
+        Historic = "HugeCheer",
+    },
+    HushLevel = 0.45,         -- crowd level during a respect custom (the stadium goes quiet)
 }
 
 -- Procedural arena layout (ServerScriptService.ArenaGenerator), built during ARENA_GENERATION.

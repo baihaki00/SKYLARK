@@ -78,7 +78,7 @@ end
 function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Respect-custom spectators must never enter idle or seek targets
 	local showdownRole = fighter:GetAttribute("RespectRole")
-	if showdownRole == "Spectator" or showdownRole == "Watching" then
+	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).standsDown(fighter) then
 		-- Walks where it decided to watch from, then stands and watches
 		local SocialSystem = require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem)
 		if not SocialSystem.followMoveIntent(fighter, humanoid, rootPart, 0.1) then

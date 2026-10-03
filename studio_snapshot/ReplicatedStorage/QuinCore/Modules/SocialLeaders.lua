@@ -506,5 +506,6 @@ end
 SocialSystem.addTicker("Leaders", tick, reset)
 SocialSystem.leaderTargetScore = SocialLeaders.targetScore
 SocialSystem.trustOf = SocialLeaders.trustOf
+SocialSystem.standingOf = SocialLeaders.standing
 
 return SocialLeaders

@@ -24,7 +24,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 
 	-- RESPECT CUSTOM (Respect & Anti-Bullying)
 	local showdownRole = quinModel:GetAttribute("RespectRole")
-	if showdownRole == "Spectator" or showdownRole == "Watching" then
+	if SocialSystem.standsDown(quinModel) then
 		quinModel:SetAttribute("CurrentTarget", "")
 		quinModel:SetAttribute("TargetReason", "Perimeter Spectator (Respect & Tradition)")
 		return nil, 0, "Perimeter Spectator (Respect & Tradition)"

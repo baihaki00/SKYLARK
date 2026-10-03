@@ -186,7 +186,7 @@ end
 function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Respect-custom spectators must never chase
 	local showdownRole = fighter:GetAttribute("RespectRole")
-	if showdownRole == "Spectator" or showdownRole == "Watching" then
+	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).standsDown(fighter) then
 		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
 	end
 	-- A place it decided to walk to (a leader's regroup, a respect custom): it goes there first

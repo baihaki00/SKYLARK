@@ -151,7 +151,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	local showdownRole = fighter:GetAttribute("RespectRole")
 	if showdownRole == "Duelist" then
 		return require(script.Parent:WaitForChild("FightState"))
-	elseif showdownRole == "Spectator" or showdownRole == "Watching" then
+	elseif require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).standsDown(fighter) then
 		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
 	end
 

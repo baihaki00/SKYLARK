@@ -161,6 +161,15 @@ function SocialSystem.isSpectator(quin)
 	return role == "Spectator" or role == "Watching"
 end
 
+-- Stepped back from the fight for the respect custom: hesitating, watching, spectating, or the
+-- honoured survivor waiting for its fight. Such a Quin picks no target and its states hand it to
+-- Idle, which walks it where it decided to go (target selection otherwise falls back to the
+-- nearest enemy, and in an N-v-1 that is the survivor).
+local STANDS_DOWN = { Hesitating = true, Watching = true, Spectator = true, Honored = true }
+function SocialSystem.standsDown(quin)
+	return quin ~= nil and STANDS_DOWN[quin:GetAttribute("RespectRole") or ""] == true
+end
+
 -- Keeps a duelist on the ceremony space (no-op until a ceremony exists)
 function SocialSystem.constrainToCeremony(rootPart)
 	local hook = SocialSystem.ceremonyConstraint
@@ -188,6 +197,15 @@ end
 
 -- Raise the arena event (never lowers it; reset() returns to Normal). data: free-form table
 function SocialSystem.raiseEvent(levelName, data)
+	local isLevel = false
+	for _, n in ipairs(CFG.EventLevels or {}) do
+		if n == levelName then isLevel = true break end
+	end
+	if not isLevel then
+		-- a plain signal (e.g. RespectCustomEnd): no level change
+		eventSignal:Fire(levelName, data or {})
+		return true
+	end
 	local current = Workspace:GetAttribute("ArenaEventLevel") or "Normal"
 	if levelIndex(levelName) < levelIndex(current) then return false end
 	Workspace:SetAttribute("ArenaEventLevel", levelName)

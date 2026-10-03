@@ -446,7 +446,7 @@ end
 function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Respect-custom spectators must never fight
 	local showdownRole = fighter:GetAttribute("RespectRole")
-	if showdownRole == "Spectator" or showdownRole == "Watching" then
+	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).standsDown(fighter) then
 		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
 	end
 
