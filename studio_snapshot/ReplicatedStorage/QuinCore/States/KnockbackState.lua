@@ -174,8 +174,8 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 			end
 			
 			AudioModule.playSlam(rootPart.Position)
-			VfxModule.createDust(rootPart, 10)
-			VfxModule.createLandingDust(rootPart, math.clamp(flatVel.Magnitude / 80, 0.4, 1))
+			-- body slammed into the ground: crack, dust and earth clods (no debris parts)
+			VfxModule.createLandingImpact(rootPart, math.clamp(flatVel.Magnitude / 80, 0.4, 1), fighter:GetAttribute("Element"))
 			if groundSlideSpeed > 10 then
 				VfxModule.createGroundMark(rootPart, slideDir, math.clamp(flatVel.Magnitude * 0.15, 2, 8), 1.6, 4)
 			end

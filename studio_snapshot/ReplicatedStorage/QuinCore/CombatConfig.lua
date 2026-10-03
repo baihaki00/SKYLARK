@@ -522,6 +522,14 @@ CombatConfig.SecondaryMotion_MaxNeckDegrees = 7      -- neck and head
 CombatConfig.Vfx_LandingDust = true                    -- smoke burst where a body lands (jumps, knockdowns, projectile-jump impacts)
 CombatConfig.Vfx_SlideSmoke = true                     -- smoke trailing a slide
 CombatConfig.Vfx_GroundMarks = true                    -- fading scuffs on the turf: slide streaks, skid marks, sprint footprints (max 60 at once)
+-- Ground decals (pass 24, VfxModule): drawn shapes on the floor; set an image asset id to replace a drawing
+CombatConfig.Vfx_FootprintImage = ""          -- boot print, toe pointing up in the image (right foot; "" = drawn sole)
+CombatConfig.Vfx_FootprintImageLeft = ""      -- optional left-foot image ("" = the right image is used for both)
+CombatConfig.Vfx_FootprintLength = 1.2        -- studs heel to toe (the rig's foot: ankle to ball 0.69)
+CombatConfig.Vfx_FootprintWidth = 0.48
+CombatConfig.Vfx_FootprintCentreOffset = 0.42 -- studs from the ankle toward the toes where the print is centred
+CombatConfig.Vfx_LandingImpact = true         -- crack + scorch decal, ground dust and earth clods where a body slams down
+CombatConfig.Vfx_LandingCrackImage = ""       -- crack image ("" = drawn crack)
 
 -- === Projectile jump landing ===
 -- The horizontal part of the arrival speed carries the body along the ground: a steep dive
@@ -577,10 +585,20 @@ CombatConfig.Locomotion_FacingLeadTime = 0.11     -- seconds of the motion's tur
 -- Camera shake master volume (every VfxModule.shakeScreen call; each keeps its own intensity).
 -- 0.3 = 70% less than authored. Live override: Workspace attribute CameraShakeMultiplier.
 CombatConfig.CameraShake_Multiplier = 0.3
+-- Camera shake feel (pass 24, ClientVfxHandler): each shake adds "trauma" (0..1); the view moves
+-- by trauma^2 along smooth noise, capped at these angles, and trauma fades at a fixed rate per
+-- second, so it feels the same at any frame rate (it used to jitter randomly every frame and
+-- decay per frame: at 235 fps a shake lasted a few ms, at 60 fps four times longer).
+CombatConfig.CameraShake_TraumaPerDegree = 0.22 -- trauma added per degree of authored intensity (after the multiplier and the squared distance falloff: a slam beside you ~0.5, one 300 studs off ~0.08)
+CombatConfig.CameraShake_MaxPitch = 2.0        -- degrees at full trauma (a slam beside you ~0.5, a clash ~1)
+CombatConfig.CameraShake_MaxYaw = 2.0
+CombatConfig.CameraShake_MaxRoll = 1.2
+CombatConfig.CameraShake_Frequency = 18        -- noise speed (Hz-ish): how fast the shake wobbles
+CombatConfig.CameraShake_Decay = 1.6           -- trauma lost per second
 
 -- Camera motion blur (StarterPlayerScripts.CameraMotionBlur): a BlurEffect that follows how
 -- fast the view turns / travels. Live: Workspace attributes MotionBlur (false = off), MotionBlurScale.
-CombatConfig.MotionBlur_Enabled = true
+CombatConfig.MotionBlur_Enabled = false -- off (pass 24): Roblox only has a full-screen BlurEffect, so a view turn read as haze; Workspace attribute MotionBlur = true tries it again
 CombatConfig.MotionBlur_MaxSize = 8       -- BlurEffect size at full motion (0-56)
 CombatConfig.MotionBlur_TurnStart = 90    -- deg/s of view turn where the blur begins
 CombatConfig.MotionBlur_TurnFull = 540    -- deg/s for full blur

@@ -1059,39 +1059,156 @@ function VfxModule.stopSlideSmoke(emitter)
 	end
 end
 
--- A scuff left on the turf: a short dark strip along `direction` that fades out.
--- source: floor position or the Quin's root part
-function VfxModule.createGroundMark(source, direction, length, width, lifetime)
-	if CombatConfig.Vfx_GroundMarks == false or markCount >= MARK_LIMIT then return end
-	local flat = Vector3.new(direction.X, 0, direction.Z)
-	if flat.Magnitude < 0.01 then return end
-	lifetime = lifetime or 3.5
-	local position = floorPoint(source) + Vector3.new(0, 0.04, 0)
+-- ============================================================
+-- GROUND DECALS (footprints, slide streaks, landing cracks)
+-- Drawn on the floor with a SurfaceGui on an invisible, non-colliding flat carrier: the marks
+-- are flat shapes, never visible geometry (they used to be grey Part rectangles). Each kind is
+-- drawn from Frames by default and can be replaced by an image: CombatConfig.Vfx_FootprintImage
+-- (+ Vfx_FootprintImageLeft), Vfx_LandingCrackImage. The image is laid toe-up for footprints.
+-- ============================================================
+local GROUND_PPS = 64 -- SurfaceGui pixels per stud
+local DECAL_COLOR = MARK_COLOR
+local DECAL_DARK = Color3.fromRGB(24, 34, 27)
+local TREAD_COLOR = Color3.fromRGB(78, 104, 82)
 
-	local mark = Instance.new("Part")
-	mark.Name = "GroundMark"
-	mark.Size = Vector3.new(width or 0.8, 0.05, length or 1.2)
-	mark.CFrame = CFrame.lookAt(position, position + flat.Unit)
-	mark.Anchored = true
-	mark.CanCollide = false
-	mark.CanQuery = false
-	mark.CanTouch = false
-	mark.CastShadow = false
-	mark.Material = Enum.Material.SmoothPlastic
-	mark.Color = MARK_COLOR
-	mark.Transparency = 0.5
-	mark.Parent = workspace
+local decalRay = RaycastParams.new()
+decalRay.FilterType = Enum.RaycastFilterType.Exclude
+decalRay.RespectCanCollide = true
 
-	markCount += 1
-	TweenService:Create(mark, TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 1 }):Play()
-	task.delay(lifetime, function()
-		markCount -= 1
-		mark:Destroy()
-	end)
+-- The floor height under a point (ignores Quins and other decals); nil without a floor
+local function floorUnder(point)
+	decalRay.FilterDescendantsInstances = { workspace:FindFirstChild("QuinServer"), workspace:FindFirstChild("GroundDecals") }
+	local hit = workspace:Raycast(point + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), decalRay)
+	return hit and hit.Position or nil
 end
 
--- A sprinting step: one footprint, left and right alternating
-function VfxModule.createFootprint(fighter)
+-- A flat carrier lying on the floor at `position`, its length (Z) along `forward`; returns the
+-- canvas to draw on (fades out over `lifetime`), or nil when the mark limit is reached
+local function groundDecal(position, forward, sizeX, sizeZ, lifetime)
+	if CombatConfig.Vfx_GroundMarks == false or markCount >= MARK_LIMIT then return nil end
+	local flat = Vector3.new(forward.X, 0, forward.Z)
+	if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+	local folder = workspace:FindFirstChild("GroundDecals")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "GroundDecals"
+		folder.Parent = workspace
+	end
+	local carrier = Instance.new("Part")
+	carrier.Name = "GroundDecal"
+	-- (a SurfaceGui on the Top face runs its width along the part's Z and its height along X: the
+	-- carrier's X axis lies along the mark, the drawing's top edge toward `forward`)
+	carrier.Size = Vector3.new(sizeZ, 0.05, sizeX)
+	carrier.CFrame = CFrame.fromMatrix(position + Vector3.new(0, 0.03, 0), -flat.Unit, Vector3.yAxis)
+	carrier.Transparency = 1
+	carrier.Anchored = true
+	carrier.CanCollide = false
+	carrier.CanQuery = false
+	carrier.CanTouch = false
+	carrier.CastShadow = false
+	carrier.Massless = true
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Top
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = GROUND_PPS
+	gui.LightInfluence = 1
+	gui.Parent = carrier
+	local canvas = Instance.new("CanvasGroup")
+	canvas.Name = "Canvas"
+	canvas.Size = UDim2.fromScale(1, 1)
+	canvas.BackgroundTransparency = 1
+	canvas.Parent = gui
+	carrier.Parent = folder
+
+	markCount += 1
+	lifetime = lifetime or 3.5
+	TweenService:Create(canvas, TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { GroupTransparency = 1 }):Play()
+	task.delay(lifetime, function()
+		markCount -= 1
+		carrier:Destroy()
+	end)
+	return canvas
+end
+
+-- A filled shape on a decal canvas: centre (x, y) and size (w, h) as fractions of the canvas;
+-- corner 0.5 = fully rounded ends
+local function blob(parent, x, y, w, h, color, transparency, corner, rotation)
+	local frame = Instance.new("Frame")
+	frame.AnchorPoint = Vector2.new(0.5, 0.5)
+	frame.Position = UDim2.fromScale(x, y)
+	frame.Size = UDim2.fromScale(w, h)
+	frame.BackgroundColor3 = color
+	frame.BackgroundTransparency = transparency or 0
+	frame.BorderSizePixel = 0
+	frame.Rotation = rotation or 0
+	if (corner or 0) > 0 then
+		local round = Instance.new("UICorner")
+		round.CornerRadius = UDim.new(corner, 0)
+		round.Parent = frame
+	end
+	frame.Parent = parent
+	return frame
+end
+
+local function decalImage(parent, image, transparency, rotation)
+	local label = Instance.new("ImageLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Image = image
+	label.ImageTransparency = transparency or 0.15
+	label.Rotation = rotation or 0
+	label.Parent = parent
+	return label
+end
+
+-- A scuff left on the turf: a soft streak along `direction` that fades out (slides, skids).
+-- source: floor position or the Quin's root part
+function VfxModule.createGroundMark(source, direction, length, width, lifetime)
+	local canvas = groundDecal(floorPoint(source), direction, width or 0.8, length or 1.2, lifetime or 3.5)
+	if not canvas then return end
+	local streak = blob(canvas, 0.5, 0.5, 1, 1, DECAL_COLOR, 0.35, 0.5)
+	local fade = Instance.new("UIGradient") -- soft at both ends
+	fade.Rotation = 90
+	fade.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.2, 0.2),
+		NumberSequenceKeypoint.new(0.8, 0.2),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	fade.Parent = streak
+end
+
+-- Foot bones per Quin (ankle and ball of the foot), cached
+local footCache = setmetatable({}, { __mode = "k" })
+local function footBones(fighter)
+	local cached = footCache[fighter]
+	if cached then return cached end
+	cached = {
+		Left = { ankle = fighter:FindFirstChild("mixamorig:LeftFoot", true), toe = fighter:FindFirstChild("mixamorig:LeftToeBase", true) },
+		Right = { ankle = fighter:FindFirstChild("mixamorig:RightFoot", true), toe = fighter:FindFirstChild("mixamorig:RightToeBase", true) },
+	}
+	footCache[fighter] = cached
+	return cached
+end
+
+-- A boot sole drawn toe-up on a footprint canvas; `inner` = +1 when the big-toe side is to the
+-- right of the canvas (left foot), -1 for the right foot
+local function drawSole(canvas, inner)
+	local fill, groove = 0.3, 0.45
+	blob(canvas, 0.5 + inner * 0.03, 0.30, 0.94, 0.56, DECAL_COLOR, fill, 0.5) -- forefoot
+	blob(canvas, 0.5 - inner * 0.14, 0.62, 0.46, 0.26, DECAL_COLOR, fill, 0.35) -- outer arch
+	blob(canvas, 0.5 + inner * 0.01, 0.84, 0.76, 0.30, DECAL_COLOR, fill, 0.5) -- heel
+	for _, y in ipairs({ 0.13, 0.22, 0.31, 0.40, 0.49 }) do -- tread
+		blob(canvas, 0.5 + inner * 0.03, y, 0.72, 0.035, TREAD_COLOR, groove, 0.5)
+	end
+	for _, y in ipairs({ 0.80, 0.89 }) do
+		blob(canvas, 0.5, y, 0.56, 0.035, TREAD_COLOR, groove, 0.5)
+	end
+end
+
+-- A sprinting step: a boot print under the foot that just stepped, along that foot.
+-- side: "Left" / "Right" (the Footstep marker's parameter) or nil = the lower foot
+function VfxModule.createFootprint(fighter, side)
 	if CombatConfig.Vfx_GroundMarks == false then return end
 	local rootPart = fighter and fighter:FindFirstChild("HumanoidRootPart")
 	if not rootPart then return end
@@ -1099,10 +1216,115 @@ function VfxModule.createFootprint(fighter)
 	local flat = Vector3.new(velocity.X, 0, velocity.Z)
 	local now = os.clock()
 	if flat.Magnitude < FOOTPRINT_MIN_SPEED or now - (lastFootprint[fighter] or 0) < FOOTPRINT_INTERVAL then return end
+
+	local bones = footBones(fighter)
+	if side ~= "Left" and side ~= "Right" then
+		local l, r = bones.Left.ankle, bones.Right.ankle
+		if l and r then
+			side = l.TransformedWorldCFrame.Position.Y <= r.TransformedWorldCFrame.Position.Y and "Left" or "Right"
+		end
+	end
+	local foot = side and bones[side]
+	if not (foot and foot.ankle and foot.toe) then return end
 	lastFootprint[fighter] = now
-	footprintSide[fighter] = -(footprintSide[fighter] or 1)
-	local side = flat.Unit:Cross(Vector3.yAxis) * (0.6 * footprintSide[fighter])
-	VfxModule.createGroundMark(floorPoint(rootPart) + side, flat, 1.0, 0.45, 2.5)
+
+	local ankle = foot.ankle.TransformedWorldCFrame.Position
+	local toe = foot.toe.TransformedWorldCFrame.Position
+	local along = Vector3.new(toe.X - ankle.X, 0, toe.Z - ankle.Z)
+	if along.Magnitude < 0.05 then along = flat end
+	along = along.Unit
+	-- the sole runs from just behind the ankle (heel) to past the ball of the foot (toes)
+	local centre = Vector3.new(ankle.X, 0, ankle.Z) + along * (CombatConfig.Vfx_FootprintCentreOffset or 0.42)
+	local floor = floorUnder(Vector3.new(centre.X, ankle.Y, centre.Z))
+	if not floor then return end
+	local length = CombatConfig.Vfx_FootprintLength or 1.2
+	local width = CombatConfig.Vfx_FootprintWidth or 0.48
+	local canvas = groundDecal(Vector3.new(centre.X, floor.Y, centre.Z), along, width, length, 2.5)
+	if not canvas then return end
+	local image = CombatConfig.Vfx_FootprintImage
+	if side == "Left" and (CombatConfig.Vfx_FootprintImageLeft or "") ~= "" then
+		image = CombatConfig.Vfx_FootprintImageLeft
+	end
+	canvas.Parent.Parent:SetAttribute("Foot", side) -- (which foot made it: debug and tests)
+	if (image or "") ~= "" then
+		decalImage(canvas, image, 0.2)
+	else
+		drawSole(canvas, side == "Left" and 1 or -1)
+	end
+end
+
+-- Landing impact on the ground: a crack and scorch decal where the body came down, dust spreading
+-- along the floor and clods of earth thrown up (particles; no debris parts, no shockwave ring).
+-- source: floor position or the Quin's root part; strength 0..1 (a hop .. a slam)
+function VfxModule.createLandingImpact(source, strength, element)
+	if CombatConfig.Vfx_LandingImpact == false then
+		VfxModule.createLandingDust(source, strength)
+		return
+	end
+	strength = math.clamp(strength or 0.6, 0.2, 1)
+	local base = floorPoint(source)
+	local floor = floorUnder(base) or base
+	VfxModule.createLandingDust(floor, strength)
+
+	-- crack (only a real impact cracks the ground)
+	if strength >= 0.45 then
+		local size = 3 + strength * 5
+		local canvas = groundDecal(floor, Vector3.new(math.random() - 0.5, 0, math.random() - 0.5), size, size, 4 + strength * 3)
+		if canvas then
+			if (CombatConfig.Vfx_LandingCrackImage or "") ~= "" then
+				decalImage(canvas, CombatConfig.Vfx_LandingCrackImage, 0.1, math.random(0, 359))
+			else
+				blob(canvas, 0.5, 0.5, 0.6, 0.6, DECAL_DARK, 0.8, 0.5) -- faint scorch
+				blob(canvas, 0.5, 0.5, 0.3, 0.3, DECAL_DARK, 0.45, 0.5) -- crushed centre
+				-- a jagged line: short segments that wander and thin out toward the tip
+				local function crackLine(x, y, angle, length, thick, segments)
+					local step = length / segments
+					for k = 1, segments do
+						angle += (math.random() - 0.5) * 0.7
+						local nx, ny = x + math.cos(angle) * step, y + math.sin(angle) * step
+						local w = thick * (1 - (k - 1) / (segments + 1))
+						-- (a touch longer than the step so the joints close)
+						blob(canvas, (x + nx) / 2, (y + ny) / 2, step * 1.15, w, DECAL_DARK, 0.15 + k * 0.05, 0.5, math.deg(angle))
+						x, y = nx, ny
+					end
+					return x, y, angle
+				end
+				local count = 7 + math.floor(strength * 5)
+				for i = 1, count do
+					local angle = (i / count) * math.pi * 2 + (math.random() - 0.5) * 0.5
+					local len = 0.22 + math.random() * 0.24
+					local thick = 0.014 + math.random() * 0.012
+					crackLine(0.5 + math.cos(angle) * 0.08, 0.5 + math.sin(angle) * 0.08, angle, len, thick, 3)
+					-- a branch from part of the way out
+					if math.random() < 0.7 then
+						local at = 0.08 + len * (0.4 + math.random() * 0.3)
+						local bAngle = angle + (math.random() < 0.5 and -1 or 1) * (0.4 + math.random() * 0.4)
+						crackLine(0.5 + math.cos(angle) * at, 0.5 + math.sin(angle) * at, bAngle, len * (0.3 + math.random() * 0.25), thick * 0.65, 2)
+					end
+				end
+			end
+		end
+	end
+
+	-- clods of earth thrown up and falling back
+	local clods = Instance.new("ParticleEmitter")
+	clods.Texture = SMOKE_TEXTURE
+	clods.Color = ColorSequence.new(Color3.fromRGB(58, 48, 38), Color3.fromRGB(40, 52, 40))
+	clods.LightEmission = 0
+	clods.LightInfluence = 1
+	clods.Size = NumberSequence.new(0.18 + strength * 0.12, 0.08)
+	clods.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(0.8, 0.2), NumberSequenceKeypoint.new(1, 1) })
+	clods.Lifetime = NumberRange.new(0.45, 0.8)
+	clods.Speed = NumberRange.new(10 + strength * 8, 18 + strength * 16)
+	clods.SpreadAngle = Vector2.new(55, 55)
+	clods.EmissionDirection = Enum.NormalId.Top
+	clods.Acceleration = Vector3.new(0, -workspace.Gravity * 0.5, 0)
+	clods.Drag = 1.5
+	clods.Rotation = NumberRange.new(0, 360)
+	clods.RotSpeed = NumberRange.new(-300, 300)
+	clods.Rate = 0
+	clods.Parent = emitterAnchor(floor + Vector3.new(0, 0.3, 0), 1.2)
+	clods:Emit(math.round(8 + strength * 18))
 end
 
 return VfxModule

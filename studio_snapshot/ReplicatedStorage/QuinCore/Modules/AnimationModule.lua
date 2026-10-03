@@ -239,7 +239,7 @@ local function wireTrackAudio(humanoid, track, animId)
 	local fighter = humanoid.Parent
 
 	-- Footstep marker (Run, Walk, Strafe, ArcRun, etc.)
-	track:GetMarkerReachedSignal("Footstep"):Connect(function()
+	track:GetMarkerReachedSignal("Footstep"):Connect(function(side)
 		-- Only a clip that is carrying the legs speaks. The gait keeps its other clips (jog,
 		-- run, strafes) running in step at near-zero weight for blending, and their markers
 		-- fire too: every step sounded twice, about 0.16 s apart.
@@ -253,7 +253,7 @@ local function wireTrackAudio(humanoid, track, animId)
 		end
 		local vfx = getVfxModule()
 		if vfx and fighter and fighter.Parent then
-			vfx.createFootprint(fighter)
+			vfx.createFootprint(fighter, side) -- marker parameter "Left" / "Right" when the clip has it
 		end
 	end)
 

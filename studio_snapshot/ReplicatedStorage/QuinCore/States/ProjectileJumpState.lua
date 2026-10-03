@@ -1260,11 +1260,13 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		-- 4. Clean foot-strike audio and subtle ground dust (no generic explosions)
 		AudioModule.playFallOnGround(rootPart.Position)
 		AudioModule.playSlam(rootPart.Position)
-		VfxModule.createDust(rootPart, 8)
-		VfxModule.createLandingDust(rootPart, 1)
+		-- Ground impact: crack, dust and earth clods (no debris parts or neon ring); a hop onto a
+		-- spot only kicks up a little dust
 		local elem = fighter:GetAttribute("Element") or "Fire"
+		local arrivalSpeed = data.arrivalVelocity and data.arrivalVelocity.Magnitude or 200
+		local impactStrength = data.precise and 0.3 or math.clamp(arrivalSpeed / 250, 0.55, 1)
+		VfxModule.createLandingImpact(jumperPos, impactStrength, elem)
 		if not data.precise then
-			VfxModule.createShockwave(jumperPos, 22, 0.40, elem)
 			VfxModule.shakeScreen(rootPart.Position, 400, 8)
 		end
 
