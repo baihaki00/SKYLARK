@@ -53,6 +53,17 @@ local lateralSwayStiffness = 140.0 -- Centripetal sway spring stiffness
 local lateralSwayDamping = 18.0    -- Centripetal sway spring damping
 local maxLateralSwayStuds = 0.0   -- Max lateral displacement from centripetal G-force
 
+-- === BODY BOUNCE IN THE ORBIT CAMERA (pass 25) ===
+-- First person rides the head bone, so it bounces with every step; the orbit camera tracked the
+-- root part and was perfectly level. It now follows the hips bone's own up-and-down (the stride
+-- of the walk / run clip), measured against a slowly-adapting rest height so posture changes
+-- (crouch, landing) don't shift the camera for long.
+local bodyBobScale = 0.85          -- share of the hips' vertical motion the orbit camera follows
+local bodyBobMax = 1.6             -- studs either way
+local bodyBobRest = nil
+local bodyBobSmoothed = 0
+local bodyBobModel = nil
+
 local fovSpeedMin = 15.0          -- Speed threshold where dynamic FOV starts expanding
 local fovSpeedMax = 55.0          -- Speed threshold where max FOV is reached
 local fovExpansionMax = 6.5       -- Max FOV expansion in degrees (e.g. 70 -> 76.5)
@@ -663,7 +674,13 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		-- Eyes at the head bone, a little forward; the view turns with the mouse, not with the
 		-- head's animation (head bob and snaps would be sickening)
 		local head = quinModel:FindFirstChild("mixamorig:Head", true)
-		local rotCF = CFrame.Angles(0, math.rad(yaw), 0) * CFrame.Angles(math.rad(pitch), 0, 0)
+		-- the same smooth turning as the orbit camera (it turned 1:1 with the mouse)
+		local rotAlpha = 1 - math.exp(-orbitSmoothness * dt)
+		local diffYaw = (yaw - smoothYaw) % 360
+		if diffYaw > 180 then diffYaw = diffYaw - 360 end
+		smoothYaw = smoothYaw + diffYaw * rotAlpha
+		smoothPitch = smoothPitch + (pitch - smoothPitch) * rotAlpha
+		local rotCF = CFrame.Angles(0, math.rad(smoothYaw), 0) * CFrame.Angles(math.rad(smoothPitch), 0, 0)
 		local flatLook = Vector3.new(rotCF.LookVector.X, 0, rotCF.LookVector.Z)
 		local eye
 		if head and head:IsA("Bone") then
@@ -674,8 +691,8 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			eye = targetHRP.Position + Vector3.new(0, 2.6, 0)
 		end
 		eye += Vector3.new(0, 0.15, 0) + (flatLook.Magnitude > 0.01 and flatLook.Unit * 0.3 or Vector3.zero)
-		fpEye = fpEye and fpEye:Lerp(eye, 1 - math.exp(-25 * dt)) or eye
-		smoothYaw, smoothPitch = yaw, pitch
+		-- (the head's bounce is kept, eased a little like the orbit's position)
+		fpEye = fpEye and fpEye:Lerp(eye, 1 - math.exp(-posSmoothness * dt)) or eye
 		currentDistance = minZoom
 		if math.abs(currentCamFov - baseFOV) > 0.05 then
 			currentCamFov = currentCamFov + (baseFOV - currentCamFov) * (1 - math.exp(-8.0 * dt))
@@ -698,7 +715,24 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		smoothPitch = smoothPitch + (pitch - smoothPitch) * rotAlpha
 		currentDistance += (targetDistance - currentDistance) * zoomAlpha
 
-		local rawTargetPos = targetHRP.Position + Vector3.new(0, 2.5, 0)
+		local bobY = 0
+		if bodyBobScale > 0 and quinModel then
+			if quinModel ~= bodyBobModel then
+				bodyBobModel = quinModel
+				bodyBobRest = nil
+				bodyBobSmoothed = 0
+			end
+			local hips = getHipsBone(quinModel)
+			local hipsY = hips and (hips:IsA("Bone") and hips.TransformedWorldCFrame.Position.Y or (hips:IsA("BasePart") and hips.Position.Y))
+			if hipsY then
+				local rel = hipsY - targetHRP.Position.Y
+				bodyBobRest = bodyBobRest and (bodyBobRest + (rel - bodyBobRest) * (1 - math.exp(-0.8 * dt))) or rel
+				local want = math.clamp(rel - bodyBobRest, -bodyBobMax, bodyBobMax) * bodyBobScale
+				bodyBobSmoothed = bodyBobSmoothed + (want - bodyBobSmoothed) * (1 - math.exp(-18 * dt))
+				bobY = bodyBobSmoothed
+			end
+		end
+		local rawTargetPos = targetHRP.Position + Vector3.new(0, 2.5 + bobY, 0)
 		-- Zero Lag Character Centering (GTA V / Watch Dogs):
 		-- Camera focus point stays locked 100% dead-center on character root.
 		-- Completely eliminates the body drifting to the left/right edge of the screen during diagonal runs.

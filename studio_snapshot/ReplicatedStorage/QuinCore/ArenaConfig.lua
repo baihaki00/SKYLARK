@@ -69,7 +69,7 @@ ArenaConfig.GameModes = {
 -- Sound System & Speaker Acoustic Settings
 ArenaConfig.AudioSettings = {
     BaselineVolume = 1.0,           -- Standard baseline volume across all tracks so Bai can tweak in Edit mode
-    DuckingMultiplier = 0.20,       -- Music volume attenuates to 20% while ARIA speaks
+    DuckingMultiplier = 0.60,       -- Music volume drops to 60% while ARIA speaks (a 40% duck; 20% was too much - owner)
     DuckTweenTime = 0.35,           -- Smooth fade down time
     UnduckTweenTime = 0.65,         -- Smooth restore time
     SpeakerMinDistance = 10,
@@ -170,4 +170,13 @@ ArenaConfig.DefaultToggles = {
     ProceduralTerrain   = false, -- If false, uses existing edit-mode parts
 }
 
+ArenaConfig.AriaGapAfterGeneration = 5 -- seconds between ARIA's 'generation completed' and the preparation-room guide
+-- Spectator drones' look (ArenaDroneManager): half see-through so they don't cover the arena
+ArenaConfig.DroneVisuals = {
+    PartTransparency = 0.5,   -- drone body
+    TrailTransparency = 0.5,  -- flight trail (fades to nothing along its length)
+    LabelMode = "fade",       -- name tags: "on" (always), "fade" (shown at launch, faded after LabelFadeAfter), "off"
+    LabelFadeAfter = 3,       -- seconds
+    LabelFadeTime = 1,        -- seconds
+}
 return ArenaConfig

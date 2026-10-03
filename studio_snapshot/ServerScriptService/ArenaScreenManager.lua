@@ -1035,24 +1035,38 @@ function ArenaScreen.setHologramActive(active)
     for _, gui in ipairs(surfaceGuis) do
         local mf = gui:FindFirstChild("MainFrame")
         if mf then
+            -- Holographic glitch: the frame tears sideways and stutters while it boots or cuts out
+            local home = mf:GetAttribute("HomePosition") or mf.Position
+            mf:SetAttribute("HomePosition", home)
             if isHologramActive then
                 mf.Visible = true
                 task.spawn(function()
-                    mf.BackgroundTransparency = 0.8
-                    task.wait(0.08)
-                    mf.BackgroundTransparency = 0.2
-                    task.wait(0.06)
-                    mf.BackgroundTransparency = 0.6
-                    task.wait(0.08)
-                    TweenService:Create(mf, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    for k, transparency in ipairs({ 0.85, 0.2, 0.7, 0.1, 0.9, 0.3, 0.6, 0.15 }) do
+                        if not isHologramActive then return end
+                        mf.BackgroundTransparency = transparency
+                        mf.Position = home + UDim2.fromOffset((math.random() - 0.5) * 60, (k % 3 == 0) and (math.random() - 0.5) * 24 or 0)
+                        task.wait(0.03 + math.random() * 0.05)
+                    end
+                    if not isHologramActive then return end
+                    mf.Position = home
+                    TweenService:Create(mf, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                         BackgroundTransparency = 0.04
                     }):Play()
                 end)
             else
-                TweenService:Create(mf, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                    BackgroundTransparency = 1.0
-                }):Play()
-                task.delay(0.42, function()
+                task.spawn(function()
+                    for _, transparency in ipairs({ 0.1, 0.7, 0.2, 0.9, 0.4 }) do
+                        if isHologramActive then return end
+                        mf.BackgroundTransparency = transparency
+                        mf.Position = home + UDim2.fromOffset((math.random() - 0.5) * 70, 0)
+                        task.wait(0.03 + math.random() * 0.05)
+                    end
+                    if isHologramActive then return end
+                    mf.Position = home
+                    TweenService:Create(mf, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        BackgroundTransparency = 1.0
+                    }):Play()
+                    task.wait(0.22)
                     if not isHologramActive and mf then
                         mf.Visible = false
                     end
@@ -1068,8 +1082,59 @@ function ArenaScreen.isHologramActive()
 end
 
 -- Update phase sequence, title, subtitle & live countdown timer
+-- Arena generation progress: the bar, its percentage and the stage line follow the phase clock
+-- (they were static: the fill sat at 85%). A real generator can drive it with
+-- ArenaScreen.setGenerationProgress(fraction, stageText).
+local GENERATION_STAGES = {
+    { 0.00, "SCANNING ARENA VOLUME" },
+    { 0.18, "SEEDING TERRAIN GRID" },
+    { 0.36, "RAISING OBSTACLES & HIGH PLATFORMS" },
+    { 0.56, "MIRRORING SECTORS FOR FAIRNESS" },
+    { 0.76, "VALIDATING TRAVERSAL ROUTES" },
+    { 0.95, "SEED LOCKED • ARENA READY" },
+}
+local sequencePhase, sequenceTotal = nil, 0
+local generationOverride = nil -- { fraction, stage } from a generator
+
+function ArenaScreen.setGenerationProgress(fraction, stageText)
+    generationOverride = fraction and { fraction = math.clamp(fraction, 0, 1), stage = stageText } or nil
+end
+
+local function applyGenerationProgress(scene, fraction, stageText)
+    local bg = scene:FindFirstChild("ProgressBg")
+    local fill = bg and bg:FindFirstChild("Fill")
+    if fill then
+        TweenService:Create(fill, TweenInfo.new(0.25, Enum.EasingStyle.Linear), { Size = UDim2.new(math.max(fraction, 0.02), 0, 1, 0) }):Play()
+    end
+    if bg then
+        local pct = bg:FindFirstChild("PercentLabel")
+        if not pct then
+            pct = Instance.new("TextLabel")
+            pct.Name = "PercentLabel"
+            pct.Size = UDim2.fromScale(1, 1)
+            pct.BackgroundTransparency = 1
+            pct.Font = Enum.Font.GothamBlack
+            pct.TextScaled = true
+            pct.TextColor3 = Color3.fromRGB(240, 250, 255)
+            pct.TextStrokeTransparency = 0.6
+            pct.ZIndex = (fill and fill.ZIndex or 1) + 1
+            pct.Parent = bg
+        end
+        pct.Text = string.format("%d%%", math.floor(fraction * 100 + 0.5))
+    end
+    local sub = scene:FindFirstChild("HeroSub")
+    if sub and stageText then
+        sub.Text = stageText
+    end
+end
+
 function ArenaScreen.setSequence(phaseName, titleText, subtitleText, timeRemaining)
     findScreen()
+    if phaseName ~= sequencePhase then
+        sequencePhase = phaseName
+        sequenceTotal = timeRemaining or 0
+        if phaseName == "ARENA_GENERATION" then generationOverride = nil end
+    end
     local timerText = formatTimer(timeRemaining)
     local badgeText = string.format("[ %s ]", tostring(phaseName or "ARENA"):upper():gsub("_", " "))
     
@@ -1117,6 +1182,21 @@ function ArenaScreen.setSequence(phaseName, titleText, subtitleText, timeRemaini
                 if hTitle and titleText then hTitle.Text = titleText end
                 if hSub and subtitleText then hSub.Text = subtitleText end
                 if tLbl and timerText then tLbl.Text = timerText end
+
+                if targetScene == "Scene_ArenaGeneration" then
+                    local fraction, stage
+                    if generationOverride then
+                        fraction, stage = generationOverride.fraction, generationOverride.stage
+                    else
+                        fraction = sequenceTotal > 0 and math.clamp(1 - (timeRemaining or 0) / sequenceTotal, 0, 1) or 0
+                    end
+                    if not stage then
+                        for _, entry in ipairs(GENERATION_STAGES) do
+                            if fraction >= entry[1] then stage = entry[2] end
+                        end
+                    end
+                    applyGenerationProgress(scene, fraction, stage)
+                end
                 
                 -- Pre-Game Hero Countdown numeral
                 if targetScene == "Scene_PreGame" then

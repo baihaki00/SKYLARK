@@ -256,6 +256,20 @@ function DroneTrajectories.getLiveAerialCFrame(t, isFlying, isOutro, outroElapse
     return CFrame.lookAt(pos, lookTarget)
 end
 
+-- Combat chase state (per machine: server and client each run this). The drone used to re-pick
+-- the fastest Quin every update and sit rigidly behind it: it whipped between fighters and
+-- swung with every turn, too fast to follow. Now it holds one fighter for a while and glides.
+local CHASE_HOLD_TIME = 8       -- seconds on one fighter before switching to the most active one
+local CHASE_POS_RATE = 1.6      -- 1/s: how quickly the drone closes on its chase point
+local CHASE_LOOK_RATE = 2.6     -- 1/s: how quickly the aim follows the fighter
+local CHASE_HEADING_RATE = 1.0  -- 1/s: how quickly "behind the fighter" turns with it
+local chase = { target = nil, since = 0, pos = nil, look = nil, heading = nil, lastT = nil }
+
+local function chaseTargetAlive(q)
+    local hum = q and q.Parent and q:FindFirstChildOfClass("Humanoid")
+    return hum ~= nil and hum.Health > 0 and q:FindFirstChild("HumanoidRootPart") ~= nil
+end
+
 -- 4. ArenaDroneCombatChase: Wingman Action Chase Drone (CAM 4)
 function DroneTrajectories.getCombatChaseCFrame(t, isFlying, isOutro, outroElapsed, center, size, radius, minRadius)
     if not isFlying or t <= 0 then
@@ -273,24 +287,43 @@ function DroneTrajectories.getCombatChaseCFrame(t, isFlying, isOutro, outroElaps
         return evaluateJetIntro(SQUADRON_STANDBY_OFFSETS.CombatChase, targetPos, targetLook, t, center, minRadius)
     end
     
-    -- Chase active fighter
-    local combatCentroid, quinCount, targetQuin = getCombatCentroid(center)
-    local targetHRP = targetQuin and targetQuin:FindFirstChild("HumanoidRootPart")
+    -- Chase one fighter at a time (held for CHASE_HOLD_TIME, or until it falls)
+    local dt = chase.lastT and math.clamp(t - chase.lastT, 0, 0.25) or 0
+    chase.lastT = t
+    if not chaseTargetAlive(chase.target) or (t - chase.since) > CHASE_HOLD_TIME then
+        local _, _, mostActive = getCombatCentroid(center)
+        if mostActive ~= chase.target then
+            chase.target = mostActive
+        end
+        chase.since = t
+    end
+    local targetHRP = chase.target and chase.target:FindFirstChild("HumanoidRootPart")
     
     if targetHRP then
-        local quinCF = targetHRP.CFrame
         local quinVel = targetHRP.AssemblyLinearVelocity
         local horizVel = Vector3.new(quinVel.X, 0, quinVel.Z)
+        -- "behind" follows where the fighter is heading, turned slowly (its facing flips mid-fight)
+        local wanted = horizVel.Magnitude > 4 and horizVel.Unit
+            or Vector3.new(targetHRP.CFrame.LookVector.X, 0, targetHRP.CFrame.LookVector.Z).Unit
+        chase.heading = chase.heading and chase.heading:Lerp(wanted, 1 - math.exp(-CHASE_HEADING_RATE * dt)) or wanted
+        local heading = chase.heading.Magnitude > 0.01 and chase.heading.Unit or wanted
+        local right = heading:Cross(Vector3.yAxis)
         
-        -- Fly slightly behind and above over the shoulder
-        local backOffset = -quinCF.LookVector * 22 + Vector3.new(0, 10, 0) + quinCF.RightVector * 8
-        local pos = targetHRP.Position + backOffset
-        local lookTarget = targetHRP.Position + quinCF.LookVector * 12 + Vector3.new(0, 3, 0)
+        -- Further back and higher than before, over the shoulder: the fight stays in frame
+        local desiredPos = targetHRP.Position - heading * 32 + Vector3.new(0, 15, 0) + right * 10
+        local desiredLook = targetHRP.Position + heading * 6 + Vector3.new(0, 3, 0)
+        if not chase.pos or dt == 0 then
+            chase.pos, chase.look = desiredPos, desiredLook
+        else
+            chase.pos = chase.pos:Lerp(desiredPos, 1 - math.exp(-CHASE_POS_RATE * dt))
+            chase.look = chase.look:Lerp(desiredLook, 1 - math.exp(-CHASE_LOOK_RATE * dt))
+        end
         
-        -- Bank with turn
-        local bank = math.clamp(-quinCF.RightVector:Dot(horizVel.Unit) * 0.35, -0.4, 0.4)
-        return CFrame.lookAt(pos, lookTarget) * CFrame.Angles(0, 0, bank)
+        -- A gentle bank into the turn
+        local bank = horizVel.Magnitude > 4 and math.clamp(-right:Dot(horizVel.Unit) * 0.2, -0.25, 0.25) or 0
+        return CFrame.lookAt(chase.pos, chase.look) * CFrame.Angles(0, 0, bank)
     else
+        chase.pos, chase.look, chase.heading = nil, nil, nil
         -- Fallback: Low-altitude midfield sweep
         local dt = t - 4.5
         local x = center.X + math.cos(dt * 0.35) * (minRadius * 0.45)

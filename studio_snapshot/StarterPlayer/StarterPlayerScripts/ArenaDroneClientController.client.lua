@@ -154,8 +154,44 @@ flyoutPad.Parent = flyoutMenu
 
 local optionButtons = {}
 
+-- The drone being watched through hides its own trail, body, light and tag for this viewer:
+-- its trail streamed across its own view
+local DRONE_MODEL_NAMES = {
+    Cinematic = "ArenaDroneCinematic", ArenaFootage = "ArenaDroneArenaFootage", LiveAerial = "ArenaDroneLiveAerialFootage",
+    CombatChase = "ArenaDroneCombatChase", SkylineOrbit = "ArenaDroneSkylineOrbit",
+}
+local hiddenDrone = nil -- { model, saved = { [instance] = value } }
+local function showOwnDrone()
+    if not hiddenDrone then return end
+    for inst, value in pairs(hiddenDrone.saved) do
+        if inst.Parent then
+            if inst:IsA("BasePart") then inst.LocalTransparencyModifier = value
+            else inst.Enabled = value end
+        end
+    end
+    hiddenDrone = nil
+end
+local function hideOwnDrone(droneKey)
+    showOwnDrone()
+    local root = workspace:FindFirstChild("argoniaonion")
+    local arenaOne = root and root:FindFirstChild("ArenaOne")
+    local model = droneKey and arenaOne and arenaOne:FindFirstChild(DRONE_MODEL_NAMES[droneKey] or "")
+    if not model then return end
+    hiddenDrone = { model = model, saved = {} }
+    for _, d in ipairs(model:GetDescendants()) do
+        if d:IsA("BasePart") then
+            hiddenDrone.saved[d] = d.LocalTransparencyModifier
+            d.LocalTransparencyModifier = 1
+        elseif d:IsA("Trail") or d:IsA("Light") or d:IsA("BillboardGui") then
+            hiddenDrone.saved[d] = d.Enabled
+            d.Enabled = false
+        end
+    end
+end
+
 local function setDroneMode(droneKey)
     activeDrone = droneKey
+    hideOwnDrone(activeDrone)
     if workspace:GetAttribute("SelectedDrone") ~= (activeDrone or "") then
         workspace:SetAttribute("SelectedDrone", activeDrone or "")
     end

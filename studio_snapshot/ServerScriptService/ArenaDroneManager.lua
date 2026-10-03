@@ -45,6 +45,61 @@ local function getDroneModels()
     end
 end
 
+-- Drone look (ArenaConfig.DroneVisuals): body and trail half see-through so they don't get in
+-- the way of the arena; name tags shown, faded out after a few seconds, or hidden
+local ArenaConfigOk, ArenaConfigModule = pcall(function()
+    return require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("ArenaConfig"))
+end)
+local function droneVisuals()
+    local v = ArenaConfigOk and ArenaConfigModule and ArenaConfigModule.DroneVisuals or {}
+    return {
+        PartTransparency = v.PartTransparency or 0.5,
+        TrailTransparency = v.TrailTransparency or 0.5,
+        LabelMode = v.LabelMode or "fade",   -- "on" | "fade" | "off"
+        LabelFadeAfter = v.LabelFadeAfter or 3,
+        LabelFadeTime = v.LabelFadeTime or 1,
+    }
+end
+
+local labelToken = 0
+local function applyDroneLook(showLabelsNow)
+    local v = droneVisuals()
+    labelToken += 1
+    local token = labelToken
+    for _, model in pairs(drones) do
+        if model then
+            local body = model:FindFirstChild("ArenaDrone")
+            if body and body:IsA("BasePart") then body.Transparency = v.PartTransparency end
+            for _, d in ipairs(model:GetDescendants()) do
+                if d:IsA("Trail") then
+                    d.Transparency = NumberSequence.new(v.TrailTransparency, 1)
+                elseif d:IsA("BillboardGui") then
+                    local label = d:FindFirstChildWhichIsA("TextLabel")
+                    if v.LabelMode == "off" then
+                        d.Enabled = false
+                    else
+                        d.Enabled = true
+                        if label then
+                            label.TextTransparency = 0
+                            label.TextStrokeTransparency = math.max(label.TextStrokeTransparency, 0)
+                        end
+                        if v.LabelMode == "fade" and label and showLabelsNow ~= false then
+                            task.delay(v.LabelFadeAfter, function()
+                                if token ~= labelToken then return end
+                                game:GetService("TweenService"):Create(label, TweenInfo.new(v.LabelFadeTime), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+                                task.delay(v.LabelFadeTime, function()
+                                    if token == labelToken then d.Enabled = false end
+                                end)
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+ArenaDroneManager.applyDroneLook = applyDroneLook
+
 -- Position all drones 600 studs above ArenaGround in squadron standby formation
 function ArenaDroneManager.resetDrones()
     isFlying = false
@@ -94,6 +149,7 @@ function ArenaDroneManager.startDrones()
         MinRadius = minRadius
     })
     
+    applyDroneLook(true) -- names show at launch, then fade (DroneVisuals.LabelMode)
     print("[ArenaDroneManager] 5 Drones launched into flight at countdown T-4 with Jet Intro Dive & Camera Flip!")
     
     -- Server physics heartbeat loop
@@ -141,6 +197,7 @@ end
 
 function ArenaDroneManager.init()
     getDroneModels()
+    applyDroneLook(true)
     ArenaDroneManager.resetDrones()
     print("[ArenaDroneManager] Initialized 5 live footage drones in 600-stud squadron formation.")
 end

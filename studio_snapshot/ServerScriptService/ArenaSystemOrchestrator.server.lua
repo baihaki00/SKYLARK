@@ -344,10 +344,9 @@ local function runMatchLifecycle()
         ArenaAria.speak("ARIA_ArenaGenerationCommence")
     end
     -- (no procedural terrain generator exists yet: the edit-mode arena parts are used)
-    if waitPhase(epoch, os.clock() + math.min(5.5, phaseDuration * 0.55)) and toggle("Announcer") then
-        ArenaAria.speak("ARIA_ArenaGenerationCompleted")
-    end
-    waitPhase(epoch)
+    -- "Generation completed" is only announced once the generation sequence has finished (it used
+    -- to play at 55% of the phase, while the bar was still filling)
+    local generationCompleted = waitPhase(epoch)
 
     -- PHASE 3: PREPARATION ROOM. Fighters calibrating in the backrooms: none on the field.
     QuinSpawner.cleanAll()
@@ -355,7 +354,17 @@ local function runMatchLifecycle()
     local prepTime = duration("PreparationRoom")
     epoch = beginPhase("PREPARATION_ROOM", prepTime, "PREPARATION ROOM", string.format("FIGHTERS CALIBRATING IN BACKROOMS • %d SECONDS", prepTime))
     if toggle("Announcer") then
-        ArenaAria.speak("ARIA_AnnouncementPreparationRoomGuide")
+        -- Completion line first, then a 5 s breath before the preparation-room guide
+        local prepEpoch = epoch
+        task.spawn(function()
+            if generationCompleted then
+                ArenaAria.speakAndWait("ARIA_ArenaGenerationCompleted")
+                task.wait(ArenaConfig and ArenaConfig.AriaGapAfterGeneration or 5)
+            end
+            if skipEpoch == prepEpoch and currentPhase == "PREPARATION_ROOM" then
+                ArenaAria.speak("ARIA_AnnouncementPreparationRoomGuide")
+            end
+        end)
     end
     if not waitPhase(epoch) then
         ArenaAria.stopAll()

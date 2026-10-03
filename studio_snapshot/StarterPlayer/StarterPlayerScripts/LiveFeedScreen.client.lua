@@ -21,7 +21,8 @@ local ArenaRibbonConfig = {
     GlobeCenter = Vector3.new(-0.5, 370, -411),
 
     -- Ring geometry
-    RingRadius = 95,             -- studs (frames the 100-stud globe)
+    RingRadius = 80,             -- studs (the 120-stud globe's surface is at 60: a close band, Universal-globe style)
+    RingTilt = 18,               -- degrees the ring leans off level (owner: Universal Studios globe look)
     RingHeight = 12,             -- studs of LED band
     PanelCount = 48,             -- polygon panels (more = rounder)
     PanelThickness = 0.6,
@@ -70,32 +71,63 @@ local ArenaRibbonConfig = {
 -- REFERENCES
 -- ============================================================================
 local arenaOne = Workspace:WaitForChild("argoniaonion", 15) and Workspace.argoniaonion:WaitForChild("ArenaOne", 15)
-local arenaScreen = arenaOne and arenaOne:FindFirstChild("ArenaScreen")
-local arenaGlobe = arenaOne and arenaOne:FindFirstChild("ArenaGlobe")
-
-local initialScreenCFrame = arenaScreen and arenaScreen.CFrame or CFrame.new(-39, 235.34, -106)
-local initialGlobePosition = arenaGlobe and arenaGlobe.Position or ArenaRibbonConfig.GlobeCenter
+-- The globe and the screen are looked up lazily: with StreamingEnabled they are often not loaded
+-- when this script starts, and a reference taken then stayed nil (the hover never moved them;
+-- only the ring this script builds itself moved)
+local arenaScreen = nil
+local arenaGlobe = nil
+local initialScreenCFrame = CFrame.new(-39, 235.34, -106)
+local initialGlobePosition = ArenaRibbonConfig.GlobeCenter
+local globeLight = nil
 
 -- The globe starts invisible until the holograms are switched on
-local globeLight = nil
-if arenaGlobe then
-    arenaGlobe.Material = Enum.Material.ForceField
-    arenaGlobe.Color = ArenaRibbonConfig.ColorCyan
-    arenaGlobe.Transparency = 1.0
-    arenaGlobe.CanCollide = false
-    arenaGlobe.CastShadow = false
+local function setupGlobe(globe)
+    globe.Material = Enum.Material.ForceField
+    globe.Color = ArenaRibbonConfig.ColorCyan
+    globe.Transparency = Workspace:GetAttribute("ArenaHologramsActive") == true and 0.45 or 1.0
+    globe.CanCollide = false
+    globe.CastShadow = false
 
-    globeLight = arenaGlobe:FindFirstChild("HoloLight")
+    globeLight = globe:FindFirstChild("HoloLight")
     if not globeLight then
         globeLight = Instance.new("PointLight")
         globeLight.Name = "HoloLight"
         globeLight.Color = ArenaRibbonConfig.ColorCyanGlow
         globeLight.Range = 220
-        globeLight.Brightness = 0.0
+        globeLight.Brightness = Workspace:GetAttribute("ArenaHologramsActive") == true and 2.0 or 0.0
         globeLight.Shadows = false
-        globeLight.Parent = arenaGlobe
+        globeLight.Parent = globe
     end
 end
+
+local function resolveHologramParts()
+    if not (arenaOne and arenaOne.Parent) then
+        local root = Workspace:FindFirstChild("argoniaonion")
+        arenaOne = root and root:FindFirstChild("ArenaOne")
+    end
+    if not arenaOne then return end
+    if not (arenaScreen and arenaScreen.Parent) then
+        local screen = arenaOne:FindFirstChild("ArenaScreen")
+        if screen then
+            arenaScreen = screen
+            initialScreenCFrame = screen.CFrame
+        end
+    end
+    if not (arenaGlobe and arenaGlobe.Parent) then
+        local globe = arenaOne:FindFirstChild("ArenaGlobe")
+        if globe then
+            arenaGlobe = globe
+            initialGlobePosition = globe.Position
+            setupGlobe(globe)
+        end
+    end
+end
+resolveHologramParts()
+
+-- Glitch (hologram boot / shutdown): while active the globe and ring jitter sideways in steps
+local glitchUntil = 0
+local glitchOffset = Vector3.zero
+local nextGlitchStep = 0
 
 local ringModel = nil
 local ringPanels = {}
@@ -261,6 +293,15 @@ local function showRing(visible)
             -- light-up sweep round the ring
             task.delay(((p.index - 1) / count) * ArenaRibbonConfig.RingSweepTime, function()
                 if token ~= ringToken then return end
+                -- glitch-on: two or three quick blinks before the panel holds
+                for _ = 1, math.random(2, 3) do
+                    p.band.Transparency = ArenaRibbonConfig.BandTransparency
+                    task.wait(0.03 + math.random() * 0.04)
+                    if token ~= ringToken then return end
+                    p.band.Transparency = 0.85
+                    task.wait(0.03 + math.random() * 0.05)
+                    if token ~= ringToken then return end
+                end
                 local info = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
                 TweenService:Create(p.band, info, { Transparency = ArenaRibbonConfig.BandTransparency }):Play()
                 TweenService:Create(p.topTrim, info, { Transparency = ArenaRibbonConfig.TrimTransparency }):Play()
@@ -268,7 +309,9 @@ local function showRing(visible)
                 setRingTextTransparency(p, 0, 0.5)
             end)
         else
-            local info = TweenInfo.new(0.4)
+            -- glitch-off: a random blink, then out
+            p.band.Transparency = (math.random() < 0.5) and 0.05 or 0.8
+            local info = TweenInfo.new(0.25 + math.random() * 0.25)
             TweenService:Create(p.band, info, { Transparency = 1 }):Play()
             TweenService:Create(p.topTrim, info, { Transparency = 1 }):Play()
             TweenService:Create(p.bottomTrim, info, { Transparency = 1 }):Play()
@@ -305,22 +348,33 @@ local function setHologramsVisible(visible)
     isHologramsVisible = visible
 
     if visible then
+        resolveHologramParts()
         if arenaGlobe then
-            arenaGlobe.Material = Enum.Material.ForceField
-            arenaGlobe.Color = ArenaRibbonConfig.ColorCyan
-            arenaGlobe.Transparency = 0.95
+            local globe = arenaGlobe
+            globe.Material = Enum.Material.ForceField
+            globe.Color = ArenaRibbonConfig.ColorCyan
+            globe.Transparency = 0.95
             if globeLight then
                 globeLight.Enabled = true
                 globeLight.Brightness = 0.5
             end
+            -- Holographic boot: stuttering flickers, colour tears and sideways jitter, then it settles
+            glitchUntil = os.clock() + 0.9
             task.spawn(function()
-                task.wait(0.05); arenaGlobe.Transparency = 0.15; if globeLight then globeLight.Brightness = 3.5 end
-                task.wait(0.06); arenaGlobe.Transparency = 0.75; if globeLight then globeLight.Brightness = 1.0 end
-                task.wait(0.05); arenaGlobe.Transparency = 0.25; if globeLight then globeLight.Brightness = 2.8 end
-                task.wait(0.08)
-                TweenService:Create(arenaGlobe, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 0.45 }):Play()
+                local steps = { 0.2, 0.9, 0.35, 0.8, 0.1, 0.7, 0.3, 0.95, 0.25, 0.6 }
+                for k, transparency in ipairs(steps) do
+                    if not isHologramsVisible then return end
+                    globe.Transparency = transparency
+                    globe.Color = (k % 3 == 0) and Color3.fromRGB(235, 250, 255)
+                        or (k % 4 == 0) and Color3.fromRGB(150, 110, 255) or ArenaRibbonConfig.ColorCyan
+                    if globeLight then globeLight.Brightness = (1 - transparency) * 4 end
+                    task.wait(0.03 + math.random() * 0.06)
+                end
+                if not isHologramsVisible then return end
+                globe.Color = ArenaRibbonConfig.ColorCyan
+                TweenService:Create(globe, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 0.45 }):Play()
                 if globeLight then
-                    TweenService:Create(globeLight, TweenInfo.new(0.4), { Brightness = 2.0 }):Play()
+                    TweenService:Create(globeLight, TweenInfo.new(0.35), { Brightness = 2.0 }):Play()
                 end
             end)
         end
@@ -333,10 +387,21 @@ local function setHologramsVisible(visible)
         end)
     else
         if arenaGlobe then
-            TweenService:Create(arenaGlobe, TweenInfo.new(0.4), { Transparency = 1.0 }):Play()
-            if globeLight then
-                TweenService:Create(globeLight, TweenInfo.new(0.4), { Brightness = 0.0 }):Play()
-            end
+            -- Holographic shutdown: a burst of flickers and jitter, then it cuts out
+            local globe = arenaGlobe
+            glitchUntil = os.clock() + 0.5
+            task.spawn(function()
+                for _, transparency in ipairs({ 0.2, 0.85, 0.3, 0.95, 0.5, 1.0 }) do
+                    if isHologramsVisible then return end
+                    globe.Transparency = transparency
+                    globe.Color = (math.random() < 0.3) and Color3.fromRGB(235, 250, 255) or ArenaRibbonConfig.ColorCyan
+                    if globeLight then globeLight.Brightness = (1 - transparency) * 3 end
+                    task.wait(0.04 + math.random() * 0.05)
+                end
+                globe.Color = ArenaRibbonConfig.ColorCyan
+                globe.Transparency = 1.0
+                if globeLight then globeLight.Brightness = 0 end
+            end)
         end
         showRing(false)
     end
@@ -365,8 +430,21 @@ local function placeTicker(face, stripStart)
     end
 end
 
+local lastResolve = 0
 local function onRenderStep(dt)
     local t = os.clock()
+    if t - lastResolve > 1 then
+        lastResolve = t
+        resolveHologramParts()
+    end
+    if t < glitchUntil then
+        if t >= nextGlitchStep then
+            nextGlitchStep = t + 0.03 + math.random() * 0.05
+            glitchOffset = (math.random() < 0.6) and Vector3.new((math.random() - 0.5) * 3, (math.random() - 0.5) * 0.6, (math.random() - 0.5) * 3) or Vector3.zero
+        end
+    else
+        glitchOffset = Vector3.zero
+    end
 
     if arenaScreen and arenaScreen.Parent then
         local screenYOffset = math.sin(t * ArenaRibbonConfig.ScreenHoverSpeed) * ArenaRibbonConfig.ScreenHoverAmp
@@ -374,7 +452,7 @@ local function onRenderStep(dt)
     end
 
     local globeYOffset = math.cos(t * ArenaRibbonConfig.GlobeHoverSpeed) * ArenaRibbonConfig.GlobeHoverAmp
-    local globePos = initialGlobePosition + Vector3.new(0, globeYOffset, 0)
+    local globePos = initialGlobePosition + Vector3.new(0, globeYOffset, 0) + glitchOffset
     if arenaGlobe and arenaGlobe.Parent then
         arenaGlobe.CFrame = CFrame.new(globePos)
     end
@@ -383,7 +461,8 @@ local function onRenderStep(dt)
     yawAngle = (yawAngle + ArenaRibbonConfig.YawRotationSpeed * dt) % (math.pi * 2)
     tickerScroll = (tickerScroll + ArenaRibbonConfig.TickerSpeed * dt) % ringPixels
 
-    local center = CFrame.new(globePos) * CFrame.Angles(0, yawAngle, 0)
+    -- the ring rides the globe's hover, tilted like the Universal globe's ring, turning slowly
+    local center = CFrame.new(globePos) * CFrame.Angles(math.rad(ArenaRibbonConfig.RingTilt or 0), 0, 0) * CFrame.Angles(0, yawAngle, 0)
     local radius = ArenaRibbonConfig.RingRadius
     local trimOffset = ArenaRibbonConfig.RingHeight * 0.5 + ArenaRibbonConfig.TrimHeight * 0.5
     local count = #ringPanels
@@ -392,7 +471,7 @@ local function onRenderStep(dt)
         local localPos = Vector3.new(math.cos(p.angle) * radius, 0, math.sin(p.angle) * radius)
         local worldPos = center:PointToWorldSpace(localPos)
         local outward = (worldPos - center.Position).Unit
-        local cf = CFrame.lookAt(worldPos, worldPos + outward, Vector3.yAxis)
+        local cf = CFrame.lookAt(worldPos, worldPos + outward, center.UpVector)
         p.band.CFrame = cf
         p.topTrim.CFrame = cf * CFrame.new(0, trimOffset, 0)
         p.bottomTrim.CFrame = cf * CFrame.new(0, -trimOffset, 0)
