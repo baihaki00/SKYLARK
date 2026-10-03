@@ -22,6 +22,7 @@ local musicChannel = nil
 
 local activeMusicSound = nil
 local activeAnthemStems = {} -- { [Sound] = volumeWeight }
+local standStemBase = {} -- { [Sound] = weight before ArenaCrowd's AnthemStemScale } (stems played from the stands)
 local currentMusicType = "None"
 local isAnthemActive = false
 
@@ -204,6 +205,7 @@ function ArenaAudio.playAnthem(anthemPrefix, volume, fadeTime)
     end
     
     activeAnthemStems = {}
+    standStemBase = {}
     isAnthemActive = true
     currentMusicType = "StadiumAnthem"
     
@@ -219,6 +221,7 @@ function ArenaAudio.playAnthem(anthemPrefix, volume, fadeTime)
         -- Crowd and drum stems sound like the stadium, so they come from the stands (one copy per
         -- stand section); everything else plays from the ArenaGlobe speaker
         local parents = { arenaGlobe }
+        local baseWeight = volWeight
         local isStandStem = string.find(nameUpper, "CROWD", 1, true) or string.find(nameUpper, "DRUM", 1, true)
         if isStandStem then
             local emitters = ArenaCrowd.getStemEmitters()
@@ -256,6 +259,9 @@ function ArenaAudio.playAnthem(anthemPrefix, volume, fadeTime)
 
             TweenService:Create(sound, TweenInfo.new(fadeTime), { Volume = volume * volWeight }):Play()
             activeAnthemStems[sound] = volWeight
+            if parent ~= arenaGlobe then
+                standStemBase[sound] = baseWeight
+            end
         end
     end
     
@@ -642,6 +648,21 @@ function ArenaAudio.updateAcoustics(settings)
         end
     end
     
+    -- 3b. Crowd mix (ArenaCrowdManager); the anthem's stand stems follow AnthemStemScale live
+    if type(settings.Crowd) == "table" then
+        ArenaCrowd.setLevels(settings.Crowd)
+        local scale = ArenaCrowd.getStemScale()
+        for sound, base in pairs(standStemBase) do
+            if activeAnthemStems[sound] and sound.Parent then
+                activeAnthemStems[sound] = base * scale
+                if not isDucked then
+                    sound.Volume = channelVolumes.Music * base * scale
+                end
+            end
+        end
+        return
+    end
+
     -- 4. Reverb Decay & Wetness (Echo is permanently removed)
     local reverb = masterGroup:FindFirstChildOfClass("ReverbSoundEffect")
     if reverb then

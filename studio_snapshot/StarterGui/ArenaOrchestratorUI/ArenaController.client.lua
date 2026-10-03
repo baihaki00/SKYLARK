@@ -637,11 +637,14 @@ local function applyAcousticLocally()
     UpdateAudioSettings:FireServer(acousticState)
 end
 
-local function createSliderRow(labelPrefix, key, minVal, maxVal, defaultVal, formatStr, unit, step)
+-- (parentFrame / state / onChange default to the acoustics card; the crowd mix card passes its own)
+local function createSliderRow(labelPrefix, key, minVal, maxVal, defaultVal, formatStr, unit, step, parentFrame, state, onChange)
+    state = state or acousticState
+    onChange = onChange or applyAcousticLocally
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, 39)
     row.BackgroundTransparency = 1
-    row.Parent = acousticsContainer
+    row.Parent = parentFrame or acousticsContainer
 
     local topRow = Instance.new("Frame")
     topRow.Size = UDim2.new(1, 0, 0, 16)
@@ -666,7 +669,7 @@ local function createSliderRow(labelPrefix, key, minVal, maxVal, defaultVal, for
     valLbl.TextSize = 10
     valLbl.TextColor3 = C_CYAN
     valLbl.TextXAlignment = Enum.TextXAlignment.Right
-    valLbl.Text = string.format(formatStr .. "%s", acousticState[key] or defaultVal, unit or "")
+    valLbl.Text = string.format(formatStr .. "%s", state[key] or defaultVal, unit or "")
     valLbl.Parent = topRow
 
     local trackBtn = Instance.new("TextButton")
@@ -687,7 +690,7 @@ local function createSliderRow(labelPrefix, key, minVal, maxVal, defaultVal, for
     trackBg.Parent = trackBtn
     applyCorner(trackBg, 3)
 
-    local initialRatio = math.clamp(((acousticState[key] or defaultVal) - minVal) / (maxVal - minVal), 0, 1)
+    local initialRatio = math.clamp(((state[key] or defaultVal) - minVal) / (maxVal - minVal), 0, 1)
 
     local fill = Instance.new("Frame")
     fill.Name = "Fill"
@@ -719,11 +722,11 @@ local function createSliderRow(labelPrefix, key, minVal, maxVal, defaultVal, for
             rawVal = math.floor(rawVal / step + 0.5) * step
             r = math.clamp((rawVal - minVal) / (maxVal - minVal), 0, 1)
         end
-        acousticState[key] = rawVal
+        state[key] = rawVal
         fill.Size = UDim2.new(r, 0, 1, 0)
         knob.Position = UDim2.new(r, 0, 0.5, 0)
         valLbl.Text = string.format(formatStr .. "%s", rawVal, unit or "")
-        applyAcousticLocally()
+        onChange()
     end
 
     trackBtn.InputBegan:Connect(function(input)
@@ -760,12 +763,77 @@ createSliderRow("Reverb Decay",      "ReverbDecay", 0.1, 10.0, 3.5,  "%.1f", "s"
 createSliderRow("Reverb Wetness",    "ReverbWet",  -20.0, 15.0, 2.0, "%.1f", "dB", 0.5)
 
 -- ============================================================================
+-- Section 4b: Crowd mix (ArenaCrowdManager, live). Starts from ArenaConfig.CrowdFX, or from the
+-- server's current mix (Workspace attribute CrowdFXLevels) when someone already moved a slider.
+-- Not saved: after a change the server prints a line to paste into ArenaConfig.CrowdFX.
+-- ============================================================================
+local crowdSecHeader = Instance.new("TextLabel")
+crowdSecHeader.Size = UDim2.new(1, 0, 0, 20)
+crowdSecHeader.BackgroundTransparency = 1
+crowdSecHeader.Font = Enum.Font.GothamBold
+crowdSecHeader.TextSize = 12
+crowdSecHeader.TextColor3 = C_CYAN
+crowdSecHeader.TextXAlignment = Enum.TextXAlignment.Left
+crowdSecHeader.Text = "CROWD MIX (LIVE)"
+crowdSecHeader.LayoutOrder = 5
+crowdSecHeader.Parent = rightCol
+
+local crowdContainer = Instance.new("Frame")
+crowdContainer.Size = UDim2.new(1, 0, 0, 8 * 41 + 18)
+crowdContainer.BackgroundColor3 = C_CARD
+crowdContainer.LayoutOrder = 6
+crowdContainer.Parent = rightCol
+applyCorner(crowdContainer, 10)
+applyStroke(crowdContainer, C_STROKE, 1)
+
+local crowdLayout = Instance.new("UIListLayout")
+crowdLayout.Padding = UDim.new(0, 2)
+crowdLayout.Parent = crowdContainer
+
+local crowdPad = Instance.new("UIPadding")
+crowdPad.PaddingTop = UDim.new(0, 8)
+crowdPad.PaddingBottom = UDim.new(0, 8)
+crowdPad.PaddingLeft = UDim.new(0, 12)
+crowdPad.PaddingRight = UDim.new(0, 12)
+crowdPad.Parent = crowdContainer
+
+local crowdCfg = ArenaConfig.CrowdFX or {}
+local crowdState = {}
+for _, key in ipairs({ "Volume", "BedVolume", "LayerVolume", "ChantVolume", "ReactVolume", "MajorVolume", "AnthemStemScale", "DuckMultiplier" }) do
+    crowdState[key] = crowdCfg[key]
+end
+do
+    local live = Workspace:GetAttribute("CrowdFXLevels")
+    local ok, decoded = pcall(function()
+        return live and game:GetService("HttpService"):JSONDecode(live)
+    end)
+    if ok and type(decoded) == "table" then
+        for k, v in pairs(decoded) do
+            if crowdState[k] ~= nil and type(v) == "number" then crowdState[k] = v end
+        end
+    end
+end
+
+local function sendCrowdMix()
+    UpdateAudioSettings:FireServer({ Crowd = crowdState })
+end
+
+createSliderRow("Crowd (Whole)",          "Volume",          0.0, 2.0, 1.0,  "%.2f", "x", 0.05, crowdContainer, crowdState, sendCrowdMix)
+createSliderRow("Murmur Bed",             "BedVolume",       0.0, 1.5, 0.28, "%.2f", "",  0.01, crowdContainer, crowdState, sendCrowdMix)
+createSliderRow("Mood Layers",            "LayerVolume",     0.0, 1.5, 0.30, "%.2f", "",  0.01, crowdContainer, crowdState, sendCrowdMix)
+createSliderRow("Chants",                 "ChantVolume",     0.0, 1.5, 0.38, "%.2f", "",  0.01, crowdContainer, crowdState, sendCrowdMix)
+createSliderRow("Reactions (Hits)",       "ReactVolume",     0.0, 1.5, 0.42, "%.2f", "",  0.01, crowdContainer, crowdState, sendCrowdMix)
+createSliderRow("Big Moments (KO, Win)",  "MajorVolume",     0.0, 2.0, 0.55, "%.2f", "",  0.01, crowdContainer, crowdState, sendCrowdMix)
+createSliderRow("Anthem Crowd & Drums",   "AnthemStemScale", 0.0, 2.0, 0.45, "%.2f", "x", 0.01, crowdContainer, crowdState, sendCrowdMix)
+createSliderRow("Crowd Under ARIA",       "DuckMultiplier",  0.0, 1.0, 0.75, "%.2f", "x", 0.05, crowdContainer, crowdState, sendCrowdMix)
+
+-- ============================================================================
 -- Section 5: Music Playlists & Stadium Anthem Selection
 -- ============================================================================
 local musicHeaderRow = Instance.new("Frame")
 musicHeaderRow.Size = UDim2.new(1, 0, 0, 24)
 musicHeaderRow.BackgroundTransparency = 1
-musicHeaderRow.LayoutOrder = 5
+musicHeaderRow.LayoutOrder = 7
 musicHeaderRow.Parent = rightCol
 
 local musicSecHeader = Instance.new("TextLabel")
@@ -846,13 +914,13 @@ preSecLbl.TextSize = 10
 preSecLbl.TextColor3 = C_MUTED
 preSecLbl.TextXAlignment = Enum.TextXAlignment.Left
 preSecLbl.Text = "PRE-GAME MUSIC (PreGameMusic/)"
-preSecLbl.LayoutOrder = 6
+preSecLbl.LayoutOrder = 8
 preSecLbl.Parent = rightCol
 
 local preContainer = Instance.new("Frame")
 preContainer.Size = UDim2.new(1, 0, 0, 85)
 preContainer.BackgroundColor3 = C_CARD
-preContainer.LayoutOrder = 7
+preContainer.LayoutOrder = 9
 preContainer.Parent = rightCol
 applyCorner(preContainer, 8)
 applyStroke(preContainer, C_STROKE, 1)
@@ -874,13 +942,13 @@ anthemSecLbl.TextSize = 10
 anthemSecLbl.TextColor3 = C_AMBER
 anthemSecLbl.TextXAlignment = Enum.TextXAlignment.Left
 anthemSecLbl.Text = "STADIUM ANTHEM (Anthem/)"
-anthemSecLbl.LayoutOrder = 8
+anthemSecLbl.LayoutOrder = 10
 anthemSecLbl.Parent = rightCol
 
 local anthemContainer = Instance.new("Frame")
 anthemContainer.Size = UDim2.new(1, 0, 0, 65)
 anthemContainer.BackgroundColor3 = C_CARD
-anthemContainer.LayoutOrder = 9
+anthemContainer.LayoutOrder = 11
 anthemContainer.Parent = rightCol
 applyCorner(anthemContainer, 8)
 applyStroke(anthemContainer, C_STROKE, 1)
@@ -902,13 +970,13 @@ inSecLbl.TextSize = 10
 inSecLbl.TextColor3 = C_MUTED
 inSecLbl.TextXAlignment = Enum.TextXAlignment.Left
 inSecLbl.Text = "IN-GAME COMBAT MUSIC (InGameMusic/)"
-inSecLbl.LayoutOrder = 10
+inSecLbl.LayoutOrder = 12
 inSecLbl.Parent = rightCol
 
 local inContainer = Instance.new("Frame")
 inContainer.Size = UDim2.new(1, 0, 0, 85)
 inContainer.BackgroundColor3 = C_CARD
-inContainer.LayoutOrder = 11
+inContainer.LayoutOrder = 13
 inContainer.Parent = rightCol
 applyCorner(inContainer, 8)
 applyStroke(inContainer, C_STROKE, 1)
@@ -930,13 +998,13 @@ postSecLbl.TextSize = 10
 postSecLbl.TextColor3 = C_MUTED
 postSecLbl.TextXAlignment = Enum.TextXAlignment.Left
 postSecLbl.Text = "POST-GAME CLOSURE (PostGameMusic/)"
-postSecLbl.LayoutOrder = 12
+postSecLbl.LayoutOrder = 14
 postSecLbl.Parent = rightCol
 
 local postContainer = Instance.new("Frame")
 postContainer.Size = UDim2.new(1, 0, 0, 65)
 postContainer.BackgroundColor3 = C_CARD
-postContainer.LayoutOrder = 13
+postContainer.LayoutOrder = 15
 postContainer.Parent = rightCol
 applyCorner(postContainer, 8)
 applyStroke(postContainer, C_STROKE, 1)

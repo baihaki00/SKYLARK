@@ -39,6 +39,8 @@ local winnerTeam = nil
 local activeShots = {}    -- one-shots playing or about to: { sound, major, cancelled }
 local lastMinorAt = 0
 local directorThread = nil
+local isDucked = false
+local levelsPrintToken = 0
 local watched = {}         -- fighter Model -> { connections }
 
 -- ============================================================================
@@ -657,8 +659,53 @@ end
 
 -- ARIA ducking: the crowd dips with the music
 function Crowd.duck(on, t)
+	isDucked = on == true
 	local g = ensureGroup()
-	fadeTo(g, CFG.Volume * (on and CFG.DuckMultiplier or 1), t or 0.4)
+	fadeTo(g, CFG.Volume * (isDucked and CFG.DuckMultiplier or 1), t or 0.4)
+end
+
+-- Live mix from the Arena System panel (CROWD MIX sliders). Loops follow on the next director
+-- step (1.5 s fade), one-shots from their next play. Values are not saved: once the slider
+-- settles the server prints a line to paste into ArenaConfig.CrowdFX.
+local LEVEL_KEYS = {
+	Volume = { 0, 2 }, BedVolume = { 0, 1.5 }, LayerVolume = { 0, 1.5 }, ChantVolume = { 0, 1.5 },
+	ReactVolume = { 0, 1.5 }, MajorVolume = { 0, 2 }, AnthemStemScale = { 0, 2 }, DuckMultiplier = { 0, 1 },
+}
+local LEVEL_ORDER = { "Volume", "BedVolume", "LayerVolume", "ChantVolume", "ReactVolume", "MajorVolume", "AnthemStemScale", "DuckMultiplier" }
+
+function Crowd.getLevels()
+	local levels = {}
+	for key in pairs(LEVEL_KEYS) do levels[key] = CFG[key] end
+	return levels
+end
+
+function Crowd.setLevels(levels)
+	if type(levels) ~= "table" then return end
+	local changed = false
+	for key, range in pairs(LEVEL_KEYS) do
+		local v = tonumber(levels[key])
+		if v and v == v then
+			v = math.clamp(v, range[1], range[2])
+			if CFG[key] ~= v then
+				CFG[key] = v
+				changed = true
+			end
+		end
+	end
+	if not changed then return end
+	local g = ensureGroup()
+	fadeTo(g, CFG.Volume * (isDucked and CFG.DuckMultiplier or 1), 0.2)
+	levelsPrintToken += 1
+	local token = levelsPrintToken
+	task.delay(1.5, function()
+		if token ~= levelsPrintToken then return end
+		local parts = {}
+		for _, key in ipairs(LEVEL_ORDER) do
+			table.insert(parts, string.format("%s = %.2f", key, CFG[key]))
+		end
+		print("[ArenaCrowd] Mix (paste into ArenaConfig.CrowdFX to keep): " .. table.concat(parts, ", "))
+	end)
+	Workspace:SetAttribute("CrowdFXLevels", game:GetService("HttpService"):JSONEncode(Crowd.getLevels()))
 end
 
 -- One attachment per section (its middle) for anthem crowd/drum stems

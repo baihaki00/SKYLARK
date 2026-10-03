@@ -98,3 +98,35 @@ All tunables live in `ArenaConfig.CrowdFX`.
 - **Loudness:** I can't measure it from Studio, so tune by ear in `ArenaConfig.CrowdFX`. The main knobs are `Volume` (whole crowd), `BedVolume`, `LayerVolume`, `ReactVolume`, `MajorVolume` and `AnthemStemScale`.
 - **No boo sounds in the library:** booing uses AngryCrowd plus groans. Adding a `Boo` category folder and pointing `Moods.Angry` or `Reactions.*.Against` at it is enough.
 - **Pass 25 audit correction:** the drone label modes are `"on"` / `"fade"` / `"off"`, not "show"/"hide".
+
+## Pass 26b: live crowd mix sliders
+
+Owner request: sliders in the Arena System panel for the whole crowd and each category.
+
+- **Panel:** a new **CROWD MIX (LIVE)** card under AUDIO ACOUSTICS (`ArenaController` section 4b) with 8 sliders:
+
+  | Slider | Config key |
+  |---|---|
+  | Crowd (Whole) | `Volume` |
+  | Murmur Bed | `BedVolume` |
+  | Mood Layers | `LayerVolume` |
+  | Chants | `ChantVolume` |
+  | Reactions (Hits) | `ReactVolume` |
+  | Big Moments (KO, Win) | `MajorVolume` |
+  | Anthem Crowd & Drums | `AnthemStemScale` |
+  | Crowd Under ARIA | `DuckMultiplier` |
+
+  - `createSliderRow` now takes an optional container, state table and change callback, so the crowd card reuses it.
+  - The playlist sections moved down two layout slots.
+- **Path:** the sliders send `{Crowd = {...}}` through the existing `UpdateAudioSettings` remote. `ArenaAudio.updateAcoustics` passes it to `ArenaCrowd.setLevels`, which clamps the values and writes them into the live `ArenaConfig.CrowdFX`.
+  - The whole-crowd level applies at once, and keeps the ARIA duck.
+  - Loops follow on the next director step (1.5 s fade); one-shots use the new level from their next play.
+  - Anthem stand stems that are already playing follow the Anthem Crowd & Drums slider live (base weight kept per sound).
+- **Saving:** values aren't saved. 1.5 s after the last change the server prints `[ArenaCrowd] Mix (paste into ArenaConfig.CrowdFX to keep): Volume = ...`.
+  - The current mix is also in the Workspace attribute `CrowdFXLevels`, and a panel opened later starts from it.
+- **Test (Play):**
+  - Clicked Murmur Bed to 0.60 and Crowd to 0.50.
+  - The server showed `CrowdFXLevels` with BedVolume 0.6 and Volume 0.5, and printed the paste line.
+  - Prep-room beds settled at 0.42 (0.60 × level 0.7).
+  - The crowd channel was at 0.38 (0.50 × 0.75 duck) while ARIA spoke.
+  - 16v16: 32 Quins, 0 errors.
