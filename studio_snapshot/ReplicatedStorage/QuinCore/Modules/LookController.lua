@@ -15,6 +15,12 @@ local ZONE3_MAX = math.rad(100)  -- 60-100 deg: Head (40%) + Neck (30%) + Spine2
 local PITCH_MIN = -math.rad(45)  -- Looking down max
 local PITCH_MAX = math.rad(65)   -- Looking up max
 
+-- Social nod (SocialSystem.nod): two quick dips after the Quin's NodAt time
+local okConfig, CombatConfig = pcall(function() return require(script.Parent.Parent:WaitForChild("CombatConfig")) end)
+local SOCIAL = okConfig and CombatConfig.Social or {}
+local NOD_DURATION = SOCIAL.NodDuration or 0.6
+local NOD_DEPTH = math.rad(SOCIAL.NodDepth or 12)
+
 function LookController.new(ghostModel, aiModel)
 	local self = setmetatable({}, LookController)
 
@@ -92,6 +98,23 @@ function LookController:resolveTargetPosition()
 			return self.rootPart.Position + (cf.RightVector * self.glanceSide - cf.LookVector * 0.6) * 30 + Vector3.new(0, 2, 0), "GLANCE_BACK"
 		end
 
+		-- Social body language (SocialSystem): a look at another Quin - the leader, an ally it
+		-- nods to, one that ignored a signal, a duel it watches
+		local socialUntil = serverModel:GetAttribute("SocialLookUntil")
+		if not isPlayer and socialUntil and workspace:GetServerTimeNow() < socialUntil then
+			local name = serverModel:GetAttribute("SocialLookAt")
+			local qServer = Workspace:FindFirstChild("QuinServer") or Workspace
+			local qGhost = Workspace:FindFirstChild("QuinGhost") or Workspace:FindFirstChild("AIGhosts")
+			local other = name and ((qGhost and qGhost:FindFirstChild(name .. "_Visual")) or qServer:FindFirstChild(name))
+			local otherHead = other and other:FindFirstChild("mixamorig:Head", true)
+			local otherRoot = other and other:FindFirstChild("HumanoidRootPart")
+			if otherHead then
+				return otherHead.WorldCFrame.Position, "SOCIAL"
+			elseif otherRoot then
+				return otherRoot.Position + Vector3.new(0, 2, 0), "SOCIAL"
+			end
+		end
+
 		-- Scanning (Cognition.Gaze): a glance at the sky, or looking down over the edge of
 		-- high ground. The head pitches to the gaze, straight ahead of the body.
 		local gazeMode = serverModel:GetAttribute("GazeMode")
@@ -148,6 +171,19 @@ function LookController:resolveTargetPosition()
 	return nil, "NONE"
 end
 
+-- Writes `offset` on top of the bone's animated pose. When the Animator has not re-evaluated the
+-- bone since the last write (animation can update at a lower rate than rendering), the bone still
+-- holds the previous result; multiplying onto that compounded the offset frame by frame (a nod
+-- read as -6, -41, -18, -60 degrees on alternate frames). The previous base is reused instead.
+function LookController:applyBoneOffset(bone, offset)
+	self.boneWrites = self.boneWrites or {}
+	local last = self.boneWrites[bone]
+	local current = bone.Transform
+	local base = (last and current == last.written) and last.base or current
+	bone.Transform = base * offset
+	self.boneWrites[bone] = { base = base, written = bone.Transform }
+end
+
 -- Update procedural look-at on top of animation
 function LookController:update(dt)
 	if not self.enabled or not self.headBone or not self.rootPart then return end
@@ -155,6 +191,17 @@ function LookController:update(dt)
 
 	local targetPos, mode = self:resolveTargetPosition()
 	self.gazeMode = mode
+
+	-- Nod: two dips of the head (the second smaller), on top of wherever it is looking
+	local nodPitch = 0
+	local nodAt = self.aiModel and self.aiModel:GetAttribute("NodAt")
+	if nodAt then
+		local t = workspace:GetServerTimeNow() - nodAt
+		if t >= 0 and t < NOD_DURATION then
+			local wave = math.sin(2 * math.pi * t / NOD_DURATION)
+			nodPitch = -NOD_DEPTH * wave * wave * (1 - 0.4 * t / NOD_DURATION)
+		end
+	end
 
 	-- The head turns on a critically damped spring with a top speed: it eases into a turn and
 	-- settles without overshoot. (An exponential lerp started every turn at full speed, and a
@@ -176,7 +223,7 @@ function LookController:update(dt)
 	if not targetPos then
 		-- No target: settle back to the clip's own head
 		springTo(0, 0)
-		if math.abs(self.currentYaw) < 0.002 and math.abs(self.currentPitch) < 0.002
+		if nodPitch == 0 and math.abs(self.currentYaw) < 0.002 and math.abs(self.currentPitch) < 0.002
 			and math.abs(self.yawVelocity) < 0.01 and math.abs(self.pitchVelocity) < 0.01 then
 			self.currentYaw, self.currentPitch, self.yawVelocity, self.pitchVelocity = 0, 0, 0, 0
 			return -- Early return: leaves author-keyed head/neck bone transforms 100% untouched
@@ -217,7 +264,7 @@ function LookController:update(dt)
 
 		-- A look back over the shoulder turns further, the upper back taking its share
 		local yawLimit = ZONE2_MAX
-		if mode == "GLANCE_BACK" then
+		if mode == "GLANCE_BACK" or mode == "SOCIAL" then
 			gazeWeight = 1.0
 			yawLimit = ZONE3_MAX
 		end
@@ -234,18 +281,18 @@ function LookController:update(dt)
 	local spineYaw = self.currentYaw * 0.20
 
 	-- Pitch distribution: 70% Head, 30% Neck
-	local headPitch = self.currentPitch * 0.70
-	local neckPitch = self.currentPitch * 0.30
+	local headPitch = self.currentPitch * 0.70 + nodPitch * 0.75
+	local neckPitch = self.currentPitch * 0.30 + nodPitch * 0.25
 
 	-- Apply multiplicatively to Bone.Transform on top of evaluated animation track
 	if self.headBone then
-		self.headBone.Transform = self.headBone.Transform * CFrame.Angles(headPitch, headYaw, 0)
+		self:applyBoneOffset(self.headBone, CFrame.Angles(headPitch, headYaw, 0))
 	end
 	if self.neckBone then
-		self.neckBone.Transform = self.neckBone.Transform * CFrame.Angles(neckPitch, neckYaw, 0)
+		self:applyBoneOffset(self.neckBone, CFrame.Angles(neckPitch, neckYaw, 0))
 	end
 	if self.spine2Bone and spineYaw ~= 0 then
-		self.spine2Bone.Transform = self.spine2Bone.Transform * CFrame.Angles(0, spineYaw, 0)
+		self:applyBoneOffset(self.spine2Bone, CFrame.Angles(0, spineYaw, 0))
 	end
 end
 

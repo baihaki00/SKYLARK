@@ -85,20 +85,15 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 	local attackerHum = attackerModel:FindFirstChildOfClass("Humanoid")
 	if not targetHum or targetHum.Health <= 0 then return false end
 
-	-- LEADER SHOWDOWN SACRED SPECTATOR IMMUNITY (Respect & Anti-Bullying)
-	local attackerRole = attackerModel:GetAttribute("LeaderShowdownRole")
-	local targetRole = targetModel:GetAttribute("LeaderShowdownRole")
-	local isShowdownActive = (workspace:GetAttribute("LeaderShowdownActive") == true) or (attackerRole ~= nil) or (targetRole ~= nil)
-
-	if isShowdownActive then
-		-- Spectators and transitions are completely immune and cannot deal or receive damage
-		if attackerRole == "PerimeterGuard" or attackerRole == "Transition" or targetRole == "PerimeterGuard" or targetRole == "Transition" then
-			return false, false, "ProtectedSpectator"
-		end
-		-- In an active showdown, only Duelist vs Duelist exchanges are permitted
-		if attackerRole ~= "Duelist" or targetRole ~= "Duelist" then
-			return false, false, "ShowdownUnauthorized"
-		end
+	-- RESPECT CUSTOM (SocialSystem): spectators neither deal nor take damage, and a duelist only
+	-- trades blows with the other duelist
+	local attackerRole = attackerModel:GetAttribute("RespectRole")
+	local targetRole = targetModel:GetAttribute("RespectRole")
+	if attackerRole == "Spectator" or attackerRole == "Watching" or targetRole == "Spectator" or targetRole == "Watching" then
+		return false, false, "ProtectedSpectator"
+	end
+	if (attackerRole == "Duelist") ~= (targetRole == "Duelist") then
+		return false, false, "DuelUnauthorized"
 	end
 	
 	-- GET-UP PROTECTION: Fighters rising from a knockdown have temporary poise armor

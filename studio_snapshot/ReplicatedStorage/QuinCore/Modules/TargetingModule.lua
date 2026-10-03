@@ -21,9 +21,9 @@ function TargetingModule.selectTarget(quinModel, localState)
 		localState = nil
 	end
 
-	-- SACRED SHOWDOWN TRADITION (Respect & Anti-Bullying)
-	local showdownRole = quinModel:GetAttribute("LeaderShowdownRole")
-	if showdownRole == "PerimeterGuard" or showdownRole == "Transition" then
+	-- RESPECT CUSTOM (Respect & Anti-Bullying)
+	local showdownRole = quinModel:GetAttribute("RespectRole")
+	if showdownRole == "Spectator" or showdownRole == "Watching" then
 		quinModel:SetAttribute("CurrentTarget", "")
 		quinModel:SetAttribute("TargetReason", "Perimeter Spectator (Respect & Tradition)")
 		return nil, 0, "Perimeter Spectator (Respect & Tradition)"
@@ -34,12 +34,12 @@ function TargetingModule.selectTarget(quinModel, localState)
 		if oppName and oppName ~= "" then
 			local serverFolder = workspace:FindFirstChild("QuinServer") or workspace
 			local opp = serverFolder:FindFirstChild(oppName) or workspace:FindFirstChild(oppName)
-			if opp and opp:FindFirstChild("HumanoidRootPart") and opp:GetAttribute("LeaderShowdownRole") == "Duelist" then
+			if opp and opp:FindFirstChild("HumanoidRootPart") and opp:GetAttribute("RespectRole") == "Duelist" then
 				local d = (opp.HumanoidRootPart.Position - rootPart.Position).Magnitude
 				quinModel:SetAttribute("CurrentTarget", opp.Name)
 				quinModel:SetAttribute("LastTargetName", opp.Name)
-				quinModel:SetAttribute("TargetReason", "Sacred Showdown 1v1 Duelist")
-				return opp, 2000, "Sacred Showdown 1v1 Duelist"
+				quinModel:SetAttribute("TargetReason", "Respect custom 1v1 Duelist")
+				return opp, 2000, "Respect custom 1v1 Duelist"
 			end
 		end
 		return nil, 0, "Waiting for Showdown Opponent"
@@ -271,9 +271,9 @@ function TargetingModule.getCommittedTarget(fighter, rootPart, maxRange)
 		return nil, math.huge
 	end
 
-	local myShowdownRole = fighter:GetAttribute("LeaderShowdownRole")
-	local eRole = targetModel:GetAttribute("LeaderShowdownRole")
-	if eRole == "PerimeterGuard" or eRole == "Transition" or (myShowdownRole == "Duelist" and eRole ~= "Duelist") then
+	local myShowdownRole = fighter:GetAttribute("RespectRole")
+	local eRole = targetModel:GetAttribute("RespectRole")
+	if eRole == "Spectator" or eRole == "Watching" or (myShowdownRole == "Duelist" and eRole ~= "Duelist") then
 		TargetingModule.clearTarget(fighter)
 		return nil, math.huge
 	end
@@ -296,9 +296,9 @@ function TargetingModule.getNearest(rootPart, maxRange)
 	local myModel = rootPart.Parent
 	local myTeam = myModel:GetAttribute("Team") or "None"
 	
-	-- Sacred Showdown respect filter
-	local myShowdownRole = myModel:GetAttribute("LeaderShowdownRole")
-	if myShowdownRole == "PerimeterGuard" or myShowdownRole == "Transition" then
+	-- Respect custom respect filter
+	local myShowdownRole = myModel:GetAttribute("RespectRole")
+	if myShowdownRole == "Spectator" or myShowdownRole == "Watching" then
 		return nil, math.huge
 	end
 
@@ -341,9 +341,9 @@ function TargetingModule.getNearest(rootPart, maxRange)
 				local enemyTeam = enemy:GetAttribute("Team") or "None"
 				local isAlly = (myTeam ~= "None" and myTeam == enemyTeam)
 				if not isAlly then
-					local enemyShowdownRole = enemy:GetAttribute("LeaderShowdownRole")
+					local enemyShowdownRole = enemy:GetAttribute("RespectRole")
 					local isShowdownForbidden = false
-					if enemyShowdownRole == "PerimeterGuard" or enemyShowdownRole == "Transition" then
+					if enemyShowdownRole == "Spectator" or enemyShowdownRole == "Watching" then
 						isShowdownForbidden = true
 					elseif myShowdownRole == "Duelist" and enemyShowdownRole ~= "Duelist" then
 						isShowdownForbidden = true

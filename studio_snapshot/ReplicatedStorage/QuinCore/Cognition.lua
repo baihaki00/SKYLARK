@@ -58,15 +58,15 @@ local function livingOthers(quinModel)
 	if #all == 0 then
 		all = (workspace:FindFirstChild("QuinServer") or workspace):GetChildren()
 	end
-	local myRole = quinModel:GetAttribute("LeaderShowdownRole")
+	local myRole = quinModel:GetAttribute("RespectRole")
 	local others = {}
 	for _, other in ipairs(all) do
 		if other ~= quinModel and other:IsA("Model") and other.Parent then
 			local humanoid = other:FindFirstChildOfClass("Humanoid")
 			if humanoid and humanoid.Health > 0 and other:FindFirstChild("HumanoidRootPart") then
-				local otherRole = other:GetAttribute("LeaderShowdownRole")
+				local otherRole = other:GetAttribute("RespectRole")
 				local excluded = (myRole == "Duelist" and otherRole ~= "Duelist")
-					or otherRole == "PerimeterGuard" or otherRole == "Transition"
+					or otherRole == "Spectator" or otherRole == "Watching"
 				if not excluded then
 					table.insert(others, other)
 				end

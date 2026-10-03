@@ -38,6 +38,8 @@ local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("T
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
+local SocialSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("SocialSystem"))
+SocialSystem.start() -- the social layer (pack leaders, respect customs, arena events)
 
 -- === STATE MODULES ===
 local statesFolder = QuinCore:WaitForChild("States") 
@@ -59,7 +61,6 @@ local States = {
 	Interception = require(statesFolder:WaitForChild("InterceptionState")),
 	ReEntry = require(statesFolder:WaitForChild("ReEntryState")),
 	WallRun = require(statesFolder:WaitForChild("WallRunState")),
-	LeaderShowdown = require(statesFolder:WaitForChild("LeaderShowdownState")),
 	BeamStruggle = require(statesFolder:WaitForChild("BeamStruggleState")),
 }
 
@@ -482,11 +483,9 @@ task.spawn(function()
 
 		-- === Arena Safety Net & Cinematic Re-Entry ===
 		if rootPart then
-			-- === Leader Showdown Authoritative Ring Enforcement ===
-			local showdownRole = Quin:GetAttribute("LeaderShowdownRole")
-			if showdownRole == "Duelist" then
-				local LeaderShowdownSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("LeaderShowdownSystem"))
-				LeaderShowdownSystem.constrainToRing(rootPart)
+			-- === Respect-custom duel: duelists stay on the ceremony space ===
+			if Quin:GetAttribute("RespectRole") == "Duelist" then
+				SocialSystem.constrainToCeremony(rootPart)
 			end
 
 			local isOob = SpatialModule.isOutOfBounds(rootPart)
@@ -535,8 +534,7 @@ task.spawn(function()
 			-- If a Quin is grounded and tilted flat (upY < 0.70), force RecoveryState so it stands up
 			-- instead of running/fighting while lying horizontally on the floor.
 			local upY = rootPart.CFrame.UpVector.Y
-			local sdRole = Quin:GetAttribute("LeaderShowdownRole")
-			local isShowdownSpectator = (sdRole == "PerimeterGuard" or sdRole == "Transition")
+			local isShowdownSpectator = SocialSystem.isSpectator(Quin)
 			local isGrounded = SpatialModule.isGrounded(rootPart) or (humanoid.FloorMaterial ~= Enum.Material.Air)
 
 			if upY < 0.70 and isGrounded and not isShowdownSpectator then
@@ -558,12 +556,12 @@ task.spawn(function()
 
 			-- === Anti-Float Protection (stuck mid-air) ===
 			do
-				local isShowdown = (workspace:GetAttribute("LeaderShowdownActive") == true) or (Quin:GetAttribute("LeaderShowdownRole") ~= nil)
+				local isShowdown = Quin:GetAttribute("RespectRole") == "Duelist"
 				local isAirState = (currentState.name == "Knockback" or currentState.name == "Airborne"
 					or currentState.name == "ProjectileJump"
 					or currentState.name == "MidAirClash" or currentState.name == "BeamStruggle"
 					or currentState.name == "Recovery"
-					or currentState.name == "ReEntry" or currentState.name == "LeaderShowdown")
+					or currentState.name == "ReEntry")
 				if not isShowdown and not isAirState and not isGrounded and rootPart.AssemblyLinearVelocity.Magnitude < 5 then
 					local floatTime = (Quin:GetAttribute("FloatTime") or 0) + 0.1
 					Quin:SetAttribute("FloatTime", floatTime)
@@ -612,8 +610,8 @@ task.spawn(function()
 
 
 		-- === Tactical Perception & Emergent Decision Layer ===
-		local showdownRole = Quin:GetAttribute("LeaderShowdownRole")
-		local isShowdownPerimeter = (showdownRole == "PerimeterGuard" or showdownRole == "Transition")
+		local showdownRole = Quin:GetAttribute("RespectRole")
+		local isShowdownPerimeter = SocialSystem.isSpectator(Quin) -- (respect-custom spectators don't plan fights)
 		local isBeamStruggling = (currentState.name == "BeamStruggle")
 
 		if not isShowdownPerimeter and not isBeamStruggling and rootPart and humanoid.Health > 0 then
@@ -680,20 +678,8 @@ task.spawn(function()
 			end
 		end
 
-		-- Handle forced states from external forces (e.g., getting hit or LeaderShowdown)
+		-- Handle forced states from external forces (e.g., getting hit)
 		local forceStateStr = Quin:GetAttribute("ForceState")
-		if isShowdownPerimeter then
-			if currentState.name ~= "LeaderShowdown" then
-				forceStateStr = "LeaderShowdown"
-			else
-				forceStateStr = nil
-				Quin:SetAttribute("ForceState", nil)
-			end
-		elseif not forceStateStr and Quin:GetAttribute("CurrentState") == "LeaderShowdown" and currentState.name ~= "LeaderShowdown" then
-			forceStateStr = "LeaderShowdown"
-		elseif not forceStateStr and showdownRole == "Duelist" and Quin:GetAttribute("CurrentState") == "Fight" and currentState.name == "LeaderShowdown" then
-			forceStateStr = "Fight"
-		end
 
 		local forceState = nil
 		if forceStateStr and States[forceStateStr] then
@@ -713,9 +699,6 @@ task.spawn(function()
 			end
 		end
 
-		if isShowdownPerimeter and newState and newState.name ~= "LeaderShowdown" then
-			newState = States.LeaderShowdown
-		end
 		
 		if newState and newState ~= currentState then
 			-- State Dwell Commitment Check: prevent rapid 100-300ms fluttering

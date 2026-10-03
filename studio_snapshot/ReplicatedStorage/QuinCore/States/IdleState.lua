@@ -76,10 +76,15 @@ function IdleState.exit(fighter, humanoid, rootPart)
 end
 
 function IdleState.update(fighter, humanoid, rootPart, DEBUG)
-	-- Showdown perimeter spectators must never enter idle or seek targets
-	local showdownRole = fighter:GetAttribute("LeaderShowdownRole")
-	if showdownRole == "PerimeterGuard" or showdownRole == "Transition" then
-		return require(script.Parent:WaitForChild("LeaderShowdownState"))
+	-- Respect-custom spectators must never enter idle or seek targets
+	local showdownRole = fighter:GetAttribute("RespectRole")
+	if showdownRole == "Spectator" or showdownRole == "Watching" then
+		-- Walks where it decided to watch from, then stands and watches
+		local SocialSystem = require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem)
+		if not SocialSystem.followMoveIntent(fighter, humanoid, rootPart, 0.1) then
+			humanoid:Move(Vector3.zero)
+		end
+		return IdleState
 	end
 
 	-- Energy recovery while idle

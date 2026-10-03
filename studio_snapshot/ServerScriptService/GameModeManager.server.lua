@@ -275,47 +275,16 @@ function GameModeManager.startTeamBattle(teamSize)
 			local alphaAlive = countAlive("TeamAlpha")
 			local betaAlive = countAlive("TeamBeta")
 			
-			-- Check for Leader Showdown conditions
-			local LSS = _G.LeaderShowdownSystem or shared.LeaderShowdownSystem
-			if LSS and not LSS.isActive then
-				if (alphaAlive >= 2 and betaAlive == 1) then
-					local squad = getAliveQuins("TeamAlpha")
-					local lone = getAliveQuins("TeamBeta")[1]
-					if lone and #squad >= 2 then
-						task.spawn(function()
-							LSS.initiateAsymmetricShowdown(squad, lone)
-						end)
-					end
-				elseif (betaAlive >= 2 and alphaAlive == 1) then
-					local squad = getAliveQuins("TeamBeta")
-					local lone = getAliveQuins("TeamAlpha")[1]
-					if lone and #squad >= 2 then
-						task.spawn(function()
-							LSS.initiateAsymmetricShowdown(squad, lone)
-						end)
-					end
-				elseif (alphaAlive == 1 and betaAlive == 1) then
-					local quinA = getAliveQuins("TeamAlpha")[1]
-					local quinB = getAliveQuins("TeamBeta")[1]
-					if quinA and quinB then
-						task.spawn(function()
-							LSS.initiate1v1RefereeProtocol(quinA, quinB)
-						end)
-					end
-				end
-			end
+			-- (Leader showdowns and respect customs now emerge from the Quins: SocialSystem)
 
 			if alphaAlive == 0 and betaAlive == 0 then
 				roundActive = false
-				if LSS then LSS.reset() end
 				broadcastStatus("DRAW! Both teams eliminated!")
 			elseif alphaAlive == 0 then
 				roundActive = false
-				if LSS then LSS.reset() end
 				broadcastStatus("TEAM BETA WINS! (" .. betaAlive .. " survivors)")
 			elseif betaAlive == 0 then
 				roundActive = false
-				if LSS then LSS.reset() end
 				broadcastStatus("TEAM ALPHA WINS! (" .. alphaAlive .. " survivors)")
 			end
 		end

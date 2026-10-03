@@ -136,12 +136,12 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		scores["Retreat"] = rawRetreat * math.clamp(escapeFeasibility * 1.4, 0.4, 1.4) * math.clamp(battleLifeValue * 1.2, 0.3, 1.2)
 	end
 
-	-- Sacred Showdown 1v1 Honor: Duelists never retreat inside the circle
-	local showdownRole = quinModel:GetAttribute("LeaderShowdownRole")
+	-- Respect custom 1v1 Honor: Duelists never retreat inside the circle
+	local showdownRole = quinModel:GetAttribute("RespectRole")
 	if showdownRole == "Duelist" then
 		scores["Retreat"] = 0
 		scores["Attack"] = (scores["Attack"] or 50) + 40
-		table.insert(decisionReasons, "Sacred Showdown: Stand and fight (zero retreat)")
+		table.insert(decisionReasons, "Respect custom: Stand and fight (zero retreat)")
 	end
 
 	-- Hysteresis sticky bonus: if currently actively retreating and still viable, stick with it

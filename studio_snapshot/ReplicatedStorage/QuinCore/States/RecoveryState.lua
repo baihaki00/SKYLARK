@@ -162,10 +162,9 @@ function RecoveryState.exit(fighter, humanoid, rootPart)
 end
 
 function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
-	local showdownRole = fighter:GetAttribute("LeaderShowdownRole")
+	local showdownRole = fighter:GetAttribute("RespectRole")
 	if showdownRole == "Duelist" then
-		local LeaderShowdownSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("LeaderShowdownSystem"))
-		LeaderShowdownSystem.constrainToRing(rootPart)
+		require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).constrainToCeremony(rootPart)
 	end
 
 	local data = recoveryData[fighter]

@@ -124,10 +124,9 @@ end
 
 local DEBUG_KB = true
 function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
-	local showdownRole = fighter:GetAttribute("LeaderShowdownRole")
+	local showdownRole = fighter:GetAttribute("RespectRole")
 	if showdownRole == "Duelist" then
-		local LeaderShowdownSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LeaderShowdownSystem"))
-		LeaderShowdownSystem.constrainToRing(rootPart)
+		require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).constrainToCeremony(rootPart)
 	end
 
 	local data = knockbackData[fighter]

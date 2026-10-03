@@ -147,12 +147,12 @@ function RetreatState.exit(fighter, humanoid, rootPart)
 end
 
 function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
-	-- Sacred Showdown: Duelists stand and fight; spectators watch
-	local showdownRole = fighter:GetAttribute("LeaderShowdownRole")
+	-- Respect custom: Duelists stand and fight; spectators watch
+	local showdownRole = fighter:GetAttribute("RespectRole")
 	if showdownRole == "Duelist" then
 		return require(script.Parent:WaitForChild("FightState"))
-	elseif showdownRole == "PerimeterGuard" or showdownRole == "Transition" then
-		return require(script.Parent:WaitForChild("LeaderShowdownState"))
+	elseif showdownRole == "Spectator" or showdownRole == "Watching" then
+		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
 	end
 
 	local data = retreatData[fighter]

@@ -167,20 +167,19 @@ function CirclingState.exit(fighter, humanoid, rootPart)
 end
 
 function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
-	-- Showdown perimeter spectators must never circle
-	local showdownRole = fighter:GetAttribute("LeaderShowdownRole")
-	if showdownRole == "PerimeterGuard" or showdownRole == "Transition" then
-		return require(script.Parent:WaitForChild("LeaderShowdownState"))
+	-- Respect-custom spectators must never circle
+	local showdownRole = fighter:GetAttribute("RespectRole")
+	if showdownRole == "Spectator" or showdownRole == "Watching" then
+		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
 	end
 
-	-- Showdown Ring Containment & Jump Suppression
-	local inShowdown = (workspace:GetAttribute("LeaderShowdownActive") == true) or (showdownRole ~= nil)
+	-- Respect-custom duel: kept on the ceremony space, no jumping away
+	local inShowdown = (showdownRole == "Duelist") -- (a respect-custom duel)
 	if inShowdown then
 		humanoid.UseJumpPower = true
 		humanoid.JumpPower = 0
 		humanoid.JumpHeight = 0
-		local LeaderShowdownSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("LeaderShowdownSystem"))
-		LeaderShowdownSystem.constrainToRing(rootPart)
+		require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).constrainToCeremony(rootPart)
 	end
 
 	local data = circlingData[fighter]

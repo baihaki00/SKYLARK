@@ -698,4 +698,18 @@ CombatConfig.Cognition = {
 	RumourConfidence = 0.3,
 }
 
+-- Social layer (Modules/SocialSystem): pack leaders, signals, respect customs, arena events.
+-- Quins never speak: this is body language (head looks, nods, walking somewhere, making space).
+CombatConfig.Social = {
+	Enabled = true,
+	TickRate = 4,             -- whole-field social updates per second
+	LookTime = 1.2,           -- seconds a social head look lasts
+	NodDuration = 0.6,        -- seconds of a nod (two dips)
+	NodDepth = 12,            -- degrees the head dips
+	Paces = { walk = 12, jog = 22, run = 34 }, -- studs/s for move intents
+	ArriveDistance = 4,       -- studs: a move intent is done this close
+	-- Arena event levels, lowest to highest (SocialSystem.raiseEvent never goes down)
+	EventLevels = { "Normal", "Interesting", "Notable", "LeaderShowdown", "RespectCustom",
+		"UnexpectedLeaderDefeat", "HonorableComeback", "BigClutch", "Historic" },
+}
 return CombatConfig

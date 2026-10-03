@@ -478,9 +478,10 @@ function QuinSpawner.cleanAll()
 		ghostFolder:ClearAllChildren()
 	end
 
-	local LSS = _G.LeaderShowdownSystem or shared.LeaderShowdownSystem
-	if LSS then
-		LSS.reset()
+	-- Social memory and the arena event level start over with the next fighters
+	local okSocial, SocialSystem = pcall(require, game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem)
+	if okSocial and SocialSystem then
+		SocialSystem.reset()
 	end
 
 	print("[QuinSpawner] Cleaned all AI fighters from arena (player character untouched)")

@@ -73,7 +73,7 @@ function KnockbackModule.applyKnockback(targetModel, direction, force, duration)
 	end
 	
 	-- Parabolic throw using instant velocity
-	local isShowdown = (workspace:GetAttribute("LeaderShowdownActive") == true) or (targetModel:GetAttribute("LeaderShowdownRole") ~= nil)
+	local isShowdown = targetModel:GetAttribute("RespectRole") == "Duelist" -- (a respect-custom duel: contained knockback)
 	if isShowdown then
 		-- Grounded sacred duel: tight martial-arts stagger recoil, strictly contained
 		local clampedForce = math.min(effectiveForce, 24)
@@ -107,7 +107,7 @@ function KnockbackModule.applyLaunch(targetModel, verticalForce, horizontalForce
 	verticalForce = (verticalForce or 120) / weight
 	horizontalForce = (horizontalForce or 20) / weight
 
-	local isShowdown = (workspace:GetAttribute("LeaderShowdownActive") == true) or (targetModel:GetAttribute("LeaderShowdownRole") ~= nil)
+	local isShowdown = targetModel:GetAttribute("RespectRole") == "Duelist" -- (a respect-custom duel: contained knockback)
 	if isShowdown then
 		verticalForce = math.min(verticalForce, 14)
 		horizontalForce = math.min(horizontalForce, 12)

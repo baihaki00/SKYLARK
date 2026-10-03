@@ -52,7 +52,7 @@ end
 -- True when the Quin stands on a platform it can hold
 function OverwatchState.canHold(fighter, rootPart)
 	return CombatConfig.Overwatch_Enabled ~= false
-		and fighter:GetAttribute("LeaderShowdownRole") == nil
+		and fighter:GetAttribute("RespectRole") == nil
 		and heldPlatform(rootPart) ~= nil
 end
 

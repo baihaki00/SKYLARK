@@ -137,6 +137,21 @@ AnimationConfig.Registry.ProjectileJump = {
 	DiveFly = { id = "rbxassetid://120414990498875", speed = 1.00, fadeTime = 0.08, priority = "Action3", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Flying (dive)" },
 }
 
+-- Social body language (SocialSystem.playSlot). Blank until clips exist: a blank slot is skipped
+-- and the Quin falls back to stillness, head looks and pace. Paste an id to switch one on.
+AnimationConfig.Registry.Social = {
+	Nod = { id = "", speed = 1.00, fadeTime = 0.10, priority = "Action2", looped = false, name = "Social: nod (the head nod is procedural without it)" },
+	HoldBack = { id = "", speed = 1.00, fadeTime = 0.15, priority = "Action2", looped = false, name = "Social: hand up, hold back / cool down" },
+	Beckon = { id = "", speed = 1.00, fadeTime = 0.15, priority = "Action2", looped = false, name = "Social: beckon / come on" },
+	Kneel = { id = "", speed = 1.00, fadeTime = 0.25, priority = "Action2", looped = true, name = "Social: kneel" },
+	Sit = { id = "", speed = 1.00, fadeTime = 0.30, priority = "Action2", looped = true, name = "Social: sit and watch" },
+	Lean = { id = "", speed = 1.00, fadeTime = 0.30, priority = "Action2", looped = true, name = "Social: lean and watch" },
+	Crouch = { id = "", speed = 1.00, fadeTime = 0.25, priority = "Action2", looped = true, name = "Social: crouch and watch" },
+	Celebrate = { id = "", speed = 1.00, fadeTime = 0.15, priority = "Action2", looped = false, name = "Social: celebrate" },
+	Exhausted = { id = "", speed = 1.00, fadeTime = 0.30, priority = "Action2", looped = true, name = "Social: exhausted, catching breath" },
+	LookUp = { id = "", speed = 1.00, fadeTime = 0.30, priority = "Action2", looped = false, name = "Social: look up" },
+}
+
 function AnimationConfig.get(dotPath)
 	if dotPath == "Combat.DesperateCounter" then
 		return AnimationConfig.Registry.Tactics and AnimationConfig.Registry.Tactics.DesperateCounter
