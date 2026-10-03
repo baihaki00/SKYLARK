@@ -252,3 +252,56 @@ rest is the engine (animation, IK, skinning), not split further.
 
 A local `python -m http.server` in `studio_snapshot` and `HttpService:GetAsync` from an Edit-mode
 command: the script is edited on disk with ordinary tools, then pushed (compile-checked first).
+
+---
+
+# Sixth round (2026-10-04): chest to the front in a strafe, thigh roll, arms out of the body
+
+Owner: the strafe clips should read "moving 90 degrees left or right, looking forward"; on D the
+thighs still turn inward ("shy legs") and the arms go through the body; hide the props.
+
+## Strafe clips and the chest (layer `SquareUp`)
+
+The clips, on the rig: travel exactly 90 degrees to the side; hips turned 63-68 degrees toward the
+travel (30 in the Tired clips), chest 42-46 (24), head 2-6: the head already looks to the front.
+`SquareUp` measures the chest's turn from the shoulders, averages it over a stride (the swing
+stays), turns Spine and Spine1 back by it, and turns the neck the other way so the head stays
+where the clip has it.
+
+| Strafe test part | Chest off the front, clip (A) | D |
+|---|---|---|
+| Walk left / right | 44 / -43 | 7 / 9 |
+| Run left / right | 42 / -44 | 1 / 1 |
+| Tired left / right | 24 / -24 | 5 / 7 |
+| Circle walk left / right | 41 / -36 | -5 / 5 |
+| Circle run left / right | 41 / -44 | -7 / 6 |
+| Tight circle (radius 4) | 41 | -10 |
+
+D's head while circling: within 2-11 degrees of the point it circles. New programme "Strafe test"
+(button on the bar, `Clip = "#Strafe"`): each strafe clip along a line on the open floor, then
+circling a marker the Quin faces (radius 8 walk, 12 run, 4 tight).
+
+## Thigh roll (layer `ThighTwist`)
+
+The leg IK puts the knee and the foot where they belong but rolls the thigh about its own length
+freely. Against the clip's thigh (lane C, no fix): 14 degrees RMS walking, 26 backward, 72 with the
+body slower than the clip, single frames up to 180. A knee hinge does not change it (16 RMS on and
+off). The thigh's rotation is now baked with the clip; at the pose step the thigh is rolled back to
+the clip's and the shin turned the other way by the same amount, so knee, shin and foot stay put.
+D: 0 degrees RMS, worst 1-3; foot to its IK target 0.00-0.02 studs average, 0.15 worst.
+
+## Arms and the trunk (layer `ArmClear`)
+
+Distance of the wrists and elbows from the line through the trunk (under the hips to the upper
+chest). The clips themselves keep 0.88-1.10 studs. Before: D's elbow came to 0.26-0.75 and its
+wrist to 0.03-0.08 (arm lag, the squared chest, and arm IK reaching across the body). Now: an
+elbow or wrist closer than 0.95 is turned back out (the wrist on the elbow's side); a hand only
+takes a rail on its own side; the left hand only points ahead or to its left.
+Tour plus strafe test, 205 s: D's elbow never under 0.95; D's wrist under 0.90 on fewer than 0.005%
+of frames (closest 0.61, in the strafe run to the left); the clip's own arms are under 0.90 on 0.38%.
+
+## Props
+
+Baton, hanging tag and trail are a layer (`Props`), off by default.
+
+No IK Lab script errors; 208-235 fps with the four lanes.

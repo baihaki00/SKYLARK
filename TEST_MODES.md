@@ -79,6 +79,10 @@ Each Quin's label shows the current programme part and its planted-foot numbers 
 | Toes | a toe that would dig into the ground bends flat |
 | Breath | the chest rises and falls at idle |
 | StrideWarp | the step is shortened or stretched when the body's speed is not the clip's |
+| ThighTwist | the thigh is rolled back to the clip's roll (the leg IK rolls it freely: knees that look turned in) |
+| SquareUp | in a strafe the chest is turned back to the front; the head stays where the clip has it |
+| ArmClear | an elbow or wrist that ends up inside the trunk is turned back out |
+| Props (off) | the baton, hanging tag and trail |
 | Contact | the hand nearest a rail within reach rests on it (rails beside lane D) |
 | Inertial (off) | a new clip takes over at once and the last pose is carried into it; the legs pop, so it is off |
 | KneeHinge (off) | a hinge between the leg bones; no gain over the knee pole placed from the clip |
@@ -87,6 +91,7 @@ Lean, SlopeLean, PelvisSpring and HipTwist move the root before the engine solve
 
 **Bar at the bottom of the screen:**
 - **Prev / Next, << Category / Category >>:** play any clip of `AnimationConfig` (read with `getAllPaths()`, so new clips appear by themselves). A looping clip that travels (1.5 studs/s or more, measured from the clip) carries the Quins up and down the course; any other clip is played standing on the rubble.
+- **Strafe test:** each strafe clip along a line on the open floor, then circling a marker the Quin faces (walk, run, tight).
 - **Tour:** the full programme: the walk clip with the body slower and faster than the clip, then walk, run, strafe left, backward, jog, strafe right over the course, then walk and run circles, then run and three jumps.
 - **All / Look at A-D:** camera on all lanes, or orbiting one Quin (hold right mouse to look around, wheel to zoom).
 - **1x / 0.3x / 0.1x, Pause.**

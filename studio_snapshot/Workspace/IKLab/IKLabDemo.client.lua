@@ -23,6 +23,8 @@
 	  Tour         the walk clip with the body going slower and faster than the clip, then
 	               walk, run, jog, strafe both ways and walk backward over the course, turn
 	               in place, walk and run circles, run and jump.
+	  Strafe test  every strafe clip along a line on the open floor, then circling a point the
+	               Quin faces (walk, run, and a tight circle).
 	  Single clip  any clip of QuinCore's AnimationConfig (Prev / Next). A looping clip that
 	               travels carries the Quins up and down the course; any other clip is played
 	               standing on the rubble.
@@ -36,7 +38,7 @@
 	before the engine solves, so the pose and the root always agree.
 
 	State (attributes on Workspace.IKLab; the on-screen buttons only write these):
-	  Clip       "" = Tour, else an AnimationConfig path such as "Movement.Jog"
+	  Clip       "" = Tour, "#Strafe" = Strafe test, else an AnimationConfig path such as "Movement.Jog"
 	  Focus      "" = camera frames all lanes, else "A".. "D" = orbit that Quin
 	             (hold right mouse to look around, wheel to zoom)
 	  TimeScale  playback speed (1, 0.3, 0.1)
@@ -112,21 +114,27 @@ local TURN_LOOK_MAX = math.rad(14)
 local ARM_OMEGA, ARM_DAMPING = 14, 0.45 -- loose: the arms overshoot a little
 local ARM_MAX = math.rad(25)
 local POINT_RANGE, POINT_CONE, POINT_WEIGHT = 30, math.rad(60), 0.7
+local POINT_ACROSS = math.rad(15) -- how far to the right of straight ahead the left hand still points
 local CONTACT_WEIGHT = 0.85 -- how firmly a hand goes to a rail within reach
 local POLE_REACH = 3 -- studs from the knee to its pole
+local SQUARE_RATE = 5 -- how fast the chest's average turn is followed (1/s); the stride's own swing is left alone
+local SQUARE_GAIN, SQUARE_MAX = 1, math.rad(55) -- how much of that turn is taken back, and the most the spine twists for it
+local ARM_CLEAR = 0.95 -- studs an elbow or a wrist keeps from the line through the trunk (the clips' own arms: 0.93-1.09)
+local TRUNK_BELOW_HIPS = 1.2 -- the trunk's line starts this far under the hips (the top of the thighs)
 local STRIDE_MIN_SPEED = 1.5 -- studs/s of clip travel below which there is no stride to warp
 local STRIDE_MIN, STRIDE_MAX = 0.5, 1.6 -- how far a stride is shortened or stretched
 local INERTIAL_TIME = 0.25 -- seconds over which the pose carried into a new clip is let go
 local SWITCH_JUMP = 0.5 -- a clip weight asked to change by this much at once is a switch, not a blend
 local TOE_FADE = 0.4 -- studs above the ground over which the toe bend fades out
 local BREATH_HZ, BREATH_ANGLE = 0.25, math.rad(1.2)
-local LAYERS = { "Lean", "SlopeLean", "PelvisSpring", "HipTwist", "StrideWarp", "SpineCounter", "Look", "ArmLag", "Point", "Contact", "Toes", "Breath", "Inertial", "KneeHinge" }
+local LAYERS = { "Lean", "SlopeLean", "PelvisSpring", "HipTwist", "StrideWarp", "ThighTwist", "SpineCounter", "SquareUp", "Look", "ArmLag", "ArmClear", "Point", "Contact", "Toes", "Breath", "Inertial", "KneeHinge", "Props" }
 -- Off unless switched on, because they measured no better or worse than without:
 --   KneeHinge  with the knee pole placed from the clip, a hinge on top changes nothing measurable
 --   Inertial   the upper body carries over well, but the legs pop: the engine solves the leg IK
 --              before the pose can be edited (a jump: knee and foot acceleration 3-7 times the
 --              clip's with it, 1.3 times with the plain cross-fade)
-local LAYER_OFF_BY_DEFAULT = { KneeHinge = true, Inertial = true }
+--   Props      the baton, the hanging tag and the trail: they hide the arms, so they are shown on request
+local LAYER_OFF_BY_DEFAULT = { KneeHinge = true, Inertial = true, Props = true }
 
 local function layerOn(name: string): boolean
 	local switch = lab:GetAttribute("D_" .. name)
@@ -231,16 +239,21 @@ local GAITS = {
 	Run = { clip = Library.find("Movement.Run"), rate = 1 },
 	StrafeLeft = { clip = Library.find("StrafeLeftWalk"), rate = 1 },
 	StrafeRight = { clip = Library.find("StrafeRightWalk"), rate = 1 },
+	StrafeLeftRun = { clip = Library.find("StrafeLeftRun"), rate = 1 },
+	StrafeRightRun = { clip = Library.find("StrafeRightRun"), rate = 1 },
+	StrafeLeftTired = { clip = Library.find("StrafeLeftTired"), rate = 1 },
+	StrafeRightTired = { clip = Library.find("StrafeRightTired"), rate = 1 },
 	Backward = { clip = Library.find("WalkConfident"), rate = -1 },
 }
 local JUMP = Library.find("Movement.Jump")
 local LAND = Library.find("LandingSoft")
+local STRAFE_CLIPS = { IDLE, GAITS.StrafeLeft.clip, GAITS.StrafeRight.clip, GAITS.StrafeLeftRun.clip, GAITS.StrafeRightRun.clip, GAITS.StrafeLeftTired.clip, GAITS.StrafeRightTired.clip }
 local TOUR_CLIPS = { IDLE, GAITS.Walk.clip, GAITS.Jog.clip, GAITS.Run.clip, GAITS.StrafeLeft.clip, GAITS.StrafeRight.clip, JUMP, LAND }
 
 ----------------------------------------------------------------------------------------
 -- Baked clip data: where each foot and hip joint is, in root space, through the clip.
 ----------------------------------------------------------------------------------------
-local Baked = {} -- [clip.path] = { foot = {Left = {CFrame}, ...}, hip = {...}, knee = {...}, travel = Vector3 }
+local Baked = {} -- [clip.path] = { foot = {Left = {CFrame}, ...}, hip = {...}, knee = {...}, thigh = {...}, travel = Vector3 }
 local ankleHeight = { Left = 0.46, Right = 0.46 } -- foot bone above the sole, standing
 
 local function sampleBaked(baked, side: string, t: number): (CFrame, Vector3, Vector3)
@@ -267,9 +280,15 @@ local function resetConductor()
 	Conductor.air, Conductor.airborne = 0, false
 	Conductor.weights, Conductor.rates, Conductor.restart = { [IDLE.path] = 1 }, {}, {}
 	Conductor.tag = "Start"
+	Conductor.watchCentre = false -- circling: the Quin's opponent stands at the centre (the head looks there)
 	Conductor.cut = true -- the rigs were moved discontinuously this frame
 end
 resetConductor()
+
+-- where a rig's circle is centred (x, z)
+local function circleCentre(index: number): (number, number)
+	return -645 + ((index - 1) % 4) * 27, 468
+end
 
 function Conductor:pose(index: number, lane): (number, number)
 	local back = (lane.row or 0) * 9 -- crowd rows follow behind
@@ -278,7 +297,8 @@ function Conductor:pose(index: number, lane): (number, number)
 	elseif self.mode == "flat" then
 		return self.x - back, 448 + ((index - 1) % 13 + 1) * 8
 	end
-	return -645 + ((index - 1) % 4) * 27 + self.radius * math.cos(self.theta), 468 + self.radius * math.sin(self.theta)
+	local cx, cz = circleCentre(index)
+	return cx + self.radius * math.cos(self.theta), cz + self.radius * math.sin(self.theta)
 end
 
 local function frame(): number
@@ -345,8 +365,11 @@ local function pass(tag: string, gait, toX: number, speedScale: number?)
 	rest(0.6)
 end
 
-local function circle(tag: string, gait, radius: number, laps: number, dir: number)
+-- watch: the centre is its opponent. With a strafe gait the body then faces the centre while it
+-- moves round it (the gait's own travel direction decides the facing).
+local function circle(tag: string, gait, radius: number, laps: number, dir: number, watch: boolean?)
 	local speedMax = gaitSpeed(gait)
+	Conductor.watchCentre = watch == true
 	local function tangent()
 		return Vector3.new(-math.sin(Conductor.theta), 0, math.cos(Conductor.theta)) * dir
 	end
@@ -436,6 +459,27 @@ local function tour()
 		circle("CircleWalk", GAITS.Walk, 4, 1.5, 1)
 		circle("CircleRun", GAITS.Run, 10, 3, -1)
 		jumps()
+		coroutine.yield("publish")
+	end
+end
+
+-- Strafing only: every strafe clip along a line on the open floor (left, then back to the right,
+-- facing the same way throughout), then round a point the Quin faces.
+local function strafeTest()
+	while true do
+		Conductor.mode, Conductor.x, Conductor.cut, Conductor.watchCentre = "flat", -650, true, false
+		pass("StrafeWalk:left", GAITS.StrafeLeft, -590)
+		pass("StrafeWalk:right", GAITS.StrafeRight, -650)
+		pass("StrafeRun:left", GAITS.StrafeLeftRun, -540)
+		pass("StrafeRun:right", GAITS.StrafeRightRun, -650)
+		pass("StrafeTired:left", GAITS.StrafeLeftTired, -634)
+		pass("StrafeTired:right", GAITS.StrafeRightTired, -650)
+		coroutine.yield("publish")
+		circle("CircleWalk:left", GAITS.StrafeLeft, 8, 1, 1, true)
+		circle("CircleWalk:right", GAITS.StrafeRight, 8, 1, -1, true)
+		circle("CircleRun:left", GAITS.StrafeLeftRun, 12, 1.5, 1, true)
+		circle("CircleRun:right", GAITS.StrafeRightRun, 12, 1.5, -1, true)
+		circle("CircleTight:left", GAITS.StrafeLeft, 4, 1.5, 1, true)
 		coroutine.yield("publish")
 	end
 end
@@ -656,6 +700,14 @@ function Rig:buildPlants()
 	socket.Attachment1 = top
 	socket.Parent = tag
 	self.tagTop, self.tagHang = top, hang
+	self.props, self.trail = { baton, anchor, tag }, trail
+end
+
+function Rig:showProps(shown: boolean)
+	for _, part in self.props do
+		part.Transparency = shown and 0 or 1
+	end
+	self.trail.Enabled = shown
 end
 
 function Rig:buildLabel()
@@ -742,6 +794,24 @@ function Rig:clipFoot(side: string, lookAhead: number): (CFrame, Vector3, number
 	knee /= total
 	local lift = math.max(0, pos.Y + ROOT_HEIGHT - ankleHeight[side])
 	return CFrame.new(pos) * rot, hip, lift, knee
+end
+
+-- The thigh bone's rotation the clips ask for (its Transform), blended like the tracks are
+function Rig:clipThigh(side: string): CFrame
+	local rot, total = CFrame.identity, 0
+	for path, track in self.tracks do
+		local baked = Baked[path]
+		local w = track.IsPlaying and track.WeightCurrent or 0
+		if baked and w > 0.01 and track.Length > 0 then
+			local f = (track.TimePosition / track.Length % 1) * BAKE_SAMPLES
+			local i = math.floor(f)
+			local list = baked.thigh[side]
+			local sample = list[i % BAKE_SAMPLES + 1]:Lerp(list[(i + 1) % BAKE_SAMPLES + 1], f - i)
+			total += w
+			rot = rot:Lerp(sample, w / total)
+		end
+	end
+	return rot
 end
 
 -- How fast, and which way, the clips say the body travels (root space, studs/s)
@@ -1076,6 +1146,7 @@ function FullBody.new(rig)
 	self.twist = 0
 	self.armSwing, self.armSwingVel = Vector3.zero, Vector3.zero -- how far a hanging arm is off straight down
 	self.stride = 1
+	self.square = 0 -- how far the clips turn the chest off the front, averaged over a stride (radians, + = left)
 	self.clock = 0
 	self.wasAirborne = false
 
@@ -1083,7 +1154,9 @@ function FullBody.new(rig)
 	self.arms = { Left = { rig.bone("LeftArm"), rig.bone("LeftForeArm") }, Right = { rig.bone("RightArm"), rig.bone("RightForeArm") } }
 	self.toes = { Left = rig.bone("LeftToeBase"), Right = rig.bone("RightToeBase") }
 	self.look = LookController.new(rig.model, nil)
-	self.lookDt = 0
+	self.neck = rig.bone("Neck")
+	self.hands = { Left = rig.bone("LeftHand"), Right = rig.bone("RightHand") }
+	self.chest = rig.bone("Spine2")
 
 	-- the pose carried into a new clip (Inertial): the upper body bone by bone, the hips through the root
 	self.hips = rig.bone("Hips")
@@ -1179,6 +1252,13 @@ function FullBody:observe(base: CFrame, dt: number)
 	local step = math.min(dt, 1 / 30) -- springs stay stable through a slow frame
 	self.clock += step
 	self.carryT += dt
+	if self.rig.props then
+		local shown = layerOn("Props")
+		if shown ~= self.propsShown then
+			self.propsShown = shown
+			self.rig:showProps(shown)
+		end
+	end
 	local yaw = Conductor.yaw
 	if Conductor.cut or not self.prevBase then
 		self.velocity, self.accel, self.yawRate = Vector3.zero, Vector3.zero, 0
@@ -1235,6 +1315,11 @@ function FullBody:observe(base: CFrame, dt: number)
 			local arm = self.reach[side]
 			local shoulder = arm.shoulder.TransformedWorldCFrame.Position
 			local point = nearestRailPoint(shoulder, arm.ik:GetChainLength() * 0.97)
+			-- (only a rail on its own side: reaching for one across the body puts the arm through the chest)
+			local outward = base.RightVector * (side == "Left" and -1 or 1)
+			if point and (point - shoulder):Dot(outward) < 0 then
+				point = nil
+			end
 			-- (the hand already on a rail keeps it unless the other is clearly nearer)
 			local distance = point and (point - shoulder).Magnitude - (arm.onRail and 0.5 or 0) or math.huge
 			if distance < railDistance then
@@ -1254,7 +1339,9 @@ function FullBody:observe(base: CFrame, dt: number)
 		if not goal and side == "Left" and layerOn("Point") and not Conductor.airborne then
 			local to = lookTarget.Position - shoulder
 			local direction = base:VectorToObjectSpace(to.Unit)
-			if math.abs(math.atan2(-direction.X, -direction.Z)) < POINT_CONE and to.Magnitude < POINT_RANGE then
+			local bearing = math.atan2(-direction.X, -direction.Z) -- + = to the left
+			-- (ahead or to its own side, never across the body)
+			if bearing > -POINT_ACROSS and bearing < POINT_CONE and to.Magnitude < POINT_RANGE then
 				goal, weight = shoulder + to.Unit * length * 0.9, POINT_WEIGHT
 			end
 		end
@@ -1300,16 +1387,73 @@ function FullBody:hipsCarryNow(): CFrame
 	return keep > 0 and CFrame.identity:Lerp(self.hipsCarry, keep) or CFrame.identity
 end
 
+-- What the head looks at: the opponent it circles, else the look target
+function FullBody:lookPoint(): Vector3
+	if Conductor.mode == "circle" and Conductor.watchCentre then
+		local x, z = circleCentre(self.rig.index)
+		return Vector3.new(x, self.rig.root.Position.Y + 1, z)
+	end
+	return lookTarget.Position
+end
+
 -- Once per animation step, after animation and IK: the pose-level layers.
 -- dt: the time since the last step (LookController's spring).
 function FullBody:pose(dt: number)
 	local rig = self.rig
 	local amount = self.lean.Magnitude
 
+	-- SquareUp: a strafe clip walks along its travel with the chest turned most of the way with it
+	-- (hips about 65 degrees, chest about 42, the head already to the front). This turns the chest
+	-- back to the front, the more the clips travel sideways, and leaves the head where the clip
+	-- has it. Measured from the shoulders before anything else touches the spine.
+	-- ThighTwist: the leg IK puts the knee and the foot where they belong but rolls the thigh about
+	-- its own length as it likes (up to 70 degrees off the clip: knees that look turned in). The
+	-- thigh is rolled back to the clip's, and the shin is turned the other way by the same amount,
+	-- so the knee joint, the shin and the foot stay exactly where the IK put them.
+	if layerOn("ThighTwist") and rig.ikWeight > 0.01 then
+		for _, side in SIDES do
+			local thigh, shin = rig.legs[side].hip, rig.legs[side].knee
+			local axis, angle = (rig:clipThigh(side):Inverse() * thigh.Transform.Rotation):ToAxisAngle()
+			-- the part of that turn that is about the bone's own length (its Y axis)
+			local twist = 2 * math.atan2(axis.Y * math.sin(angle / 2), math.cos(angle / 2))
+			twist = wrapAngle(twist) * rig.ikWeight
+			if math.abs(twist) > 1e-3 then
+				thigh.Transform *= CFrame.Angles(0, -twist, 0)
+				shin.Transform = shin.CFrame:Inverse() * CFrame.Angles(0, twist, 0) * shin.CFrame * shin.Transform
+			end
+		end
+	end
+
+	local squared = 0 -- the yaw the spine was turned by (radians)
+	do
+		local travel = rig:clipTravel()
+		local sideways = travel.Magnitude > 0.5 and math.abs(travel.Unit.X) or 0
+		local turned = 0
+		if layerOn("SquareUp") and sideways > 0.05 then
+			local across = rig.root.CFrame:VectorToObjectSpace(
+				self.arms.Right[1].TransformedWorldCFrame.Position - self.arms.Left[1].TransformedWorldCFrame.Position)
+			local facing = Vector3.yAxis:Cross(across)
+			turned = math.atan2(-facing.X, -facing.Z) * sideways
+		end
+		self.square += (turned - self.square) * decay(SQUARE_RATE, dt) -- (the average: the shoulders keep their swing)
+		local correction = math.clamp(-self.square * SQUARE_GAIN, -SQUARE_MAX, SQUARE_MAX)
+		if math.abs(correction) > 1e-3 then
+			local rotation = CFrame.fromAxisAngle(rig.root.CFrame.UpVector, correction / 2)
+			for _, bone in self.spine do
+				rotateWorld(bone, rotation)
+			end
+			squared = correction
+		end
+	end
+
 	-- the head follows its target (QuinCore's LookController: in front only, capped, on a spring)
 	if layerOn("Look") then
-		self.look:setTargetOverride(lookTarget.Position)
+		self.look:setTargetOverride(self:lookPoint())
 		self.look:update(dt)
+	end
+	if squared ~= 0 then
+		-- (the head rode round with the chest: the neck takes that turn back out)
+		rotateWorld(self.neck, CFrame.fromAxisAngle(rig.root.CFrame.UpVector, -squared))
 	end
 
 	if layerOn("SpineCounter") then
@@ -1338,6 +1482,50 @@ function FullBody:pose(dt: number)
 			if loose > 1e-3 then
 				rotateWorld(arm[1], CFrame.fromAxisAngle(axis, loose))
 				rotateWorld(arm[2], CFrame.fromAxisAngle(axis, loose * 0.5)) -- the forearm trails a little more
+			end
+		end
+	end
+
+	-- ArmClear: the layers above move the arms and the chest; an elbow or a wrist that ends up
+	-- inside the trunk is pushed back out to its surface.
+	if layerOn("ArmClear") then
+		local low = self.hips.TransformedWorldCFrame.Position - rig.root.CFrame.UpVector * TRUNK_BELOW_HIPS
+		local line = self.chest.TransformedWorldCFrame.Position - low
+		-- Where a point inside the trunk should be instead, or nil if it is outside. `toward`: the
+		-- side to come out on. The deeper the point, the more that decides the way out (a point at
+		-- the centre has no "nearest side" of its own, and the far side means through the chest).
+		local function pushedOut(point: Vector3, toward: Vector3): Vector3?
+			local onLine = low + line * math.clamp((point - low):Dot(line) / line:Dot(line), 0, 1)
+			local out = point - onLine
+			local depth = out.Magnitude
+			if depth >= ARM_CLEAR then
+				return nil
+			end
+			out = out + toward * (ARM_CLEAR - depth)
+			if out.Magnitude < 0.05 then
+				out = toward
+			end
+			return onLine + out.Unit * ARM_CLEAR
+		end
+		for side, arm in self.arms do
+			local ownSide = rig.root.CFrame.RightVector * (side == "Left" and -1 or 1)
+			local shoulder = arm[1].TransformedWorldCFrame.Position
+			local elbow = arm[2].TransformedWorldCFrame.Position
+			local clear = pushedOut(elbow, ownSide)
+			if clear then
+				rotateWorld(arm[1], CFrame.fromRotationBetweenVectors((elbow - shoulder).Unit, (clear - shoulder).Unit))
+				elbow = arm[2].TransformedWorldCFrame.Position
+			end
+			-- the wrist comes out on the elbow's side. (Also on an arm the IK holds: a goal that would
+			-- put the hand in the chest loses.) The forearm's length is fixed, so the point it is
+			-- turned toward is not always reached at once: a second pass settles it.
+			local elbowSide = elbow - (low + line * math.clamp((elbow - low):Dot(line) / line:Dot(line), 0, 1))
+			elbowSide = elbowSide.Magnitude > 0.05 and elbowSide.Unit or ownSide
+			for _ = 1, 2 do
+				local wrist = self.hands[side].TransformedWorldCFrame.Position
+				clear = pushedOut(wrist, elbowSide)
+				if not clear then break end
+				rotateWorld(arm[2], CFrame.fromRotationBetweenVectors((wrist - elbow).Unit, (clear - elbow).Unit))
 			end
 		end
 	end
@@ -1432,7 +1620,7 @@ local function bake(rig, clip): boolean
 		rig.weights[path] = 0
 	end
 	track:Play(0, 1, 0)
-	local baked = { foot = { Left = {}, Right = {} }, hip = { Left = {}, Right = {} }, knee = { Left = {}, Right = {} }, travel = Vector3.zero, length = track.Length }
+	local baked = { foot = { Left = {}, Right = {} }, hip = { Left = {}, Right = {} }, knee = { Left = {}, Right = {} }, thigh = { Left = {}, Right = {} }, travel = Vector3.zero, length = track.Length }
 	for i = 1, BAKE_SAMPLES do
 		track.TimePosition = (i - 1) / BAKE_SAMPLES * track.Length
 		for _ = 1, 3 do RunService.Heartbeat:Wait() end
@@ -1440,6 +1628,7 @@ local function bake(rig, clip): boolean
 			baked.foot[side][i] = rig.root.CFrame:ToObjectSpace(rig.legs[side].foot.TransformedWorldCFrame)
 			baked.hip[side][i] = rig.root.CFrame:PointToObjectSpace(rig.legs[side].hip.TransformedWorldCFrame.Position)
 			baked.knee[side][i] = rig.root.CFrame:PointToObjectSpace(rig.legs[side].knee.TransformedWorldCFrame.Position)
+			baked.thigh[side][i] = rig.legs[side].hip.Transform.Rotation -- the thigh bone's own pose in the clip
 		end
 	end
 	track:Stop(0)
@@ -1510,7 +1699,7 @@ local function buildHud(): (ScreenGui, TextLabel)
 	local bar = Instance.new("Frame")
 	bar.AnchorPoint = Vector2.new(0.5, 1)
 	bar.Position = UDim2.new(0.5, 0, 1, -16)
-	bar.Size = UDim2.fromOffset(820, 96)
+	bar.Size = UDim2.fromOffset(960, 96)
 	bar.BackgroundColor3 = Color3.fromRGB(15, 20, 30)
 	bar.BackgroundTransparency = 0.15
 	bar.Parent = gui
@@ -1551,6 +1740,7 @@ local function buildHud(): (ScreenGui, TextLabel)
 	button("Next >", 566, 10, 70, function() stepClip(1) end)
 	button("Category >>", 642, 10, 96, function() stepCategory(1) end)
 	button("Tour", 744, 10, 66, set("Clip", ""))
+	button("Strafe test", 816, 10, 134, set("Clip", "#Strafe"))
 
 	-- row 2: camera, speed, pause
 	button("All", 10, 54, 50, set("Focus", ""))
@@ -1646,6 +1836,19 @@ local function start()
 		table.insert(rigs, Rig.new(index, lane, runtime))
 	end
 	local lanes = table.clone(rigs) -- the four that are measured
+	-- the point each lane circles (its "opponent" in the strafe test)
+	for index in LANES do
+		local x, z = circleCentre(index)
+		local marker = Instance.new("Part")
+		marker.Name = "CircleCentre"
+		marker.Shape = Enum.PartType.Ball
+		marker.Size = Vector3.one * 1.2
+		marker.Anchored, marker.CanCollide, marker.CanQuery = true, false, false
+		marker.Material = Enum.Material.Neon
+		marker.Color = Color3.fromRGB(255, 120, 90)
+		marker.Position = Vector3.new(x, FLOOR_Y + 6, z)
+		marker.Parent = runtime
+	end
 	-- the cost test: more full-procedural Quins on the open floor beside the course
 	for i = 1, lab:GetAttribute("Crowd") or 0 do
 		local z = CROWD_Z[(i - 1) % #CROWD_Z + 1]
@@ -1684,6 +1887,14 @@ local function start()
 				local travel = Baked[clip.path].travel.Magnitude * clip.rate
 				title.Text = string.format("%d/%d  %s  [%s]  %s", table.find(Library.list, clip), #Library.list, clip.path, clip.label, clip.looped and travel >= MIN_TRAVEL_SPEED and string.format("%.1f studs/s", travel) or "standing")
 				run(function() single(clip) end)
+			elseif path == "#Strafe" then
+				title.Text = "loading the strafe clips"
+				for _, strafeClip in STRAFE_CLIPS do
+					bake(rigs[1], strafeClip)
+					if mine ~= session or lab:GetAttribute("Clip") ~= path then return end
+				end
+				title.Text = "Strafe test: each strafe clip along a line, then circling a point it faces"
+				run(strafeTest)
 			else
 				title.Text = "Tour: walk, run, strafe, backward, jog, circles, jumps"
 				run(tour)
