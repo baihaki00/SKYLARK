@@ -53,8 +53,15 @@ previous session's own, from its Play runs.
   time, Retreat 0-6%, Overwatch gone, no errors.
 - A full 16v16 did not reach a lull by itself within 113 s.
 
+## Regression after the commit (16v16, 99 s, flat arena)
+
+- 905 strikes: hit 67%, whiff 6%, interrupted 20%, blocked 7% (Pass 29 baseline 66 / 8 / 18 / 8).
+- Time by state: Fight 37%, Chase 26%, Circling 15%, Recovery 7%, ProjectileJump 5%, Knockback 5%.
+- No script errors in the server log. Lull clock stayed at 0 (fighting never thinned).
+- All 32 still alive at about 110 s (average health 51%, lowest 17%, max health 1000).
+
 ## Open
 
 - Big Clutch / Historic not seen in Play.
 - The standoff and the spectators were watched by the owner, not measured.
-- Crowd reactions in a live Arena match not checked.
+- Crowd reactions in a live Arena match not checked; P possess not re-checked.
