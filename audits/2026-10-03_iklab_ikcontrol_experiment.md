@@ -126,3 +126,19 @@ above 0.3 studs/s) and RMS acceleration against lane A's.
 - IKControl LookAt: works, but over-rotates and snaps without code that gates it.
 
 Script cost per rig per frame: 17-25 microseconds, all lanes. Engine solve cost still not measured.
+
+---
+
+# Third round (same day): IK Lab becomes a test mode
+
+- The demo no longer runs on every Play (its follow camera took over the view in any mode). It runs
+  only while `CurrentMode == "IKLab"` and removes its rigs, bar and camera when the mode changes.
+- `GameModeManager.startIKLab()`, `SetTestMode` branch "IKLab", `GameCommand` / `DevCommand` "ik_lab",
+  first card on the TEST MODES tab (the other cards moved one column right).
+- Clips come from `AnimationConfig.getAllPaths()` (106 entries); each is baked the first time it is
+  chosen. Looping clips that travel cross the course; the rest play standing on the rubble.
+- Tour gained jog and strafe right.
+- Bottom bar: clip browser, Tour, camera on all / orbit one Quin, slow motion, pause.
+- Checked in Play: start by DevCommand and by the card's remote, Movement.Jog (9.2 studs/s) on the
+  course, Attacks.Kicks.HighKick standing, orbit camera 13.8 studs from lane C, start of Pose Viewer
+  removes the lab, no script errors. The card itself was not clicked by hand.

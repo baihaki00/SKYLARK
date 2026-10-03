@@ -613,6 +613,18 @@ function GameModeManager.startPoseViewer(gender, player)
 	broadcastStatus("Pose Viewer: raw walk clip (male, female) beside a live " .. gender .. " Quin")
 end
 
+-- Test mode: four Quins cross an obstacle course in step, each with a different layer on top of
+-- the same clips (animation only, basic IK, foot placement, engine parts). The scene is built on
+-- the client by Workspace.IKLab.IKLabDemo while CurrentMode is "IKLab".
+function GameModeManager.startIKLab()
+	currentMode = "IKLab"
+	roundActive = false
+	QuinSpawner.cleanAll()
+	Workspace:SetAttribute("CurrentMode", "IKLab")
+	Workspace:SetAttribute("MatchStarted", true)
+	broadcastStatus("IK Lab: animation only vs IK layers, side by side")
+end
+
 function GameModeManager.startMovementTestInArena()
 	currentMode = "MovementTestArena"
 	roundActive = true
@@ -697,6 +709,8 @@ commandEvent.OnServerEvent:Connect(function(player, command, arg1)
 		GameModeManager.startMovementTestInArena()
 	elseif command == "pose_viewer" then
 		GameModeManager.startPoseViewer(arg1, player)
+	elseif command == "ik_lab" then
+		GameModeManager.startIKLab()
 	elseif command == "tournament" then
 		GameModeManager.startTournament()
 	elseif command == "jump_test" then
@@ -799,7 +813,7 @@ task.delay(3, function()
 end)
 
 -- Studio testing: tools that cannot fire GameCommand from a client (the Studio MCP) set
--- Workspace attribute DevCommand = "movement_test" | "team:16" | "ffa:8" | "pose_viewer:Male". Studio only.
+-- Workspace attribute DevCommand = "movement_test" | "team:16" | "ffa:8" | "pose_viewer:Male" | "ik_lab". Studio only.
 if game:GetService("RunService"):IsStudio() then
 	Workspace:GetAttributeChangedSignal("DevCommand"):Connect(function()
 		local raw = Workspace:GetAttribute("DevCommand")
@@ -814,6 +828,8 @@ if game:GetService("RunService"):IsStudio() then
 			GameModeManager.startFreeForAll(tonumber(arg) or 8)
 		elseif command == "pose_viewer" then
 			GameModeManager.startPoseViewer(arg)
+		elseif command == "ik_lab" then
+			GameModeManager.startIKLab()
 		end
 	end)
 end

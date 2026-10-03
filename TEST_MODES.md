@@ -11,6 +11,7 @@ One-click diagnostic scenes for Quin movement and animation. They live in the in
 | Smooth Landing AI | ground-impact landings | `startCleanSlateJumpState` |
 | Tournament Bracket | full 8-Quin bracket | `startTournament` |
 | Deterministic Test | scripted face-off with a forced state | `startTestMode` |
+| **IK Lab** (first card) | animation only against IK layers, any clip, close-up camera | `startIKLab()` (scene is client-side) |
 | **Pose Viewer** | is a bad pose the clip or a game layer? | `startPoseViewer(gender, player)` |
 
 ## Pose Viewer
@@ -47,6 +48,33 @@ It ends when another mode starts: `CurrentMode` changes, or the new mode clears 
 **Options for scripts:** `PoseViewer.start({ gender = "Male", clip = "Movement.WalkConfident", speed = 7.5, player = player })`. Any `AnimationConfig` path works as `clip`, but the live Quin only plays it if its locomotion would (the walk at 7.5 studs/s).
 
 **First find (pass 23b):** the male's left leg looked broken at walk frames 4-9. It was right on the raw rig and wrong only on the live one. The foot solver had pinned the left heel at first touch while the clip still reached forward (fix: `FootIK_PlantWhenStill`).
+
+## IK Lab
+
+`Workspace.IKLab` (course + `IKLabDemo`, a client Script) and `GameModeManager.startIKLab()`. Added 2026-10-03.
+
+**What it shows:** the same male Quin four times, crossing a ramp, stairs, rubble and a side slope in step, with the same clips and speed. Only the layer on top of the animation differs:
+
+| Lane | Layer |
+|---|---|
+| A | animation only |
+| B | basic IK: a foot that would sink is pushed up onto the ground |
+| C | foot placement: ground-relative foot height, lock while planted, slope tilt, pelvis drop |
+| D | C + engine parts: knee hinges instead of poles, head LookAt, part on a hand bone, trail, hanging tag |
+
+Each Quin's label shows the current programme part and its planted-foot numbers (above ground, inside ground, slide).
+
+**Bar at the bottom of the screen:**
+- **Prev / Next, << Category / Category >>:** play any clip of `AnimationConfig` (read with `getAllPaths()`, so new clips appear by themselves). A looping clip that travels (1.5 studs/s or more, measured from the clip) carries the Quins up and down the course; any other clip is played standing on the rubble.
+- **Tour:** the full programme: walk, run, strafe left, backward, jog, strafe right over the course, then walk and run circles, then run and three jumps.
+- **All / Look at A-D:** camera on all lanes, or orbiting one Quin (hold right mouse to look around, wheel to zoom).
+- **1x / 0.3x / 0.1x, Pause.**
+
+The buttons only write attributes on `Workspace.IKLab` (`Clip`, `Focus`, `TimeScale`, `Paused`); a script or MCP agent can set the same attributes. Measurements are published as JSON in `Metrics_A` .. `Metrics_D` (feet per programme part and terrain; every tracked bone against lane A).
+
+**Starting it:** Quin Manager > TEST MODES > IK Lab; or `GameCommand:FireServer("ik_lab")`; or (Studio tools) `workspace:SetAttribute("DevCommand", "ik_lab")`. It ends when `CurrentMode` changes; the client removes its rigs, bar and camera.
+
+Results so far: `audits/2026-10-03_iklab_ikcontrol_experiment.md`.
 
 ## Adding a test mode
 

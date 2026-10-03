@@ -5025,12 +5025,25 @@ tmGrid.BackgroundTransparency = 1
 tmGrid.BorderSizePixel = 0
 tmGrid.ScrollBarThickness = 6
 tmGrid.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 180)
-tmGrid.CanvasSize = UDim2.new(0, 1960, 0, 0)
+tmGrid.CanvasSize = UDim2.new(0, 2200, 0, 0)
 tmGrid.Parent = testModesView
+
+-- First card: IK Lab (Workspace.IKLab.IKLabDemo): the same Quin four times over an obstacle
+-- course, animation only against IK layers, with a clip browser and a per-Quin orbit camera
+createModeCard(
+	tmGrid, 0, "IK Lab", "Animation vs IK Layers",
+	"Four identical Quins cross a ramp, stairs, rubble and a side slope in step:\nA animation only, B basic IK, C foot placement, D engine parts.\n\nBottom bar: Prev / Next plays any clip from AnimationConfig, Tour runs the full programme, Look at A-D orbits one Quin (right mouse, wheel), slow motion and pause.",
+	Color3.fromRGB(255, 200, 90),
+	function(btn)
+		labEvent:FireServer("SetTestMode", { mode = "IKLab" })
+		statusToast.Text = "IK Lab started: controls are in the bar at the bottom of the screen"
+		statusToast.TextColor3 = C_SUCCESS
+	end
+)
 
 -- Card 1: Animation Sparring Lab
 createModeCard(
-	tmGrid, 0, "Animation Sparring", "Stationary Calibration",
+	tmGrid, 240, "Animation Sparring", "Stationary Calibration",
 	"Spawns QuinA (Tester) and QuinB (Partner) 5 studs apart, locked in Idle. Perfect for scrubbing frames, dialing playback speeds, and testing combos.",
 	C_ACCENT,
 	function(btn)
@@ -5041,7 +5054,7 @@ createModeCard(
 
 -- Card 2: Directional Block & Parry Lab
 createModeCard(
-	tmGrid, 240, "Block & Counter Lab", "Parry & Riposte Diagnostics",
+	tmGrid, 480, "Block & Counter Lab", "Parry & Riposte Diagnostics",
 	"Exercises directional blocking! QuinB guards against incoming strikes, rolling BlockFront, BlockLeft, or BlockRight, and immediately fires retaliatory riposte counters on success!",
 	Color3.fromRGB(0, 230, 180),
 	function(btn)
@@ -5052,11 +5065,11 @@ createModeCard(
 )
 
 -- Card 3: 7 Jump Styles Trajectory Lab
-createJumpStyleCard(tmGrid, 480)
+createJumpStyleCard(tmGrid, 720)
 
 -- Card 4: Infinite Strafe
 createModeCard(
-	tmGrid, 720, "Infinite Strafe", "Standoff Calibration",
+	tmGrid, 960, "Infinite Strafe", "Standoff Calibration",
 	"Locks Quins into CirclingState standoff at 25-30 studs. Suppresses tension snaps so you can visually inspect and dial strafe speeds live.",
 	Color3.fromRGB(0, 200, 240),
 	function(btn)
@@ -5078,7 +5091,7 @@ createModeCard(
 
 -- Card 5: Smooth Landing AI
 createModeCard(
-	tmGrid, 960, "Smooth Landing AI", "Impact Absorption",
+	tmGrid, 1200, "Smooth Landing AI", "Impact Absorption",
 	"Isolates Quin ground-impact kinetics. Calibrates fall velocity dampening, foot alignment on uneven terrain, and transition into guard stance.",
 	Color3.fromRGB(80, 170, 255),
 	function(btn)
@@ -5090,7 +5103,7 @@ createModeCard(
 
 -- Card 6: Tournament Elimination Bracket
 createModeCard(
-	tmGrid, 1200, "Tournament Bracket", "8-Quin Bracket Cup",
+	tmGrid, 1440, "Tournament Bracket", "8-Quin Bracket Cup",
 	"Executes the full automated 8-Quin elimination tournament from GameModeManager. Tracks bracket progress, quarterfinals, semifinals, and crowns the champion!",
 	Color3.fromRGB(255, 200, 50),
 	function(btn)
@@ -5111,7 +5124,7 @@ do
 	end
 	local poseAccent = Color3.fromRGB(120, 200, 255)
 	local poseCard = createModeCard(
-		tmGrid, 1680, "Pose Viewer", "Clip vs Game Layers",
+		tmGrid, 1920, "Pose Viewer", "Clip vs Game Layers",
 		"Shows the walk clip exactly as authored on the male and female rigs (no game layers), beside a live Quin walking with every layer on. Each body is labelled with clip, id, time and frame.\n\nFind a bad frame on the live Quin and compare: wrong on the raw rigs too = the clip; wrong only live = a game layer.\n\nControls (Workspace attributes): PoseViewerSpeed, PoseViewerPaused, PoseViewerFrame (-1 = play).",
 		poseAccent,
 		function(btn)
@@ -5140,7 +5153,7 @@ end
 
 -- Card 7: Deterministic Scenarios Evaluator
 createModeCard(
-	tmGrid, 1440, "Deterministic Test", "State Verification",
+	tmGrid, 1680, "Deterministic Test", "State Verification",
 	"Spawns TypeA and TypeB facing each other with 3-2-1 countdown and forces TestState for deterministic physics and combat evaluation.",
 	Color3.fromRGB(180, 110, 255),
 	function(btn)

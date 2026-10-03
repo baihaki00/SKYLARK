@@ -518,6 +518,12 @@ local function handleLabAction(player, action, data)
 				GMM.startTournament()
 			end
 			labEvent:FireAllClients("TestModeChanged", { mode = "Tournament", active = true })
+		elseif testMode == "IKLab" then
+			Workspace:SetAttribute("InfiniteStrafeTest", false)
+			if GMM and GMM.startIKLab then
+				GMM.startIKLab()
+			end
+			labEvent:FireAllClients("TestModeChanged", { mode = "IKLab", active = true })
 		elseif testMode == "PoseViewer" then
 			Workspace:SetAttribute("InfiniteStrafeTest", false)
 			if GMM and GMM.startPoseViewer then
