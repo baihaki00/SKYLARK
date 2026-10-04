@@ -40,6 +40,7 @@ local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local SocialSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("SocialSystem"))
 local HeadroomAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("HeadroomAwareness"))
+local ArenaTrespass = require(QuinCore:WaitForChild("Modules"):WaitForChild("ArenaTrespass"))
 
 -- States in which a Quin stands on the ground by its own choice (and so needs room to stand)
 local STANDING_STATES = { Idle = true, Fight = true, Circling = true, Chase = true, Retreat = true, Overwatch = true }
@@ -492,34 +493,27 @@ task.spawn(function()
 				SocialSystem.constrainToCeremony(rootPart)
 			end
 
-			local isOob = SpatialModule.isOutOfBounds(rootPart)
 			local curStateName = currentState and currentState.name or ""
 
-			-- A wall-run is deliberately inside the boundary margin: the arena's own walls are the
-			-- longest run surfaces, and the out-of-bounds timer used to pull the Quin off them.
-			if isOob and curStateName ~= "ReEntry" and curStateName ~= "Death" and curStateName ~= "WallRun" then
+			-- Off the arena floor (ArenaTrespass). The wall is part of the game and a Quin may be
+			-- thrown out of the arena: both are allowed, both cost performance, and after a while
+			-- the Quin is brought back (ReEntry) unless it has come back by itself. Only the void
+			-- is not a place to be: a Quin that has fallen out of the world is put back at once.
+			-- (Before: anywhere within 5 studs of the floor's edge counted as out, for 1 s.)
+			if curStateName ~= "ReEntry" and curStateName ~= "Death" then
+				local mustReturn = ArenaTrespass.update(Quin, rootPart, curStateName, 0.1)
 				local pos = rootPart.Position
 				local bounds = SpatialModule.getArenaBounds()
 				if math.abs(pos.X - bounds.center.X) > (bounds.halfX + 80) or math.abs(pos.Z - bounds.center.Z) > (bounds.halfZ + 80) or pos.Y < -5 then
 					print(string.format("[SafetyNet] %s in deep void/fallen (%.1f, %.1f, %.1f) - emergency teleport to arena.", Quin.Name, pos.X, pos.Y, pos.Z))
 					Quin:PivotTo(CFrame.new(bounds.center.X, 7.5, bounds.center.Z))
 					rootPart.AssemblyLinearVelocity = Vector3.zero
-					Quin:SetAttribute("OobGroundedTime", 0)
-				else
-					-- Not tumbling in severe knockback
-					local isTumbling = (curStateName == "Knockback") or (math.abs(rootPart.AssemblyLinearVelocity.Y) > 35)
-					if not isTumbling then
-						local oobTime = (Quin:GetAttribute("OobGroundedTime") or 0) + 0.1
-						Quin:SetAttribute("OobGroundedTime", oobTime)
-						if oobTime >= 1.0 then
-							print(string.format("[SafetyNet] %s outside arena for %.1fs - triggering Cinematic ReEntry!", Quin.Name, oobTime))
-							Quin:SetAttribute("ForceState", "ReEntry")
-							Quin:SetAttribute("OobGroundedTime", 0)
-						end
-					end
+				elseif mustReturn and curStateName ~= "WallRun" and curStateName ~= "Knockback"
+					and math.abs(rootPart.AssemblyLinearVelocity.Y) <= 35 then
+					-- (not while it runs along the wall or is still being thrown)
+					print(string.format("[Trespass] %s off the arena floor (%s) for %.1fs - re-entry", Quin.Name, tostring(Quin:GetAttribute("Trespass")), Quin:GetAttribute("TrespassTime") or 0))
+					Quin:SetAttribute("ForceState", "ReEntry")
 				end
-			else
-				Quin:SetAttribute("OobGroundedTime", 0)
 			end
 			
 			-- === Physical Angular Velocity Governor: eliminate physics simulation freakout / 360 spinning ===

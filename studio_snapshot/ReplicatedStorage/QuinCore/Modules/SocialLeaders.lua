@@ -75,6 +75,7 @@ function SocialLeaders.standing(m)
 		+ damage / (CFG.StandingDamagePerPoint or 150)
 		+ hpRatio(m) * (CFG.StandingHealthWeight or 0.6)
 		+ (followScore[m] or 0) * (CFG.StandingPerFollow or 0.15)
+		- (m:GetAttribute("MatchPenalty") or 0) -- (time off the arena floor, throwing a Quin out of the arena: ArenaTrespass)
 end
 
 function SocialLeaders.trustOf(follower, leaderName)

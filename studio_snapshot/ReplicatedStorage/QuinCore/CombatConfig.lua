@@ -538,6 +538,16 @@ CombatConfig.Chase_TrailGiveUpConfidence = 0.6         -- memory confidence belo
 CombatConfig.Chase_SearchLegDistance = 45              -- studs searched onward along the target's last heading, per leg
 CombatConfig.Chase_DistractionCommitment = 0.6         -- a hunter above this commitment ignores passers-by that are not after it
 CombatConfig.Jump_LandingDepthMax = 8                  -- studs past a platform's rim a jump onto it aims to land (toward the middle; less on small tops)
+-- Trespass (Modules/ArenaTrespass): time off the arena floor, on the wall or outside the arena
+CombatConfig.Trespass = {
+	Enabled = true,
+	Grace = 1.0,             -- seconds off the floor before it starts to cost
+	PenaltyPerSecond = 0.2,  -- performance points lost per second after that (MatchPenalty)
+	MaxTimeOnWall = 8,       -- seconds on the wall's top before it is brought back
+	MaxTimeOutside = 4,      -- seconds outside the arena before it is brought back
+	KnockoutPenalty = 1.0,   -- points the Quin that threw another out of the arena loses, once per throw
+	KnockoutWindow = 3.0,    -- a Quin that leaves the floor within this long of being thrown was thrown out
+}
 -- Headroom (Modules/HeadroomAwareness): a Quin under something lower than itself gets out
 CombatConfig.Headroom = {
 	Enabled = true,

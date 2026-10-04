@@ -88,6 +88,7 @@ local function contribution(s)
 	return (s:GetAttribute("MatchKills") or 0) * (CFG.PerKill or 1.0)
 		+ (s:GetAttribute("MatchDamageDealt") or 0) / (CFG.DamagePerPoint or 250)
 		+ (now() - matchStart) / 60 * (CFG.PerMinute or 0.5)
+		- (s:GetAttribute("MatchPenalty") or 0) -- (time off the arena floor, throwing a Quin out of the arena: ArenaTrespass)
 end
 
 local function nearestAlly(m, within)
