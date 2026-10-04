@@ -374,14 +374,15 @@ local CombatConfig = {
 	DebugVisualizers_ShowAllNearby = false,      -- true to show all nearby Quins; false for spectated Quin only
 }
 
--- Strafe clips: the body's ground speed at 1.0x, taken from the clips themselves (the stance
--- foot's travel under the root, averaged over each stance, 48 samples per cycle; pass 39). All
--- six travel straight sideways (within 1 degree). Circling strafes at exactly these paces so the
--- feet stay planted. (7.3 and 18.9 before were the stance foot's peak speed: the clips then
--- played 12% and 4% too slowly for the body.)
-CombatConfig.Strafe_SlowAuthoredSpeed = 2.1 -- StrafeLeftTired / StrafeRightTired (1.99-2.32): a spent Quin's strafe
-CombatConfig.Strafe_WalkAuthoredSpeed = 6.4 -- StrafeLeftWalk / StrafeRightWalk (6.0-6.8)
-CombatConfig.Strafe_RunAuthoredSpeed = 18.1 -- StrafeLeftRun / StrafeRightRun (17.8-18.5)
+-- Strafe clips: the body's ground speed at 1.0x, taken from the clips themselves: how fast the
+-- ball of the supporting foot travels under the root (48 samples per cycle; pass 39). It is
+-- constant through the stride (within 0.2 studs/s at a walk) and straight sideways (within 1
+-- degree), so a Quin that strafes at exactly this pace keeps its feet planted with no help.
+-- Measure at the ball of the foot (ToeBase), not the ankle: the ankle rolls over the planted
+-- toes and reads 12% slow, with a false 3.8-7.5 swing through each stance.
+CombatConfig.Strafe_SlowAuthoredSpeed = 2.55 -- StrafeLeftTired / StrafeRightTired (2.56): a spent Quin's strafe
+CombatConfig.Strafe_WalkAuthoredSpeed = 7.3 -- StrafeLeftWalk / StrafeRightWalk (7.27-7.28)
+CombatConfig.Strafe_RunAuthoredSpeed = 18.8 -- StrafeLeftRun / StrafeRightRun (18.7; 18.9 in pass 22D)
 -- A strafe clip steps in a straight line; an orbit turns the body as it goes (speed / radius).
 -- The most turning a strafe may carry (degrees/s): on a tighter circle the pace steps down a clip.
 -- (Run strafes at 18 studs/s on 16-22 stud circles turned at 62 degrees/s and slid.)
@@ -498,7 +499,7 @@ CombatConfig.ProceduralLayers = {
 		FullLift = 0.15, -- a foot within this of its ground (studs) gets the whole correction...
 		FadeLift = 0.6,  -- ...fading to none at this lift: in the air the foot points anywhere
 	},
-	StrafeUpright = { -- no whole-body tilt while a strafe clip plays: a strafe is stepped upright
+	StrafeUpright = { -- while a strafe clip plays it carries the body: no whole-body tilt, no added hip twist
 		Enabled = true,  -- Workspace Layer_StrafeUpright overrides (A/B)
 	},
 	Footfall = { -- weight: each foot that comes down drops the hips a little on their spring

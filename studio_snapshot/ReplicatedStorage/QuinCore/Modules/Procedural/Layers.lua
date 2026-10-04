@@ -24,9 +24,10 @@ Layers.List = {
 	{ name = "PlantWhenStill", label = "plant when still", attribute = "PlantWhenStill", default = function() return CombatConfig.FootIK_PlantWhenStill ~= false end },
 	{ name = "PivotPin", label = "pivot pin", attribute = "PivotPin", default = function() return CombatConfig.FootIK_PivotPin ~= false end },
 	{ name = "SecondaryMotion", label = "arm follow-through", attribute = "SecondaryMotion", default = function() return CombatConfig.SecondaryMotion_Enabled ~= false end },
+	{ name = "HipTwist", label = "hip twist with sideways travel", attribute = "Layer_HipTwist", default = function() return true end },
 	{ name = "ProceduralStyle", label = "per-Quin style (experiment)", attribute = "ProceduralStyle", default = function() return CombatConfig.ProceduralStyle_Enabled == true end },
 	{ name = "SquareUp", label = "chest squared in a strafe", attribute = "Layer_SquareUp", added = true, default = function() return CombatConfig.ProceduralLayers.SquareUp.Enabled ~= false end },
-	{ name = "StrafeUpright", label = "upright in a strafe (no tilt)", attribute = "Layer_StrafeUpright", added = true, default = function() return CombatConfig.ProceduralLayers.StrafeUpright.Enabled ~= false end },
+	{ name = "StrafeUpright", label = "strafe clip carries the body (no tilt, no hip twist)", attribute = "Layer_StrafeUpright", added = true, default = function() return CombatConfig.ProceduralLayers.StrafeUpright.Enabled ~= false end },
 	{ name = "KneeOverToe", label = "knee over toe", attribute = "Layer_KneeOverToe", added = true, default = function() return CombatConfig.ProceduralLayers.KneeOverToe.Enabled ~= false end },
 	{ name = "Footfall", label = "weight on each footfall", attribute = "Layer_Footfall", added = true, default = function() return CombatConfig.ProceduralLayers.Footfall.Enabled ~= false end },
 }

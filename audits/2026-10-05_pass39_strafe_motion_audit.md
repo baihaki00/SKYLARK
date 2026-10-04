@@ -77,3 +77,48 @@ circles too tight for it and now walk). No script errors.
   no sideways travel. Not touched.
 - The standoff changes pace of play: fewer run strafes at close range. Knockout rate and the
   whiff baseline were not re-measured. Not looked at by eye.
+
+## Pass 39b (same day): correction, and the layer that was sliding the feet
+
+**The clip speeds in the first half of this note are wrong.** They were measured at the ankle,
+which rolls over the planted toes. Measured at the ball of the foot (ToeBase), which is what
+stays on the ground, the clips are constant through the stride and match the old config:
+
+| Clip | Body speed at 1.0x (ball of the foot) | Within-stride sd | Config now |
+|---|---|---|---|
+| Slow (Tired) | 2.56 | 0.07 | 2.55 |
+| Walk | 7.27-7.28 | 0.14-0.19 | 7.3 (restored) |
+| Run | 18.7 | 0.78 | 18.8 (was 18.9) |
+
+So the 6.4 / 18.1 / 2.1 set in the first half was a 12 % mismatch introduced by this pass and is
+reverted. No stride profile is needed: the body moving at one speed is what the clips want. The
+"foot speed over the ground" rows above (ankle) are not a valid slide measure either.
+
+**What was sliding the feet.** With the toe as the measure, in steady strafes the raw clip moved
+the ball of the planted foot at 3-4 studs/s, but the final pose moved it at about 6. An on/off
+run with the layer switches cleared foot planting and knee-over-toe. The cause was an older rule
+in the controller ("Procedural Hip & Spine Twist"): the hips are turned up to 34 degrees toward
+any sideways travel. Under a strafe clip, whose hips are already turned 65 degrees, that swung
+both legs 0.9 studs off their steps.
+
+**Change:** that twist now fades out by the share of the body in a strafe clip (same switch as
+the tilt, relabelled "strafe clip carries the body (no tilt, no hip twist)"), and the twist
+itself is a registered layer (`HipTwist`, `Layer_HipTwist`).
+
+**Measured** (16v16, Circling with a strafe clip at full weight, switch alternated off / on /
+off / on, 22 s each, ball of the grounded foot):
+
+| | Switch off | Switch on |
+|---|---|---|
+| Final pose, speed over the ground | 5.7, 6.4 studs/s | 3.1, 2.3 |
+| Raw clip in the same frames | 4.2, 3.6 | 3.7, 2.9 |
+| Toe moved sideways of the clip by the layers | 0.86, 0.88 studs | 0.37, 0.32 |
+| Chest toward the travel | -2 deg | -3, -5 deg |
+| Toe samples | 962, 421 | 1076, 889 |
+
+No script errors on server or client.
+
+**Still open:** the raw clip itself reads 3-4 studs/s in a live match against 0.2 on the rig, so
+part of the remaining movement is the body not travelling exactly as the clip assumes (turning,
+speed changes) or the probe's ground test; not separated. Fight footwork still untouched. Not
+looked at by eye.

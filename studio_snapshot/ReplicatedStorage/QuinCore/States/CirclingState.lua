@@ -33,9 +33,9 @@ local DEFAULT_RADIUS = 30.0
 -- (CombatConfig.Strafe_*AuthoredSpeed overrides it): the Quin strafes at exactly that, so the
 -- motion is the clip's. `slower`: the pace below it.
 local STRAFE_CLIPS = {
-	tired = { left = "StrafeLeftTired", right = "StrafeRightTired", speedKey = "Strafe_SlowAuthoredSpeed", speed = 2.1 },
-	walk = { left = "StrafeLeftWalk", right = "StrafeRightWalk", speedKey = "Strafe_WalkAuthoredSpeed", speed = 6.4, slower = "tired" },
-	run = { left = "StrafeLeftRun", right = "StrafeRightRun", speedKey = "Strafe_RunAuthoredSpeed", speed = 18.1, slower = "walk" },
+	tired = { left = "StrafeLeftTired", right = "StrafeRightTired", speedKey = "Strafe_SlowAuthoredSpeed", speed = 2.55 },
+	walk = { left = "StrafeLeftWalk", right = "StrafeRightWalk", speedKey = "Strafe_WalkAuthoredSpeed", speed = 7.3, slower = "tired" },
+	run = { left = "StrafeLeftRun", right = "StrafeRightRun", speedKey = "Strafe_RunAuthoredSpeed", speed = 18.8, slower = "walk" },
 }
 -- The pace it holds may turn this much more than Circling_MaxStrafeTurnRate before it steps down
 -- (so a Quin on the edge between two paces does not keep changing)

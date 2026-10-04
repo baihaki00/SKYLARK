@@ -457,6 +457,14 @@ function ProceduralCombatReactionController:update(dt)
 			moveAngle = math.atan2(localVel.X, math.abs(localVel.Z))
 		end
 		local targetHipsYaw = moveAngle * 0.38 * (self.twistScale or 1)
+		if not Layers.isOn("HipTwist", serverModel) then
+			targetHipsYaw = 0
+		elseif Layers.isOn("StrafeUpright", serverModel) then
+			-- Not under a strafe clip: it carries the hips turned toward the travel itself (65
+			-- degrees). 34 more swung both legs off their steps: the ball of the planted foot
+			-- was moved over the ground twice as fast as the clip alone moves it.
+			targetHipsYaw *= 1 - self.squareUp.share
+		end
 		local targetSpineYaw = -targetHipsYaw * 0.85
 		self.locomotionHipsYaw = (self.locomotionHipsYaw or 0) + (targetHipsYaw - (self.locomotionHipsYaw or 0)) * (1 - math.exp(-12.0 * dt))
 		self.locomotionSpineYaw = (self.locomotionSpineYaw or 0) + (targetSpineYaw - (self.locomotionSpineYaw or 0)) * (1 - math.exp(-12.0 * dt))
@@ -610,7 +618,7 @@ function ProceduralCombatReactionController:update(dt)
 		end
 		-- fade out near a standstill (idle sway is the clip's)
 		tiltTarget *= math.clamp(speed / 4, 0, 1)
-		-- A strafe is stepped upright (body layer): leaning the whole body along a sideways step,
+		-- A strafe clip carries the body (body layer): leaning the whole body along a sideways step,
 		-- or into the curve of the circle it is on, read as tipping over (18 degrees at a run strafe)
 		if Layers.isOn("StrafeUpright", serverModel) then
 			tiltTarget *= 1 - self.squareUp.share
