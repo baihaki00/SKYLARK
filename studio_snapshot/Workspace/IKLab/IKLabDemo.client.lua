@@ -123,6 +123,9 @@ local FORE_GAIN, FORE_MAX = 1.2, math.rad(25) -- elbow bend (radians) per unit t
 local HAND_GAIN, HAND_MAX = 1.0, math.rad(15) -- the same for the wrist
 local ELBOW_MIN = math.rad(10) -- an elbow is never straighter than this (the walk clip's arms are dead straight on 6-11% of frames)
 local KNEE_IN_MAX, KNEE_OUT_MAX = math.rad(5), math.rad(25) -- how far a knee may point inward / outward of the foot under it
+local KNEE_TURN_MAX = math.rad(35) -- the most a knee is turned for that
+local KNEE_TURN_RATE = 12 -- how fast that turn comes and goes (1/s)
+local KNEE_TURN_LIFT = 0.6 -- studs of foot lift over which it fades out: in the air the foot points anywhere
 local WEIGHT_STEP = 1.2 -- pelvis speed (studs/s, downward) a footfall adds at 8 studs/s of travel
 local POINT_RANGE, POINT_CONE, POINT_WEIGHT = 30, math.rad(60), 0.7
 local POINT_ACROSS = math.rad(15) -- how far to the right of straight ahead the left hand still points
@@ -1050,7 +1053,7 @@ function Rig:placeFeet(base: CFrame, dt: number)
 		local footY = foot.groundY + ankleHeight[side] + lift
 		local rot = CFrame.Angles(0, yaw + yawOffset, 0) * clip.Rotation
 		if self.full then
-			bend = self.full:kneeOverToe(side, bend, toes, yawOffset)
+			bend = self.full:kneeOverToe(side, bend, toes, yawOffset, lift, dt)
 		end
 		wanted[side] = { flat = flat, y = footY, hip = hip, knee = knee, bend = bend, rot = rot, forward = -clip.Position.Z }
 		lowest = math.min(lowest, footY - world.Y)
@@ -1171,6 +1174,7 @@ function FullBody.new(rig)
 	self.foreSwing, self.foreSwingVel = Vector3.zero, Vector3.zero -- the same sway as the forearm takes it up
 	self.handSwing, self.handSwingVel = Vector3.zero, Vector3.zero -- ... and the hand
 	self.stride = 1
+	self.kneeTurn = { Left = 0, Right = 0 } -- how far each knee is turned to stay over its foot (radians)
 	self.square = 0 -- how far the clips turn the chest off the front, averaged over a stride (radians, + = left)
 	self.clock = 0
 	self.wasAirborne = false
@@ -1282,28 +1286,32 @@ end
 -- in of the foot (more than 15 degrees on 43% of planted frames at a run, 8% walking), and a foot
 -- held to the ground while the body turns is left pointing somewhere the clip's knee is not.
 -- bend, toes: the clip's knee direction and foot direction (root space); yawOffset: how far the
--- foot's heading is held off the clip's. Returns the knee direction to use.
-function FullBody:kneeOverToe(side: string, bend: Vector3, toes: Vector3, yawOffset: number): Vector3
-	if not layerOn("KneeOverToe") then
-		return bend
-	end
+-- foot's heading is held off the clip's; lift: how far the foot is off the ground.
+-- Returns the knee direction to use.
+-- It only acts near the ground and eases in and out. (In the air a running foot points down and
+-- back, its "direction" swings through half a turn, and the knee was thrown round with it:
+-- 86 knee jumps over 60 studs/s in 4 s of running.)
+function FullBody:kneeOverToe(side: string, bend: Vector3, toes: Vector3, yawOffset: number, lift: number, dt: number): Vector3
+	local wanted = 0 -- radians to turn the knee by (+ = to the left)
 	local foot = CFrame.Angles(0, yawOffset, 0) * (toes * FLAT)
 	local knee = bend * FLAT
-	if foot.Magnitude < 0.2 or knee.Magnitude < 0.05 then
-		return bend -- a foot pointing down, or a straight leg: no direction to compare
+	local grounded = 1 - math.clamp(lift / KNEE_TURN_LIFT, 0, 1)
+	if layerOn("KneeOverToe") and grounded > 0 and foot.Magnitude > 0.2 and knee.Magnitude > 0.05 then
+		local turn = math.atan2(foot.Unit:Cross(knee.Unit).Y, foot.Unit:Dot(knee.Unit)) -- + = knee to the left of the foot
+		local inward = side == "Left" and -turn or turn
+		local excess = 0
+		if inward > KNEE_IN_MAX then
+			excess = inward - KNEE_IN_MAX
+		elseif inward < -KNEE_OUT_MAX then
+			excess = inward + KNEE_OUT_MAX
+		end
+		wanted = math.clamp(side == "Left" and excess or -excess, -KNEE_TURN_MAX, KNEE_TURN_MAX) * grounded
 	end
-	local turn = math.atan2(foot.Unit:Cross(knee.Unit).Y, foot.Unit:Dot(knee.Unit)) -- + = knee to the left of the foot
-	local inward = side == "Left" and -turn or turn
-	local excess = 0
-	if inward > KNEE_IN_MAX then
-		excess = inward - KNEE_IN_MAX
-	elseif inward < -KNEE_OUT_MAX then
-		excess = inward + KNEE_OUT_MAX
-	end
-	if excess == 0 then
+	self.kneeTurn[side] += (wanted - self.kneeTurn[side]) * decay(KNEE_TURN_RATE, dt)
+	if math.abs(self.kneeTurn[side]) < 1e-3 then
 		return bend
 	end
-	return CFrame.Angles(0, side == "Left" and excess or -excess, 0) * bend
+	return CFrame.Angles(0, self.kneeTurn[side], 0) * bend
 end
 
 -- Stride warp: when the body moves slower or faster than the clips' feet do, the step is

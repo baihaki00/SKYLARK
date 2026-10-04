@@ -333,3 +333,48 @@ Measured and seen (front views of A and D at the same paused frame):
 State: pushed, runs with no script errors, 5 s smoke test only. Not done: the full tour and strafe
 test with the new layers (knee-over-toe result, arm clearance, foot targets, accelerations), front
 views after, and the port of D into QuinCore the owner asked for next.
+
+## Round 7b (2026-10-04): the knee jump at a run
+
+Owner's report after round 7: "a new glitch for the foot ... during running".
+
+**Measured** (Heartbeat, 4 s of `Movement.Run`, knee and foot bones, speed relative to the root):
+
+| | A | C | D |
+|---|---|---|---|
+| Knee peak, round 7, all layers | 66 | 95 | **1021** (86 steps over 60 studs/s) |
+| Same, `D_KneeOverToe` off | | | 94 (4 steps) |
+| Same, `Weight` off / `StrideWarp` off | | | 1512 / 1557 (no change) |
+| Foot bone peak, foot-to-target gap | same in A, C and D in every configuration | | |
+
+So the foot bone was on target; what flickered was the knee. Cause: `KneeOverToe` compared the
+knee with the foot's direction on every step, also in the air. A running foot in swing points
+down and back, its flat direction swings through half a turn, and the full correction was applied
+at once, so the knee pole was thrown round and back.
+
+**Fix:** the rule now fades out with foot lift (`KNEE_TURN_LIFT` 0.6 studs), is limited to
+`KNEE_TURN_MAX` 35 deg, and eases in and out (`KNEE_TURN_RATE` 12/s, per-leg `kneeTurn` state).
+
+**After** (same probe, rule on / off alternated in one session):
+
+| | A | C | D |
+|---|---|---|---|
+| Run, knee peak (steps over 60) | 36-46 (0) | 56-63 (0-1) | 64-78 (1-2) |
+| Run, rule off | 39-43 (0) | 46-70 (0-2) | 54-67 (0-3) |
+| Walk | 14 | 30 | 29 |
+| Strafe test | 23 | 24 | 30 |
+| Tour | 19 | 26 | 25 |
+
+The rule still does its job. Share of planted steps with the knee more than 5 deg inside the
+foot, and by how much on average:
+
+| | A | C | D rule on | D rule off |
+|---|---|---|---|---|
+| Run | 66-71 %, 15-17 deg | 60-64 %, 14-19 deg | 50 %, **2.8 deg** | 69 %, 20.5 deg |
+| Walk | 61-63 %, 13.7 deg | 48 %, 11-12 deg | 44 %, **3.6 deg** | 54 %, 11.3 deg |
+
+Note: lane A shows the same inward knees, so the "shy legs" are in the run and walk clips
+themselves, not caused by the IK.
+
+**Not measured:** the pose-level layers (arms, thigh roll, SquareUp) and anything by eye. The
+Studio window was not drawing during this session (RenderStepped 0/s), so those layers did not run.
