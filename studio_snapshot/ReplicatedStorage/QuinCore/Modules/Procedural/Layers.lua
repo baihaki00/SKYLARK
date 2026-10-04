@@ -32,6 +32,7 @@ Layers.List = {
 	{ name = "SoftElbows", label = "soft elbows", attribute = "Layer_SoftElbows", added = true, default = function() return CombatConfig.ProceduralLayers.SoftElbows.Enabled ~= false end },
 	{ name = "ArmClear", label = "arms out of the trunk", attribute = "Layer_ArmClear", added = true, default = function() return CombatConfig.ProceduralLayers.ArmClear.Enabled ~= false end },
 	{ name = "LooseWrists", label = "loose wrists", attribute = "Layer_LooseWrists", added = true, default = function() return CombatConfig.ProceduralLayers.LooseWrists.Enabled ~= false end },
+	{ name = "Breath", label = "breathing (harder when spent)", attribute = "Layer_Breath", added = true, default = function() return CombatConfig.ProceduralLayers.Breath.Enabled ~= false end },
 	{ name = "Footfall", label = "weight on each footfall", attribute = "Layer_Footfall", added = true, default = function() return CombatConfig.ProceduralLayers.Footfall.Enabled ~= false end },
 }
 

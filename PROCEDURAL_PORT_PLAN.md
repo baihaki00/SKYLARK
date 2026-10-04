@@ -4,8 +4,9 @@ Written 2026-10-04. Status 2026-10-05: phase 0 (registry, HUD, split; the perman
 open) and phase 1 (SquareUp) are built, see `audits/2026-10-05_pass37_body_layers_square_up.md`.
 Phase 2 (legs: KneeOverToe, Footfall; ThighTwist not needed, roll measured 0) is built, see
 `audits/2026-10-05_pass38_knee_over_toe_footfall_mind_panel.md`. Phase 3 (arms: SoftElbows, ArmClear, loose wrists) is built, see
-`audits/2026-10-05_pass41_arm_layers.md`; the strafe passes are in the pass 39 note. Next: phase 4
-(torso twist, breathing), then phase 5 (stress run, defaults).
+`audits/2026-10-05_pass41_arm_layers.md`; the strafe passes are in the pass 39 note. Phase 4: breathing built, hip twist not
+ported (the clips already do it); first stress run done, see `audits/2026-10-05_pass42_torso_breath_stress.md`.
+Open: permanent probe, by-eye review and defaults, running knees, fight footwork, a real Arena match.
 Owner's choices: strafe fix first, split by every other Quin, new layers on as each phase lands.
 
 ## Goal

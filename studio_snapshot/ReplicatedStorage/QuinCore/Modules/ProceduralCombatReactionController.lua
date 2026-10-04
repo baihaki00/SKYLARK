@@ -16,6 +16,7 @@ local SquareUp = require(Procedural:WaitForChild("SquareUp"))
 local KneeOverToe = require(Procedural:WaitForChild("KneeOverToe"))
 local SoftElbows = require(Procedural:WaitForChild("SoftElbows"))
 local ArmClear = require(Procedural:WaitForChild("ArmClear"))
+local Breath = require(Procedural:WaitForChild("Breath"))
 
 -- States in which the arm layers leave the arms to the clip (thrown, getting up, special moves)
 local ARMS_BUSY_STATES = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, BeamStruggle = true, Special = true }
@@ -62,6 +63,9 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	self.kneeOverToe = KneeOverToe.new(ghostModel)
 	self.softElbows = SoftElbows.new(ghostModel)
 	self.armClear = ArmClear.new(ghostModel)
+	local nameSum = 0
+	for i = 1, #ghostModel.Name do nameSum += string.byte(ghostModel.Name, i) * i end
+	self.breath = Breath.new(ghostModel, nameSum)
 	self.armsFree = 0 -- 0..1: how far the arm layers may act (0 in a strike, a guard, a throw)
 	self.footLift = {} -- side -> how far the clip has the foot above its ground (studs); nil with no ground under it
 
@@ -1189,6 +1193,9 @@ function ProceduralCombatReactionController:update(dt)
 	local armsBusy = ARMS_BUSY_STATES[serverState] or (self.humanoid and self.humanoid.PlatformStand)
 		or (serverModel and (serverModel:GetAttribute("Attacking") == true or serverModel:GetAttribute("IsGuarding") == true))
 	self.armsFree += ((armsBusy and 0 or 1) - self.armsFree) * (1 - math.exp(-(armsBusy and 20 or 6) * dt))
+	-- (breathing first: the arms are then cleared against the chest where it ends up)
+	local energyLeft = serverModel and (serverModel:GetAttribute("Energy") or 100) / (CombatConfig.MaxEnergy or 100) or 1
+	self.breath:apply((self.ghostRootPart or self.rootPart).CFrame, energyLeft, speed, self.armsFree, Layers.isOn("Breath", serverModel), dt)
 	if Layers.isOn("SoftElbows", serverModel) then
 		self.softElbows:apply(self.armsFree)
 	end

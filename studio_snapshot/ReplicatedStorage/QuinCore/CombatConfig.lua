@@ -515,6 +515,13 @@ CombatConfig.ProceduralLayers = {
 		Enabled = true,  -- Workspace Layer_LooseWrists overrides (A/B)
 		MaxDegrees = 15, -- the most a hand trails its clip pose
 	},
+	Breath = { -- the chest rises and falls: slow and shallow fresh, fast and deep spent
+		Enabled = true,    -- Workspace Layer_Breath overrides (A/B)
+		RestHz = 0.25, SpentHz = 0.9,          -- breaths per second at full energy / at none
+		RestDegrees = 1.2, SpentDegrees = 4.5, -- how far the chest lifts each way
+		ExertionRate = 0.8, -- 1/s: how fast the breathing follows the energy
+		FadeSpeed = 10,     -- studs/s at which it has faded out (the run clip owns the torso)
+	},
 	Footfall = { -- weight: each foot that comes down drops the hips a little on their spring
 		Enabled = true,  -- Workspace Layer_Footfall overrides (A/B)
 		Step = 1.2,      -- hip speed (studs/s, downward) one footfall adds at FullSpeed
