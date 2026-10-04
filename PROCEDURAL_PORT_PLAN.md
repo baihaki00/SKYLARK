@@ -3,7 +3,9 @@
 Written 2026-10-04. Status 2026-10-05: phase 0 (registry, HUD, split; the permanent probe is still
 open) and phase 1 (SquareUp) are built, see `audits/2026-10-05_pass37_body_layers_square_up.md`.
 Phase 2 (legs: KneeOverToe, Footfall; ThighTwist not needed, roll measured 0) is built, see
-`audits/2026-10-05_pass38_knee_over_toe_footfall_mind_panel.md`. Next: phase 3 (arms).
+`audits/2026-10-05_pass38_knee_over_toe_footfall_mind_panel.md`. Phase 3 (arms: SoftElbows, ArmClear, loose wrists) is built, see
+`audits/2026-10-05_pass41_arm_layers.md`; the strafe passes are in the pass 39 note. Next: phase 4
+(torso twist, breathing), then phase 5 (stress run, defaults).
 Owner's choices: strafe fix first, split by every other Quin, new layers on as each phase lands.
 
 ## Goal

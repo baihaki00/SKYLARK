@@ -502,6 +502,19 @@ CombatConfig.ProceduralLayers = {
 	StrafeUpright = { -- while a strafe clip plays it carries the body: no whole-body tilt, no added hip twist
 		Enabled = true,  -- Workspace Layer_StrafeUpright overrides (A/B)
 	},
+	SoftElbows = { -- an elbow is never quite straight (not in a strike or a guard)
+		Enabled = true,  -- Workspace Layer_SoftElbows overrides (A/B)
+		MinBend = 10,    -- degrees: the straightest an elbow gets
+	},
+	ArmClear = { -- an elbow or a wrist stays out of the trunk (not in a strike or a guard)
+		Enabled = true,  -- Workspace Layer_ArmClear overrides (A/B)
+		Radius = 0.95,   -- studs it keeps from the line through the trunk (the clips' own arms: 0.93-1.09)
+		BelowHips = 1.2, -- the trunk's line starts this far under the hips (the top of the thighs)
+	},
+	LooseWrists = { -- the hand follows the forearm on a spring of its own (part of the arm follow-through)
+		Enabled = true,  -- Workspace Layer_LooseWrists overrides (A/B)
+		MaxDegrees = 15, -- the most a hand trails its clip pose
+	},
 	Footfall = { -- weight: each foot that comes down drops the hips a little on their spring
 		Enabled = true,  -- Workspace Layer_Footfall overrides (A/B)
 		Step = 1.2,      -- hip speed (studs/s, downward) one footfall adds at FullSpeed

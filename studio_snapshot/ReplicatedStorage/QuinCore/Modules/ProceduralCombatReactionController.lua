@@ -14,6 +14,11 @@ local Procedural = QuinCore:WaitForChild("Modules"):WaitForChild("Procedural")
 local Layers = require(Procedural:WaitForChild("Layers"))
 local SquareUp = require(Procedural:WaitForChild("SquareUp"))
 local KneeOverToe = require(Procedural:WaitForChild("KneeOverToe"))
+local SoftElbows = require(Procedural:WaitForChild("SoftElbows"))
+local ArmClear = require(Procedural:WaitForChild("ArmClear"))
+
+-- States in which the arm layers leave the arms to the clip (thrown, getting up, special moves)
+local ARMS_BUSY_STATES = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, BeamStruggle = true, Special = true }
 
 local ProceduralCombatReactionController = {}
 ProceduralCombatReactionController.__index = ProceduralCombatReactionController
@@ -55,6 +60,9 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 
 	self.squareUp = SquareUp.new(ghostModel, self.humanoid)
 	self.kneeOverToe = KneeOverToe.new(ghostModel)
+	self.softElbows = SoftElbows.new(ghostModel)
+	self.armClear = ArmClear.new(ghostModel)
+	self.armsFree = 0 -- 0..1: how far the arm layers may act (0 in a strike, a guard, a throw)
 	self.footLift = {} -- side -> how far the clip has the foot above its ground (studs); nil with no ground under it
 
 	-- Procedural Foot IK & Ledge Gripping Setup (Step 3)
@@ -1176,6 +1184,18 @@ function ProceduralCombatReactionController:update(dt)
 		self.smState = nil
 	end
 
+	-- 9. Arm layers, on the final arm pose. A strike or a guard is the clip's: a punch lands on
+	-- a straight arm, a guard holds the forearms where it holds them.
+	local armsBusy = ARMS_BUSY_STATES[serverState] or (self.humanoid and self.humanoid.PlatformStand)
+		or (serverModel and (serverModel:GetAttribute("Attacking") == true or serverModel:GetAttribute("IsGuarding") == true))
+	self.armsFree += ((armsBusy and 0 or 1) - self.armsFree) * (1 - math.exp(-(armsBusy and 20 or 6) * dt))
+	if Layers.isOn("SoftElbows", serverModel) then
+		self.softElbows:apply(self.armsFree)
+	end
+	if Layers.isOn("ArmClear", serverModel) then
+		self.armClear:apply((self.ghostRootPart or self.rootPart).CFrame, self.armsFree)
+	end
+
 	-- Attribute telemetry for diagnostics
 	if math.abs(self.currentPitch) < 0.005 and math.abs(self.velocityPitch) < 0.05
 		and math.abs(self.currentRoll) < 0.005 and math.abs(self.velocityRoll) < 0.05
@@ -1203,6 +1223,8 @@ local ARM_CHAIN = {
 	{ "LeftForeArm", "LeftHand", "fore" },
 	{ "RightArm", "RightForeArm", "upper" },
 	{ "RightForeArm", "RightHand", "fore" },
+	{ "LeftHand", nil, "hand", 0.6 }, -- the wrist gives: a point 0.6 studs along the hand (body layer LooseWrists)
+	{ "RightHand", nil, "hand", 0.6 },
 }
 
 local function chainTip(entry)
@@ -1234,7 +1256,8 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 	local maxFore = math.rad(CombatConfig.SecondaryMotion_MaxForearmDegrees or 20)
 	local maxSpine = math.rad(CombatConfig.SecondaryMotion_MaxSpineDegrees or 5)
 	local maxNeck = math.rad(CombatConfig.SecondaryMotion_MaxNeckDegrees or 7)
-	local caps = { upper = maxUpper, fore = maxFore, spine = maxSpine, neck = maxNeck }
+	local caps = { upper = maxUpper, fore = maxFore, spine = maxSpine, neck = maxNeck, hand = math.rad(CombatConfig.ProceduralLayers.LooseWrists.MaxDegrees) }
+	local wristsOn = Layers.isOn("LooseWrists", self.aiModel)
 	local fastClip = CombatConfig.SecondaryMotion_FastClipSpeed or 12 -- studs/s of a tip relative to the body
 	local omega = 2 * math.pi * frequency
 	-- The springs run in the body's own frame. In world space they tracked the bone tips through
@@ -1325,7 +1348,8 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 	-- Turn each bone from where its tip is toward where the spring has it (parents first)
 	for i, entry in ipairs(self.smBones) do
 		local weight = weights[i]
-		if (entry.kind == "spine" and torso == "none") or (entry.kind == "neck" and torso ~= "all") then
+		if (entry.kind == "spine" and torso == "none") or (entry.kind == "neck" and torso ~= "all")
+			or (entry.kind == "hand" and not wristsOn) then
 			weight = 0
 		end
 		if weight > 0.01 then
