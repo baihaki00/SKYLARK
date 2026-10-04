@@ -312,7 +312,9 @@ end
 -- The feet must clear the lip before they reach it and come down past it, so there is a
 -- nearest and a farthest take-off point. Returns nil and why: "TooHigh" (no jump reaches;
 -- use a projectile jump), "TooClose" (back off for a run-up), "TooFar" (get nearer).
-function TraversalModule.solveJumpOnto(rise, edgeDistance, maxReach)
+-- landingDepth (optional): how far past the edge to come down (default Config.LandingMargin,
+-- just over the lip; PlatformCatalogue.landingDepth gives the way to the middle of a top).
+function TraversalModule.solveJumpOnto(rise, edgeDistance, maxReach, landingDepth)
     if rise > maxReach then
         return nil, "TooHigh"
     end
@@ -322,7 +324,7 @@ function TraversalModule.solveJumpOnto(rise, edgeDistance, maxReach)
     local root = math.sqrt(math.max(up * up - 2 * gravity * math.max(rise, 0), 0))
     local clearTime = (up - root) / gravity -- feet pass the height of the top on the way up
     local landTime = (up + root) / gravity -- feet come back down to it
-    local speed = math.max((edgeDistance + TraversalModule.Config.LandingMargin) / (landTime * 0.92), 10)
+    local speed = math.max((edgeDistance + (landingDepth or TraversalModule.Config.LandingMargin)) / (landTime * 0.92), 10)
     if speed > 58 then
         return nil, "TooFar"
     end

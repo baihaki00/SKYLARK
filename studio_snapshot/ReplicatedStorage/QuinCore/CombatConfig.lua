@@ -522,6 +522,9 @@ CombatConfig.ProceduralLayers = {
 		ExertionRate = 0.8, -- 1/s: how fast the breathing follows the energy
 		FadeSpeed = 10,     -- studs/s at which it has faded out (the run clip owns the torso)
 	},
+	StrikeFeetFree = { -- while a Quin strikes, foot planting and knee-over-toe let go of the legs (a kick is the clip's)
+		Enabled = true,  -- Workspace Layer_StrikeFeetFree overrides (A/B)
+	},
 	Footfall = { -- weight: each foot that comes down drops the hips a little on their spring
 		Enabled = true,  -- Workspace Layer_Footfall overrides (A/B)
 		Step = 1.2,      -- hip speed (studs/s, downward) one footfall adds at FullSpeed
@@ -534,6 +537,9 @@ CombatConfig.Retreat_WoundedSlow = 0.2                 -- share of its run speed
 CombatConfig.Chase_TrailGiveUpConfidence = 0.6         -- memory confidence below which an unseen target is given up (minus 0.5 x persistence)
 CombatConfig.Chase_SearchLegDistance = 45              -- studs searched onward along the target's last heading, per leg
 CombatConfig.Chase_DistractionCommitment = 0.6         -- a hunter above this commitment ignores passers-by that are not after it
+CombatConfig.Jump_LandingDepthMax = 8                  -- studs past a platform's rim a jump onto it aims to land (toward the middle; less on small tops)
+CombatConfig.HighGround_DiveLedgeMargin = 2.5           -- studs past the ledge a dive off a platform must carry (or it walks to the ledge first)
+CombatConfig.HighGround_ClimbPatience = 5              -- seconds it works at getting onto a platform (out from under, run-up, jump) before leaving it be
 CombatConfig.Targeting_MinHold = 2.0                   -- seconds a Quin stays on a target before it may change (times 0.5 + its target persistence)
 CombatConfig.Targeting_SwitchMargin = 30               -- target utility another enemy must lead by to be changed to
 CombatConfig.Targeting_UrgentMargin = 80               -- ... and the lead that cuts the hold short (it is being hit from behind)

@@ -819,6 +819,11 @@ function ProceduralCombatReactionController:update(dt)
 		-- the feet used to glide backwards through every spacing correction and every flinch
 		local pushed = impulse ~= nil and impulse:IsA("LinearVelocity") and impulse.MaxAxesForce.X > 0
 			and (impulse:GetAttribute("Priority") or 3) >= 3
+		-- A strike is the clip's (body layer StrikeFeetFree): a kick's foot pinned to the floor, or
+		-- its knee swung to stay over a foot that is in the air on purpose, bent the leg out of the
+		-- strike. While it strikes the solver lets go (fading from where it held the foot).
+		local striking = serverModel ~= nil and serverModel:GetAttribute("Attacking") == true
+			and Layers.isOn("StrikeFeetFree", serverModel)
 		local footsFree = self.wasAirborne or serverState == "Recovery" or serverState == "Knockback"
 			or (self.humanoid and self.humanoid.PlatformStand)
 			or (serverModel and serverModel:GetAttribute("LandingSlide") == true)
@@ -892,7 +897,7 @@ function ProceduralCombatReactionController:update(dt)
 				-- Plant
 				local lock = self.plant[side]
 				local step = self.step[side]
-				if plantOn and not pushed and reachable and hit.Normal.Y >= 0.7 then
+				if plantOn and not pushed and not striking and reachable and hit.Normal.Y >= 0.7 then
 					if liftAboveSurface > plantLift then
 						-- The clip lifts the foot: it walks by itself
 						self.plantFade[side] = (step and stepPosition(step)) or lock or self.plantFade[side]
@@ -972,7 +977,7 @@ function ProceduralCombatReactionController:update(dt)
 
 					if isFlatFloor then
 						targetWeight = 0.0
-					elseif reachable then
+					elseif reachable and not striking then
 						-- Uneven ground, slopes, stairs, rocks, or platform steps: conform the
 						-- height near ground contact; a foot in its swing swings freely.
 						if liftAboveSurface <= 0.35 then
@@ -1127,7 +1132,7 @@ function ProceduralCombatReactionController:update(dt)
 
 		-- Knee over toe (body layer): a knee too far in or out of its foot is swung round the
 		-- hip-ankle line, on the final leg pose, solved or not
-		self.kneeOverToe:apply(self.footLift, Layers.isOn("KneeOverToe", serverModel), dt)
+		self.kneeOverToe:apply(self.footLift, Layers.isOn("KneeOverToe", serverModel) and not striking, dt)
 
 		-- Footfall (body layer): each foot that comes down drops the hips a little on their
 		-- spring (step 5); the feet are held to the ground, so the knees give. Weight.

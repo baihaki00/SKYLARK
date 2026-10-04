@@ -151,8 +151,12 @@ function NavigationModule.nextStone(fighter, rootPart, targetRoot, minClimb)
 			local rise = topY - fy
 			if rise >= 1.5 and rise <= (CombatConfig.Nav_StoneMaxRise or 40) then
 				local rel = part.CFrame:PointToObjectSpace(here)
-				local hx = math.max(part.Size.X / 2 - STONE_INSET, 0)
-				local hz = math.max(part.Size.Z / 2 - STONE_INSET, 0)
+				-- (aimed well in from the rim, toward the middle of the top: at the rim's inset alone
+				-- every hop landed on the edge)
+				local inX = math.max(STONE_INSET, math.min(part.Size.X * 0.3, CombatConfig.Jump_LandingDepthMax or 8))
+				local inZ = math.max(STONE_INSET, math.min(part.Size.Z * 0.3, CombatConfig.Jump_LandingDepthMax or 8))
+				local hx = math.max(part.Size.X / 2 - inX, 0)
+				local hz = math.max(part.Size.Z / 2 - inZ, 0)
 				local point = part.CFrame:PointToWorldSpace(Vector3.new(math.clamp(rel.X, -hx, hx), part.Size.Y / 2, math.clamp(rel.Z, -hz, hz)))
 				-- room to stand (nothing within 8 studs overhead)
 				if not Workspace:Raycast(point + Vector3.new(0, 0.2, 0), Vector3.new(0, 8, 0), params) then

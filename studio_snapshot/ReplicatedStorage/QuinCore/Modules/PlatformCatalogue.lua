@@ -116,6 +116,17 @@ function PlatformCatalogue.nearestTopPoint(platform, position, inset)
 	return platform.center + platform.axisA * a + platform.axisB * b
 end
 
+-- How far past the rim a jump from `from` over `edge` should come down: toward the middle of the
+-- top, not on its lip. (Aimed at the nearest point of the rim, every jump onto a platform landed
+-- on its edge, and Quins gathered along the edges as if they were snap points.)
+function PlatformCatalogue.landingDepth(platform, edge, from)
+	local lip = TraversalModule.Config.LandingMargin
+	local approach = Vector3.new(edge.X - from.X, 0, edge.Z - from.Z)
+	if approach.Magnitude < 0.1 then return lip end
+	local toMiddle = Vector3.new(platform.center.X - edge.X, 0, platform.center.Z - edge.Z):Dot(approach.Unit)
+	return math.clamp(toMiddle, lip, CombatConfig.Jump_LandingDepthMax or 8)
+end
+
 -- The platform a position is standing on (its top is right under the position), or nil
 function PlatformCatalogue.under(position, maxDrop)
 	maxDrop = maxDrop or 8

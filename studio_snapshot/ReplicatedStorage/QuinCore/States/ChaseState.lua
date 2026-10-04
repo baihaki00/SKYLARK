@@ -346,7 +346,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			local platform = PlatformCatalogue.under(targetHRP.Position)
 			local edge = platform and PlatformCatalogue.nearestTopPoint(platform, rootPart.Position, 0) or targetHRP.Position
 			local toEdge = Vector3.new(edge.X - rootPart.Position.X, 0, edge.Z - rootPart.Position.Z)
-			local solution, problem = TraversalModule.solveJumpOnto(verticalGap, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 12.0)
+			local depth = platform and PlatformCatalogue.landingDepth(platform, edge, rootPart.Position) or nil
+			local solution, problem = TraversalModule.solveJumpOnto(verticalGap, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 12.0, depth)
 			if problem == "TooClose" and toEdge.Magnitude > 0.1 then
 				fighter:SetAttribute("ObstacleAwareness", "Backing off for a run-up")
 				LocomotionModule.steer(fighter, humanoid, rootPart, rootPart.Position - toEdge.Unit * 14, 24.0, 0.05)
@@ -1034,10 +1035,49 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local beingBullied = fighter:GetAttribute("BeingBullied")
 		local wantHighGround = targetAbove or recAction == "Retreat" or beingBullied or hpRatio < 0.35
 		if wantHighGround and (now - lastHighGround) > 6 then
-			data.lastHighGroundJump = now
-			fighter:SetAttribute("ObstacleAwareness", "Climbing High Ground")
-			local climbHeight = math.clamp(overheadPlatform.topY - rootPart.Position.Y + 1, 5, 14)
-			JumpHandler.performJump(humanoid, rootPart, climbHeight, 22, "vault")
+			-- The top is reached from outside its footprint, by the jump solved for its rim. (It
+			-- used to jump straight up from wherever it stood: when that was under the platform
+			-- it hit the underside, and tried again every 6 s.) It gives the climb a few seconds:
+			-- out from under, a run-up, the jump; then it lets it be for a while.
+			data.highGroundSince = data.highGroundSince or now
+			local platform = PlatformCatalogue.under(overheadPlatform.position + Vector3.new(0, 0.5, 0), 2)
+			local feetY = rootPart.Position.Y - (humanoid.HipHeight + rootPart.Size.Y / 2)
+			local rise = overheadPlatform.topY - feetY
+			local edge = platform and PlatformCatalogue.nearestTopPoint(platform, rootPart.Position, 0)
+			local toEdge = edge and Vector3.new(edge.X - rootPart.Position.X, 0, edge.Z - rootPart.Position.Z)
+			if not platform or now - data.highGroundSince > (CombatConfig.HighGround_ClimbPatience or 5) then
+				data.lastHighGroundJump, data.highGroundSince = now, nil
+			elseif toEdge.Magnitude < 1.0 then
+				-- Under it: out the nearest way, with room for a run-up
+				local outward = Vector3.new(rootPart.Position.X - platform.center.X, 0, rootPart.Position.Z - platform.center.Z)
+				outward = outward.Magnitude > 0.5 and outward.Unit or rootPart.CFrame.LookVector
+				local rim = PlatformCatalogue.nearestTopPoint(platform, platform.center + outward * 1000, 0)
+				fighter:SetAttribute("ObstacleAwareness", "Under the platform: stepping out to jump")
+				LocomotionModule.steer(fighter, humanoid, rootPart, Vector3.new(rim.X, rootPart.Position.Y, rim.Z) + outward * 14, 24.0, 0.05)
+				GaitModule.update(humanoid, rootPart, 0.1)
+				return ChaseState
+			else
+				local depth = PlatformCatalogue.landingDepth(platform, edge, rootPart.Position)
+				local solution, problem = TraversalModule.solveJumpOnto(rise, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 12.0, depth)
+				if solution and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85 then
+					fighter:SetAttribute("ObstacleAwareness", "Climbing High Ground")
+					if LocomotionModule.jump(fighter, humanoid, rootPart, solution.height, solution.speed, "jump") then
+						data.lastHighGroundJump, data.highGroundSince = now, nil
+						return ChaseState
+					end
+				elseif problem == "TooHigh" then
+					data.lastHighGroundJump, data.highGroundSince = now, nil
+				else
+					-- too close for the jump: back off for the run-up; otherwise up to the rim, facing it
+					local away = problem == "TooClose" and -14 or 14
+					fighter:SetAttribute("ObstacleAwareness", problem == "TooClose" and "Backing off for a run-up" or "Lining up the climb")
+					LocomotionModule.steer(fighter, humanoid, rootPart, rootPart.Position + toEdge.Unit * away, 24.0, 0.05)
+					GaitModule.update(humanoid, rootPart, 0.1)
+					return ChaseState
+				end
+			end
+		else
+			data.highGroundSince = nil
 		end
 	end
 
@@ -1060,18 +1100,24 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			local flatDist = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
 			local lookVec = rootPart.CFrame.LookVector
 			local isFacingTarget = lookVec:Dot(platformDismountDir) > 0.15
+			-- The leap has to carry past the ledge. It used to be taken whenever the target was
+			-- within 28 studs, however far the ledge was: from the middle of a wide top a 2-stud
+			-- hop of 8-15 studs came down on the same top, played its landing, and was taken
+			-- again (several hops and landings before the Quin finally left).
+			local leapHeight = 2.0
+			local forwardSpeed = math.clamp(flatDist * 1.3, 28.0, 52.0)
+			local leapReach = forwardSpeed * 2 * math.sqrt(2 * leapHeight / workspace.Gravity)
 			local canDive = (CombatConfig.HighGround_DiveDropEnabled ~= false)
 				and not humanoid.Jump
 				and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
-				and (ledgeDist <= 8.0 or flatDist <= 28.0)
+				and ledgeDist + (CombatConfig.HighGround_DiveLedgeMargin or 2.5) <= leapReach
 				and isFacingTarget
 
 			if canDive then
 				fighter:SetAttribute("ObstacleAwareness", "Ledge Dive Down")
 				data.isDismountFalling = true
 				data.wasOnPlatform = false
-				local forwardSpeed = math.clamp(flatDist * 1.3, 28.0, 52.0)
-				LocomotionModule.jump(fighter, humanoid, rootPart, 2.0, forwardSpeed, "leap_down")
+				LocomotionModule.jump(fighter, humanoid, rootPart, leapHeight, forwardSpeed, "leap_down")
 				return ChaseState
 			end
 		end
