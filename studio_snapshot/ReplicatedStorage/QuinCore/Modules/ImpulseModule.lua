@@ -57,6 +57,7 @@ end
 
 local bodies = {} -- [model] = { root, mover, attachment, requests = { [tag] = request } }
 local stepConnection = nil
+local sessionLoop = false -- true once ImpulseModule.start() owns the loop: it then runs all session
 
 local function release(model)
 	local body = bodies[model]
@@ -110,10 +111,28 @@ local function step()
 			end
 		end
 	end
-	if next(bodies) == nil and stepConnection then
+	if next(bodies) == nil and stepConnection and not sessionLoop then
 		stepConnection:Disconnect()
 		stepConnection = nil
 	end
+end
+
+-- A connection dies with the script that made it. Pushes come from Main, which is cloned into
+-- each Quin: the loop used to belong to whichever Quin pushed first, and when that Quin was
+-- removed (knocked out, a new match) it stopped for everyone and was never restarted. Every
+-- lunge, step back, flinch and skid then did nothing: Quins stood 7-8 studs apart striking at
+-- air (1042 whiffs of 1046 strikes in 30 s). So the loop is checked, never assumed.
+local function ensureLoop()
+	if not stepConnection or not stepConnection.Connected then
+		stepConnection = RunService.Heartbeat:Connect(step)
+	end
+end
+
+-- Run the loop from a script that lives all session (Server). Call once at start-up.
+function ImpulseModule.start()
+	sessionLoop = true
+	if stepConnection then stepConnection:Disconnect() end -- (one made by a Quin's script: replaced by ours)
+	stepConnection = RunService.Heartbeat:Connect(step)
 end
 
 local function bodyFor(model, root)
@@ -137,9 +156,7 @@ local function bodyFor(model, root)
 
 	body = { root = root, mover = mover, attachment = attachment, requests = {} }
 	bodies[model] = body
-	if not stepConnection then
-		stepConnection = RunService.Heartbeat:Connect(step)
-	end
+	ensureLoop()
 	return body
 end
 

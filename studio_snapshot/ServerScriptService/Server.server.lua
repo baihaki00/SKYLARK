@@ -321,3 +321,10 @@ do
 	local SocialSystem = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SocialSystem"))
 	SocialSystem.start()
 end
+
+-- The loop that moves bodies for lunges, step backs, flinches and knockback skids: likewise owned
+-- here, so it does not stop when the Quin whose script first used it is removed.
+do
+	local ImpulseModule = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ImpulseModule"))
+	ImpulseModule.start()
+end
