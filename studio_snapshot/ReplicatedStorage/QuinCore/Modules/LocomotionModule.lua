@@ -324,7 +324,7 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 
 		frameDt = math.clamp(frameDt, 0.001, 0.05)
 		local target = data.steerSpeed or humanoid.WalkSpeed
-		if os.clock() < (data.landingHoldUntil or 0) then
+		if os.clock() < math.max(data.landingHoldUntil or 0, fighter:GetAttribute("LandingHoldUntil") or 0) then
 			target = 0 -- absorbing a landing: brake first, move on as the body rises
 		end
 		local toTarget = data.steerTarget - rootPart.Position
@@ -1112,16 +1112,20 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
         local traversalType = fighter:GetAttribute("TraversalType") or "None"
         local traversalHeight = fighter:GetAttribute("TraversalObstacleHeight") or 0
         if isDismount then
-            -- A drop from a platform lands with the soft landing (the superhero landing is
-            -- kept for projectile-jump impacts)
+            -- A drop from a platform. The soft landing is the unhurried one: it belongs to a
+            -- drop that comes straight down (a Quin that stepped off the ledge in its own time).
+            -- A dive that lands with speed across the ground takes the hard landing. (The
+            -- superhero landing is kept for projectile-jump impacts.)
             -- The Quin absorbs the drop where it lands: it brakes through the crouch and the clip
             -- is released as it rises, so it never glides at a sprint in a landing pose.
-            local absorb = AnimationModule.getEffectiveDuration(humanoid, "Parkour.LandingSoft", 1.0) * LANDING_ABSORB_RATIO
+            local across = Vector3.new(landingVelocity.X, 0, landingVelocity.Z).Magnitude
+            local landingClip = across <= (CombatConfig.Landing_SoftMaxSpeed or 8) and "Parkour.LandingSoft" or "Parkour.LandingHard"
+            local absorb = AnimationModule.getEffectiveDuration(humanoid, landingClip, 1.0) * LANDING_ABSORB_RATIO
             data.landingHoldUntil = os.clock() + absorb
-            AnimationModule.playConfig(humanoid, "Parkour.LandingSoft", 1.0, Enum.AnimationPriority.Action3, true)
+            AnimationModule.playConfig(humanoid, landingClip, 1.0, Enum.AnimationPriority.Action3, true)
             task.delay(absorb, function()
                 if humanoid.Parent then
-                    AnimationModule.stopConfig(humanoid, "Parkour.LandingSoft", 0.25)
+                    AnimationModule.stopConfig(humanoid, landingClip, 0.25)
                 end
             end)
         elseif traversalType == "None" and impactSpeed > 50 and airTime > 0.9 then

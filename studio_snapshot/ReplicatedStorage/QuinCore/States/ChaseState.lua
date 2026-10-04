@@ -1100,6 +1100,22 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			local flatDist = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
 			local lookVec = rootPart.CFrame.LookVector
 			local isFacingTarget = lookVec:Dot(platformDismountDir) > 0.15
+			-- How it leaves. In a hurry it dives off at its target (below). With time on its side
+			-- (sure of itself, in good health, nobody pressing it, the target well away) it walks
+			-- to the ledge and steps off: a straight drop, the soft landing, and it walks on.
+			local casual = confidence >= (CombatConfig.Dismount_CasualConfidence or 0.7)
+				and hpRatio > 0.5
+				and flatDist >= (CombatConfig.Dismount_CasualMinDistance or 18)
+				and (fighter:GetAttribute("SocialUrgency") or 0) < 0.5
+				and not fighter:GetAttribute("SocialHunt")
+				and fighter:GetAttribute("IsUnderRearThreat") ~= true
+			-- (no jump: it keeps walking and the edge does the rest; the touchdown is the ground
+			-- contract's, GaitModule, which gives a walked-off straight drop the soft landing)
+			if casual then
+				shouldWalk = true
+				fighter:SetAttribute("ObstacleAwareness", "Walking off the ledge")
+			end
+
 			-- The leap has to carry past the ledge. It used to be taken whenever the target was
 			-- within 28 studs, however far the ledge was: from the middle of a wide top a 2-stud
 			-- hop of 8-15 studs came down on the same top, played its landing, and was taken
@@ -1112,6 +1128,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 				and ledgeDist + (CombatConfig.HighGround_DiveLedgeMargin or 2.5) <= leapReach
 				and isFacingTarget
+				and not casual
 
 			if canDive then
 				fighter:SetAttribute("ObstacleAwareness", "Ledge Dive Down")

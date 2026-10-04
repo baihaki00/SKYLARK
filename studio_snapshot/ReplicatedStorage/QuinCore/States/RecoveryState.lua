@@ -21,7 +21,7 @@ local RecoveryState = { name = "Recovery" }
 --   is badly hurt (Recovery_SlowGetUpHealth).
 local INSTANT_RECOVERY = {
 	Back = { "Reactions.GetUpBackFastNinja" },
-	Front = { "Parkour.LandingHard", "Parkour.LandingSoft", "Parkour.LandingSuperHero" },
+	Front = { "Parkour.LandingHard", "Parkour.LandingSuperHero" }, -- (not the soft landing: that one is for an unhurried straight drop)
 }
 local GET_UP = {
 	Back = { fast = "Reactions.GetUpBackFast", slow = "Reactions.GetUpBackSlow" },
@@ -115,8 +115,8 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 		-- Light ground flinch, still on its feet
 		duration = 0.2
 	elseif kbType == "traversal_landing" then
-		-- A hop onto a spot (a stepping stone): a soft landing and straight on
-		clipPath = "Parkour.LandingSoft"
+		-- A hop onto a spot (a stepping stone): it lands and goes straight on
+		clipPath = "Parkour.LandingHard"
 		AnimationModule.playConfig(humanoid, clipPath, 1.3, Enum.AnimationPriority.Action3, false)
 		duration = 0.3
 	elseif kbType == "slam_landing" and fighter:GetAttribute("LandingClipPath") then

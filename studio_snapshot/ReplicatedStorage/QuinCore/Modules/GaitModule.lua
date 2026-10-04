@@ -582,7 +582,9 @@ end
 -- until the Humanoid reports the flight, so the launch clip owns the body at takeoff.
 function GaitModule.notifyLaunch(humanoid)
 	if not humanoid then return end
-	getState(humanoid).launchUntil = os.clock() + LAUNCH_WINDOW
+	local st = getState(humanoid)
+	st.launchUntil = os.clock() + LAUNCH_WINDOW
+	st.launchedAt = os.clock() -- (a fall that began with a launch is the jump's to land)
 	releaseGroundLoops(humanoid, 0.1)
 end
 
@@ -695,6 +697,28 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 				AnimationModule.stop(humanoid, FALL_PATH, 0.1)
 				AnimationModule.ensureBaseIdle(humanoid)
 				st.lastDriven = os.clock() -- give the driver its first frame after touchdown
+
+				-- The unhurried drop: it walked off an edge (no jump, nothing threw it) and came
+				-- straight down. It takes the soft landing and stands through it (LandingHoldUntil
+				-- stops the steer driver for that long), then walks on. A drop that lands with
+				-- speed across the ground, and every jump, lands the way its own code says.
+				local velocity = rootPart.AssemblyLinearVelocity
+				local across = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+				local walkedOff = os.clock() - (st.launchedAt or 0) > st.airTime + 0.5
+				local stateName = model:GetAttribute("CurrentState") or ""
+				if walkedOff and st.airTime >= (CombatConfig.Landing_SoftMinAirTime or 0.28)
+					and across <= (CombatConfig.Landing_SoftMaxSpeed or 8)
+					and not humanoid.PlatformStand and not CONTRACT_EXEMPT_STATES[stateName]
+					and stateName ~= "Knockback" and stateName ~= "Recovery" and stateName ~= "ProjectileJump" then
+					local hold = AnimationModule.getEffectiveDuration(humanoid, "Parkour.LandingSoft", 1.0) * 0.55
+					model:SetAttribute("LandingHoldUntil", os.clock() + hold)
+					AnimationModule.playConfig(humanoid, "Parkour.LandingSoft", 1.0, Enum.AnimationPriority.Action3, true)
+					task.delay(hold, function()
+						if humanoid.Parent then
+							AnimationModule.stopConfig(humanoid, "Parkour.LandingSoft", 0.25)
+						end
+					end)
+				end
 			end
 			st.airTime = 0
 
