@@ -272,6 +272,10 @@ function TargetingModule.selectTarget(quinModel, localState)
 			end
 		end
 
+		-- (a new target it cannot see has no "last seen" place yet: the old target's is dropped)
+		if quinModel:GetAttribute("CurrentTarget") ~= bestCandidate.Name and not bestHasLoS then
+			quinModel:SetAttribute("LastSeenTargetPosition", nil)
+		end
 		quinModel:SetAttribute("CurrentTarget", bestCandidate.Name)
 		quinModel:SetAttribute("LastTargetName", bestCandidate.Name)
 		quinModel:SetAttribute("TargetReason", bestReason)

@@ -14,6 +14,8 @@ local ZONE2_MAX = math.rad(60)   -- 30-60 deg: Head (60%) + Neck (40%)
 local ZONE3_MAX = math.rad(100)  -- 60-100 deg: Head (40%) + Neck (30%) + Spine2 (30%)
 local PITCH_MIN = -math.rad(45)  -- Looking down max
 local PITCH_MAX = math.rad(65)   -- Looking up max
+local FLOOR_LOOK_PITCH = -math.rad(12) -- a look steeper down than this is checked against the floor...
+local FLOOR_LOOK_REACH = 40           -- ...within this many studs of the head (a head 8 studs up looking 12 degrees down meets its floor 38 studs out)
 
 -- Social nod (SocialSystem.nod): two quick dips after the Quin's NodAt time
 local okConfig, CombatConfig = pcall(function() return require(script.Parent.Parent:WaitForChild("CombatConfig")) end)
@@ -144,6 +146,31 @@ function LookController:resolveTargetPosition()
 				if tRoot and (not tHum or tHum.Health > 0) then
 					local tHead = targetModel:FindFirstChild("mixamorig:Head", true)
 					local targetPos = tHead and tHead.WorldCFrame.Position or (tRoot.Position + Vector3.new(0, 2.0, 0))
+
+					-- A target it cannot see is looked for where it last saw it, not stared at
+					-- through the wall or the floor between them. Checked here with a ray from its
+					-- own head, ten times a second (the server's TargetHasLoS said "visible" for
+					-- 59% of the targets such a ray found hidden).
+					-- (Workspace LookSight = false switches both sight rules off, for A/B)
+					if not isPlayer and self.headBone and Workspace:GetAttribute("LookSight") ~= false then
+						local now = os.clock()
+						if self.sightName ~= targetName then
+							self.sightName, self.lastSeenPos, self.sightAt = targetName, nil, 0
+						end
+						if now - self.sightAt >= 0.1 then
+							self.sightAt = now
+							local eye = self.headBone.TransformedWorldCFrame.Position
+							local toTarget = targetPos - eye
+							self.sightClear = toTarget.Magnitude < 6 or Workspace:Raycast(eye, toTarget, self:sightFilter()) == nil
+						end
+						if self.sightClear then
+							self.lastSeenPos = targetPos
+						elseif self.lastSeenPos then
+							return self.lastSeenPos, "TARGET_LAST_SEEN"
+						else
+							return nil, "NONE"
+						end
+					end
 					
 					-- Check if airborne threat
 					local selfY = self.rootPart and self.rootPart.Position.Y or 0
@@ -169,6 +196,16 @@ function LookController:resolveTargetPosition()
 
 	-- 3. No active combat target: Return nil so the natural author animation breathes with 100% purity
 	return nil, "NONE"
+end
+
+-- What its sight is blocked by: the world, not other Quins
+function LookController:sightFilter()
+	if not self.sightParams then
+		self.sightParams = RaycastParams.new()
+		self.sightParams.FilterType = Enum.RaycastFilterType.Exclude
+		self.sightParams.FilterDescendantsInstances = { Workspace:FindFirstChild("QuinServer"), Workspace:FindFirstChild("QuinGhost"), self.ghostModel }
+	end
+	return self.sightParams
 end
 
 -- Writes `offset` on top of the bone's animated pose. When the Animator has not re-evaluated the
@@ -245,6 +282,22 @@ function LookController:update(dt)
 		-- Raw desired yaw and pitch
 		local rawYaw = math.atan2(-localDir.X, -localDir.Z)
 		local rawPitch = math.asin(math.clamp(localDir.Y, -0.98, 0.98))
+
+		-- It does not look into the floor it stands on. A look down that meets the ground within
+		-- a few studs (its target is under the platform, or it "looks over the edge" from the
+		-- middle of a wide top) is held level; from the rim the same look clears the edge and
+		-- goes down. (On platforms the head was pitched into the top on 21% of frames.)
+		if rawPitch < FLOOR_LOOK_PITCH and Workspace:GetAttribute("LookSight") ~= false then
+			local floor = Workspace:Raycast(headWorldPos, dir * math.min(dist, FLOOR_LOOK_REACH), self:sightFilter())
+			if floor and floor.Normal.Y > 0.7 then
+				rawPitch = 0
+				mode = mode .. "+FLOOR"
+			end
+		end
+		-- (debug: what the head is doing and why; client-only attribute, Workspace LookDebug)
+		if self.aiModel and Workspace:GetAttribute("LookDebug") then
+			self.aiModel:SetAttribute("LookDbg", mode)
+		end
 
 		-- Biomechanical Peripheral Gaze Falloff:
 		-- Eye/head tracking is active within comfortable field of view (|yaw| <= 70 deg).
