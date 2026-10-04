@@ -13,6 +13,7 @@ local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("Spa
 local Procedural = QuinCore:WaitForChild("Modules"):WaitForChild("Procedural")
 local Layers = require(Procedural:WaitForChild("Layers"))
 local SquareUp = require(Procedural:WaitForChild("SquareUp"))
+local KneeOverToe = require(Procedural:WaitForChild("KneeOverToe"))
 
 local ProceduralCombatReactionController = {}
 ProceduralCombatReactionController.__index = ProceduralCombatReactionController
@@ -53,6 +54,8 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	self.standHeight = (self.humanoid and self.humanoid.HipHeight or 0) + (self.simRootPart and self.simRootPart.Size.Y / 2 or 0)
 
 	self.squareUp = SquareUp.new(ghostModel, self.humanoid)
+	self.kneeOverToe = KneeOverToe.new(ghostModel)
+	self.footLift = {} -- side -> how far the clip has the foot above its ground (studs); nil with no ground under it
 
 	-- Procedural Foot IK & Ledge Gripping Setup (Step 3)
 	self.leftFootAtt = nil
@@ -804,6 +807,7 @@ function ProceduralCombatReactionController:update(dt)
 			local rayOrigin = Vector3.new(animFootPos.X, hrpPos.Y + 0.5, animFootPos.Z)
 			local hit = Workspace:Raycast(rayOrigin, -upVec * rayDist, self.ikRayParams)
 			self.footNormal[side] = hit and hit.Normal or Vector3.yAxis
+			self.footLift[side] = nil
 
 			local targetPos = animFootPos
 			local targetWeight = 0
@@ -815,6 +819,7 @@ function ProceduralCombatReactionController:update(dt)
 				local floorY = hit.Position.Y
 				-- Vertical clearance of animated foot above detected surface
 				local liftAboveSurface = animFootPos.Y - (floorY + ankleHeight)
+				self.footLift[side] = liftAboveSurface
 
 				-- Elevation difference between actual terrain surface and nominal character floor level
 				local nominalGroundY = hrpPos.Y - nominalFloorDist
@@ -1056,6 +1061,20 @@ function ProceduralCombatReactionController:update(dt)
 		local rW = blendWeight("Right", rWeight, rPlanted)
 		if lLeg and lPos and lW > 0 then applyLeg(lLeg, lLeg.footW.Position:Lerp(lPos, lW), self.footNormal.Left, lW) end
 		if rLeg and rPos and rW > 0 then applyLeg(rLeg, rLeg.footW.Position:Lerp(rPos, rW), self.footNormal.Right, rW) end
+
+		-- Knee over toe (body layer): a knee too far in or out of its foot is swung round the
+		-- hip-ankle line, on the final leg pose, solved or not
+		self.kneeOverToe:apply(self.footLift, Layers.isOn("KneeOverToe", serverModel), dt)
+
+		-- Footfall (body layer): each foot that comes down drops the hips a little on their
+		-- spring (step 5); the feet are held to the ground, so the knees give. Weight.
+		if Layers.isOn("Footfall", serverModel) then
+			local footfall = CombatConfig.ProceduralLayers.Footfall
+			local falls = ((lPlanted and not self.leftPlanted) and 1 or 0) + ((rPlanted and not self.rightPlanted) and 1 or 0)
+			if falls > 0 then
+				self.hipsVelocity -= falls * footfall.Step * math.clamp(speed / footfall.FullSpeed, footfall.Least, footfall.Most)
+			end
+		end
 
 		-- Toe flex (FootIK_ToeFlexion): a toe whose tip would go through the ground bends up at
 		-- the ball of the foot, as a real toe does when the heel rises (push-off, a foot planted

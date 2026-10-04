@@ -37,19 +37,27 @@ gui.DisplayOrder = 40
 gui.Enabled = false
 gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
+-- Bottom middle of the screen, wide and low: clear of the Spectator HUD on the left and the
+-- menu buttons on the right. Who it is and how it is doing on the left, its thoughts beside that.
+local DETAILS_WIDTH = 240
+
 local panel = Instance.new("Frame")
-panel.AnchorPoint = Vector2.new(0, 0.5)
-panel.Position = UDim2.new(0, 16, 0.5, 0)
-panel.Size = UDim2.fromOffset(320, 360)
+panel.AnchorPoint = Vector2.new(0.5, 1)
+panel.Position = UDim2.new(0.5, 40, 1, -12)
+panel.Size = UDim2.new(0.42, 0, 0, 150)
 panel.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
 panel.BackgroundTransparency = 0.12
 panel.Parent = gui
 Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+local panelWidth = Instance.new("UISizeConstraint")
+panelWidth.MinSize = Vector2.new(460, 150)
+panelWidth.MaxSize = Vector2.new(700, 150)
+panelWidth.Parent = panel
 
 local function label(y: number, height: number, size: number, bold: boolean): TextLabel
 	local l = Instance.new("TextLabel")
 	l.Position = UDim2.fromOffset(12, y)
-	l.Size = UDim2.new(1, -24, 0, height)
+	l.Size = UDim2.fromOffset(DETAILS_WIDTH - 24, height)
 	l.BackgroundTransparency = 1
 	l.TextColor3 = Color3.fromRGB(235, 240, 250)
 	l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
@@ -64,7 +72,7 @@ end
 local function bar(y: number, color: Color3): (Frame, TextLabel)
 	local back = Instance.new("Frame")
 	back.Position = UDim2.fromOffset(12, y)
-	back.Size = UDim2.new(1, -24, 0, 16)
+	back.Size = UDim2.fromOffset(DETAILS_WIDTH - 24, 16)
 	back.BackgroundColor3 = Color3.fromRGB(34, 40, 54)
 	back.Parent = panel
 	Instance.new("UICorner", back).CornerRadius = UDim.new(0, 5)
@@ -89,14 +97,14 @@ local roleLabel = label(30, 16, 11, false)
 roleLabel.TextColor3 = Color3.fromRGB(160, 172, 196)
 local healthFill, healthText = bar(52, Color3.fromRGB(80, 200, 110))
 local manaFill, manaText = bar(72, Color3.fromRGB(80, 150, 255))
-local doingLabel = label(94, 18, 12, true)
+local doingLabel = label(96, 18, 12, true)
 doingLabel.TextColor3 = Color3.fromRGB(255, 225, 140)
-local optionsLabel = label(112, 14, 10, false)
+local optionsLabel = label(116, 14, 10, false)
 optionsLabel.TextColor3 = Color3.fromRGB(130, 142, 166)
 
 local stream = Instance.new("ScrollingFrame")
-stream.Position = UDim2.fromOffset(12, 132)
-stream.Size = UDim2.new(1, -24, 1, -144)
+stream.Position = UDim2.fromOffset(DETAILS_WIDTH, 10)
+stream.Size = UDim2.new(1, -DETAILS_WIDTH - 12, 1, -20)
 stream.BackgroundTransparency = 1
 stream.BorderSizePixel = 0
 stream.ScrollBarThickness = 4

@@ -479,6 +479,21 @@ CombatConfig.ProceduralLayers = {
 			"Strafe.StrafeLeftTired", "Strafe.StrafeRightTired",
 		},
 	},
+	KneeOverToe = { -- a knee points where the foot under it points, give or take
+		Enabled = true,  -- Workspace Layer_KneeOverToe overrides (A/B)
+		InMax = 5,       -- how far a knee may point inside the foot under it (degrees)
+		OutMax = 25,     -- ... and outside it
+		MaxTurn = 35,    -- the most a knee is swung for that (degrees)
+		Rate = 18,       -- how fast the swing comes and goes (1/s); a running stance lasts about 0.12 s
+		FullLift = 0.15, -- a foot within this of its ground (studs) gets the whole correction...
+		FadeLift = 0.6,  -- ...fading to none at this lift: in the air the foot points anywhere
+	},
+	Footfall = { -- weight: each foot that comes down drops the hips a little on their spring
+		Enabled = true,  -- Workspace Layer_Footfall overrides (A/B)
+		Step = 1.2,      -- hip speed (studs/s, downward) one footfall adds at FullSpeed
+		FullSpeed = 8,   -- travel speed (studs/s) that gives exactly Step
+		Least = 0.4, Most = 1.6, -- slower / faster travel scales Step between these
+	},
 }
 CombatConfig.Retreat_WoundedFrom = 0.25                -- health ratio below which a fleeing Quin starts to slow
 CombatConfig.Retreat_WoundedSlow = 0.2                 -- share of its run speed lost by the time it is at death's door
