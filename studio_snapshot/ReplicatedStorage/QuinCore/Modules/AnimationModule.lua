@@ -23,7 +23,9 @@ local KNOWN_TRACK_LENGTHS = {
 	["rbxassetid://113219639247452"] = 0.833, -- Attacks.Punches.Punch1, Attacks.Punches.Uppercut, Attacks.Specials.Slam, Attacks.Specials.SlamImpact, Attacks.Specials.Special1, Attacks.Specials.Uppercut
 	["rbxassetid://109837817595150"] = 3.867, -- Attacks.Specials.BeamStruggle, Idles.CombatIdle, Idles.FightIdle, Idles.SurveyIdle, Transition.AssessTarget
 	["rbxassetid://71743026406362"] = 2.733, -- Attacks.Specials.ProceduralSmackDown
-	["rbxassetid://79207866638803"] = 3.200, -- Attacks.Specials.SlamRecovery, Reactions.GetUpGround
+	["rbxassetid://79207866638803"] = 3.200, -- Reactions.GetUpBackFast, Attacks.Specials.SlamRecovery
+	["rbxassetid://82896239168564"] = 3.200, -- Reactions.GetUpFrontFast
+	["rbxassetid://90997656474712"] = 4.933, -- Reactions.GetUpFrontSlow
 	["rbxassetid://98616724907377"] = 4.033, -- Awareness.LookingBehind, Awareness.RearThreatGlance
 	["rbxassetid://129355316172688"] = 0.667, -- Awareness.Turn180Pivot, Movement.RunTurn180, Movement.RunTurn180Left, Movement.RunTurn180Right, Movement.RunTurn90Left, Movement.RunTurn90Right
 	["rbxassetid://81038616654818"] = 8.333, -- Idles.DefaultIdle, Movement.Idle
@@ -33,7 +35,8 @@ local KNOWN_TRACK_LENGTHS = {
 	["rbxassetid://133182359318358"] = 0.100, -- Movement.Dash
 	["rbxassetid://79340771026707"] = 0.767, -- Movement.Fall
 	["rbxassetid://88475997278069"] = 2.567, -- Movement.FallAirKnockback, Reactions.FallAirKnockback, Reactions.KnockbackAir, Reactions.SlammedDown
-	["rbxassetid://80583167665730"] = 1.567, -- Movement.FallStraight
+	["rbxassetid://80583167665730"] = 1.567, -- Movement.FallFront
+	["rbxassetid://88441309301154"] = 1.500, -- Movement.FallBack
 	["rbxassetid://113571639405597"] = 0.800, -- Movement.IdleToRun1, Movement.IdleToRun2, Movement.StartRun, Movement.StartSprint
 	["rbxassetid://91301995989516"] = 0.833, -- Movement.Jog
 	["rbxassetid://85622241844167"] = 0.933, -- Movement.Jump, Parkour.VaultObstacle
@@ -53,8 +56,8 @@ local KNOWN_TRACK_LENGTHS = {
 	["rbxassetid://81446994688965"] = 1.000, -- Reactions.BlockRight
 	["rbxassetid://80496269227852"] = 4.667, -- Reactions.Death, Reactions.DeathCollapse
 	["rbxassetid://122802842451487"] = 4.500, -- Reactions.DeathOnTheSpot
-	["rbxassetid://95406088712190"] = 2.033, -- Reactions.GetUpBackFast
-	["rbxassetid://128158227118276"] = 8.267, -- Reactions.GetUpBackSlow
+	["rbxassetid://95406088712190"] = 2.033, -- Reactions.GetUpBackFastNinja
+	["rbxassetid://119670118817591"] = 4.933, -- Reactions.GetUpBackSlow
 	["rbxassetid://108624065264351"] = 2.767, -- Reactions.GetUpFromCrouch
 	["rbxassetid://82096408080514"] = 1.300, -- Reactions.HitHeavy
 	["rbxassetid://131344167080457"] = 2.533, -- Reactions.KnockdownBehind
@@ -80,7 +83,9 @@ local KNOWN_NAMES = {
 	["rbxassetid://113219639247452"] = "Punch1",
 	["rbxassetid://109837817595150"] = "BeamStruggle",
 	["rbxassetid://71743026406362"] = "ProceduralSmackDown",
-	["rbxassetid://79207866638803"] = "SlamRecovery",
+	["rbxassetid://79207866638803"] = "GetUpBackFast",
+	["rbxassetid://82896239168564"] = "GetUpFrontFast",
+	["rbxassetid://90997656474712"] = "GetUpFrontSlow",
 	["rbxassetid://98616724907377"] = "LookingBehind",
 	["rbxassetid://129355316172688"] = "Turn180Pivot",
 	["rbxassetid://81038616654818"] = "DefaultIdle",
@@ -90,7 +95,8 @@ local KNOWN_NAMES = {
 	["rbxassetid://133182359318358"] = "Dash",
 	["rbxassetid://79340771026707"] = "Fall",
 	["rbxassetid://88475997278069"] = "FallAirKnockback",
-	["rbxassetid://80583167665730"] = "FallStraight",
+	["rbxassetid://80583167665730"] = "FallFront",
+	["rbxassetid://88441309301154"] = "FallBack",
 	["rbxassetid://113571639405597"] = "IdleToRun1",
 	["rbxassetid://91301995989516"] = "Jog",
 	["rbxassetid://85622241844167"] = "Jump",
@@ -110,8 +116,8 @@ local KNOWN_NAMES = {
 	["rbxassetid://81446994688965"] = "BlockRight",
 	["rbxassetid://80496269227852"] = "Death",
 	["rbxassetid://122802842451487"] = "DeathOnTheSpot",
-	["rbxassetid://95406088712190"] = "GetUpBackFast",
-	["rbxassetid://128158227118276"] = "GetUpBackSlow",
+	["rbxassetid://95406088712190"] = "GetUpBackFastNinja",
+	["rbxassetid://119670118817591"] = "GetUpBackSlow",
 	["rbxassetid://108624065264351"] = "GetUpFromCrouch",
 	["rbxassetid://82096408080514"] = "HitHeavy",
 	["rbxassetid://131344167080457"] = "KnockdownBehind",
@@ -131,7 +137,7 @@ local KNOWN_NAMES = {
 -- Temporary locomotion overlays (turns, vaults, slides, stops, falls, landings)
 local LOCOMOTION_OVERLAY_PATHS = {
 	"Movement.Slide", "Movement.StartRun", "Movement.StopRun", "Movement.Jump", "Movement.Fall",
-	"Movement.FallStraight", "Movement.FallAirKnockback", "Movement.RunTurn180", "Movement.ArcRun30Rear",
+	"Movement.FallFront", "Movement.FallBack", "Movement.FallAirKnockback", "Movement.RunTurn180", "Movement.ArcRun30Rear",
 	"Parkour.LandingSoft", "Parkour.LandingHard", "Parkour.LandingSuperHero", "Parkour.ProceduralJump1",
 	"Parkour.ProceduralSlide1", "Parkour.ProceduralSlide2", "Parkour.SkidOverOB", "Awareness.RearThreatGlance",
 }

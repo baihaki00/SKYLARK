@@ -75,7 +75,7 @@ setmetatable(AnimationIds, {
 				or (reg.Reactions and reg.Reactions.HitHeavy and reg.Reactions.HitHeavy.id)
 		end
 		if key == "KnockbackExtreme" then return reg.Reactions and reg.Reactions.KnockbackAir and reg.Reactions.KnockbackAir.id end
-		if key == "GetUpGround" or key == "GetUpAir" then return reg.Reactions and reg.Reactions.GetUpGround and reg.Reactions.GetUpGround.id end
+		if key == "GetUpGround" or key == "GetUpAir" then return reg.Reactions and reg.Reactions.GetUpBackFast and reg.Reactions.GetUpBackFast.id end
 		if key == "Block" or key == "BlockFront" then return reg.Reactions and reg.Reactions.BlockFront and reg.Reactions.BlockFront.id end
 		if key == "BlockLeft" then return reg.Reactions and reg.Reactions.BlockLeft and reg.Reactions.BlockLeft.id end
 		if key == "BlockRight" then return reg.Reactions and reg.Reactions.BlockRight and reg.Reactions.BlockRight.id end
@@ -96,7 +96,8 @@ setmetatable(AnimationIds, {
 		if key == "ArcRun30Rear" then return reg.Movement and reg.Movement.ArcRun30Rear and reg.Movement.ArcRun30Rear.id end
 		if key == "ArcRun30RearLeft" then return reg.Movement and reg.Movement.ArcRun30RearLeft and reg.Movement.ArcRun30RearLeft.id end
 		if key == "ArcRun30RearRight" then return reg.Movement and reg.Movement.ArcRun30RearRight and reg.Movement.ArcRun30RearRight.id end
-		if key == "FallStraight" then return reg.Movement and reg.Movement.FallStraight and reg.Movement.FallStraight.id end
+		if key == "FallFront" or key == "FallStraight" then return reg.Movement and reg.Movement.FallFront and reg.Movement.FallFront.id end
+		if key == "FallBack" then return reg.Movement and reg.Movement.FallBack and reg.Movement.FallBack.id end
 
 		-- Strafe aliases are used by CirclingState and TestState.
 		if key == "StrafeLeftRun" then return reg.Strafe and reg.Strafe.StrafeLeftRun and reg.Strafe.StrafeLeftRun.id end
@@ -108,6 +109,9 @@ setmetatable(AnimationIds, {
 
 		-- Recovery & GetUp Aliases
 		if key == "GetUpBackFast" then return reg.Reactions and reg.Reactions.GetUpBackFast and reg.Reactions.GetUpBackFast.id end
+		if key == "GetUpBackFastNinja" then return reg.Reactions and reg.Reactions.GetUpBackFastNinja and reg.Reactions.GetUpBackFastNinja.id end
+		if key == "GetUpFrontFast" then return reg.Reactions and reg.Reactions.GetUpFrontFast and reg.Reactions.GetUpFrontFast.id end
+		if key == "GetUpFrontSlow" then return reg.Reactions and reg.Reactions.GetUpFrontSlow and reg.Reactions.GetUpFrontSlow.id end
 		if key == "GetUpBackSlow" then return reg.Reactions and reg.Reactions.GetUpBackSlow and reg.Reactions.GetUpBackSlow.id end
 		if key == "GetUpFromCrouch" then return reg.Reactions and reg.Reactions.GetUpFromCrouch and reg.Reactions.GetUpFromCrouch.id end
 		if key == "KnockdownBehind" then return reg.Reactions and reg.Reactions.KnockdownBehind and reg.Reactions.KnockdownBehind.id end

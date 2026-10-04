@@ -303,7 +303,7 @@ Grouped by **unique asset**: markers are edited once per asset ID. ⚠️ marks 
 
 | Name | Status |
 |---|---|
-| `GetUpBackFast` / `GetUpBackSlow` / `GetUpFromCrouch` | ✅ |
+| `GetUpBackFastNinja` (instant recovery) / `GetUpBackFast` / `GetUpBackSlow` / `GetUpFrontFast` / `GetUpFrontSlow` / `GetUpFromCrouch` | ✅ |
 | `GetUpFront` (from face down) | ➕ |
 | `GetUpRoll` (roll away, then up) | ➕ optional |
 | `RecoverToFeet` | 🔁 `79207866638803` shared with slam recovery |

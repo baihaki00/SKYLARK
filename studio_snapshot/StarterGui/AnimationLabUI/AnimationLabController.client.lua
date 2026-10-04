@@ -2771,7 +2771,7 @@ do
 			elseif pData.presetId == "SuperheroLanding" then
 				combinatorLayers = {
 					mkLayer("rbxassetid://94804914683754", "SUPERHERO LANDING", 0.0, 0.883, 1.0, 1.0, "Action4", "Full Body", false),
-					mkLayer("rbxassetid://95406088712190", "GetUpBackFast", 0.0, 1.0, 0.9, 1.0, "Action", "Full Body", false),
+					mkLayer("rbxassetid://95406088712190", "GetUpBackFastNinja", 0.0, 1.0, 0.9, 1.0, "Action", "Full Body", false),
 				}
 			end
 			updateGlobalDuration()

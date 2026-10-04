@@ -218,7 +218,41 @@ end
 -- CombatConfig.ClipCorrections: while a listed clip is the main clip on the body, its hip
 -- translation is scaled and the whole body (everything under the hips) is turned about the
 -- root's vertical axis. All or nothing at 50% weight: a half-applied 180 degree turn would twist.
-function ProceduralCombatReactionController:applyClipCorrections()
+-- `ground`: a clip that lies down without lowering its hips is lowered until its lowest point
+-- rests on the floor (eased, so it comes and goes with the clip).
+local GROUND_BONES = { "Hips", "Spine2", "Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot", "LeftToeBase", "RightToeBase" }
+
+function ProceduralCombatReactionController:applyGroundCorrection(grounding, dt)
+	local hips = self.hipsBone
+	local target = 0
+	if grounding then
+		if not self.groundBones then
+			self.groundBones = {}
+			for _, name in ipairs(GROUND_BONES) do
+				local bone = self.ghostModel:FindFirstChild("mixamorig:" .. name, true)
+				if bone then table.insert(self.groundBones, bone) end
+			end
+		end
+		local lowest = math.huge
+		for _, bone in ipairs(self.groundBones) do
+			lowest = math.min(lowest, bone.TransformedWorldCFrame.Position.Y)
+		end
+		-- (the floor is looked for: a body that is down does not hold its root at standing height,
+		-- and measured from the root it was lowered a stud into the ground)
+		local root = self.ghostRootPart or self.rootPart
+		local hit = Workspace:Raycast(root.Position, Vector3.new(0, -(self.standHeight + 6), 0), self.ikRayParams)
+		local floorY = hit and hit.Position.Y or (root.Position.Y - self.standHeight)
+		target = math.max(0, lowest - (floorY + (CombatConfig.ClipCorrections_GroundPad or 0.45)))
+	end
+	self.groundDrop = (self.groundDrop or 0) + (target - (self.groundDrop or 0)) * (1 - math.exp(-18 * dt))
+	if self.groundDrop > 0.01 then
+		local parent = hips.Parent
+		local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame
+		hips.Transform = (parentW * hips.CFrame):Inverse() * (hips.TransformedWorldCFrame - Vector3.new(0, self.groundDrop, 0))
+	end
+end
+
+function ProceduralCombatReactionController:applyClipCorrections(dt)
 	local corrections = CombatConfig.ClipCorrections
 	if not corrections or not self.hipsBone or not self.humanoid then return end
 	local animator = self.humanoid:FindFirstChildOfClass("Animator")
@@ -232,7 +266,10 @@ function ProceduralCombatReactionController:applyClipCorrections()
 		end
 	end
 	self.activeClipCorrection = correction
-	if not correction then return end
+	if not correction then
+		self:applyGroundCorrection(false, dt)
+		return
+	end
 
 	local hips = self.hipsBone
 	if correction.translationScale then
@@ -248,6 +285,7 @@ function ProceduralCombatReactionController:applyClipCorrections()
 		local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame
 		hips.Transform = (parentW * hips.CFrame):Inverse() * turned
 	end
+	self:applyGroundCorrection(correction.ground == true, dt)
 end
 
 -- Trigger a directional hit recoil impulse
@@ -295,7 +333,7 @@ function ProceduralCombatReactionController:update(dt)
 
 	-- 0. Clips authored facing backwards or with oversized root motion are put right before
 	-- anything here reads the pose (CombatConfig.ClipCorrections)
-	self:applyClipCorrections()
+	self:applyClipCorrections(dt)
 
 	-- 1. Check server model for new replicated impact event
 	local serverModel = self.aiModel

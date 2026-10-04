@@ -599,7 +599,18 @@ CombatConfig.ClipCorrections = {
 	["121127010274438"] = { yaw = 180 },                         -- PROJECTILE JUMP
 	["122361647744311"] = { yaw = 180 },                         -- PROJECTILE JUMP AIRBORNE LOOP
 	["105219213466134"] = { yaw = 180 },                         -- PJ JUMP STYLE LANDING
+	-- FallFront drops its hips 7 studs to the floor inside the clip (it was a fall from standing):
+	-- flown as a pose in the air, like FallBack, which keeps its hips where they are
+	["80583167665730"] = { translationScale = 0 },                -- FALL, FACE TO THE GROUND
+	-- These lie down without lowering their hips (the hips stay at standing height all through,
+	-- so the body would lie 4 studs up in the air): `ground` lowers the body until its lowest
+	-- point rests on the floor. Does nothing once a clip carries its own hips travel.
+	["119670118817591"] = { ground = true },                      -- GET UP FROM THE BACK (SLOW)
+	["82896239168564"] = { ground = true },                       -- GET UP FROM THE FRONT (FAST)
+	["90997656474712"] = { ground = true },                       -- GET UP FROM THE FRONT (SLOW)
 }
+CombatConfig.ClipCorrections_GroundPad = 0.45 -- studs the lowest bone is kept above the floor by `ground` (half a limb's thickness)
+CombatConfig.Recovery_SlowGetUpHealth = 0.35  -- health ratio under which a Quin knocked flat gets up slowly
 
 CombatConfig.SecondaryMotion_Spine = true            -- the spine follows too
 CombatConfig.SecondaryMotion_Neck = false            -- neck and head springs: off (they doubled head jitter in Chase; the head turns on LookController's own spring). Workspace SecondaryMotionTorso = none|spine|all for A/B

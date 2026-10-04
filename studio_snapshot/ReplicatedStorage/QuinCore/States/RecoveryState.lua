@@ -14,9 +14,29 @@ local KnockbackModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("K
 
 local RecoveryState = { name = "Recovery" }
 
--- Get-up clips. A heavy knockdown rises slowly from the back; everything else kips up.
-local GET_UP_FAST = "Reactions.GetUpBackFast"
-local GET_UP_HEAVY = "Reactions.GetUpGround"
+-- Getting up, by the side the body came down on (FallSide, decided in Knockback) and by how the
+-- landing went:
+--   back on its feet in an instant: a kip-up from the back, a landing from the front;
+--   knocked flat (a heavy knockdown): it lies there and gets up from that side, slowly if it
+--   is badly hurt (Recovery_SlowGetUpHealth).
+local INSTANT_RECOVERY = {
+	Back = { "Reactions.GetUpBackFastNinja" },
+	Front = { "Parkour.LandingHard", "Parkour.LandingSoft", "Parkour.LandingSuperHero" },
+}
+local GET_UP = {
+	Back = { fast = "Reactions.GetUpBackFast", slow = "Reactions.GetUpBackSlow" },
+	Front = { fast = "Reactions.GetUpFrontFast", slow = "Reactions.GetUpFrontSlow" },
+}
+
+local function getUpClip(fighter, humanoid, isHeavy)
+	local side = fighter:GetAttribute("FallSide") == "Front" and "Front" or "Back"
+	if not isHeavy then
+		local choices = INSTANT_RECOVERY[side]
+		return choices[math.random(1, #choices)]
+	end
+	local hurt = humanoid.Health / math.max(humanoid.MaxHealth, 1) < (CombatConfig.Recovery_SlowGetUpHealth or 0.35)
+	return GET_UP[side][hurt and "slow" or "fast"]
+end
 -- The state hands over slightly before the clip's last frame so its tail blends into the next pose
 local GET_UP_HANDOVER = 0.92
 
@@ -115,7 +135,7 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 		end
 		duration = AnimationModule.getEffectiveDuration(humanoid, clipPath, 1.0) * GET_UP_HANDOVER
 	else
-		clipPath = isHeavy and GET_UP_HEAVY or GET_UP_FAST
+		clipPath = getUpClip(fighter, humanoid, isHeavy)
 		AnimationModule.playConfig(humanoid, clipPath, 1.0, Enum.AnimationPriority.Action4, false)
 		-- The state lasts as long as the clip: a fixed 1.2s cut the get-up off mid-rise
 		duration = AnimationModule.getEffectiveDuration(humanoid, clipPath, 1.0) * GET_UP_HANDOVER
@@ -152,6 +172,7 @@ function RecoveryState.exit(fighter, humanoid, rootPart)
 
 	fighter:SetAttribute("KnockbackType", nil)
 	fighter:SetAttribute("KnockdownHeavy", nil)
+	fighter:SetAttribute("FallSide", nil)
 	-- Clear GetUpProtection after a brief 0.3s poise buffer so character is not instantly re-knocked
 	task.delay(0.30, function()
 		if fighter and fighter.Parent then

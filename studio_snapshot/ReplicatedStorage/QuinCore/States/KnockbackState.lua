@@ -19,6 +19,26 @@ local KnockbackState = { name = "Knockback" }
 
 local knockbackData = {}
 
+-- The fall. A thrown Quin flails on the way up; as it comes down it turns its back or its face
+-- to the ground, and Recovery gets it up from that side (the FallSide attribute).
+local FALL_CLIPS = { Back = "Movement.FallBack", Front = "Movement.FallFront" }
+local FALL_MIN_FLIGHT = 0.25 -- seconds in the air before the fall pose may take over the flailing
+local FALL_DESCENT = -6 -- studs/s: sinking at least this fast counts as coming down
+
+-- Which way it comes down: on its back when it is thrown backward (hit from the front), on its
+-- front when it is thrown forward (hit from behind); a body already tipped over keeps to that.
+local function fallSide(rootPart)
+	local look = rootPart.CFrame.LookVector
+	local velocity = rootPart.AssemblyLinearVelocity
+	local travel = Vector3.new(velocity.X, 0, velocity.Z)
+	local facing = Vector3.new(look.X, 0, look.Z)
+	local backward = 0
+	if travel.Magnitude > 2 and facing.Magnitude > 0.05 then
+		backward = -travel.Unit:Dot(facing.Unit)
+	end
+	return (look.Y * 1.5 + backward) >= 0 and "Back" or "Front"
+end
+
 function KnockbackState.enter(fighter, humanoid, rootPart)
 	local stunDuration = CombatConfig.BaseStunDuration or 0.5
 	local stunResist = fighter:GetAttribute("StunResist") or 0
@@ -119,6 +139,9 @@ function KnockbackState.exit(fighter, humanoid, rootPart)
 	AnimationModule.stop(humanoid, AnimationIds.Knockback, 0.3)
 	AnimationModule.stop(humanoid, AnimationIds.FallAirKnockback, 0.15)
 	AnimationModule.stop(humanoid, AnimationIds.KnockbackExtreme, 0.15)
+	for _, path in pairs(FALL_CLIPS) do
+		AnimationModule.stopConfig(humanoid, path, 0.15)
+	end
 	-- No more GetUp stop here, handled by RecoveryState
 end
 
@@ -144,6 +167,14 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	-- Anti-Clipping: The moment they hit the ground, turn off PlatformStand.
 	if humanoid.PlatformStand and (data.kbType == "air" or data.kbType == "hard_ground") then
+		-- Coming down: the fall pose for the side it lands on takes over from the flailing
+		if not data.fallSide and elapsed >= FALL_MIN_FLIGHT and rootPart.AssemblyLinearVelocity.Y <= FALL_DESCENT then
+			data.fallSide = fallSide(rootPart)
+			fighter:SetAttribute("FallSide", data.fallSide)
+			AnimationModule.stop(humanoid, AnimationIds.FallAirKnockback, 0.25)
+			AnimationModule.playConfig(humanoid, FALL_CLIPS[data.fallSide], 1.0, Enum.AnimationPriority.Action4, true)
+		end
+
 		local launchTime = fighter:GetAttribute("LaunchedAt") or 0
 		local isImmune = (tick() - launchTime) < 0.35
 		
@@ -180,6 +211,10 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 			end
 			VfxModule.shakeScreen(rootPart.Position, 350, 8)
 			RuntimeTracer.checkpoint(fighter, "GroundContact → IMPACT & SLIDE")
+			if not data.fallSide then
+				-- (a flight too short for the fall pose: the side is still decided for the get-up)
+				fighter:SetAttribute("FallSide", fallSide(rootPart))
+			end
 			
 			return require(script.Parent:WaitForChild("RecoveryState"))
 		end
