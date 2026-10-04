@@ -1019,7 +1019,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Dynamic Wall-Running (Phase 6 Parkour): angled vertical wall traversal
 	local lastWallRun = fighter:GetAttribute("LastWallRunTime") or 0
 	local wallRunCooldown = (quirky == "WallTapper") and 2.5 or (CombatConfig.WallRunCooldown or 5.0)
-	local canWallRun = (now - lastWallRun) >= wallRunCooldown and energy >= (CombatConfig.WallRunMinEnergy or 15)
+	-- (a target that takes to a wall is followed onto it: no waiting out the cooldown)
+	local followingOntoWall = targetState == "WallRun"
+	local canWallRun = ((now - lastWallRun) >= wallRunCooldown or followingOntoWall) and energy >= (CombatConfig.WallRunMinEnergy or 15)
 		and (data.currentSpeed or 30) >= (CombatConfig.WallRunMinSpeed or 18)
 		and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 

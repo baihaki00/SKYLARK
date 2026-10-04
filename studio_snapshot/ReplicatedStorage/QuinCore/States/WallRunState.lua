@@ -1,8 +1,16 @@
 --// WallRunState.lua
--- Parkour wall-run: the Quin leaves the floor, carries its momentum along a vertical wall a few
--- studs up, and kicks off at the end. The root is driven by a velocity constraint (tangent speed,
--- climb to the run height, hold distance to the wall); the presentation layer leans the body away
--- from the wall (CombatConfig.WallRunTiltDegrees, read from the WallRunSide attribute).
+-- Parkour wall-run: the Quin leaves the floor, carries its momentum along a vertical wall, and
+-- kicks off at the end. It is an arc, not a ledge: the speed it arrives with is what it has.
+-- Part of that speed goes into the climb (WallRun_ClimbRatio); while its feet are on the wall it
+-- falls at a fraction of gravity (WallRun_GravityScale: the push of its feet against the wall
+-- carries the rest) and loses speed along the wall (WallRun_Drag). So it rises, tops out and
+-- starts to sink, and the faster it came in the higher and further it goes (measured: 16 studs
+-- up and 98 along in 2.3 s from 48 studs/s; by the same arc about 10 up and 75 along from 40,
+-- 6 up and 40 along from 30). When it is sinking fast (WallRun_SinkSpeed) it kicks off.
+-- (It used to climb 3.5 studs, hold that height at a fixed 48 studs/s and let go after 1.25 s.)
+-- The root is driven by a velocity constraint (along the wall, the arc, the distance held from
+-- the wall); the presentation layer leans the body away from the wall
+-- (CombatConfig.WallRunTiltDegrees, read from the WallRunSide attribute).
 
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -41,9 +49,8 @@ end
 -- Velocity for this moment of the run: along the wall, toward the run height, and toward the
 -- hold distance from the wall
 local function runVelocity(data, rootPart, wallDistance)
-	local climb = math.clamp((data.runY - rootPart.Position.Y) * 6, -8, 14)
 	local intoWall = wallDistance and math.clamp((wallDistance - WALL_HOLD_DISTANCE) * 6, -6, 10) or 0
-	return data.tangent * data.wallRunSpeed + Vector3.new(0, climb, 0) - data.normal * intoWall
+	return data.tangent * data.along + Vector3.new(0, data.rise, 0) - data.normal * intoWall
 end
 
 function WallRunState.enter(fighter, humanoid, rootPart)
@@ -76,14 +83,28 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 	humanoid.AutoRotate = false
 	removeMovers(rootPart)
 
+	-- What it brings to the wall: its speed along it (at least the speed a run needs, at most
+	-- the wall-run's top speed), and the share of that it puts into the climb
+	local velocity = rootPart.AssemblyLinearVelocity
+	local arriving = Vector3.new(velocity.X, 0, velocity.Z):Dot(tangent)
+	-- (test hook: WallRunEntrySpeed on the Quin stands in for the speed it arrives with, once)
+	local staged = fighter:GetAttribute("WallRunEntrySpeed")
+	if staged then
+		arriving = staged
+		fighter:SetAttribute("WallRunEntrySpeed", nil)
+	end
+	local along = math.clamp(arriving, CombatConfig.WallRunMinSpeed or 18, wallRunSpeed)
 	local data = {
 		startTime = now,
+		lastUpdate = now,
 		maxDuration = maxDuration,
-		wallRunSpeed = wallRunSpeed,
+		wallRunSpeed = wallRunSpeed, -- (the lane ahead is probed at this speed)
+		along = along,
+		rise = along * (CombatConfig.WallRun_ClimbRatio or 0.6),
+		startY = rootPart.Position.Y,
 		tangent = tangent,
 		normal = normal,
 		side = side,
-		runY = rootPart.Position.Y + (CombatConfig.WallRunHeight or 3.5),
 		origWalkSpeed = fighter:GetAttribute("Speed") or 40,
 	}
 	wallRunData[fighter] = data
@@ -125,7 +146,18 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Same clock as data.startTime. With tick() here `elapsed` was ~1.7e9 seconds, so every
 	-- wall-run hit its max duration on the first update.
-	local elapsed = os.clock() - data.startTime
+	local nowClock = os.clock()
+	local elapsed = nowClock - data.startTime
+	local dt = math.clamp(nowClock - data.lastUpdate, 0, 0.25)
+	data.lastUpdate = nowClock
+
+	-- The arc: it falls at a fraction of gravity and loses speed along the wall
+	data.rise -= Workspace.Gravity * (CombatConfig.WallRun_GravityScale or 0.15) * dt
+	data.along = math.max(data.along - (CombatConfig.WallRun_Drag or 5) * dt, 0)
+	-- Spent: sinking, back down where it started, or too slow to stay on the wall
+	local spent = data.rise <= -(CombatConfig.WallRun_SinkSpeed or 8)
+		or (data.rise < 0 and rootPart.Position.Y <= data.startY)
+		or data.along < (CombatConfig.WallRun_MinAlongSpeed or 14)
 
 	local checkParams = RaycastParams.new()
 	checkParams.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
@@ -138,8 +170,8 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 	local target, dist = TargetingModule.getNearest(rootPart, 18)
 	local interceptTarget = target ~= nil and dist ~= nil and dist <= 14.0 and elapsed >= MIN_COMMIT_TIME
 
-	if elapsed >= data.maxDuration or wallLost or laneBlocked or interceptTarget then
-		local reason = (wallLost and "WallEnd") or (laneBlocked and "LaneBlocked") or (interceptTarget and "TargetIntercept") or "Duration"
+	if elapsed >= data.maxDuration or wallLost or laneBlocked or interceptTarget or spent then
+		local reason = (wallLost and "WallEnd") or (laneBlocked and "LaneBlocked") or (interceptTarget and "TargetIntercept") or (spent and "ArcSpent") or "Duration"
 		RuntimeTracer.checkpoint(fighter, string.format("Wall-Kick Dismount (Reason: %s, %.2fs)", reason, elapsed))
 
 		-- Kick off the wall: out, forward and up

@@ -51,7 +51,7 @@ local CombatConfig = {
 
 	--// WALL RUNNING (Phase 6 Parkour Traversal)
 	WallRunSpeed = 48,
-	WallRunMaxDuration = 1.25,
+	WallRunMaxDuration = 3.0,                -- seconds: a ceiling only; the run's own arc ends it sooner (WallRun_* below)
 	WallRunCooldown = 5.0,
 	WallRunMinSpeed = 18,
 	WallRunMinEnergy = 15,
@@ -63,7 +63,6 @@ local CombatConfig = {
 	WallKickForwardImpulse = 34,
 	WallKickUpwardImpulse = 18,
 	WallRunTiltDegrees = 18,                 -- whole-body lean away from the wall during the run
-	WallRunHeight = 3.5,                     -- studs the run climbs above the floor it started from
 	WallRunMinRunway = 24,                   -- studs of wall that must lie ahead before a run starts (0.5s at run speed)
 
 	--// PROJECTILE FIGHT (Ablation / Fallback Toggle: set to false to disable)
@@ -538,6 +537,12 @@ CombatConfig.Chase_TrailGiveUpConfidence = 0.6         -- memory confidence belo
 CombatConfig.Chase_SearchLegDistance = 45              -- studs searched onward along the target's last heading, per leg
 CombatConfig.Chase_DistractionCommitment = 0.6         -- a hunter above this commitment ignores passers-by that are not after it
 CombatConfig.Jump_LandingDepthMax = 8                  -- studs past a platform's rim a jump onto it aims to land (toward the middle; less on small tops)
+-- The wall-run's arc (States/WallRunState)
+CombatConfig.WallRun_ClimbRatio = 0.5     -- share of the speed it arrives with that goes into the climb
+CombatConfig.WallRun_GravityScale = 0.10  -- fraction of gravity it falls at while its feet are on the wall
+CombatConfig.WallRun_Drag = 5             -- studs/s lost along the wall each second
+CombatConfig.WallRun_SinkSpeed = 20       -- studs/s of sinking at which it kicks off (at 8 it let go at the top of the arc: high but no further than before)
+CombatConfig.WallRun_MinAlongSpeed = 14   -- studs/s along the wall under which it cannot stay on
 -- Trespass (Modules/ArenaTrespass): time off the arena floor, on the wall or outside the arena
 CombatConfig.Trespass = {
 	Enabled = true,
