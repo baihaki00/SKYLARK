@@ -666,6 +666,13 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
+	-- After a soft landing it walks on for a moment (unless someone is on it)
+	if os.clock() < (fighter:GetAttribute("CasualUntil") or 0) and distance > 14
+		and fighter:GetAttribute("IsUnderRearThreat") ~= true then
+		shouldWalk = true
+		paceReason = "CasualDrop"
+	end
+
 	-- Track walk -> sprint transition for cinematic pacing
 	if data.wasWalking and not shouldWalk then
 		data.wasWalking = false

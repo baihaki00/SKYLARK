@@ -538,6 +538,16 @@ CombatConfig.Chase_TrailGiveUpConfidence = 0.6         -- memory confidence belo
 CombatConfig.Chase_SearchLegDistance = 45              -- studs searched onward along the target's last heading, per leg
 CombatConfig.Chase_DistractionCommitment = 0.6         -- a hunter above this commitment ignores passers-by that are not after it
 CombatConfig.Jump_LandingDepthMax = 8                  -- studs past a platform's rim a jump onto it aims to land (toward the middle; less on small tops)
+-- Headroom (Modules/HeadroomAwareness): a Quin under something lower than itself gets out
+CombatConfig.Headroom = {
+	Enabled = true,
+	Margin = 0.2,       -- studs of air it wants over its 8 studs
+	MaxStep = 2.5,      -- a spot counts only if its floor is within this of the Quin's own (studs)
+	SearchStep = 4,     -- rings it looks along for the nearest spot with room (studs apart)...
+	SearchRadius = 20,  -- ...out to this far
+	ExitSpeed = 14,     -- studs/s it leaves at
+}
+CombatConfig.Landing_CasualWalkTime = 2.5              -- seconds a Quin keeps to a walk after a soft landing (it walks on, it does not bolt)
 CombatConfig.Landing_SoftMaxSpeed = 8                  -- studs/s across the ground at touchdown up to which a drop lands with the soft landing (faster: the hard landing)
 CombatConfig.Dismount_CasualConfidence = 0.7           -- a Quin this sure of itself, healthy, unpressed and with its target well away steps off a ledge instead of diving
 CombatConfig.Dismount_CasualMinDistance = 18           -- ... the target at least this far off (studs, flat)

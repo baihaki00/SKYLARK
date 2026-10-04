@@ -1122,6 +1122,9 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
             local landingClip = across <= (CombatConfig.Landing_SoftMaxSpeed or 8) and "Parkour.LandingSoft" or "Parkour.LandingHard"
             local absorb = AnimationModule.getEffectiveDuration(humanoid, landingClip, 1.0) * LANDING_ABSORB_RATIO
             data.landingHoldUntil = os.clock() + absorb
+            if landingClip == "Parkour.LandingSoft" then
+                fighter:SetAttribute("CasualUntil", os.clock() + absorb + (CombatConfig.Landing_CasualWalkTime or 2.5))
+            end
             AnimationModule.playConfig(humanoid, landingClip, 1.0, Enum.AnimationPriority.Action3, true)
             task.delay(absorb, function()
                 if humanoid.Parent then

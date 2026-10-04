@@ -712,6 +712,7 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 					and stateName ~= "Knockback" and stateName ~= "Recovery" and stateName ~= "ProjectileJump" then
 					local hold = AnimationModule.getEffectiveDuration(humanoid, "Parkour.LandingSoft", 1.0) * 0.55
 					model:SetAttribute("LandingHoldUntil", os.clock() + hold)
+					model:SetAttribute("CasualUntil", os.clock() + hold + (CombatConfig.Landing_CasualWalkTime or 2.5))
 					AnimationModule.playConfig(humanoid, "Parkour.LandingSoft", 1.0, Enum.AnimationPriority.Action3, true)
 					task.delay(hold, function()
 						if humanoid.Parent then

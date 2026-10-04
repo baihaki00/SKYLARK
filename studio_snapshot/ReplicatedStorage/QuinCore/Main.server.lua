@@ -39,6 +39,10 @@ local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("Run
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local SocialSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("SocialSystem"))
+local HeadroomAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("HeadroomAwareness"))
+
+-- States in which a Quin stands on the ground by its own choice (and so needs room to stand)
+local STANDING_STATES = { Idle = true, Fight = true, Circling = true, Chase = true, Retreat = true, Overwatch = true }
 SocialSystem.start() -- the social layer (pack leaders, respect customs, arena events)
 
 -- === STATE MODULES ===
@@ -688,6 +692,22 @@ task.spawn(function()
 		end
 		
 		local newState = forceState
+		-- Under something lower than itself it cannot stand, wait or fight: it knows, and gets out
+		-- to the nearest spot with room before its state does anything else (HeadroomAwareness).
+		if not newState and STANDING_STATES[currentState.name] and CombatConfig.Headroom.Enabled ~= false
+			and humanoid.FloorMaterial ~= Enum.Material.Air and not humanoid.PlatformStand
+			and not LocomotionModule.isSliding(Quin) then
+			local exit = HeadroomAwareness.exit(Quin, rootPart, humanoid)
+			if exit then
+				Quin:SetAttribute("LowCeiling", true)
+				Quin:SetAttribute("ObstacleAwareness", "No room to stand: getting out")
+				LocomotionModule.steer(Quin, humanoid, rootPart, exit, CombatConfig.Headroom.ExitSpeed, 0.1)
+				GaitModule.update(humanoid, rootPart, 0.1)
+				newState = currentState
+			elseif Quin:GetAttribute("LowCeiling") then
+				Quin:SetAttribute("LowCeiling", nil)
+			end
+		end
 		if not newState then
 			local isDebugMode = workspace:GetAttribute("Debug_StateLabels") or false
 			local ok, result = pcall(currentState.update, Quin, humanoid, rootPart, isDebugMode)
