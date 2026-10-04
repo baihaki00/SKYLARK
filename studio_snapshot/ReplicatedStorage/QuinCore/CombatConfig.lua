@@ -374,11 +374,21 @@ local CombatConfig = {
 	DebugVisualizers_ShowAllNearby = false,      -- true to show all nearby Quins; false for spectated Quin only
 }
 
--- Strafe clips: ground speed of the planted foot at 1.0x, measured on the rig. Circling strafes
--- at exactly these paces so the feet stay planted (it used 10 / 20 / 30 studs/s before).
-CombatConfig.Strafe_TiredPace = 0.65 -- a tired Quin strafes at this fraction of the walk-strafe clip's pace
-CombatConfig.Strafe_WalkAuthoredSpeed = 7.3 -- lateral stance-foot speed of the walk strafes at 1.0x (pose lab pass 22D: 7.30-7.32)
-CombatConfig.Strafe_RunAuthoredSpeed = 18.9 -- likewise for the run strafes (18.88-18.90)
+-- Strafe clips: the body's ground speed at 1.0x, taken from the clips themselves (the stance
+-- foot's travel under the root, averaged over each stance, 48 samples per cycle; pass 39). All
+-- six travel straight sideways (within 1 degree). Circling strafes at exactly these paces so the
+-- feet stay planted. (7.3 and 18.9 before were the stance foot's peak speed: the clips then
+-- played 12% and 4% too slowly for the body.)
+CombatConfig.Strafe_SlowAuthoredSpeed = 2.1 -- StrafeLeftTired / StrafeRightTired (1.99-2.32): a spent Quin's strafe
+CombatConfig.Strafe_WalkAuthoredSpeed = 6.4 -- StrafeLeftWalk / StrafeRightWalk (6.0-6.8)
+CombatConfig.Strafe_RunAuthoredSpeed = 18.1 -- StrafeLeftRun / StrafeRightRun (17.8-18.5)
+-- A strafe clip steps in a straight line; an orbit turns the body as it goes (speed / radius).
+-- The most turning a strafe may carry (degrees/s): on a tighter circle the pace steps down a clip.
+-- (Run strafes at 18 studs/s on 16-22 stud circles turned at 62 degrees/s and slid.)
+CombatConfig.Circling_MaxStrafeTurnRate = 40
+CombatConfig.Circling_StrafeClipMaxOff = 30 -- degrees the real motion may be off straight sideways for the strafe clip to carry the legs (beyond it: the shared gait)
+CombatConfig.Circling_SquaredUpAngle = 20 -- within this of its strafe facing (degrees) the body turns evenly with the orbit instead of at full rate
+CombatConfig.Circling_SquaredUpMinTurnRate = 0.6 -- rad/s: the least it may turn then
 CombatConfig.Strafe_MinPlayRate = 0.6
 CombatConfig.Strafe_MaxPlayRate = 1.35
 CombatConfig.Circling_MaxFacingBias = 60 -- degrees the body may turn off its target to keep a strafe exactly sideways (35 limited strafes to a narrow band of directions)
@@ -487,6 +497,9 @@ CombatConfig.ProceduralLayers = {
 		Rate = 18,       -- how fast the swing comes and goes (1/s); a running stance lasts about 0.12 s
 		FullLift = 0.15, -- a foot within this of its ground (studs) gets the whole correction...
 		FadeLift = 0.6,  -- ...fading to none at this lift: in the air the foot points anywhere
+	},
+	StrafeUpright = { -- no whole-body tilt while a strafe clip plays: a strafe is stepped upright
+		Enabled = true,  -- Workspace Layer_StrafeUpright overrides (A/B)
 	},
 	Footfall = { -- weight: each foot that comes down drops the hips a little on their spring
 		Enabled = true,  -- Workspace Layer_Footfall overrides (A/B)

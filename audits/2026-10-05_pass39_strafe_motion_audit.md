@@ -1,0 +1,79 @@
+# Pass 39 (2026-10-05): strafe motion audit, upright strafes, paces from the clips
+
+Owner: turn the whole-body tilt off in a strafe; strafing is a straight motion and a circle under
+it looks wrong; recalculate the motion from the animation for the slow, walk and run strafes.
+
+## The clips themselves (rig, 48 samples per cycle, stance foot under the root)
+
+| Clip | Length | Body speed at 1.0x | Direction | Config before |
+|---|---|---|---|---|
+| StrafeLeft/RightTired ("slow") | 1.467 s | 1.99-2.32 studs/s | sideways within 1-7 deg | not used |
+| StrafeLeft/RightWalk | 1.033 s | 6.0-6.8 | within 1 deg | 7.3 |
+| StrafeLeft/RightRun | 0.667 s | 17.8-18.5 | within 1 deg | 18.9 |
+
+The old 7.3 / 18.9 match the stance foot's peak speed, not its average: the clips played 12 % and
+4 % too slowly for the body. A tired Quin played the walk clip at 0.63x (slow motion).
+
+## The arena before (16v16, Circling, strafe clip at full weight, final pose)
+
+| | Walk (tired, 0.65x) | Run |
+|---|---|---|
+| Body speed, sideways part | 4.7, 4.2 | 18.4, 16.9 |
+| Travel off pure sideways | 14.6 deg | 15.2 deg |
+| Turning, mean absolute | 120 deg/s | 112 deg/s |
+| Turning the orbit needs | 9 deg/s | 62 deg/s |
+| Lean toward the travel | 7.1 deg | 18.1 deg |
+| Grounded foot speed over the ground | 4.0 studs/s | 8.8 studs/s |
+
+A frame-by-frame trace showed a squared-up strafe is clean (0-1 deg/s of turning, dead sideways,
+18.1 studs/s). The bad frames come in bursts: 45-68 % of the first 0.6 s of every standoff (the
+body arrives facing its travel and turns 90 degrees to its target with the strafe clip already
+playing), and about 22 % afterwards (the facing taken in 10 Hz steps, each snapped in 3 frames).
+`Humanoid.AutoRotate` fighting the gyro was tested and ruled out (holding it off changed nothing).
+
+## Changes
+
+1. **Upright in a strafe** (`StrafeUpright` body layer, HUD row): the whole-body tilt fades out
+   by the share of the body in a strafe clip. The tilt is untouched everywhere else.
+2. **Paces from the clips**: `Strafe_SlowAuthoredSpeed` 2.1 (new), `Strafe_WalkAuthoredSpeed` 6.4,
+   `Strafe_RunAuthoredSpeed` 18.1. A tired Quin now strafes with the slow clips at their own
+   speed (`Strafe_TiredPace` removed).
+3. **Pace limited by the circle** (`Circling_MaxStrafeTurnRate` 40 deg/s): speed / radius is the
+   turn an orbit forces on a straight-stepping clip; above the limit the pace steps down a clip
+   (run needs a circle of about 26 studs, walk 9). Respect-custom standoffs keep their own pace.
+4. **Facing lead from the orbit**: the lead uses the orbit's own turn rate (speed across the line
+   to the target over the distance) instead of the tick-to-tick change of the velocity direction.
+5. **Even turning once squared up**: within 20 deg of its strafe facing the gyro is held to 1.5x
+   the orbit's turn rate (at least 0.6 rad/s); further off it squares up at the full rate.
+6. **Legs follow the real motion**: the strafe clip carries the legs only while the real motion is
+   within 30 deg of sideways to the real body; otherwise the shared gait does.
+
+## After (same probe)
+
+| | Slow | Walk | Run |
+|---|---|---|---|
+| Body speed, sideways part | 2.1, 2.1 | 6.4, 6.2 | 16.9, 16.1 |
+| Play rate | 1.02 | 1.00 | 0.97 |
+| Travel off pure sideways | 5.9 deg | 8.4 deg | 6.7 deg |
+| Turning, mean absolute | 40 deg/s | 59 deg/s | 42 deg/s |
+| Lean toward the travel | -5.3 deg | 6.0 deg | 12.6 deg |
+| Grounded foot speed over the ground | 0.7 | 4.4 | 7.9 |
+
+Run strafe frames fell from 3621 to 474 in a comparable window (most run standoffs are on
+circles too tight for it and now walk). No script errors.
+
+## Not solved / not shown
+
+- **Foot speed over the ground at a walk and run is about where it was** (4.4, 7.9). The mean
+  along the travel is small (+0.7, +2.0), so pace and clip agree on average; what is left is
+  within the stride. The clips' stance foot does not move at a constant speed (walk 3.8-7.5
+  within one stance) while the body does. Matching that needs the body's speed to follow the
+  clip's own profile through the stride: not built. The measure also counts an ankle rolling
+  over a planted toe as movement.
+- The run strafe still leans 12.6 deg toward its travel with the tilt off: that is the clip
+  (or the upper-body force lean, not separated).
+- Turning is still 40-59 deg/s on average: the entry turn and reversals are in the figure.
+- Fight footwork was seen playing the walk strafe while turning at about 178 deg/s with almost
+  no sideways travel. Not touched.
+- The standoff changes pace of play: fewer run strafes at close range. Knockout rate and the
+  whiff baseline were not re-measured. Not looked at by eye.

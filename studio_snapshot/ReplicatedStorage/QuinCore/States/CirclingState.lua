@@ -29,15 +29,34 @@ local CirclingState = { name = "Circling" }
 local TEST_MODE_ACTIVE = false -- true keeps them circling forever (animation debugging)
 local DEFAULT_RADIUS = 30.0
 
--- Strafe clip per tension. `speed` is the clip's ground speed at 1.0x, measured on the rig
--- (CombatConfig.Strafe_*AuthoredSpeed overrides it); the Quin strafes at `pace` times that.
--- A tired Quin walks its strafe slowly: the StrafeTired clips drag both feet (3.5 studs of
--- foot travel per cycle for under 1 stud of ground), so they slide at any pace.
+-- Strafe clip per tension. `speed` is the clip's own ground speed at 1.0x, measured on the rig
+-- (CombatConfig.Strafe_*AuthoredSpeed overrides it): the Quin strafes at exactly that, so the
+-- motion is the clip's. `slower`: the pace below it.
 local STRAFE_CLIPS = {
-	tired = { left = "StrafeLeftWalk", right = "StrafeRightWalk", speedKey = "Strafe_WalkAuthoredSpeed", speed = 6.5, paceKey = "Strafe_TiredPace", pace = 0.65 },
-	walk = { left = "StrafeLeftWalk", right = "StrafeRightWalk", speedKey = "Strafe_WalkAuthoredSpeed", speed = 6.5 },
-	run = { left = "StrafeLeftRun", right = "StrafeRightRun", speedKey = "Strafe_RunAuthoredSpeed", speed = 18.5 },
+	tired = { left = "StrafeLeftTired", right = "StrafeRightTired", speedKey = "Strafe_SlowAuthoredSpeed", speed = 2.1 },
+	walk = { left = "StrafeLeftWalk", right = "StrafeRightWalk", speedKey = "Strafe_WalkAuthoredSpeed", speed = 6.4, slower = "tired" },
+	run = { left = "StrafeLeftRun", right = "StrafeRightRun", speedKey = "Strafe_RunAuthoredSpeed", speed = 18.1, slower = "walk" },
 }
+-- The pace it holds may turn this much more than Circling_MaxStrafeTurnRate before it steps down
+-- (so a Quin on the edge between two paces does not keep changing)
+local PACE_HOLD = 1.15
+
+-- The strafe clips for this standoff: the Quin's own pace, stepped down while the circle it is on
+-- (radius `distance`) would turn it faster than a straight-stepping clip can carry.
+local function strafeClipsFor(data, distance)
+	local maxTurn = math.rad(CombatConfig.Circling_MaxStrafeTurnRate or 40)
+	local pace = STRAFE_CLIPS[data.tension] and data.tension or "walk"
+	while true do
+		local clipSet = STRAFE_CLIPS[pace]
+		local speed = CombatConfig[clipSet.speedKey] or clipSet.speed
+		local allowed = maxTurn * (data.pace == pace and PACE_HOLD or 1)
+		if not clipSet.slower or speed / math.max(distance, 1) <= allowed then
+			data.pace = pace
+			return clipSet, speed
+		end
+		pace = clipSet.slower
+	end
+end
 
 -- A different strafe clip must stay wanted this long, and clips switch at most this often
 local CLIP_SWITCH_CONFIRM = 0.3
@@ -385,8 +404,8 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- form applies while the motion is within Circling_MaxFacingBias of straight sideways.
 	local side = moveDirection:Dot(bodyRightFacingTarget)
 	local maxBias = math.rad(CombatConfig.Circling_MaxFacingBias or 35)
-	local clipSet = STRAFE_CLIPS[data.tension] or STRAFE_CLIPS.walk
-	local clipSpeed = CombatConfig[clipSet.speedKey] or clipSet.speed
+	-- (a respect-custom standoff sets its own gap and pace)
+	local clipSet, clipSpeed = strafeClipsFor(data, standoffGap and math.huge or distance)
 
 	local velocity = rootPart.AssemblyLinearVelocity
 	local planar = Vector3.new(velocity.X, 0, velocity.Z)
@@ -402,8 +421,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local drifting = data.carryingMomentum or offPath
 	local strafing = math.abs(side) >= math.cos(maxBias) and not drifting
 	local travelSpeed = (data.tension == "run") and (CombatConfig.Player_JogSpeed or 12.0) or (CombatConfig.Player_WalkSpeed or 7.5)
-	local strafePace = clipSpeed * ((clipSet.paceKey and CombatConfig[clipSet.paceKey]) or clipSet.pace or 1)
-	local targetSpeed = (strafing and strafePace or travelSpeed) * speedMult
+	local targetSpeed = (strafing and clipSpeed or travelSpeed) * speedMult
 
 	local dt = math.clamp(now - (data.lastUpdateTime or (now - 0.05)), 0.016, 0.25)
 	data.lastUpdateTime = now
@@ -419,17 +437,14 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- The orbit curves toward the target all the time. Facing set from the velocity of the last
 	-- tick, through a constraint that lags further, left the body ~13 degrees behind the curve:
 	-- the motion then had a forward part the strafe clips cannot step, and the planted foot was
-	-- dragged forward at 4-5 studs/s. The motion is led by its own turn rate.
+	-- dragged forward at 4-5 studs/s. The motion is led by its turn rate: the orbit's own, the
+	-- speed across the line to the target over the distance. (Taken from the change in the
+	-- velocity's direction between ticks it was noisy, and the lead it fed swung the body back
+	-- and forth: 112 degrees/s of turning for an orbit that needed 62.)
 	local motionYaw = math.atan2(motion.X, motion.Z)
-	if data.prevMotionYaw then
-		local delta = (motionYaw - data.prevMotionYaw + math.pi) % (2 * math.pi) - math.pi
-		if math.abs(delta) > 1 then
-			data.motionTurnRate = 0 -- a reversal (feint), not a curve
-		else
-			data.motionTurnRate = (data.motionTurnRate or 0) * 0.7 + (delta / dt) * 0.3
-		end
-	end
-	data.prevMotionYaw = motionYaw
+	local away = rootPart.Position - targetHRP.Position
+	local across = planar - targetHRP.AssemblyLinearVelocity
+	data.motionTurnRate = math.clamp((away.Z * across.X - away.X * across.Z) / math.max(away.X * away.X + away.Z * away.Z, 1), -2, 2)
 
 	local look
 	if strafing then
@@ -440,16 +455,30 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	else
 		look = motion
 	end
-	ensureGyro(rootPart).CFrame = CFrame.lookAt(Vector3.zero, look)
+	local gyro = ensureGyro(rootPart)
+	gyro.CFrame = CFrame.lookAt(Vector3.zero, look)
+	-- Squared up, the facing only has to follow the orbit. At full rate the gyro took each 10 Hz
+	-- step of it in three frames and stood still for the rest: a stair of small jerks under a
+	-- clip that steps evenly. Held to a little over the orbit's own turn rate it turns evenly.
+	-- Further off (arriving facing its travel, after a shove) it squares up at the full rate.
+	local facingOff = math.acos(math.clamp(flatUnit(rootPart.CFrame.LookVector, look):Dot(look), -1, 1))
+	local squaredUp = strafing and facingOff < math.rad(CombatConfig.Circling_SquaredUpAngle or 20)
+	gyro.MaxAngularVelocity = squaredUp and math.max(math.abs(data.motionTurnRate) * 1.5, CombatConfig.Circling_SquaredUpMinTurnRate or 0.6)
+		or (CombatConfig.Combat_FacingMaxTurnRate or 14)
 
 	-- === Legs ===
-	if strafing then
+	-- The strafe clips step straight sideways and nothing else: they carry the legs only while
+	-- the real motion is sideways to the real body. Until then (the body still turning to its
+	-- target, a reversal passing through a stop) the shared gait steps what the body does.
+	local lateralSpeed = math.abs(planar:Dot(rootPart.CFrame.RightVector))
+	local movingSideways = planar.Magnitude < 1
+		or lateralSpeed >= planar.Magnitude * math.cos(math.rad(CombatConfig.Circling_StrafeClipMaxOff or 30))
+	if strafing and movingSideways then
 		if GaitModule.isActive(humanoid) then
 			GaitModule.stop(humanoid, 0.2)
 		end
 
 		local desiredAnim = AnimationIds[side > 0 and clipSet.right or clipSet.left]
-		local lateralSpeed = math.abs(planar:Dot(rootPart.CFrame.RightVector))
 
 		if lateralSpeed < clipSpeed * STANDING_SPEED_RATIO then
 			-- Not actually moving (blocked, turning around): no stepping in place

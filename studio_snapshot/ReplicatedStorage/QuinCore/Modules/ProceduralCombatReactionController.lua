@@ -610,6 +610,11 @@ function ProceduralCombatReactionController:update(dt)
 		end
 		-- fade out near a standstill (idle sway is the clip's)
 		tiltTarget *= math.clamp(speed / 4, 0, 1)
+		-- A strafe is stepped upright (body layer): leaning the whole body along a sideways step,
+		-- or into the curve of the circle it is on, read as tipping over (18 degrees at a run strafe)
+		if Layers.isOn("StrafeUpright", serverModel) then
+			tiltTarget *= 1 - self.squareUp.share
+		end
 	end
 	self.bodyTilt = self.bodyTilt or Vector3.zero
 	self.bodyTilt = self.bodyTilt:Lerp(tiltTarget, 1 - math.exp(-(CombatConfig.BodyTilt_Response or 7) * dt))

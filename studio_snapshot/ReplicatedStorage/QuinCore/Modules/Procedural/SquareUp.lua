@@ -42,6 +42,7 @@ function SquareUp.new(ghostModel: Model, humanoid: Humanoid?)
 	self.neck = bone("Neck")
 	self.leftShoulder, self.rightShoulder = bone("LeftArm"), bone("RightArm")
 	self.complete = #self.spine == 3 and self.neck ~= nil and self.leftShoulder ~= nil and self.rightShoulder ~= nil
+	self.share = 0 -- how much of the body is in a strafe clip this step (0..1), for other layers to read
 	self.turn = 0 -- how far the clips turn the chest off the front, averaged over a stride (radians, + = left)
 	self.applied = 0 -- the twist put on the spine this step (radians), for readouts
 	return self
@@ -70,8 +71,9 @@ end
 function SquareUp:apply(rootCF: CFrame, on: boolean, dt: number)
 	if not self.complete then return end
 	local turned = 0
-	local share = on and self:strafeShare() or 0
-	if share > 0 then
+	local share = self:strafeShare()
+	self.share = share
+	if on and share > 0 then
 		local across = rootCF:VectorToObjectSpace(
 			self.rightShoulder.TransformedWorldCFrame.Position - self.leftShoulder.TransformedWorldCFrame.Position)
 		local facing = Vector3.yAxis:Cross(across)
