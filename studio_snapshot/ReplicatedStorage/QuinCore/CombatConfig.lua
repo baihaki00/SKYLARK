@@ -466,6 +466,20 @@ CombatConfig.BodyAwareness = {
 	MaxSwerve = 0.9,    -- the most the route bends (sideways per unit forward: about 42 degrees)
 	NoticeWeight = 0.25, -- how much a body must be in the way to be noticed (BodyInWay, the mind panel)
 }
+-- Body layers added from the IK Lab's lane D (Modules/Procedural; switches in Procedural/Layers)
+CombatConfig.ProceduralLayers = {
+	SquareUp = { -- the chest stays to the front in a strafe
+		Enabled = true,  -- Workspace Layer_SquareUp overrides (A/B)
+		Rate = 5,        -- how fast the chest's average turn is followed (1/s); the stride's own swing is left alone
+		Gain = 1,        -- how much of that turn is taken back
+		MaxTwist = 55,   -- the most the spine twists for it (degrees)
+		FullAt = 0.3,    -- strafe clip weight at which the layer is fully in (a diagonal blend carries less)
+		Clips = { -- the clips that walk with the chest turned toward the travel
+			"Strafe.StrafeLeftWalk", "Strafe.StrafeRightWalk", "Strafe.StrafeLeftRun", "Strafe.StrafeRightRun",
+			"Strafe.StrafeLeftTired", "Strafe.StrafeRightTired",
+		},
+	},
+}
 CombatConfig.Retreat_WoundedFrom = 0.25                -- health ratio below which a fleeing Quin starts to slow
 CombatConfig.Retreat_WoundedSlow = 0.2                 -- share of its run speed lost by the time it is at death's door
 CombatConfig.Chase_TrailGiveUpConfidence = 0.6         -- memory confidence below which an unseen target is given up (minus 0.5 x persistence)

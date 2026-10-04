@@ -9,6 +9,10 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
+-- Body layers: each can be switched off per Quin or for all (Procedural/Layers)
+local Procedural = QuinCore:WaitForChild("Modules"):WaitForChild("Procedural")
+local Layers = require(Procedural:WaitForChild("Layers"))
+local SquareUp = require(Procedural:WaitForChild("SquareUp"))
 
 local ProceduralCombatReactionController = {}
 ProceduralCombatReactionController.__index = ProceduralCombatReactionController
@@ -47,6 +51,8 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	-- Height of the root above the floor while standing (the Humanoid floats it at HipHeight).
 	-- The foot solver measures terrain against this, so it has to be the rig's real value.
 	self.standHeight = (self.humanoid and self.humanoid.HipHeight or 0) + (self.simRootPart and self.simRootPart.Size.Y / 2 or 0)
+
+	self.squareUp = SquareUp.new(ghostModel, self.humanoid)
 
 	-- Procedural Foot IK & Ledge Gripping Setup (Step 3)
 	self.leftFootAtt = nil
@@ -278,6 +284,11 @@ function ProceduralCombatReactionController:update(dt)
 
 	-- 1. Check server model for new replicated impact event
 	local serverModel = self.aiModel
+
+	-- 0b. A strafe clip walks with the chest turned toward its travel: turned back to the front,
+	-- before anything below reads or turns the spine
+	local facingPart = self.ghostRootPart or self.rootPart
+	self.squareUp:apply(facingPart.CFrame, Layers.isOn("SquareUp", serverModel), dt)
 	if serverModel and serverModel.Parent then
 		local impactTime = serverModel:GetAttribute("ImpactTime")
 		if impactTime and impactTime ~= self.lastImpactTime then
@@ -490,8 +501,7 @@ function ProceduralCombatReactionController:update(dt)
 	-- reach the spine.
 	-- Per-Quin style (experiment, off by default): each Quin leans and twists a little
 	-- differently and with its own weight, seeded from its name so it is always the same Quin.
-	local styleSwitch = workspace:GetAttribute("ProceduralStyle")
-	local styleOn = styleSwitch == true or (styleSwitch == nil and CombatConfig.ProceduralStyle_Enabled == true)
+	local styleOn = Layers.isOn("ProceduralStyle", serverModel)
 	if not self.style then
 		local seed = 0
 		local name = serverModel and serverModel.Name or ""
@@ -573,8 +583,7 @@ function ProceduralCombatReactionController:update(dt)
 	-- by the physical lean angle atan(a / g), scaled and capped, plus a forward run lean
 	-- that grows with speed. The whole body turns about a point on the ground under the root,
 	-- so the feet stay where they are (the foot solver below plants them).
-	local tiltSwitch = workspace:GetAttribute("BodyTilt") -- live A/B switch
-	local tiltOn = tiltSwitch == true or (tiltSwitch == nil and CombatConfig.BodyTilt_Enabled ~= false)
+	local tiltOn = Layers.isOn("BodyTilt", serverModel) -- live A/B switch
 	local tiltStates = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, BeamStruggle = true }
 	local tiltTarget = Vector3.zero
 	if tiltOn and not isAirborne and not tiltStates[serverState] and not (self.humanoid and self.humanoid.PlatformStand) then
@@ -682,8 +691,7 @@ function ProceduralCombatReactionController:update(dt)
 		-- on purpose, on a planted foot: the turn attenuation above let go of that foot (~60% pinned)
 		-- and it dragged round with the body. Held fully, the pinned foot falls behind the turning
 		-- clip and the plant/step logic below steps it round: a two-step pivot.
-		local pivotSwitch = workspace:GetAttribute("PivotPin") -- live A/B switch
-		local pivotPinOn = pivotSwitch == true or (pivotSwitch == nil and CombatConfig.FootIK_PivotPin ~= false)
+		local pivotPinOn = Layers.isOn("PivotPin", serverModel) -- live A/B switch
 		local pivoting = pivotPinOn and serverModel ~= nil and serverModel:GetAttribute("ReversalPhase") == "pivot"
 		if pivoting then
 			self.currentTurnDampen = 1.0
@@ -711,8 +719,7 @@ function ProceduralCombatReactionController:update(dt)
 		-- written into the bone Transforms, not through IKControl: IKControl writes its result
 		-- into Bone.Transform, so once it was on the clip's own foot position was gone and a
 		-- pinned foot looked still forever - it could not tell when the clip lifted it.
-		local plantSwitch = workspace:GetAttribute("FootPlant") -- live A/B switch
-		local plantOn = plantSwitch == true or (plantSwitch == nil and CombatConfig.FootIK_Plant ~= false)
+		local plantOn = Layers.isOn("FootPlant", serverModel) -- live A/B switch
 		local stepOn = plantOn and CombatConfig.FootIK_Step ~= false
 		local stepLead = CombatConfig.FootIK_StepLead or 0.1
 		local now = os.clock()
@@ -721,8 +728,7 @@ function ProceduralCombatReactionController:update(dt)
 		-- sets the left heel down about four frames before the foot stops reaching forward;
 		-- pinned at the first touch, the clip kept pulling it on and the leg was bent and the
 		-- ankle wrenched to hold it there (the left leg looked broken on every step).
-		local stillSwitch = workspace:GetAttribute("PlantWhenStill") -- live A/B switch
-		local plantWhenStill = stillSwitch == true or (stillSwitch == nil and CombatConfig.FootIK_PlantWhenStill ~= false)
+		local plantWhenStill = Layers.isOn("PlantWhenStill", serverModel) -- live A/B switch
 		local plantStillSpeed = math.max(CombatConfig.FootIK_PlantStillMin or 3, speed * (CombatConfig.FootIK_PlantStillPerSpeed or 0.35))
 		self.clipFootPrev = self.clipFootPrev or {}
 		local plantLift = CombatConfig.FootIK_PlantLift or 0.35
@@ -1129,8 +1135,7 @@ function ProceduralCombatReactionController:update(dt)
 	end
 
 	-- 8. Secondary motion: the arms follow the clip with a little weight of their own
-	local smSwitch = workspace:GetAttribute("SecondaryMotion") -- live A/B switch
-	local smOn = smSwitch == true or (smSwitch == nil and CombatConfig.SecondaryMotion_Enabled ~= false)
+	local smOn = Layers.isOn("SecondaryMotion", serverModel) -- live A/B switch
 	-- (not in a mid-air clash: that state places the body by CFrame every tick, and the arms
 	-- whipped after every jump)
 	if smOn and serverState ~= "MidAirClash" then

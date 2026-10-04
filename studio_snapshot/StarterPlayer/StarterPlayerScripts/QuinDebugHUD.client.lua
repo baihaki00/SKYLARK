@@ -300,7 +300,12 @@ local layerList = RuntimeVisualizer and RuntimeVisualizer.getLayers() or {}
 -- Cognition switches (QuinCore.Cognition.Layers): take a layer of the Quins' perception out,
 -- for every Quin, to see what it contributes. The server owns the state; a toggle asks for it.
 local CognitionLayers = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Layers"))
-local toggleCount = #layerList + 4 + #CognitionLayers.Switchable -- layers, scope, 3 motion switches, AI layers
+-- Body layers (QuinCore.Modules.Procedural.Layers): every procedural rule on the body, each
+-- switchable for all Quins, with presets and an every-other-Quin split (client presentation)
+local BodyLayers = require(QuinCore:WaitForChild("Modules"):WaitForChild("Procedural"):WaitForChild("Layers"))
+local BODY_PRESETS = { "Default", "Legacy", "None" }
+local bodyToggleCount = #BodyLayers.List + 1 + #BODY_PRESETS -- layers, split, presets
+local toggleCount = #layerList + 1 + bodyToggleCount + #CognitionLayers.Switchable -- layers, scope, body layers, AI layers
 local LAYER_PANEL_HEIGHT = RuntimeVisualizer and (math.ceil(toggleCount / 2) * LAYER_ROW_HEIGHT + 8) or 0
 
 local layerPanel = Instance.new("Frame")
@@ -353,28 +358,35 @@ if RuntimeVisualizer then
 		RuntimeVisualizer.setWatchAll(not RuntimeVisualizer.isWatchingAll())
 	end)
 
-	-- Per-Quin motion style experiment (client-side presentation only)
-	addLayerToggle(#layerList + 2, "Motion: per-Quin style (experiment)", function()
-		local switch = Workspace:GetAttribute("ProceduralStyle")
-		return switch == true
+	-- Body layers: one switch each, then the split and the presets
+	local slot = #layerList + 1
+	for _, layer in ipairs(BodyLayers.List) do
+		slot += 1
+		local refresh = addLayerToggle(slot, "Body: " .. layer.label, function()
+			return BodyLayers.isOn(layer.name)
+		end, function()
+			BodyLayers.set(layer.name, not BodyLayers.isOn(layer.name))
+		end)
+		Workspace:GetAttributeChangedSignal(layer.attribute):Connect(refresh)
+	end
+	slot += 1
+	local refreshSplit = addLayerToggle(slot, "Body: split (every other Quin legacy)", function()
+		return Workspace:GetAttribute("LayerSplit") == "odd"
 	end, function()
-		Workspace:SetAttribute("ProceduralStyle", Workspace:GetAttribute("ProceduralStyle") ~= true)
+		Workspace:SetAttribute("LayerSplit", Workspace:GetAttribute("LayerSplit") ~= "odd" and "odd" or nil)
 	end)
-
-	-- Whole-body tilt and foot planting (client presentation; on unless switched off here)
-	addLayerToggle(#layerList + 3, "Motion: body tilt", function()
-		return Workspace:GetAttribute("BodyTilt") ~= false
-	end, function()
-		Workspace:SetAttribute("BodyTilt", Workspace:GetAttribute("BodyTilt") == false)
-	end)
-	addLayerToggle(#layerList + 4, "Motion: foot planting", function()
-		return Workspace:GetAttribute("FootPlant") ~= false
-	end, function()
-		Workspace:SetAttribute("FootPlant", Workspace:GetAttribute("FootPlant") == false)
-	end)
+	Workspace:GetAttributeChangedSignal("LayerSplit"):Connect(refreshSplit)
+	for _, preset in ipairs(BODY_PRESETS) do
+		slot += 1
+		addLayerToggle(slot, "Body preset: " .. preset, function()
+			return false -- a button, not a state
+		end, function()
+			BodyLayers.preset(preset)
+		end)
+	end
 
 	for offset, layer in ipairs(CognitionLayers.Switchable) do
-		local refresh = addLayerToggle(#layerList + 4 + offset, "AI: " .. layer.label, function()
+		local refresh = addLayerToggle(slot + offset, "AI: " .. layer.label, function()
 			return CognitionLayers.isEnabled(layer.id)
 		end, function()
 			CognitionLayers.request(layer.id, not CognitionLayers.isEnabled(layer.id))

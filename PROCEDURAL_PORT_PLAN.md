@@ -1,6 +1,8 @@
 # Plan: lane D's body mechanics into QuinCore, with ablation
 
-Written 2026-10-04. Nothing in this plan is built yet.
+Written 2026-10-04. Status 2026-10-05: phase 0 (registry, HUD, split; the permanent probe is still
+open) and phase 1 (SquareUp) are built, see `audits/2026-10-05_pass37_body_layers_square_up.md`.
+Owner's choices: strafe fix first, split by every other Quin, new layers on as each phase lands.
 
 ## Goal
 
