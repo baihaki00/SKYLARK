@@ -534,6 +534,9 @@ CombatConfig.Retreat_WoundedSlow = 0.2                 -- share of its run speed
 CombatConfig.Chase_TrailGiveUpConfidence = 0.6         -- memory confidence below which an unseen target is given up (minus 0.5 x persistence)
 CombatConfig.Chase_SearchLegDistance = 45              -- studs searched onward along the target's last heading, per leg
 CombatConfig.Chase_DistractionCommitment = 0.6         -- a hunter above this commitment ignores passers-by that are not after it
+CombatConfig.Targeting_MinHold = 2.0                   -- seconds a Quin stays on a target before it may change (times 0.5 + its target persistence)
+CombatConfig.Targeting_SwitchMargin = 30               -- target utility another enemy must lead by to be changed to
+CombatConfig.Targeting_UrgentMargin = 80               -- ... and the lead that cuts the hold short (it is being hit from behind)
 CombatConfig.Targeting_HuntedScore = 60                -- target utility of the enemy hunting this Quin (times awareness)
 
 -- === Circling ===

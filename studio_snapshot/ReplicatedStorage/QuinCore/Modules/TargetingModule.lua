@@ -12,6 +12,26 @@ local SocialSystem = require(game:GetService("ReplicatedStorage"):WaitForChild("
 local TargetingModule = {}
 
 -- Utility-based target evaluation and selection
+-- Commitment. A target is held: the utility scores below move with every tick (who is nearest,
+-- who is hunting whom, who stands behind), and taken at face value they changed a Quin's target
+-- every 2 s, 46% of the time straight back to the one it had just dropped (held 0.8 s on
+-- average). In a fight each change stopped it to look round: a quick turn away and back.
+-- So a Quin stays on its target for at least Targeting_MinHold (longer the more persistent it
+-- is) and leaves it only for one that is clearly better (Targeting_SwitchMargin); only a far
+-- better one (Targeting_UrgentMargin: something hitting it from behind) cuts the hold short.
+-- committed[quin] = { name, since }: also notices a target set from elsewhere (a state's own
+-- choice starts a hold of its own).
+local committed = setmetatable({}, { __mode = "k" })
+
+local function heldFor(quinModel, targetName, now)
+	local record = committed[quinModel]
+	if not record or record.name ~= targetName then
+		record = { name = targetName, since = now }
+		committed[quinModel] = record
+	end
+	return now - record.since
+end
+
 function TargetingModule.selectTarget(quinModel, localState)
 	if not quinModel or not quinModel.Parent then return nil, 0, "No model" end
 	local rootPart = quinModel:FindFirstChild("HumanoidRootPart")
@@ -71,6 +91,12 @@ function TargetingModule.selectTarget(quinModel, localState)
 	local candidates = localState and localState.NearbyEnemies or {}
 	if #candidates == 0 then
 		-- Fallback to global scan if no enemies are in direct local radius
+		-- (nobody close by, as in the middle of a jump: it keeps the target it has)
+		local kept = currentTargetName and currentTargetName ~= ""
+			and ((workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(currentTargetName))
+		if kept and TargetingModule.isValid(kept) then
+			return kept, 50, "Committed to its target (nobody near)"
+		end
 		local nearest, nearestDist = TargetingModule.getNearest(rootPart, 500)
 		if nearest then
 			local fallbackReason = string.format("Nearest enemy fallback (%.1f studs)", nearestDist)
@@ -85,6 +111,8 @@ function TargetingModule.selectTarget(quinModel, localState)
 	local bestCandidate = nil
 	local bestUtility = -math.huge
 	local bestReason = "None"
+	local heldName = quinModel:GetAttribute("CurrentTarget")
+	local heldCandidate, heldUtility = nil, -math.huge
 
 	for _, cand in ipairs(candidates) do
 		local model = cand.model
@@ -190,6 +218,9 @@ function TargetingModule.selectTarget(quinModel, localState)
 
 			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + socialScore
 
+			if model.Name == heldName then
+				heldCandidate, heldUtility = model, utility
+			end
 			if utility > bestUtility then
 				bestUtility = utility
 				bestCandidate = model
@@ -215,6 +246,21 @@ function TargetingModule.selectTarget(quinModel, localState)
 				bestReason = table.concat(reasons, ", ")
 			end
 		end
+	end
+
+	-- Commitment (see above): the target it has is kept unless the best is clearly better
+	if heldCandidate and bestCandidate and bestCandidate ~= heldCandidate then
+		local lead = bestUtility - heldUtility
+		local minHold = (CombatConfig.Targeting_MinHold or 2.0) * (0.5 + targetPersistence)
+		local holding = heldFor(quinModel, heldName, os.clock()) < minHold
+		if lead < (CombatConfig.Targeting_UrgentMargin or 80)
+			and (holding or lead < (CombatConfig.Targeting_SwitchMargin or 30)) then
+			bestCandidate, bestUtility = heldCandidate, heldUtility
+			bestReason = holding and "Committed to its target" or "Committed (nothing clearly better)"
+		end
+	end
+	if bestCandidate then
+		heldFor(quinModel, bestCandidate.Name, os.clock())
 	end
 
 	if bestCandidate then
