@@ -217,8 +217,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 		if prey then
 			fighter:SetAttribute("ObstacleAwareness", "Diving from high ground")
 			fighter:SetAttribute("JumpStyle", nil) -- any style
-			fighter:SetAttribute("CurrentTarget", prey.model.Name)
-			fighter:SetAttribute("TargetQuin", prey.model.Name)
+			TargetingModule.setTarget(fighter, prey.model, "Dive")
 			RuntimeTracer.checkpoint(fighter, "Overwatch: diving on " .. prey.model.Name)
 			return require(script.Parent:WaitForChild("ProjectileJumpState"))
 		end

@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Cognition = require(QuinCore:WaitForChild("Cognition"))
+local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 
 local AirInterceptModule = {}
 
@@ -62,8 +63,7 @@ end
 function AirInterceptModule.commit(fighter, enemy)
 	fighter:SetAttribute("ObstacleAwareness", "Going up after a jumper")
 	fighter:SetAttribute("JumpStyle", 8) -- the intercept flight: straight at the enemy, tracking it
-	fighter:SetAttribute("CurrentTarget", enemy.Name)
-	fighter:SetAttribute("TargetQuin", enemy.Name)
+	TargetingModule.setTarget(fighter, enemy, "Intercept")
 	fighter:SetAttribute("LastInterceptTime", os.clock())
 	enemy:SetAttribute("InterceptedAt", os.clock())
 end

@@ -388,8 +388,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				fighter:SetAttribute("ObstacleAwareness", "Projectile jump to target on high ground")
 				local stylePool = { 1, 1, 2, 3, 4, 5, 5, 6, 7 }
 				fighter:SetAttribute("JumpStyle", stylePool[math.random(1, #stylePool)])
-				fighter:SetAttribute("CurrentTarget", target.Name)
-				fighter:SetAttribute("TargetQuin", target.Name)
+				TargetingModule.setTarget(fighter, target, "State")
 				return require(script.Parent:WaitForChild("ProjectileJumpState"))
 			end
 		end
@@ -491,8 +490,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			elseif (now - data.surveyingAtLKP) >= 0.9 then
 				data.surveyingAtLKP = nil
 				data.targetLKP = nil
-				fighter:SetAttribute("CurrentTarget", nil)
-				fighter:SetAttribute("TargetQuin", nil)
+				TargetingModule.clearTarget(fighter)
 				return require(script.Parent:WaitForChild("IdleState"))
 			end
 		end
@@ -537,9 +535,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			end
 		end
 
-		if nearestDistraction then
-			fighter:SetAttribute("CurrentTarget", nearestDistraction.Name)
-			fighter:SetAttribute("TargetQuin", nearestDistraction.Name)
+		if nearestDistraction and TargetingModule.setTarget(fighter, nearestDistraction, "Distraction") then
 			BattleEventSystem.emit("CHASE_ABANDONED", {
 				QuinId = fighter:GetAttribute("QuinId") or fighter.Name,
 				Model = fighter,
@@ -610,8 +606,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 					AnimationModule.playConfig(humanoid, "Awareness.Turn180Pivot", 1.5, Enum.AnimationPriority.Action4, false)
 				end
 				
-				fighter:SetAttribute("CurrentTarget", rearModel.Name)
-				fighter:SetAttribute("TargetQuin", rearModel.Name)
+				TargetingModule.setTarget(fighter, rearModel, "RearThreat")
 				fighter:SetAttribute("LastRearReactionTime", now)
 				
 				return require(script.Parent:WaitForChild("FightState"))
@@ -708,8 +703,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		if shouldCheckDash then
 			data.nextDashCheckTime = now + (((dashPref > 0.7 and math.random(10, 15) or math.random(15, 22))) / speedMult)
 			if recAction == "Dash" or math.random() < (dashPref * 0.25) then
-				fighter:SetAttribute("CurrentTarget", target.Name)
-				fighter:SetAttribute("TargetQuin", target.Name)
+				TargetingModule.setTarget(fighter, target, "State")
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 				return ChaseState
 			end
@@ -744,8 +738,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			local stylePool = { 1, 1, 2, 3, 4, 5, 5, 6, 7 }
 			local chosenStyle = stylePool[math.random(1, #stylePool)]
 			fighter:SetAttribute("JumpStyle", chosenStyle)
-			fighter:SetAttribute("CurrentTarget", target.Name)
-			fighter:SetAttribute("TargetQuin", target.Name)
+			TargetingModule.setTarget(fighter, target, "State")
 
 			return require(script.Parent:WaitForChild("ProjectileJumpState"))
 		end

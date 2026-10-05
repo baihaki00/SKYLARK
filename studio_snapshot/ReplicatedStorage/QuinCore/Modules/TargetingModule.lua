@@ -23,6 +23,10 @@ local TargetingModule = {}
 -- choice starts a hold of its own).
 local committed = setmetatable({}, { __mode = "k" })
 
+-- Every change of target is written here, with who asked for it: TargetChangedBy says why a
+-- Quin turned to someone else ("Select" the utility choice, "Nearest" a state's nearest-enemy
+-- look-up, "Distraction", "RearThreat", "Dive", "Intercept", "Duel"). The mind panel and probes
+-- read it.
 local function heldFor(quinModel, targetName, now)
 	local record = committed[quinModel]
 	if not record or record.name ~= targetName then
@@ -31,6 +35,27 @@ local function heldFor(quinModel, targetName, now)
 	end
 	return now - record.since
 end
+
+-- Still inside the minimum time it stays on the target it has?
+local function isHolding(quinModel)
+	local name = quinModel:GetAttribute("CurrentTarget")
+	if not name or name == "" then return false end
+	local persistence = quinModel:GetAttribute("Pers_TargetPersistence") or 0.7
+	return heldFor(quinModel, name, os.clock()) < (CombatConfig.Targeting_MinHold or 2.0) * (0.5 + persistence)
+end
+
+local function assign(fighter, name, reason)
+	if fighter:GetAttribute("CurrentTarget") ~= name then
+		fighter:SetAttribute("TargetChangedBy", reason)
+	end
+	fighter:SetAttribute("CurrentTarget", name)
+	heldFor(fighter, name, os.clock()) -- (a new target starts a new hold)
+end
+
+-- Reasons a state may give that do not break the hold: a passer-by is no cause to drop a target
+-- it has only just turned to. (Measured: 41 % of "Distraction" switches went straight back, two
+-- enemies inside 13 studs each being the other's distraction in turn.)
+local HOLD_RESPECTING = { Distraction = true }
 
 function TargetingModule.selectTarget(quinModel, localState)
 	if not quinModel or not quinModel.Parent then return nil, 0, "No model" end
@@ -57,7 +82,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 			local opp = serverFolder:FindFirstChild(oppName) or workspace:FindFirstChild(oppName)
 			if opp and opp:FindFirstChild("HumanoidRootPart") and opp:GetAttribute("RespectRole") == "Duelist" then
 				local d = (opp.HumanoidRootPart.Position - rootPart.Position).Magnitude
-				quinModel:SetAttribute("CurrentTarget", opp.Name)
+				assign(quinModel, opp.Name, "Duel")
 				quinModel:SetAttribute("LastTargetName", opp.Name)
 				quinModel:SetAttribute("TargetReason", "Respect custom 1v1 Duelist")
 				return opp, 2000, "Respect custom 1v1 Duelist"
@@ -100,7 +125,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 		local nearest, nearestDist = TargetingModule.getNearest(rootPart, 500)
 		if nearest then
 			local fallbackReason = string.format("Nearest enemy fallback (%.1f studs)", nearestDist)
-			quinModel:SetAttribute("CurrentTarget", nearest.Name)
+			assign(quinModel, nearest.Name, "Nearest")
 			quinModel:SetAttribute("LastTargetName", nearest.Name)
 			quinModel:SetAttribute("TargetReason", fallbackReason)
 			return nearest, 50, fallbackReason
@@ -251,16 +276,20 @@ function TargetingModule.selectTarget(quinModel, localState)
 	-- Commitment (see above): the target it has is kept unless the best is clearly better
 	if heldCandidate and bestCandidate and bestCandidate ~= heldCandidate then
 		local lead = bestUtility - heldUtility
-		local minHold = (CombatConfig.Targeting_MinHold or 2.0) * (0.5 + targetPersistence)
-		local holding = heldFor(quinModel, heldName, os.clock()) < minHold
+		local holding = isHolding(quinModel)
 		if lead < (CombatConfig.Targeting_UrgentMargin or 80)
 			and (holding or lead < (CombatConfig.Targeting_SwitchMargin or 30)) then
 			bestCandidate, bestUtility = heldCandidate, heldUtility
 			bestReason = holding and "Committed to its target" or "Committed (nothing clearly better)"
 		end
 	end
-	if bestCandidate then
-		heldFor(quinModel, bestCandidate.Name, os.clock())
+	-- A target that has left its near view (thrown clear, gone round a corner) is still its target
+	-- while the hold lasts: it does not turn to whoever happens to be near in that moment
+	if not heldCandidate and bestCandidate and isHolding(quinModel) then
+		local held = (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(heldName)
+		if held and TargetingModule.isValid(held) then
+			return held, 50, "Committed to its target (out of view)"
+		end
 	end
 
 	if bestCandidate then
@@ -276,7 +305,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 		if quinModel:GetAttribute("CurrentTarget") ~= bestCandidate.Name and not bestHasLoS then
 			quinModel:SetAttribute("LastSeenTargetPosition", nil)
 		end
-		quinModel:SetAttribute("CurrentTarget", bestCandidate.Name)
+		assign(quinModel, bestCandidate.Name, "Select")
 		quinModel:SetAttribute("LastTargetName", bestCandidate.Name)
 		quinModel:SetAttribute("TargetReason", bestReason)
 		quinModel:SetAttribute("TargetHasLoS", bestHasLoS)
@@ -289,17 +318,24 @@ function TargetingModule.selectTarget(quinModel, localState)
 	return bestCandidate, bestUtility, bestReason
 end
 
-function TargetingModule.setTarget(fighter, targetModel)
-	if not fighter then return end
+-- A state turns the Quin onto a target of its own choosing; `reason` names the rule that did.
+-- Returns false when the Quin stays on the target it has (see HOLD_RESPECTING): the caller then
+-- carries on as it was.
+function TargetingModule.setTarget(fighter, targetModel, reason)
+	if not fighter then return false end
 	if targetModel and targetModel.Parent then
 		local tName = targetModel.Name
-		fighter:SetAttribute("CurrentTarget", tName)
+		if HOLD_RESPECTING[reason] and fighter:GetAttribute("CurrentTarget") ~= tName and isHolding(fighter) then
+			return false
+		end
+		assign(fighter, tName, reason or "State")
 		fighter:SetAttribute("TargetQuin", tName)
 		fighter:SetAttribute("LastTargetName", tName)
 	else
 		fighter:SetAttribute("CurrentTarget", nil)
 		fighter:SetAttribute("TargetQuin", nil)
 	end
+	return true
 end
 
 function TargetingModule.clearTarget(fighter)
@@ -462,7 +498,7 @@ function TargetingModule.getNearest(rootPart, maxRange)
 	end
 
 	if chosenTarget then
-		myModel:SetAttribute("CurrentTarget", chosenTarget.Name)
+		assign(myModel, chosenTarget.Name, "Nearest")
 		myModel:SetAttribute("TargetQuin", chosenTarget.Name)
 		return chosenTarget, chosenDist
 	else

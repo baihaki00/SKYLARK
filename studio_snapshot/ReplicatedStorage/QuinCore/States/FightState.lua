@@ -918,8 +918,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 				AnimationModule.playConfig(humanoid, "Awareness.Turn180Pivot", 1.5, Enum.AnimationPriority.Action4, false)
 			end
 			
-			fighter:SetAttribute("CurrentTarget", rearThreatModel.Name)
-			fighter:SetAttribute("TargetQuin", rearThreatModel.Name)
+			TargetingModule.setTarget(fighter, rearThreatModel, "RearThreat")
 			data.lastEngagedTarget = rearThreatModel.Name
 			
 			local awareness = fighter:GetAttribute("Pers_Awareness") or 0.65
