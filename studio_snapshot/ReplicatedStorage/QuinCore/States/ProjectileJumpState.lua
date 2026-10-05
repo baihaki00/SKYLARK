@@ -4,14 +4,17 @@
 --   1  Arc        one ballistic arc straight onto the target, no dive
 --   2  High dive  launch 310-410 studs up, then dive at the target
 --   3  Double     a second jump in mid-air, then a faster dive
---   4  Sidestep   high launch, a lightning sideways strafe, then the dive
+--   4  Sidestep   high launch, a dive off to one side, then the dive at the target
 --   5  Swoop      high launch, then a curved (Bezier) swoop onto the target
---   6  Combo      a sequence of jumps and strafes, then a faster dive
+--   6  Combo      a sequence of jumps and sideways dives, then a faster dive
 --   7  Rocket     high launch and the fastest dive
 --   8  Intercept  straight up at an enemy that is in the air, tracking it (AirInterceptModule
 --                 asks for it; it is not in the random pool). Meeting it starts a mid-air
 --                 clash; if the enemy comes down first, the jump turns into a dive on it.
--- The dive speed is CombatConfig.ProjectileJump_SlamSpeed.
+-- The dive speed is CombatConfig.ProjectileJump_SlamSpeed, and a dive holds it from its first
+-- frame to the floor: a turn in the air (styles 4 and 6) is a dive leg like the last one (boom,
+-- vapour cone, flying clip, head first) that goes straight into the next leg with no stop, and
+-- the swoop is flown along its curve at that one speed.
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -62,8 +65,6 @@ local Config = {
 	-- New Bezier Settings
 	BezierArcHeightBase = 50,
 	BezierLateralBendBase = 40,
-	BezierDashDuration = 0.5,
-	BezierSpeedFloor = 0.25,
 	SlamSpeedMultiplier = 1.15
 }
 
@@ -78,10 +79,6 @@ local function getFloat(min, max)
 end
 
 -- Math Helpers for Style 5
-local function fluidEaseOutIn(t, sMin)
-	return ((0.5 + 4 * (t - 0.5)^3) * (1 - sMin)) + (t * sMin)
-end
-
 local function calculateLowestY(Y0, Y2, ArcHeight)
 	if ArcHeight == 0 then return math.min(Y0, Y2) end
 	local tLowest = 0.5 - (Y0 - Y2) / (4 * ArcHeight)
@@ -374,6 +371,114 @@ local function diveDirection(offset, fallback)
 	return dir.Magnitude > 0.001 and dir.Unit or fallback
 end
 
+local function switchPhase(data, newPhase)
+	data.phase = newPhase
+	data.phaseTime = tick()
+	if data.fighter then
+		data.fighter:SetAttribute("PJPhase", newPhase) -- for the debug HUD and probes
+	end
+end
+
+local function targetPartOf(target)
+	return target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart")
+end
+
+local FULL_FORCE = Vector3.new(math.huge, math.huge, math.huge)
+
+-- Phases flown as a dive: head first along the path
+local DIVE_PHASES = { Dash = true, Strafe = true, ComboStrafe = true }
+
+local function diveSpeed(data)
+	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+	return Config.SlamSpeed * (FAST_DIVE_STYLES[data.style] and Config.SlamSpeedMultiplier or 1) * speedMult
+end
+
+-- Every leg of a dive opens the same way: the boom and the vapour cone, in the flying clip
+local function diveEffects(data, humanoid, rootPart)
+	if not data.diving then
+		stopAnim(data.animTrack)
+		data.animTrack = playDiveAnim(humanoid)
+		data.diving = true
+	end
+	AudioModule.playSonicBoom(rootPart.Position)
+	VfxModule.createVaporCone(rootPart, 0.5)
+end
+
+local function setDive(data, humanoid, rootPart, lv, velocity, phase)
+	lv.MaxAxesForce = FULL_FORCE
+	lv.VectorVelocity = velocity
+	rootPart.AssemblyLinearVelocity = velocity
+	switchPhase(data, phase)
+	diveEffects(data, humanoid, rootPart)
+end
+
+-- The turn in the air: a dive off to one side, slightly downhill. The per-frame guard in enter
+-- ends it on time and goes straight into what follows.
+local function startTurnLeg(data, humanoid, rootPart, lv, phase)
+	local side, distance = pickStrafe(rootPart)
+	local speed = diveSpeed(data)
+	local direction = (side - Vector3.yAxis * (CombatConfig.ProjectileJump_TurnLegSlope or 0.2)).Unit
+	data.legDuration = distance / speed
+	setDive(data, humanoid, rootPart, lv, direction * speed, phase)
+end
+
+-- The last leg: at the target (the Dash phase re-aims it as the target moves)
+local function startFinalDive(data, humanoid, rootPart, lv)
+	local targetPart = data.target and targetPartOf(data.target)
+	if not targetPart then return end
+	local speed = diveSpeed(data)
+	local aimPoint = calculateCombatAimPoint(rootPart, targetPart, speed, humanoid, data.scatterAngle, data.precise)
+	local direction = diveDirection(aimPoint - rootPart.Position, rootPart.CFrame.LookVector)
+	setDive(data, humanoid, rootPart, lv, direction * speed, "Dash")
+end
+
+-- The swoop's curve (quadratic Bezier P0, P1, P2) and its direction of travel at t
+local function curvePoint(data, t)
+	return ((1 - t)^2 * data.P0) + (2 * (1 - t) * t * data.P1) + (t^2 * data.P2)
+end
+
+local function curveTangent(data, t)
+	return 2 * (1 - t) * (data.P1 - data.P0) + 2 * t * (data.P2 - data.P1)
+end
+
+local CURVE_PULL = 4 -- per second: how firmly a body off the swoop's curve is drawn back onto it
+
+-- Combo (style 6): the next action of the sequence
+local function comboNext(data, humanoid, rootPart, lv)
+	local action = data.comboSequence[data.comboIndex]
+	if action == "Jump" then
+		if data.diving then
+			-- out of a dive leg into a jump: back to the airborne loop
+			stopAnim(data.animTrack)
+			data.animTrack = playClip(humanoid, data.kit.loop, true)
+			data.diving, data.inAirLoop = false, true
+		end
+		lv.MaxAxesForce = Vector3.zero
+		local jumpPower = math.random(Config.MultiJumpPowerMin, Config.MultiJumpPowerMax)
+		local forwardVec = rootPart.CFrame.LookVector
+		local rightVec = rootPart.CFrame.RightVector
+		local forwardSpeed = math.random(Config.MultiJumpForwardSpeedMin, Config.MultiJumpForwardSpeedMax)
+		local sideSpeed = math.random(Config.MultiJumpSideSpeedMin, Config.MultiJumpSideSpeedMax)
+		local driftVelocity = (forwardVec * forwardSpeed) + (rightVec * sideSpeed)
+
+		rootPart.AssemblyLinearVelocity = Vector3.new(driftVelocity.X, jumpPower, driftVelocity.Z)
+
+		AudioModule.playJumpUp(rootPart.Position)
+		VfxModule.createLaunchShockwave(rootPart)
+		if data.comboIndex == 1 then
+			VfxModule.createRocketTrail(rootPart)
+			VfxModule.shakeScreen(rootPart.Position, 500, 8)
+		end
+
+		data.comboGapTime = getFloat(Config.ComboGapTimeMin, Config.ComboGapTimeMax)
+		switchPhase(data, "ComboWait")
+	elseif action == "Strafe" then
+		startTurnLeg(data, humanoid, rootPart, lv, "ComboStrafe")
+	elseif action == "Dash" then
+		startFinalDive(data, humanoid, rootPart, lv)
+	end
+end
+
 function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	humanoid.PlatformStand = true
 	cleanupMovers(rootPart)
@@ -498,10 +603,28 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 			data.arrivalVelocity = flightVelocity
 		end
 
-		-- A strafe ends on time (waiting for the next update let it run up to 0.1s, 150 studs, long)
-		local strafing = data.phase == "Strafe" or data.phase == "ComboStrafe"
-		if strafing and data.strafeDuration and tick() - data.phaseTime >= data.strafeDuration then
-			lv.VectorVelocity = Vector3.zero
+		-- A turn leg ends on its frame and goes straight into what follows, still at dive speed.
+		-- (It used to be stopped here and wait for the next 10 Hz update to start the dive: the
+		-- body hung at zero speed in between, or kept the leg's speed when the update came first.)
+		if (data.phase == "Strafe" or data.phase == "ComboStrafe") and tick() - data.phaseTime >= data.legDuration then
+			if data.phase == "ComboStrafe" then
+				data.comboIndex += 1
+				comboNext(data, humanoid, rootPart, lv)
+			else
+				startFinalDive(data, humanoid, rootPart, lv)
+			end
+		end
+
+		-- The swoop follows its curve at one speed. (It was timed by an ease curve, fast - slow -
+		-- fast: measured 1280 studs/s off the top, about 100 through the middle, 600 at the end.)
+		if data.phase == "Dash" and data.curveT then
+			local tangent = curveTangent(data, data.curveT)
+			if tangent.Magnitude > 0.001 then
+				data.curveT = math.min(1, data.curveT + data.curveSpeed * dt / tangent.Magnitude)
+				local pull = (curvePoint(data, data.curveT) - rootPart.Position) * CURVE_PULL
+				lv.MaxAxesForce = FULL_FORCE
+				lv.VectorVelocity = (tangent.Unit * data.curveSpeed + pull).Unit * data.curveSpeed
+			end
 		end
 
 		-- The intercept is steered every frame: at 480 studs/s a 10 Hz re-aim moved it ~50 studs
@@ -545,7 +668,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 				or (Vector3.new(bodyLook.X, 0, bodyLook.Z).Magnitude > 0.01 and Vector3.new(bodyLook.X, 0, bodyLook.Z).Unit)
 				or Vector3.new(0, 0, -1)
 			local look
-			if data.phase == "Dash" then
+			if DIVE_PHASES[data.phase] then
 				local gap = heightAboveStand(rootPart, humanoid)
 				local headFirst = math.clamp((gap - 6) / 25, 0, 1)
 				look = flatDir:Lerp(flightVel.Unit, headFirst)
@@ -653,14 +776,6 @@ function ProjectileJumpState.exit(fighter, humanoid, rootPart)
 	stateData[fighter] = nil
 end
 
-local function switchPhase(data, newPhase)
-	data.phase = newPhase
-	data.phaseTime = tick()
-	if data.fighter then
-		data.fighter:SetAttribute("PJPhase", newPhase) -- for the debug HUD and probes
-	end
-end
-
 function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = stateData[fighter]
 	if not data then return require(script.Parent:WaitForChild("IdleState")) end
@@ -683,7 +798,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	if not lv or not ao then return require(script.Parent:WaitForChild("FightState")) end
 
 	-- After the launch clip: the kit's airborne loop until the dive (or the landing) takes over
-	if data.kit and not data.inAirLoop and data.phase ~= "Dash" and data.phase ~= "Impact" then
+	if data.kit and not data.inAirLoop and not data.diving and data.phase ~= "Impact" then
 		local launch = data.animTrack
 		if not launch or not launch.IsPlaying or (launch.Length > 0 and launch.TimePosition >= launch.Length * 0.92) then
 			data.inAirLoop = true
@@ -728,55 +843,6 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		return ProjectileJumpState -- the guard is setting the body down this frame (see setDownLatched)
 	end
 
-
-	local function triggerComboNext()
-		local action = data.comboSequence[data.comboIndex]
-		if action == "Jump" then
-			lv.MaxAxesForce = Vector3.zero
-			local jumpPower = math.random(Config.MultiJumpPowerMin, Config.MultiJumpPowerMax)
-			local forwardVec = rootPart.CFrame.LookVector
-			local rightVec = rootPart.CFrame.RightVector
-			local forwardSpeed = math.random(Config.MultiJumpForwardSpeedMin, Config.MultiJumpForwardSpeedMax)
-			local sideSpeed = math.random(Config.MultiJumpSideSpeedMin, Config.MultiJumpSideSpeedMax)
-			local driftVelocity = (forwardVec * forwardSpeed) + (rightVec * sideSpeed)
-
-			rootPart.AssemblyLinearVelocity = Vector3.new(driftVelocity.X, jumpPower, driftVelocity.Z)
-
-			AudioModule.playJumpUp(rootPart.Position)
-			VfxModule.createLaunchShockwave(rootPart)
-			if data.comboIndex == 1 then
-				VfxModule.createRocketTrail(rootPart)
-				VfxModule.shakeScreen(rootPart.Position, 500, 8) 
-			end
-
-			data.comboGapTime = getFloat(Config.ComboGapTimeMin, Config.ComboGapTimeMax)
-			switchPhase(data, "ComboWait")
-
-		elseif action == "Strafe" then
-			switchPhase(data, "ComboStrafe")
-			AudioModule.playMidairSwoosh(rootPart.Position)
-			local strafeDir, dist = pickStrafe(rootPart)
-			data.strafeDir = strafeDir
-			data.strafeDuration = (math.random() > 0.5) and 0.2 or 0.5
-			data.strafeInitialVelocity = data.strafeDir * (data.strafeDuration == 0.2 and (dist / 0.2) or (dist * 4))
-
-		elseif action == "Dash" then
-			switchPhase(data, "Dash")
-			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-			local dashSpeed = Config.SlamSpeed * Config.SlamSpeedMultiplier
-			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
-			local offset = aimPoint - rootPart.Position
-			local dashDir = diveDirection(offset, rootPart.CFrame.LookVector)
-			lv.VectorVelocity = dashDir * dashSpeed
-			rootPart.AssemblyLinearVelocity = lv.VectorVelocity
-			ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
-
-			stopAnim(data.animTrack)
-			data.animTrack = playDiveAnim(humanoid)
-			AudioModule.playSonicBoom(rootPart.Position)
-			VfxModule.createVaporCone(rootPart, 0.5)
-		end
-	end
 
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 
@@ -860,8 +926,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			end
 			data.comboSequence = combos
 			data.comboIndex = 1
-
-			triggerComboNext()
+			comboNext(data, humanoid, rootPart, lv)
 
 		else
 			local jumpPower
@@ -950,26 +1015,11 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	elseif data.phase == "ComboWait" then
 		if timeInPhase >= data.comboGapTime then
 			data.comboIndex = data.comboIndex + 1
-			triggerComboNext()
+			comboNext(data, humanoid, rootPart, lv)
 		end
 
 		if distToTarget < 15 or (standGap <= 2 and rootPart.AssemblyLinearVelocity.Y < 0) then
 			switchPhase(data, "Impact")
-		end
-
-	elseif data.phase == "ComboStrafe" then
-		lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-		if data.strafeDuration == 0.5 then
-			local percentComplete = math.min(1, timeInPhase / data.strafeDuration)
-			lv.VectorVelocity = data.strafeInitialVelocity:Lerp(Vector3.zero, percentComplete)
-		else
-			lv.VectorVelocity = data.strafeInitialVelocity
-		end
-
-		if timeInPhase >= data.strafeDuration then
-			lv.MaxAxesForce = Vector3.zero
-			data.comboGapTime = getFloat(Config.ComboGapTimeMin, Config.ComboGapTimeMax)
-			switchPhase(data, "ComboWait")
 		end
 
 	elseif data.phase == "AirborneTimer" then
@@ -994,21 +1044,11 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 		if timeSinceJump >= data.dashExactTime or (isFalling and heightAboveTarget <= 60) then
 			if data.style == 4 then
-				switchPhase(data, "Strafe")
-				AudioModule.playMidairSwoosh(rootPart.Position)
-				local strafeDir, dist = pickStrafe(rootPart)
-				data.strafeDir = strafeDir
-				data.strafeDuration = (math.random() > 0.5) and 0.2 or 0.5
-				data.strafeInitialVelocity = data.strafeDir * (data.strafeDuration == 0.2 and (dist / 0.2) or (dist * 4))
+				startTurnLeg(data, humanoid, rootPart, lv, "Strafe")
 			elseif data.style == 5 then
-				switchPhase(data, "Dash")
-				data.dashStartTime = tick()
-
 				-- Pre-calculate Bezier with combat offset landing point
 				data.P0 = rootPart.Position
 				data.P2 = calculateCombatAimPoint(rootPart, targetPosPart, Config.SlamSpeed * speedMult, humanoid, data.scatterAngle, data.precise)
-				local p0p2Dist = (data.P2 - data.P0).Magnitude
-				data.dashDuration = math.clamp(p0p2Dist / (Config.SlamSpeed * 0.75), 0.35, 1.2) / speedMult
 
 				local arcHeight = Config.BezierArcHeightBase
 				local lowestY = calculateLowestY(data.P0.Y, data.P2.Y, arcHeight)
@@ -1032,29 +1072,11 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 					end
 				end
 
-				lv.MaxAxesForce = Vector3.zero
-				rootPart.AssemblyLinearVelocity = Vector3.zero
-
-				stopAnim(data.animTrack)
-				data.animTrack = playDiveAnim(humanoid)
-				AudioModule.playSonicBoom(rootPart.Position)
-				VfxModule.createVaporCone(rootPart, Config.BezierDashDuration / speedMult)
+				data.curveT = 0
+				data.curveSpeed = diveSpeed(data)
+				setDive(data, humanoid, rootPart, lv, curveTangent(data, 0).Unit * data.curveSpeed, "Dash")
 			else
-				switchPhase(data, "Dash")
-				stopAnim(data.animTrack)
-				data.animTrack = playDiveAnim(humanoid)
-
-				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-				local dashSpeed = (FAST_DIVE_STYLES[data.style] and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed) * speedMult
-				local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
-				local offset = aimPoint - rootPart.Position
-				local dashDir = offset.Magnitude > 0.001 and offset.Unit or rootPart.CFrame.LookVector
-				lv.VectorVelocity = dashDir * dashSpeed
-				ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
-
-				if offset.Magnitude < 10 or standGap <= 2.5 then
-					switchPhase(data, "Impact")
-				end
+				startFinalDive(data, humanoid, rootPart, lv)
 			end
 			return ProjectileJumpState
 		end
@@ -1063,78 +1085,28 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			switchPhase(data, "Impact")
 		end
 
-	elseif data.phase == "Strafe" then
-		lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-		if data.strafeDuration == 0.5 then
-			local percentComplete = math.min(1, timeInPhase / data.strafeDuration)
-			lv.VectorVelocity = data.strafeInitialVelocity:Lerp(Vector3.zero, percentComplete)
-		else
-			lv.VectorVelocity = data.strafeInitialVelocity
-		end
-
-		if timeInPhase >= data.strafeDuration then
-			switchPhase(data, "Dash")
-
-			local dashSpeed = Config.SlamSpeed
-			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
-			local offset = aimPoint - rootPart.Position
-			local dashDir = diveDirection(offset, rootPart.CFrame.LookVector)
-			lv.VectorVelocity = dashDir * dashSpeed
-			rootPart.AssemblyLinearVelocity = lv.VectorVelocity
-			ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
-
-			stopAnim(data.animTrack)
-			data.animTrack = playDiveAnim(humanoid)
-			AudioModule.playSonicBoom(rootPart.Position)
-			VfxModule.createVaporCone(rootPart, 0.5)
-		end
-
 	elseif data.phase == "Dash" then
-		if data.style == 5 then
-			local rawT = math.min(1, (now - data.dashStartTime) / data.dashDuration)
-			local t = fluidEaseOutIn(rawT, Config.BezierSpeedFloor)
-
-			local currentPos = ((1 - t)^2 * data.P0) + (2 * (1 - t) * t * data.P1) + (t^2 * data.P2)
-
-			-- MId-Dash failsafe raycast
+		if data.curveT then
+			-- The swoop (steered every frame by the guard in enter). A wall in its path ends it
+			-- here, like the straight dive below; floors are the touchdown guard's.
 			local rayParams = RaycastParams.new()
 			rayParams.FilterType = Enum.RaycastFilterType.Exclude
 			rayParams.FilterDescendantsInstances = {fighter, target}
-			local rayDir = currentPos - rootPart.Position
-			local rayDist = rayDir.Magnitude
-
-			if rayDist > 0.01 then
-				local hit = DebugDraw.raycast(rootPart, rootPart.Position, rayDir.Unit * rayDist, rayParams)
-				if hit then
-					-- Path blocked: Impact brings the body down from here (it used to be teleported
-					-- onto the hit point, up to a full update of travel away, with its facing reset)
-					switchPhase(data, "Impact")
-					return ProjectileJumpState
-				end
+			local ahead = lv.VectorVelocity * (CombatConfig.ProjectileJump_DashWallProbeTime or 0.15)
+			local hit = ahead.Magnitude > 0.01 and DebugDraw.raycast(rootPart, rootPart.Position, ahead, rayParams)
+			if hit and math.abs(hit.Normal.Y) < 0.5 then
+				data.wallNormal = hit.Normal
+				switchPhase(data, "Impact")
+				return ProjectileJumpState
 			end
 
-			-- Dynamic LinearVelocity steering to eliminate jitter
-			local lookAheadTime = 0.1
-			local futureRawT = math.min(1, rawT + (lookAheadTime / data.dashDuration))
-			local futureT = fluidEaseOutIn(futureRawT, Config.BezierSpeedFloor)
-			local futurePos = ((1 - futureT)^2 * data.P0) + (2 * (1 - futureT) * futureT * data.P1) + (futureT^2 * data.P2)
-
-			local targetVelocity = (futurePos - rootPart.Position) / lookAheadTime
-			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-			lv.VectorVelocity = targetVelocity
-
-			local flatVel = Vector3.new(targetVelocity.X, 0, targetVelocity.Z)
-			if flatVel.Magnitude > 0.5 then
-				ao.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + flatVel)
-			end
-
-			if rawT >= 1 or distToTarget < 15 or (rawT > 0.4 and standGap <= 2) then
+			if data.curveT >= 1 or distToTarget < 15 or (data.curveT > 0.4 and standGap <= 2) then
 				switchPhase(data, "Impact")
 			end
 
 		else
 			lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
-			local dashSpeed = (FAST_DIVE_STYLES[data.style] and (Config.SlamSpeed * Config.SlamSpeedMultiplier) or Config.SlamSpeed) * speedMult
+			local dashSpeed = diveSpeed(data)
 			local aimPoint, approachDir, groundY = calculateCombatAimPoint(rootPart, targetPosPart, dashSpeed, humanoid, data.scatterAngle, data.precise)
 			local offset = aimPoint - rootPart.Position
 			local dir = diveDirection(offset, rootPart.CFrame.LookVector)
@@ -1152,7 +1124,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 				return ProjectileJumpState
 			end
 			lv.VectorVelocity = dir * dashSpeed
-			ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(aimPoint.X, rootPart.Position.Y, aimPoint.Z))
+			-- (the body's facing in a dive is the per-frame guard's, head first along the path)
 
 			local isFalling = rootPart.AssemblyLinearVelocity.Y <= 0
 			local isNearGround = standGap <= 2.5
