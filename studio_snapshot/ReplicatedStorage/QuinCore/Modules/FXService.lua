@@ -38,6 +38,9 @@ function FXService.applyElementAppearance(model, elementName)
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") and (part.Name == "Alpha_Surface" or part.Name == "Beta_Surface" or part.Name:find("Surface") or part.Name:find("Mesh") or part.Name == "Body") then
 			part.Color = bodyColor
+			-- (QuinMale's body carries the "Roblox Grid" material variant, QuinFemale's none: the
+			-- same color came out darker on the males. A painted body is plain material.)
+			part.MaterialVariant = ""
 			if part:IsA("MeshPart") and part.TextureID ~= "" then
 				part.TextureID = ""
 			end

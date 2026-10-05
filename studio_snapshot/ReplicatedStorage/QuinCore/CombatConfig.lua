@@ -644,6 +644,14 @@ CombatConfig.Headroom = {
 	SearchRadius = 20,  -- ...out to this far
 	ExitSpeed = 14,     -- studs/s it leaves at
 }
+-- Edge awareness (Modules/EdgeAwareness): a Quin knows it stands at a rim with a drop beside it
+CombatConfig.EdgeAwareness = {
+	Enabled = true,
+	Reach = 3,       -- studs from its feet a drop counts as "at the edge"
+	MinDrop = 6,     -- studs deep at least (less is a step)
+	StepIn = 6,      -- studs it walks in from the rim when it has nothing to do there
+	StepSpeed = 10,  -- studs/s (a walk)
+}
 CombatConfig.Landing_CasualWalkTime = 2.5              -- seconds a Quin keeps to a walk after a soft landing (it walks on, it does not bolt)
 CombatConfig.Landing_SoftMaxSpeed = 8                  -- studs/s across the ground at touchdown up to which a drop lands with the soft landing (faster: the hard landing)
 CombatConfig.Dismount_CasualConfidence = 0.7           -- a Quin this sure of itself, healthy, unpressed and with its target well away steps off a ledge instead of diving
@@ -870,7 +878,7 @@ CombatConfig.SecondaryMotion_Inertia = 1.0        -- scale on the body accelerat
 CombatConfig.SecondaryMotion_MaxAcceleration = 80 -- studs/s^2: body acceleration the springs feel is capped (jump launches, knockbacks)
 CombatConfig.SecondaryMotion_Leash = 1.5          -- studs a spring may lag its bone tip; held there beyond (no reset flicker)
 CombatConfig.SecondaryMotion_AccelerationResponse = 6 -- 1/s: low-pass on the body acceleration the springs feel (replicated velocity arrives in steps)
-CombatConfig.Overwatch_EdgeInset = 3           -- studs kept from the edge
+CombatConfig.Overwatch_EdgeInset = 5           -- studs kept from the edge (was 3: with the 2.5-stud arrival slack a lookout stood on the very rim)
 CombatConfig.Overwatch_EngageRange = 30        -- an enemy this close at the same height is fought up there
 CombatConfig.Retreat_RendezvousValue = 15      -- extra worth of a platform per ally already on it (up to 3)
 

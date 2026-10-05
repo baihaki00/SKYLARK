@@ -41,6 +41,7 @@ local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitMo
 local SocialSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("SocialSystem"))
 local HeadroomAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("HeadroomAwareness"))
 local ArenaTrespass = require(QuinCore:WaitForChild("Modules"):WaitForChild("ArenaTrespass"))
+local EdgeAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("EdgeAwareness"))
 
 -- States in which a Quin stands on the ground by its own choice (and so needs room to stand)
 -- States in which a Quin is not in control of itself: it does not pick a new target in them
@@ -715,6 +716,25 @@ task.spawn(function()
 			elseif Quin:GetAttribute("LowCeiling") then
 				Quin:SetAttribute("LowCeiling", nil)
 			end
+		end
+		-- At a rim with a drop beside it, it knows (NearEdge). Waiting there, or anywhere up on the
+		-- arena wall, it walks in from the rim; fighting, chasing or holding high ground at an
+		-- edge is its business (EdgeAwareness).
+		if not newState and STANDING_STATES[currentState.name] and CombatConfig.EdgeAwareness.Enabled ~= false
+			and humanoid.FloorMaterial ~= Enum.Material.Air and not humanoid.PlatformStand then
+			local edge = EdgeAwareness.sense(Quin, rootPart, humanoid)
+			if (edge ~= nil) ~= (Quin:GetAttribute("NearEdge") == true) then
+				Quin:SetAttribute("NearEdge", edge and true or nil)
+			end
+			if edge and (currentState.name == "Idle" or (edge.surface.Name == "ArenaWall" and currentState.name ~= "Fight")) then
+				Quin:SetAttribute("ObstacleAwareness", "At the edge: stepping in")
+				local inside = rootPart.Position + edge.inward * CombatConfig.EdgeAwareness.StepIn
+				LocomotionModule.steer(Quin, humanoid, rootPart, inside, CombatConfig.EdgeAwareness.StepSpeed, 0.1)
+				GaitModule.update(humanoid, rootPart, 0.1)
+				newState = currentState
+			end
+		elseif Quin:GetAttribute("NearEdge") then
+			Quin:SetAttribute("NearEdge", nil)
 		end
 		if not newState then
 			local isDebugMode = workspace:GetAttribute("Debug_StateLabels") or false

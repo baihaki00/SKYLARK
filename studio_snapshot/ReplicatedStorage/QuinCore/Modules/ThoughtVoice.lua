@@ -105,6 +105,7 @@ local PHRASES = {
 	["Move:Dismount"] = { any = { "Down from here.", "Time to get off this." } },
 	["Move:Vault"] = { any = { "Over it." } },
 	["Move:Around"] = { any = { "Go round.", "Something's in the way. Round it." } },
+	["Move:Edge"] = { any = { "That's the edge. Step back.", "Too close to the drop. In a bit." } },
 	["Move:Headroom"] = { any = { "Can't stand up in here. Out.", "Too low. Get out from under this." } },
 
 	-- what is being done to it, and where it should not be
@@ -129,6 +130,7 @@ local MOVE_PATTERNS = {
 	{ "Hopped over a slide", "Body:Hurdled" },
 	{ "[Dd]ash", "Move:AirDash" },
 	{ "No room to stand", "Move:Headroom" },
+	{ "At the edge", "Move:Edge" },
 	{ "Ledge Dive", "Move:Dismount" }, { "[Ww]alking off", "Move:Dismount" },
 	{ "[Vv]ault", "Move:Vault" }, { "Hurdling", "Move:Vault" },
 	{ "Navigating", "Move:Around" }, { "[Gg]oing round", "Move:Around" },
