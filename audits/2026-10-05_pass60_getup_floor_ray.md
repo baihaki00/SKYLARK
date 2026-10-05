@@ -59,3 +59,22 @@ Measured, not yet changed: on the wall the vertical speed moves in steps of 4 st
 0.1 s (the arc is integrated in the 10 Hz update), and at the kick the vertical speed jumps from
 -21 to +18 studs/s in one frame, is held flat for 0.22 s, and only then does gravity start.
 Planned: integrate the arc every frame and let gravity act from the kick's first frame.
+
+## FallFront and FallBack, checked at the owner's request
+
+Client, final pose, every bone against the solid floor.
+
+- **Sweeps (two Quins, 6 episodes, all FallFront):** on the body 0.26 - 0.39 s, all of it in the
+  air; lowest bone never closer than 1.4 studs to the floor; followed at once by a landing clip.
+- **16v16, one minute:** 48 FallBack and 12 FallFront episodes, 0.36 s each on average.
+  - Under the floor: never (closest 0.12 studs above it).
+  - Still on the body with the root already down: 1 of 60 (0.16 s, body 1.4 - 3.8 studs up).
+  - Followed by: ninja kip-up 40, GetUpBackFast 7, landing clips 10, GetUpFrontFast 2.
+
+So both fall clips behave in the air. What remains is the hand-over: a fall pose is flown at hip
+height (FallFront's own 7-stud drop is switched off for the air, FallBack has none), so at the
+frame the root touches down the body is still about 4 studs up, and the get-up that starts lying
+on the floor takes over in a 0.1 s cross-fade: a quick drop rather than a float. Not changed.
+Possible change, if the owner sees it: lower the fall pose over the last few studs of the fall so
+its lowest point meets the floor at touchdown, with the correction never allowed to put a bone
+under the floor.
