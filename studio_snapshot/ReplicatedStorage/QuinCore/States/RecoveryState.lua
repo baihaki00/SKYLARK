@@ -29,12 +29,6 @@ local GET_UP = {
 }
 
 local function getUpClip(fighter, humanoid, isHeavy)
-	-- (a swept Quin already lies in the first frame of its get-up: it goes on with that one)
-	local primed = fighter:GetAttribute("GetUpClipOverride")
-	if primed then
-		fighter:SetAttribute("GetUpClipOverride", nil)
-		return primed
-	end
 	local side = fighter:GetAttribute("FallSide") == "Front" and "Front" or "Back"
 	if not isHeavy then
 		local choices = INSTANT_RECOVERY[side]

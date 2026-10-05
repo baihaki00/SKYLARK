@@ -328,3 +328,6 @@ do
 	local ImpulseModule = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ImpulseModule"))
 	ImpulseModule.start()
 end
+
+-- Every animation clip is fetched now, so none is first loaded in the middle of a move
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule")).preload()

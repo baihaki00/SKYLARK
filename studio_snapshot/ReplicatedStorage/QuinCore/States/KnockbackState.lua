@@ -118,25 +118,13 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 		-- The flight pose is the authored air-knockback clip. While ProceduralRagdollActive is set
 		-- the presentation layer leans the whole body along its travel direction on top of it.
 		local swept = knockbackData[fighter].swept
+		-- (a swept Quin flails the same way; SlideTackle flips it over and swaps in the fall pose
+		-- for its side half-way round, so the side is fixed here and not decided on the way down)
 		if swept then
-			-- Legs taken: it drops. The fall clips are poses for flying through the air, and a
-			-- trip is over in a third of a second, so the body blends from its run straight into
-			-- the first frame of the get-up for that side (lying on its back or its front) and
-			-- holds it there; Recovery goes on with that same clip (GetUpClipOverride). (The air
-			-- fall pose was cut by the get-up's lying start: it went from half-fallen to flat.)
 			knockbackData[fighter].fallSide = swept
 			fighter:SetAttribute("FallSide", swept)
-			local path = swept == "Front" and "Reactions.GetUpFrontFast" or "Reactions.GetUpBackFast"
-			-- (SlideTackle starts the drop at the sweep; only if it could not is it started here)
-			local track = not fighter:GetAttribute("GetUpClipOverride") and AnimationModule.playConfig(humanoid, path, 1.0, Enum.AnimationPriority.Action4, false)
-			if track then
-				track:Stop(0)
-				track:Play(CombatConfig.SlideTackle_DropBlend or 0.35, 1, 0) -- (speed 0: held on the lying frame)
-				fighter:SetAttribute("GetUpClipOverride", path)
-			end
-		else
-			AnimationModule.play(humanoid, AnimationIds.FallAirKnockback, Enum.AnimationPriority.Action4, true, 1.0, 0.1)
 		end
+		AnimationModule.play(humanoid, AnimationIds.FallAirKnockback, Enum.AnimationPriority.Action4, true, 1.0, 0.1)
 		fighter:SetAttribute("ProceduralRagdollActive", CombatConfig.AirKnockback_ProceduralRagdollEnabled == true)
 	else
 		AnimationModule.play(humanoid, AnimationIds.Knockback, Enum.AnimationPriority.Action4, false, 1.0, 0.1)
@@ -212,16 +200,7 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 		local isDescending = velY <= 2.0 -- Must be descending or at apex, not actively rocketing up
 		local isGroundedNow = SpatialModule.isGrounded(rootPart)
 		
-		-- (a swept Quin stays down a moment before it gets up: on the ground the humanoid holds its
-		-- height again, so the lying pose stays on the floor, and it is let up below)
-		local heldDown = data.swept and elapsed < (CombatConfig.SlideTackle_DownTime or 0.8)
-		if heldDown and isDescending and isGroundedNow then
-			humanoid.PlatformStand = false
-			local v = rootPart.AssemblyLinearVelocity
-			rootPart.AssemblyLinearVelocity = Vector3.new(v.X * 0.5, v.Y, v.Z * 0.5)
-			return KnockbackState
-		end
-		if isDescending and isGroundedNow and (not isBeingLaunched or velY < -30) and not heldDown then
+		if isDescending and isGroundedNow and (not isBeingLaunched or velY < -30) then
 			-- Hit the ground: destroy launch velocity and retain dynamic turf slide friction
 			local flatVel = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z)
 			local groundSlideSpeed = flatVel.Magnitude * (CombatConfig.Ragdoll_GroundFriction or 0.55)
@@ -257,14 +236,6 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 	
-	-- A swept Quin lying on the floor (its humanoid holding it) gets up once its time is up
-	if data.swept and not humanoid.PlatformStand then
-		if elapsed >= (CombatConfig.SlideTackle_DownTime or 0.8) then
-			return require(script.Parent:WaitForChild("RecoveryState"))
-		end
-		return KnockbackState
-	end
-
 	-- Update air arc (Temporarily disabled)
 	if data.kbType == "air" and rootPart:FindFirstChild("KB_UprightGyro") then
 		-- local vel = rootPart.AssemblyLinearVelocity

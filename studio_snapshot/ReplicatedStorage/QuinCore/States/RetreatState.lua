@@ -421,10 +421,11 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		and (data.currentSpeed or 30) >= 20 and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 	if canWallRun then
 		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2, CombatConfig.WallRunMinRunway or 24)
-		if wallSurface then
+		local WallRunState = require(script.Parent:WaitForChild("WallRunState"))
+		if wallSurface and WallRunState.fastEnough(rootPart, wallSurface) then
 			fighter:SetAttribute("LastWallRunTime", now)
 			RuntimeTracer.checkpoint(fighter, "Retreat wall-running away from threat")
-			return require(script.Parent:WaitForChild("WallRunState"))
+			return WallRunState
 		end
 	end
 

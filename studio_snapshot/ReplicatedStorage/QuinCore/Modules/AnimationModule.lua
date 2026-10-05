@@ -895,4 +895,32 @@ Workspace:GetAttributeChangedSignal("GameSpeedMultiplier"):Connect(function()
 	end
 end)
 
+-- Every clip of the library is fetched once when the session starts (Server, and each client:
+-- AIGhostHandler). A clip played for the first time otherwise shows nothing while its asset
+-- loads: the first Quin swept onto its front flew with no fall pose and stood 0.45 s before its
+-- get-up began.
+function AnimationModule.preload()
+	local config = getAnimationConfig()
+	if not config then return end
+	local seen, animations = {}, {}
+	local function walk(entries)
+		for _, entry in pairs(entries) do
+			if type(entry) == "table" then
+				if type(entry.id) ~= "string" then
+					walk(entry)
+				elseif entry.id ~= "" and not seen[entry.id] then
+					seen[entry.id] = true
+					local animation = Instance.new("Animation")
+					animation.AnimationId = entry.id
+					table.insert(animations, animation)
+				end
+			end
+		end
+	end
+	walk(config.Registry)
+	task.spawn(function()
+		pcall(function() game:GetService("ContentProvider"):PreloadAsync(animations) end)
+	end)
+end
+
 return AnimationModule

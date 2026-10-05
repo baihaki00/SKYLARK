@@ -1054,9 +1054,10 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Not worth mounting a wall with the target already this close: the run would end at once
 	if canWallRun and not inShowdown and distance > 22 then
 		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2, CombatConfig.WallRunMinRunway or 24)
-		if wallSurface then
+		local WallRunState = require(script.Parent:WaitForChild("WallRunState"))
+		if wallSurface and WallRunState.fastEnough(rootPart, wallSurface) then
 			fighter:SetAttribute("ObstacleAwareness", "Wall-Running " .. wallSurface.side)
-			return require(script.Parent:WaitForChild("WallRunState"))
+			return WallRunState
 		end
 	end
 

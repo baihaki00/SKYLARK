@@ -13,6 +13,9 @@ if renderMode == "Direct" then
 	local LookController = require(QuinCore:WaitForChild("Modules"):WaitForChild("LookController"))
 	local ProceduralCombatReactionController = require(QuinCore:WaitForChild("Modules"):WaitForChild("ProceduralCombatReactionController"))
 
+	-- (this client shows the server's animations: it fetches the clips up front too)
+	require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule")).preload()
+
 	local presentations = {}
 	local presentationBindName = "QuinDirectPresentation"
 

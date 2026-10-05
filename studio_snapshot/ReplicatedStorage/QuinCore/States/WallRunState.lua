@@ -76,6 +76,14 @@ local function runVelocity(data, rootPart, wallDistance)
 	return data.tangent * data.along + Vector3.new(0, data.rise, 0) - data.normal * intoWall
 end
 
+-- A wall run is a sprint: a Quin goes up a wall only with this much of its speed along it.
+-- (It used to start from 18 studs/s and read as a jog, even a walk, up the wall.) Chase and
+-- Retreat ask before they send it up.
+function WallRunState.fastEnough(rootPart, wallSurface)
+	local velocity = rootPart.AssemblyLinearVelocity
+	return Vector3.new(velocity.X, 0, velocity.Z):Dot(wallSurface.tangent) >= (CombatConfig.WallRun_MinEntrySpeed or 32)
+end
+
 function WallRunState.enter(fighter, humanoid, rootPart)
 	local now = os.clock()
 	fighter:SetAttribute("LastWallRunTime", tick()) -- readers compare against tick()
@@ -118,7 +126,7 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 		arriving = staged
 		fighter:SetAttribute("WallRunEntrySpeed", nil)
 	end
-	local along = math.clamp(arriving, CombatConfig.WallRunMinSpeed or 18, wallRunSpeed)
+	local along = math.clamp(arriving, CombatConfig.WallRun_MinEntrySpeed or 32, wallRunSpeed)
 	local data = {
 		startTime = now,
 		lastUpdate = now,

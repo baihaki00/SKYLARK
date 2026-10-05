@@ -68,6 +68,37 @@ local function hurdle(victim, humanoid, rootPart)
 	publish()
 end
 
+-- The flip: the body turns over once, the way it is falling, in the air (flown frame by frame:
+-- an angular velocity alone was damped to ~90 degrees). The first half under the flailing clip
+-- (KnockbackState), then the fall pose for its side takes over and it comes round upright for
+-- the landing (Recovery: a landing on its feet, or down and up from that side).
+local function flip(victim, root, humanoid, axis, side, airtime)
+	local RunService = game:GetService("RunService")
+	local AnimationModule = require(Modules:WaitForChild("AnimationModule"))
+	local start = root.CFrame - root.Position
+	local total = math.rad(cfg("FlipDegrees", 360))
+	local flipTime = airtime * cfg("FlipShare", 0.85)
+	local t0 = os.clock()
+	local switched = false
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		if not root.Parent or humanoid.Health <= 0 or victim:GetAttribute("CurrentState") == "Recovery" then
+			conn:Disconnect()
+			return
+		end
+		local p = math.min((os.clock() - t0) / flipTime, 1)
+		local eased = p * p * (3 - 2 * p)
+		root.CFrame = CFrame.new(root.Position) * CFrame.fromAxisAngle(axis, total * eased) * start
+		root.AssemblyAngularVelocity = Vector3.zero
+		if not switched and eased >= 0.5 then
+			switched = true
+			AnimationModule.stopConfig(humanoid, "Movement.FallAirKnockback", 0.15)
+			AnimationModule.playConfig(humanoid, side == "Front" and "Movement.FallFront" or "Movement.FallBack", 1.0, Enum.AnimationPriority.Action4, true)
+		end
+		if p >= 1 then conn:Disconnect() end
+	end)
+end
+
 -- Its legs are taken
 local function sweep(slider, victim, dir, speed)
 	local DamageModule = require(Modules:WaitForChild("DamageModule"))
@@ -91,21 +122,16 @@ local function sweep(slider, victim, dir, speed)
 	victim:SetAttribute("LaunchedAt", tick())
 	victim:SetAttribute("SweptAt", os.clock())
 	victim:SetAttribute("SweepFallSide", side)
-	-- the drop starts on this frame: the body blends into the first (lying) frame of the get-up
-	-- for its side and holds it; KnockbackState keeps it there, Recovery goes on with the clip
-	local AnimationModule = require(Modules:WaitForChild("AnimationModule"))
-	local path = side == "Front" and "Reactions.GetUpFrontFast" or "Reactions.GetUpBackFast"
-	local track = AnimationModule.playConfig(humanoid, path, 1.0, Enum.AnimationPriority.Action4, false)
-	if track then
-		track:Stop(0)
-		track:Play(CombatConfig.SlideTackle_DropBlend or 0.35, 1, 0)
-		victim:SetAttribute("GetUpClipOverride", path)
-	end
 	victim:SetAttribute("LastAttackerName", slider.Name)
 	humanoid.PlatformStand = true
-	root.AssemblyLinearVelocity = dir * math.min(speed * cfg("Carry", 0.35), 20) + Vector3.new(0, cfg("Launch", 30), 0)
+	local launch = cfg("Launch", 55)
+	root.AssemblyLinearVelocity = dir * math.min(speed * cfg("Carry", 0.35), 20) + Vector3.new(0, launch, 0)
 	root.AssemblyAngularVelocity = Vector3.zero
 	victim:SetAttribute("ForceState", "Knockback")
+	-- over the way it is falling: the head turns toward the topple
+	local toppleFlat = Vector3.new(topple.X, 0, topple.Z)
+	toppleFlat = toppleFlat.Magnitude > 0.01 and toppleFlat.Unit or -dir
+	flip(victim, root, humanoid, Vector3.yAxis:Cross(toppleFlat).Unit, side, 2 * launch / workspace.Gravity)
 	local AudioModule = require(Modules:WaitForChild("AudioModule"))
 	AudioModule.playImpact(root.Position, true)
 	stats.sweeps += 1
@@ -114,24 +140,6 @@ local function sweep(slider, victim, dir, speed)
 end
 
 -- A slide that can tackle. Returns the slide's duration (0 when it could not start).
--- The get-up clips a sweep drops into are loaded up front (the first sweep on each side
--- otherwise stood for ~0.4 s while the asset loaded)
-task.spawn(function()
-	local ok, AnimationConfig = pcall(require, QuinCore:WaitForChild("AnimationConfig"))
-	local reg = ok and AnimationConfig.Registry and AnimationConfig.Registry.Reactions
-	if not reg then return end
-	local anims = {}
-	for _, key in ipairs({ "GetUpFrontFast", "GetUpBackFast" }) do
-		local entry = reg[key]
-		if entry and entry.id then
-			local a = Instance.new("Animation")
-			a.AnimationId = entry.id
-			table.insert(anims, a)
-		end
-	end
-	pcall(function() game:GetService("ContentProvider"):PreloadAsync(anims) end)
-end)
-
 function SlideTackle.slide(fighter, humanoid, rootPart, target)
 	local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
 	if CombatConfig.SlideTackle_Enabled == false then
