@@ -242,6 +242,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		return ChaseState
 	end
 
+	-- A slide in progress owns the body until it is through. (Handing over to Fight at striking
+	-- range stopped the slide clip, which ends the glide: a tackle was cut off ~10 studs short.)
+	if fighter:GetAttribute("LocomotionAction") == "Slide" then
+		return ChaseState
+	end
+
 	-- Respect-custom standoff: once within the circling gap it circles, it does not close in
 	local standoffGap = fighter:GetAttribute("SocialStandoff")
 	if standoffGap and distance <= standoffGap + 12 then
@@ -1011,15 +1017,28 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	if distance > 45 then
 		data.slideDecided = false
 	end
-	if canSlide and not data.slideDecided and distance >= 18 and distance <= 35 and (data.currentSpeed or 30) >= 24 and not inShowdown then
-		data.slideDecided = true
-		local mobilityPref = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
-		local slideChance = (quirky == "Charger") and 0.6 or math.clamp(0.10 + 0.5 * mobilityPref, 0.10, 0.45)
-		if math.random() < slideChance then
-			fighter:SetAttribute("ObstacleAwareness", "Tactical Slide Gap-Close")
-			fighter:SetAttribute("LastSlideTime", now)
-			LocomotionModule.slide(fighter, humanoid, rootPart)
-			return ChaseState
+	-- (a tackle has to reach: the glide covers ~17 studs at a run, plus the legs' reach)
+	local tackling = CombatConfig.SlideTackle_Enabled ~= false
+	local slideMin = tackling and (CombatConfig.SlideTackle_StartMin or 8) or 18
+	local slideMax = tackling and (CombatConfig.SlideTackle_StartMax or 19) or 35
+	if canSlide and distance >= slideMin and distance <= slideMax and (data.currentSpeed or 30) >= 24 and not inShowdown then
+		if not data.slideDecided then
+			data.slideDecided = true
+			local mobilityPref = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+			local slideChance = (quirky == "Charger") and 0.6 or math.clamp(0.10 + 0.5 * mobilityPref, 0.10, 0.45)
+			if workspace:GetAttribute("SlideTackleAlways") and game:GetService("RunService"):IsStudio() then slideChance = 1 end -- (test switch)
+			data.slideWanted = math.random() < slideChance
+		end
+		-- Decided to slide in: it goes as soon as its run lines up with the target (a tackle slide
+		-- refuses a target too far off its line; the chase curves in, so that comes a moment later)
+		if data.slideWanted then
+			-- (a slide in on the target takes the legs of whoever stands in its lane: Modules/SlideTackle)
+			if require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("SlideTackle")).slide(fighter, humanoid, rootPart, target) > 0 then
+				data.slideWanted = false
+				fighter:SetAttribute("ObstacleAwareness", "Tactical Slide Gap-Close")
+				fighter:SetAttribute("LastSlideTime", now)
+				return ChaseState
+			end
 		end
 	end
 

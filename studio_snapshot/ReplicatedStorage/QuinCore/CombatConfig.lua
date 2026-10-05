@@ -478,6 +478,24 @@ CombatConfig.AirDash_WallChance = 0.55      -- ... off a wall
 CombatConfig.AirDash_Force = 40000
 CombatConfig.AirDash_MinAirLeft = 0.3       -- seconds of air it must have left after the dash flattens its jump (a hop lands before the burst is through)
 CombatConfig.AirDash_GroundProbe = 80      -- studs probed below for the ground
+-- Slide tackle (Modules/SlideTackle): the gap-close slide in Chase takes the legs of an enemy in its lane
+CombatConfig.SlideTackle_Enabled = true
+CombatConfig.SlideTackle_Reach = 4.5         -- studs ahead of the slider at which the legs are taken
+CombatConfig.SlideTackle_Width = 2.5         -- studs either side of the slide's line
+CombatConfig.SlideTackle_ClearHeight = 2.5   -- feet higher than this off the ground clear the slide
+CombatConfig.SlideTackle_DamageMultiplier = 0.8
+CombatConfig.SlideTackle_Launch = 45         -- studs/s up when swept (about 0.45 s in the air)
+CombatConfig.SlideTackle_Carry = 0.35        -- share of the slide's speed carried into the victim (max 20 studs/s)
+CombatConfig.SlideTackle_FlipDegrees = 180   -- how far a swept body turns over before it is down
+CombatConfig.SlideTackle_FlipTime = 0.4      -- seconds the turn-over takes
+CombatConfig.SlideTackle_MaxAimAngle = 40   -- a target further than this off the slider's run gets no tackle slide
+CombatConfig.SlideTackle_MaxLead = 0.8      -- seconds of the target's motion led when aiming
+CombatConfig.SlideTackle_StartMin = 8       -- studs to the target within which a chase slides in (the glide covers ~17 at a run)
+CombatConfig.SlideTackle_StartMax = 19
+CombatConfig.SlideTackle_FallSide = "Back"   -- the side it gets up from
+CombatConfig.SlideTackle_ReflexLead = 0.32   -- seconds before contact at which a Quin in the lane reacts
+CombatConfig.SlideTackle_HurdleChance = 0.35 -- x (0.5 + mobility), only facing the slide, on its feet, not striking
+CombatConfig.SlideTackle_HurdleHeight = 6    -- studs of the hop over it
 
 -- === Escape and pursuit at arena scale (RetreatTacticsModule, RetreatState, ChaseState) ===
 CombatConfig.Retreat_EscapeDistanceRatio = 0.5         -- open-ground escape run, as a fraction of the arena radius (60-220 studs)

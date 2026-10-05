@@ -1292,6 +1292,13 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 	local startSpeed = flatVel.Magnitude
 	if startSpeed < (CombatConfig.Slide_MinStartSpeed or 8.0) then return 0 end
 	local dir = flatVel.Unit
+	-- (a slide aimed at something - a tackle - turns onto it if that is within maxTurn of the run)
+	if opts and opts.aim then
+		local aim = Vector3.new(opts.aim.X, 0, opts.aim.Z)
+		if aim.Magnitude > 0.01 and aim.Unit:Dot(dir) >= math.cos(math.rad(opts.maxTurn or 40)) then
+			dir = aim.Unit
+		end
+	end
 	-- A slide is not steered once it starts, so it must not head off a raised edge
 	do
 		local glideLength = math.clamp(startSpeed * 1.1, 10, 35)
@@ -1342,7 +1349,7 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 	lv.VectorVelocity = dir * startSpeed
 	lv.Parent = rootPart
 
-	local slide = { dir = dir, lv = lv, att = att, smoke = VfxModule.createSlideSmoke(rootPart), lastMark = 0 }
+	local slide = { dir = dir, lv = lv, att = att, smoke = VfxModule.createSlideSmoke(rootPart), lastMark = 0, onGlide = opts and opts.onGlide }
 	activeSlides[fighter] = slide
 	if opts and opts.underGap then
 		slide.savedCollide = {}
@@ -1443,6 +1450,15 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 			return
 		end
 		lv.VectorVelocity = dir * speed
+
+		-- (a tackle checks its lane every glide frame: Modules/SlideTackle)
+		if slide.onGlide and t >= dropT and t < stopT then
+			local ok, err = pcall(slide.onGlide, t, speed, dir)
+			if not ok then
+				slide.onGlide = nil
+				warn("[Slide] onGlide: " .. tostring(err))
+			end
+		end
 
 		-- The glide leaves a streak on the turf
 		if t >= dropT and t < stopT and os.clock() - slide.lastMark >= 0.07 then
