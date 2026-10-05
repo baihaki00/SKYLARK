@@ -250,6 +250,7 @@ local function refresh()
 		movement = model:GetAttribute("ObstacleAwareness"),
 		swept = os.clock() < sweptUntil,
 		trespass = model:GetAttribute("Trespass"),
+		knownBy = model:GetAttribute("TargetKnownBy"),
 		lowCeiling = model:GetAttribute("LowCeiling") ~= nil,
 		action = action,
 		reasons = reasons,

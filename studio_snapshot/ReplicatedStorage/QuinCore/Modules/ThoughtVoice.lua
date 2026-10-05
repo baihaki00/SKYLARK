@@ -93,6 +93,12 @@ local PHRASES = {
 	["Target:Duel"] = { any = { "%s. Just the two of us." } },
 	["Target:State"] = { any = { "%s. Stay on him." } },
 
+	-- how it knows where its target is, when it cannot see it (Main: TargetKnownBy)
+	["Know:hearing"] = { any = { "Can't see him. I can hear him.", "He's close. I hear it." } },
+	["Know:memory"] = { any = { "Lost sight of him. He went that way.", "Where is he? Last I saw, over there." } },
+	["Know:report"] = { any = { "The others can see him. Over there." } },
+	["Know:rumour"] = { any = { "They're somewhere over there. Go look." } },
+
 	-- how it is getting about
 	["Move:WallRun"] = { any = { "Up the wall.", "Use the wall." } },
 	["Move:Tackle"] = { bold = { "Take his legs.", "Slide in. Sweep him." }, careful = { "Go low. Take his legs." } },
@@ -183,7 +189,8 @@ end
 
 -- The thought keys that hold right now.
 -- facts: { action, reasons = {keys}, posture, why, respectRole, inWay, lost,
---          state, movement (the ObstacleAwareness line), swept, trespass, lowCeiling }
+--          state, movement (the ObstacleAwareness line), swept, trespass, lowCeiling,
+--          knownBy (TargetKnownBy) }
 function ThoughtVoice.keys(facts): { string }
 	local keys = {}
 	-- its body first: what is happening to it outweighs what it had planned
@@ -198,6 +205,9 @@ function ThoughtVoice.keys(facts): { string }
 	end
 	if facts.trespass then
 		table.insert(keys, "Trespass:" .. facts.trespass)
+	end
+	if facts.knownBy and PHRASES["Know:" .. facts.knownBy] then
+		table.insert(keys, "Know:" .. facts.knownBy)
 	end
 	local move = facts.lowCeiling and "Move:Headroom" or moveKey(facts.movement)
 	if move == "Move:Around" and facts.inWay then

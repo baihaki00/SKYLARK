@@ -474,11 +474,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.lastLoSTime = now
 		data.surveyingAtLKP = nil
 		data.searchLeg = nil
-		fighter:SetAttribute("TargetHasLoS", true)
 		fighter:SetAttribute("LastSeenTargetPosition", targetHRP.Position)
 		fighter:SetAttribute("TimeLastSeen", now)
 	else
-		fighter:SetAttribute("TargetHasLoS", false)
 		local savedLKP = fighter:GetAttribute("LastSeenTargetPosition")
 		data.targetLKP = data.targetLKP or savedLKP or targetHRP.Position
 

@@ -1029,6 +1029,9 @@ function SpatialModule.checkLineOfSight(posA, posB, ignoreInstances)
 
 	params.FilterDescendantsInstances = exclude
 	params.FilterType = Enum.RaycastFilterType.Exclude
+	-- (only what is solid can hide something: the ray stopped at the first part of any kind, and
+	-- when that was an effect or foliage it answered "visible" whatever stood behind it)
+	params.RespectCanCollide = true
 
 	local hit = DebugDraw.raycast(rootPart, posA, diff, params)
 	if hit then

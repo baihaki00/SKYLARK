@@ -308,7 +308,6 @@ function TargetingModule.selectTarget(quinModel, localState)
 		assign(quinModel, bestCandidate.Name, "Select")
 		quinModel:SetAttribute("LastTargetName", bestCandidate.Name)
 		quinModel:SetAttribute("TargetReason", bestReason)
-		quinModel:SetAttribute("TargetHasLoS", bestHasLoS)
 		if bestHasLoS then
 			quinModel:SetAttribute("LastSeenTargetPosition", bestCandidate.HumanoidRootPart.Position)
 			quinModel:SetAttribute("TimeLastSeen", os.clock())

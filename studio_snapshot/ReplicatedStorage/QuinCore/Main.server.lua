@@ -42,6 +42,7 @@ local SocialSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("Soci
 local HeadroomAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("HeadroomAwareness"))
 local ArenaTrespass = require(QuinCore:WaitForChild("Modules"):WaitForChild("ArenaTrespass"))
 local EdgeAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("EdgeAwareness"))
+local Cognition = require(QuinCore:WaitForChild("Cognition"))
 
 -- States in which a Quin stands on the ground by its own choice (and so needs room to stand)
 -- States in which a Quin is not in control of itself: it does not pick a new target in them
@@ -647,6 +648,21 @@ task.spawn(function()
 						end
 					end
 					Quin:SetAttribute("CurrentTarget", selectedTarget.Name)
+				end
+
+				-- What it knows of its target right now, from its own contact record (Cognition:
+				-- senses and memory), whatever state it is in: TargetHasLoS (it sees it) and
+				-- TargetKnownBy (sight, touch, hearing, memory, report, rumour). Written here and
+				-- nowhere else. (Target selection and ChaseState each wrote TargetHasLoS, and only
+				-- on some paths: half the time a target was behind an obstacle it still said "seen".)
+				local contact = selectedTarget and Cognition.contactFor(Quin, selectedTarget)
+				local seen = contact ~= nil and contact.visible == true and contact.hasLineOfSight == true
+				local knownBy = contact and (seen and "sight" or contact.channel or "memory") or nil
+				if Quin:GetAttribute("TargetHasLoS") ~= seen then
+					Quin:SetAttribute("TargetHasLoS", seen)
+				end
+				if Quin:GetAttribute("TargetKnownBy") ~= knownBy then
+					Quin:SetAttribute("TargetKnownBy", knownBy)
 				end
 				
 				-- 2. Track distressed ally for emergent rescue
