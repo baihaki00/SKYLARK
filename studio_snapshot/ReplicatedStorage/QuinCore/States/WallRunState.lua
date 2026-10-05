@@ -16,6 +16,7 @@ local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("Qui
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
@@ -129,7 +130,6 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 	local along = math.clamp(arriving, CombatConfig.WallRun_MinEntrySpeed or 32, wallRunSpeed)
 	local data = {
 		startTime = now,
-		lastUpdate = now,
 		maxDuration = maxDuration,
 		wallRunSpeed = wallRunSpeed, -- (the lane ahead is probed at this speed)
 		along = along,
@@ -154,6 +154,17 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 	lv.Attachment0 = att
 	lv.Parent = rootPart
 	data.linearVelocity = lv
+	data.wallDistance = wallInfo and wallInfo.wallDistance
+
+	-- The arc is flown every frame: it falls at a fraction of gravity and loses speed along the
+	-- wall. (Stepped in the 10 Hz update, the climb changed speed in visible steps of 4 studs/s.)
+	-- The update only watches for the end of the run.
+	data.stepConn = RunService.Heartbeat:Connect(function(dt)
+		if wallRunData[fighter] ~= data or not data.linearVelocity then return end
+		data.rise -= Workspace.Gravity * (CombatConfig.WallRun_GravityScale or 0.15) * dt
+		data.along = math.max(data.along - (CombatConfig.WallRun_Drag or 5) * dt, 0)
+		data.linearVelocity.VectorVelocity = runVelocity(data, rootPart, data.wallDistance)
+	end)
 
 	-- Turn onto the wall's tangent with torque (assigning the CFrame yawed the body up to 75
 	-- degrees in a single frame)
@@ -198,12 +209,7 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 	-- wall-run hit its max duration on the first update.
 	local nowClock = os.clock()
 	local elapsed = nowClock - data.startTime
-	local dt = math.clamp(nowClock - data.lastUpdate, 0, 0.25)
-	data.lastUpdate = nowClock
 
-	-- The arc: it falls at a fraction of gravity and loses speed along the wall
-	data.rise -= Workspace.Gravity * (CombatConfig.WallRun_GravityScale or 0.15) * dt
-	data.along = math.max(data.along - (CombatConfig.WallRun_Drag or 5) * dt, 0)
 	-- Spent: sinking, back down where it started, or too slow to stay on the wall
 	local spent = data.rise <= -(CombatConfig.WallRun_SinkSpeed or 8)
 		or (data.rise < 0 and rootPart.Position.Y <= data.startY)
@@ -230,10 +236,15 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 			+ (data.tangent * (CombatConfig.WallKickForwardImpulse or 34))
 			+ Vector3.new(0, CombatConfig.WallKickUpwardImpulse or 18, 0)
 
+		-- The kick is one push: the mover carries it across the ground for a moment (a Humanoid
+		-- in the air brakes on its own), and gravity has the body from the first frame. (The
+		-- mover used to hold all three axes: 0.22 s on a dead-level line, then a sudden drop.)
 		local lv = data.linearVelocity
 		if lv and lv.Parent then
 			lv.VectorVelocity = kickImpulse
-			lv.MaxForce = 350000
+			lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+			lv.MaxAxesForce = Vector3.new(350000, 0, 350000)
+			rootPart.AssemblyLinearVelocity = kickImpulse
 			lv.Name = "WallKick_Velocity" -- outlives the state for the length of the kick
 			Debris:AddItem(lv, 0.22)
 		end
@@ -262,9 +273,7 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("ChaseState"))
 	end
 
-	if data.linearVelocity then
-		data.linearVelocity.VectorVelocity = runVelocity(data, rootPart, wallHit.Distance)
-	end
+	data.wallDistance = wallHit.Distance
 	if data.track and data.track.IsPlaying then
 		local speed = math.sqrt(data.along * data.along + data.rise * data.rise)
 		local rate = math.clamp(speed / (CombatConfig.Gait_RunAuthoredSpeed or 29.5), CombatConfig.WallRun_MinClipRate or 0.9, CombatConfig.WallRun_MaxClipRate or 1.9)
@@ -283,6 +292,7 @@ function WallRunState.exit(fighter, humanoid, rootPart)
 	local data = wallRunData[fighter]
 	if not data then return end
 
+	if data.stepConn then data.stepConn:Disconnect() end
 	removeMovers(rootPart)
 
 	-- Release the wall-run stride; the next state's driver resumes the ground gait

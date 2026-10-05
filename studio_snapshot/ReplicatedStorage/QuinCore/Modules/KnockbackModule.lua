@@ -205,18 +205,19 @@ function KnockbackModule.isSliding(model)
 	return ImpulseModule.isActive(model, "slide")
 end
 
--- Wall bounce detection
-function KnockbackModule.checkWallBounce(rootPart, direction, bounceDistance)
-	bounceDistance = bounceDistance or 15
-	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = {rootPart.Parent}
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	
-	local result = Workspace:Raycast(rootPart.Position, direction.Unit * bounceDistance, params)
-	if result then
-		return true, result.Position, result.Normal
-	end
-	return false
+-- A wall within `distance` along `direction`: a solid, upright surface (not another Quin, not an
+-- effect part, not a slope). Returns the hit and the wall's horizontal normal.
+local wallParams = RaycastParams.new()
+wallParams.FilterType = Enum.RaycastFilterType.Exclude
+wallParams.RespectCanCollide = true
+
+function KnockbackModule.wallAhead(rootPart, direction, distance)
+	wallParams.FilterDescendantsInstances = { rootPart.Parent, Workspace:FindFirstChild("QuinServer") }
+	local hit = Workspace:Raycast(rootPart.Position, direction * distance, wallParams)
+	if not hit or math.abs(hit.Normal.Y) > 0.5 then return nil end
+	local normal = Vector3.new(hit.Normal.X, 0, hit.Normal.Z)
+	if normal.Magnitude < 0.01 then return nil end
+	return hit, normal.Unit
 end
 
 -- Flinch: the victim gives ground without leaving its feet, sliding `studs` back and bleeding off

@@ -1380,6 +1380,8 @@ end
 -- cyan while it dissolves (direction "out": a defeated Quin) or takes shape ("in": a Quin
 -- teleported onto the field). Runs on the server; every client sees the same flicker.
 -- "in" expects the model as it should end up and returns it to that; "out" leaves it invisible.
+local HOLO_FLICKER_MIN, HOLO_FLICKER_MAX = 0.016, 0.04 -- seconds between flickers (was 0.04 - 0.09: it read as a slow blink)
+
 function VfxModule.holoGlitch(model, duration, direction)
 	if not model or not model.Parent then return end
 	duration = duration or 1.0
@@ -1395,7 +1397,7 @@ function VfxModule.holoGlitch(model, duration, direction)
 	local glow = Instance.new("Highlight")
 	glow.Name = "HoloGlitch"
 	glow.FillColor = Color3.fromRGB(0, 200, 255)
-	glow.OutlineColor = Color3.fromRGB(200, 250, 255)
+	glow.OutlineTransparency = 1 -- (no outline: the white rim read as a selection box)
 	glow.DepthMode = Enum.HighlightDepthMode.Occluded
 	glow.Adornee = model
 	glow.Parent = model
@@ -1417,9 +1419,8 @@ function VfxModule.holoGlitch(model, duration, direction)
 				end
 			end
 			glow.FillTransparency = rng:NextNumber(0.25, 0.85)
-			glow.OutlineTransparency = tear and 1 or rng:NextNumber(0, 0.5)
 			if progress >= 1 then break end
-			task.wait(rng:NextNumber(0.04, 0.09))
+			task.wait(rng:NextNumber(HOLO_FLICKER_MIN, HOLO_FLICKER_MAX))
 		end
 		glow:Destroy()
 	end)

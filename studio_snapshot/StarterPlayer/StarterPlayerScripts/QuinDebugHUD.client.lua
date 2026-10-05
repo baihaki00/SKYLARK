@@ -629,9 +629,17 @@ end
 -- ============================================================
 -- MAIN UPDATE LOOP
 -- ============================================================
+-- The cards are text for reading: each is rebuilt every CARD_STRIDE frames (a few cards a frame,
+-- in turn), and only while the HUD is open. (All of them rebuilt every frame, open or closed,
+-- cost 10.7 ms of a 24 ms frame in a 16v16.)
+local CARD_STRIDE = 10
+local frameCounter = 0
+
 RunService.Heartbeat:Connect(function()
 	local activeQuins = {}
 	local count = 0
+	frameCounter += 1
+	local cardsOpen = isHudVisible and Workspace:GetAttribute("HideSpectatorHUD") ~= true
 
 	local quins = getAllAliveQuins()
 	local curSpectated = shared.SpectatedQuin or _G.SpectatedQuin
@@ -663,9 +671,10 @@ RunService.Heartbeat:Connect(function()
 		pilotBtn.BackgroundColor3 = Color3.fromRGB(30, 140, 100)
 	end
 
-	for _, model in ipairs(quins) do
+	for index, model in ipairs(quins) do
 		activeQuins[model.Name] = true
 		count = count + 1
+		if not cardsOpen or (index + frameCounter) % CARD_STRIDE ~= 0 then continue end
 
 		local card = getOrCreateCard(model)
 		local isSpectatingThis = (model == curSpectated)

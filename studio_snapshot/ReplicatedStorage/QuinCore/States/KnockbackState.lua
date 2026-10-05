@@ -249,18 +249,28 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 		-- end
 	end
 	
-	-- Wall bounce check
-	if not data.wallChecked then
-		data.wallChecked = true
+	-- Bounce: a thrown body that is about to meet a wall (the side of an obstacle or a platform,
+	-- the arena wall) comes back off it with part of its speed. (This used to be one look 15
+	-- studs ahead on the first update: extra stun and an effect at the wall whether the body
+	-- ever reached it or not, and no bounce; what came back off obstacles was the physics
+	-- engine's own, and the arena wall gave nothing.)
+	if humanoid.PlatformStand and (data.bounces or 0) < (CombatConfig.Knockback_BounceMax or 2)
+		and not rootPart:FindFirstChild("KB_LinearVelocity") then
 		local vel = rootPart.AssemblyLinearVelocity
-		if vel.Magnitude > 10 then
-			local isWall, wallPos, wallNormal = KnockbackModule.checkWallBounce(rootPart, vel.Unit)
-			if isWall then
-				data.stunDuration = data.stunDuration + 0.5
-				AudioModule.playSlam(wallPos)
-				VfxModule.createDust(wallPos, 6)
-				VfxModule.createShockwave(wallPos, 12, 0.4)
-				if DEBUG then print("[Knockback] WALL BOUNCE! Extra stun") end
+		local flat = Vector3.new(vel.X, 0, vel.Z)
+		if flat.Magnitude >= (CombatConfig.Knockback_BounceMinSpeed or 25) then
+			-- (as far as it travels before the next update, plus its own half-width)
+			local hit, n = KnockbackModule.wallAhead(rootPart, flat.Unit, flat.Magnitude * 0.035 + 2)
+			if hit and flat:Dot(n) < 0 then
+				local off = (flat - 2 * flat:Dot(n) * n) * (CombatConfig.Knockback_BounceRestitution or 0.55)
+				rootPart.AssemblyLinearVelocity = Vector3.new(off.X, vel.Y, off.Z)
+				data.bounces = (data.bounces or 0) + 1
+				data.stunDuration = data.stunDuration + (CombatConfig.Knockback_BounceStun or 0.5)
+				fighter:SetAttribute("WallBounces", (fighter:GetAttribute("WallBounces") or 0) + 1) -- (probes)
+				AudioModule.playSlam(hit.Position)
+				VfxModule.createDust(hit.Position, 6)
+				VfxModule.createShockwave(hit.Position, 12, 0.4)
+				RuntimeTracer.checkpoint(fighter, "Bounced off " .. hit.Instance.Name)
 			end
 		end
 	end

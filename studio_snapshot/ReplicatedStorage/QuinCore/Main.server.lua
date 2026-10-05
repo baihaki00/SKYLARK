@@ -346,7 +346,11 @@ task.spawn(function()
 			spBar.BackgroundColor3 = Color3.fromRGB(80, 200, 255)
 		end
 		
-		local success, err = pcall(function()
+		-- The debug label is only built while it is shown. (Built for every Quin every 0.03 s
+		-- whether shown or not, it was two raycasts, a track list and a string sent to every
+		-- client, 33 times a second per Quin.)
+		local success, err = true, nil
+		if showLabels then success, err = pcall(function()
 			local anims = {}
 			for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
 				if track.WeightCurrent > 0.01 then
@@ -388,13 +392,14 @@ task.spawn(function()
 				Quin:GetAttribute("CurrentState") or "None", 
 				obStr,
 				speed, yVel, tostring(isGrounded), hitName, kbType, animStr)
-		end)
+		end) end
 		if not success then
 			stateGui.Text = "[ STATE: " .. (Quin:GetAttribute("CurrentState") or "None") .. " ]"
 			warn("Debug UI error:", err)
 		end
 		
-		task.wait(0.03)
+		-- (with the bars and the labels both off there is nothing to keep fresh)
+		task.wait((showBars or showLabels) and 0.03 or 0.25)
 	end
 end)
 

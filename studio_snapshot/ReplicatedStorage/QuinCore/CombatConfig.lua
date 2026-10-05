@@ -394,6 +394,18 @@ CombatConfig.Circling_MaxFacingBias = 60 -- degrees the body may turn off its ta
 
 -- Motion continuity (16v16 movement audit)
 CombatConfig.Knockback_MaxLaunchHorizontal = 110.0 -- studs/s cap on an air-knockback launch (uncapped finishers reached 220+ and threw victims out of the arena)
+-- A thrown body that meets a wall comes back off it (an obstacle's side and the arena wall alike)
+CombatConfig.Knockback_BounceMinSpeed = 25      -- studs/s across the ground it must still have
+CombatConfig.Knockback_BounceRestitution = 0.55 -- share of that speed it keeps, turned back off the wall
+CombatConfig.Knockback_BounceMax = 2            -- bounces in one knockback
+CombatConfig.Knockback_BounceStun = 0.5         -- seconds of stun each adds
+-- What a Quin's body is colored by: "Team" (TeamColors below; a Quin with no listed team keeps
+-- its element's color) or "Element"
+CombatConfig.BodyColorBy = "Team"
+CombatConfig.TeamColors = {
+	TeamAlpha = Color3.fromRGB(40, 110, 255),
+	TeamBeta = Color3.fromRGB(230, 45, 45),
+}
 CombatConfig.Knockback_MaxLaunchVertical = 75.0    -- studs/s cap on the upward part of an air-knockback launch (~14 stud apex)
 -- RunTurn90Left/Right share one clip (a 177 degree hip pivot) and ArcRun30RearLeft/Right share one
 -- clip (a single-sided lean). Played over a 60-105 degree cut they spin the body the wrong way and

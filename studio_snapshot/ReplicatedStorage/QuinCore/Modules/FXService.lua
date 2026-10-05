@@ -8,6 +8,7 @@ local TweenService = game:GetService("TweenService")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local ElementData = require(QuinCore:WaitForChild("ElementData"))
+local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 
 local FXService = {}
 
@@ -19,6 +20,9 @@ function FXService.applyElementAppearance(model, elementName)
 	if not model then return end
 	local elem = ElementData.getElement(elementName or model:GetAttribute("Element") or "Fire")
 
+	local teamColor = CombatConfig.BodyColorBy == "Team" and CombatConfig.TeamColors[model:GetAttribute("Team") or ""]
+	local bodyColor = teamColor or elem.BodyTint or elem.Color
+
 	-- 1. Remove any legacy TeamRing instances
 	local oldRing = model:FindFirstChild("TeamRing")
 	if oldRing then oldRing:Destroy() end
@@ -27,12 +31,13 @@ function FXService.applyElementAppearance(model, elementName)
 	local oldHighlight = model:FindFirstChild("ElementHighlight")
 	if oldHighlight then oldHighlight:Destroy() end
 
-	-- 3. Recolor the visible body (Alpha_Surface) to a solid element color.
+	-- 3. Recolor the visible body (Alpha_Surface) to a solid color: its team's in a team game
+	-- (CombatConfig.BodyColorBy = "Team"), otherwise its element's.
 	-- A MeshPart TextureID overrides Color, so the skin texture is cleared for the
 	-- element color to read (QuinMale carries a skin texture; QuinFemale does not).
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") and (part.Name == "Alpha_Surface" or part.Name == "Beta_Surface" or part.Name:find("Surface") or part.Name:find("Mesh") or part.Name == "Body") then
-			part.Color = elem.BodyTint or elem.Color
+			part.Color = bodyColor
 			if part:IsA("MeshPart") and part.TextureID ~= "" then
 				part.TextureID = ""
 			end
