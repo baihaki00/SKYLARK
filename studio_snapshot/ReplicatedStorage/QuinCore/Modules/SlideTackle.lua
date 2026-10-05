@@ -178,7 +178,9 @@ function SlideTackle.slide(fighter, humanoid, rootPart, target)
 					end
 					if side <= width + 1 and ahead > -1 then
 						-- its reflex as the slide closes in
-						if not rolled[enemy] and ahead / math.max(speed, 1) <= cfg("ReflexLead", 0.32) then
+						-- (time to contact from the closing speed: one running at the slide meets it sooner)
+						local closing = speed - eRoot.AssemblyLinearVelocity:Dot(dir)
+						if not rolled[enemy] and ahead / math.max(closing, 1) <= cfg("ReflexLead", 0.32) then
 							rolled[enemy] = true
 							local look = eRoot.CFrame.LookVector
 							local facing = Vector3.new(look.X, 0, look.Z).Unit:Dot(-dir) > 0.3

@@ -56,3 +56,17 @@ Studio only: Workspace `TackleOutcome` = "hurdle" | "sweep" forces the target's 
 - **By eye (owner):** the drop and the sound.
 - **The final timing:** the same-frame drop start and the preload.
 - **The planned scripted demo sequence:** not run yet.
+
+## Follow-up (same pass)
+
+**Hop reflex.** It was timed from the slider's speed alone, so a target running at the slide met it before the reflex fired. Once, a forced hurdle was swept instead. It now uses the closing speed: slider speed minus the target's velocity along the slide.
+
+**Demo sequence for the owner.** Two Quins, camera free, looping until Workspace `DemoLoop` is false: hurdle, sweep, wall run, wall run with a dash off the wall.
+
+- The owner started Play by hand: MCP `start_stop_play` was stuck, and `execute_luau` on the Server worked in that session.
+- The wall-run staging now waits for any slide to finish, zeroes the runner's velocity, and places it again right before the forced run. Leftover motion had carried it off the wall, giving "NoWall".
+
+**First two rounds of the loop:**
+- Wall runs: 4 of 4 full arcs (1.33–1.35 s). Dashed off the wall only in the "+ dash" steps.
+- Hurdles: 2 of 2.
+- Sweeps: 1 of 2. The miss was the target stepping out of the lane.
