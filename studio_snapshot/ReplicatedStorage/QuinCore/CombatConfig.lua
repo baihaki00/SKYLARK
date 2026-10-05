@@ -462,6 +462,22 @@ CombatConfig.MidAirClash_MinHeight = 12                -- ... and this high abov
 CombatConfig.Jump_DownArcPerStud = 0.12                 -- a jump down off a platform rises this many studs per stud it has to cover (3 at least)
 CombatConfig.StopRun_TopSpeedShare = 0.9                -- the stop-run clip plays only when the Quin brakes from at least this share of its top speed
 CombatConfig.Jump_MaxReach = 25.0                       -- studs of height a jump can gain (was 12); anything higher needs a projectile jump
+-- Settings the code already read but that were never listed here (each ran on a default written
+-- where it is used, so it could not be found or tuned from this file). The values are those
+-- defaults: nothing changes by listing them.
+CombatConfig.Nav_AgentRadius = 2.5              -- studs: a Quin's radius for path finding
+CombatConfig.Nav_MaxHeightOnFoot = 7            -- studs of height between two points above which it is not a walk-up
+CombatConfig.Nav_SweepHeight = 7                -- studs: the height of the body swept along a path for something in the way
+CombatConfig.Nav_OffPathDistance = 24           -- studs off its path at which the path is planned again
+CombatConfig.Nav_PathRefresh = 1.0              -- seconds between plans while it follows a path
+CombatConfig.Nav_ClearHoldTime = 0.5            -- seconds the way must stay clear before it leaves its path for a straight run
+CombatConfig.Gait_AutoDriveInterval = 0         -- seconds between automatic gait updates (0: every frame)
+CombatConfig.Gait_StartFade = 0.06              -- seconds a ground loop fades in over
+CombatConfig.Gait_WeightFade = 0.04             -- seconds a change of blend weight takes
+CombatConfig.HighGround_VantageDistance = 24    -- studs out from a perched target it waits at when it cannot get up
+CombatConfig.EnergyDrain_PointJump = 8          -- mana for a hop on to a spot (the big jump: EnergyDrain_ProjectileJump)
+CombatConfig.BeamStruggle_MaxDuration = 5.5     -- seconds a beam struggle may last
+CombatConfig.ProjectileJump_TurnLegSlope = 0.2  -- how far downhill a turn leg of a dive runs (drop per stud across)
 CombatConfig.Nav_StoneJumpMinWidth = 10                 -- studs: a stepping stone's top at least this wide is jumped on to; a smaller one gets the spot hop
 
 -- === Projectile jump flight ===
