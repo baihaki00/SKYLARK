@@ -68,10 +68,15 @@ local function hurdle(victim, humanoid, rootPart)
 	publish()
 end
 
--- The flip: the body turns over once, the way it is falling, in the air (flown frame by frame:
--- an angular velocity alone was damped to ~90 degrees). The first half under the flailing clip
--- (KnockbackState), then the fall pose for its side takes over and it comes round upright for
--- the landing (Recovery: a landing on its feet, or down and up from that side).
+-- The flip: the body turns over once, the way it is falling, in the air. The first half under
+-- the flailing clip (KnockbackState), then the fall pose for its side takes over and it comes
+-- round upright for the landing (Recovery: a landing on its feet, or down and up from that side).
+-- It is turned by a constraint whose target is stepped every frame (an angular velocity alone
+-- was damped to ~90 degrees). Not by writing the root's CFrame: a CFrame written every frame
+-- reaches the clients outside the physics stream, and when the writes stopped the body hung
+-- where it was, about 4 studs up, for ~0.17 s on every client before it came down.
+local FLIP_ALIGN, FLIP_ATT = "SweepFlip", "SweepFlipAtt"
+
 local function flip(victim, root, humanoid, axis, side, airtime)
 	local RunService = game:GetService("RunService")
 	local AnimationModule = require(Modules:WaitForChild("AnimationModule"))
@@ -80,22 +85,38 @@ local function flip(victim, root, humanoid, axis, side, airtime)
 	local flipTime = airtime * cfg("FlipShare", 0.85)
 	local t0 = os.clock()
 	local switched = false
+
+	local att = Instance.new("Attachment")
+	att.Name = FLIP_ATT
+	att.Parent = root
+	local align = Instance.new("AlignOrientation")
+	align.Name = FLIP_ALIGN
+	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	align.RigidityEnabled = true
+	align.Attachment0 = att
+	align.CFrame = start
+	align.Parent = root
+
 	local conn
+	local function finish()
+		conn:Disconnect()
+		align:Destroy()
+		att:Destroy()
+	end
 	conn = RunService.Heartbeat:Connect(function()
 		if not root.Parent or humanoid.Health <= 0 or victim:GetAttribute("CurrentState") == "Recovery" then
-			conn:Disconnect()
+			finish()
 			return
 		end
 		local p = math.min((os.clock() - t0) / flipTime, 1)
 		local eased = p * p * (3 - 2 * p)
-		root.CFrame = CFrame.new(root.Position) * CFrame.fromAxisAngle(axis, total * eased) * start
-		root.AssemblyAngularVelocity = Vector3.zero
+		align.CFrame = CFrame.fromAxisAngle(axis, total * eased) * start
 		if not switched and eased >= 0.5 then
 			switched = true
 			AnimationModule.stopConfig(humanoid, "Movement.FallAirKnockback", 0.15)
 			AnimationModule.playConfig(humanoid, side == "Front" and "Movement.FallFront" or "Movement.FallBack", 1.0, Enum.AnimationPriority.Action4, true)
 		end
-		if p >= 1 then conn:Disconnect() end
+		if p >= 1 then finish() end
 	end)
 end
 

@@ -168,6 +168,16 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 	align.Parent = rootPart
 
 	data.noWall = wallInfo == nil
+	-- Only the run plays on a wall. Whatever locomotion clip the last state left on the body (a
+	-- strafe from Circling, the gait's sideways blend) is stopped first: nothing updates it here,
+	-- so it stayed at full weight and the Quin strafed along the wall.
+	GaitModule.stop(humanoid, 0.1)
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	for _, track in ipairs(animator and animator:GetPlayingAnimationTracks() or {}) do
+		if track.Looped and track.Priority == Enum.AnimationPriority.Movement then
+			track:Stop(0.1)
+		end
+	end
 	-- the stride follows the body's real speed (along and up), not a fixed rate
 	data.track = AnimationModule.playConfig(humanoid, "Movement.Run", 1.35, Enum.AnimationPriority.Movement, true)
 	VfxModule.createDust(rootPart.Position + (normal * 0.8), 3, nil, fighter:GetAttribute("Element"))

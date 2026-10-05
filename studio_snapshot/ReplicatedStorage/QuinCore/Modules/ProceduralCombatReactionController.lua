@@ -227,12 +227,23 @@ end
 -- root's vertical axis. All or nothing at 50% weight: a half-applied 180 degree turn would twist.
 -- `ground`: a clip that lies down without lowering its hips is lowered until its lowest point
 -- rests on the floor (eased, so it comes and goes with the clip).
+-- `settle`: a fall pose, flown at hip height, is let down the same way over the last studs of
+-- the fall, unless the Quin is going to land on its feet.
+-- Either way the body is never lowered further than its lowest point is above the floor.
 local GROUND_BONES = { "Hips", "Spine2", "Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot", "LeftToeBase", "RightToeBase" }
 
-function ProceduralCombatReactionController:applyGroundCorrection(grounding, dt)
+-- Mirrors RecoveryState: fallen on its front and not knocked flat, it lands on its feet
+local function landsOnItsFeet(model)
+	return model ~= nil and model:GetAttribute("FallSide") == "Front"
+		and model:GetAttribute("KnockbackType") ~= "hard_ground" and model:GetAttribute("KnockdownHeavy") ~= true
+end
+
+-- mode: "ground" | "settle" | nil
+function ProceduralCombatReactionController:applyGroundCorrection(mode, dt)
 	local hips = self.hipsBone
 	local target = 0
-	if grounding then
+	local room = 0 -- how far the lowest point of the body is above the floor
+	if mode or (self.groundDrop or 0) > 0.01 then
 		if not self.groundBones then
 			self.groundBones = {}
 			for _, name in ipairs(GROUND_BONES) do
@@ -247,11 +258,21 @@ function ProceduralCombatReactionController:applyGroundCorrection(grounding, dt)
 		-- (the floor is looked for: a body that is down does not hold its root at standing height,
 		-- and measured from the root it was lowered a stud into the ground)
 		local root = self.ghostRootPart or self.rootPart
-		local hit = Workspace:Raycast(root.Position, Vector3.new(0, -(self.standHeight + 6), 0), self.ikRayParams)
-		local floorY = hit and hit.Position.Y or (root.Position.Y - self.standHeight)
-		target = math.max(0, lowest - (floorY + (CombatConfig.ClipCorrections_GroundPad or 0.45)))
+		local settleHeight = CombatConfig.ClipCorrections_SettleHeight or 6
+		local hit = Workspace:Raycast(root.Position, Vector3.new(0, -(self.standHeight + settleHeight + 1), 0), self.ikRayParams)
+		local floorY = hit and hit.Position.Y or (mode == "ground" and root.Position.Y - self.standHeight) or nil
+		if floorY then
+			room = math.max(0, lowest - (floorY + (CombatConfig.ClipCorrections_GroundPad or 0.45)))
+			if mode == "ground" then
+				target = room
+			elseif mode == "settle" and not landsOnItsFeet(self.aiModel) then
+				local stillToFall = root.Position.Y - floorY - self.standHeight
+				target = room * math.clamp(1 - stillToFall / settleHeight, 0, 1)
+			end
+		end
 	end
 	self.groundDrop = (self.groundDrop or 0) + (target - (self.groundDrop or 0)) * (1 - math.exp(-18 * dt))
+	self.groundDrop = math.min(self.groundDrop, room)
 	if self.groundDrop > 0.01 then
 		local parent = hips.Parent
 		local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame
@@ -274,7 +295,7 @@ function ProceduralCombatReactionController:applyClipCorrections(dt)
 	end
 	self.activeClipCorrection = correction
 	if not correction then
-		self:applyGroundCorrection(false, dt)
+		self:applyGroundCorrection(nil, dt)
 		return
 	end
 
@@ -292,7 +313,7 @@ function ProceduralCombatReactionController:applyClipCorrections(dt)
 		local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame
 		hips.Transform = (parentW * hips.CFrame):Inverse() * turned
 	end
-	self:applyGroundCorrection(correction.ground == true, dt)
+	self:applyGroundCorrection((correction.ground and "ground") or (correction.settle and "settle") or nil, dt)
 end
 
 -- Trigger a directional hit recoil impulse

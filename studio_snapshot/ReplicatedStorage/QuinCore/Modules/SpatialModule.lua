@@ -202,8 +202,11 @@ end
 -- Check if rootPart is grounded
 function SpatialModule.isGrounded(rootPart)
 	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = {rootPart.Parent}
+	-- Only solid ground counts. Another Quin under it did (a swept Quin coming down over the
+	-- slider that took its legs), and so did effect parts (dust, shockwaves).
+	params.FilterDescendantsInstances = {rootPart.Parent, workspace:FindFirstChild("QuinServer")}
 	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.RespectCanCollide = true
 	
 	local humanoid = rootPart.Parent:FindFirstChildOfClass("Humanoid")
 	local hipHeight = humanoid and humanoid.HipHeight or 0

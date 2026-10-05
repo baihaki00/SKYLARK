@@ -704,7 +704,12 @@ CombatConfig.ClipCorrections = {
 	["105219213466134"] = { yaw = 180 },                         -- PJ JUMP STYLE LANDING
 	-- FallFront drops its hips 7 studs to the floor inside the clip (it was a fall from standing):
 	-- flown as a pose in the air, like FallBack, which keeps its hips where they are
-	["80583167665730"] = { translationScale = 0 },                -- FALL, FACE TO THE GROUND
+	-- `settle`: a fall pose is flown at hip height; over the last ClipCorrections_SettleHeight
+	-- studs of the fall it is let down, so the body is on the floor when the root touches down
+	-- (it used to hang about 4 studs up until the get-up took over). Not when it will land on
+	-- its feet.
+	["80583167665730"] = { translationScale = 0, settle = true }, -- FALL, FACE TO THE GROUND
+	["88441309301154"] = { settle = true },                       -- FALL, BACK TO THE GROUND
 	-- These lie down without lowering their hips (the hips stay at standing height all through,
 	-- so the body would lie 4 studs up in the air): `ground` lowers the body until its lowest
 	-- point rests on the floor. Does nothing once a clip carries its own hips travel.
@@ -712,6 +717,7 @@ CombatConfig.ClipCorrections = {
 	["82896239168564"] = { ground = true },                       -- GET UP FROM THE FRONT (FAST)
 	["90997656474712"] = { ground = true },                       -- GET UP FROM THE FRONT (SLOW)
 }
+CombatConfig.ClipCorrections_SettleHeight = 6 -- studs above standing height from which a fall pose is let down to the floor
 CombatConfig.ClipCorrections_GroundPad = 0.45 -- studs the lowest bone is kept above the floor by `ground` (half a limb's thickness)
 CombatConfig.Recovery_SlowGetUpHealth = 0.35  -- health ratio under which a Quin knocked flat gets up slowly
 

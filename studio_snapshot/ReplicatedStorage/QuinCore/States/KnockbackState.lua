@@ -160,6 +160,10 @@ function KnockbackState.exit(fighter, humanoid, rootPart)
 	-- No more GetUp stop here, handled by RecoveryState
 end
 
+-- Touchdown has to be caught as it happens: at the usual 0.1 s tick a body that had landed stayed
+-- in its airborne pose for up to a tenth of a second before the landing or get-up began.
+KnockbackState.tickInterval = 0.03
+
 local DEBUG_KB = true
 function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 	local showdownRole = fighter:GetAttribute("RespectRole")

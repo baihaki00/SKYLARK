@@ -773,6 +773,7 @@ task.spawn(function()
 		end
 
 		local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-		task.wait(math.clamp(0.1 / speedMult, 0.015, 0.1))
+		-- (a state whose end has to be caught on time asks for a shorter tick: tickInterval)
+		task.wait(math.clamp((currentState.tickInterval or 0.1) / speedMult, 0.015, 0.1))
 	end
 end)
