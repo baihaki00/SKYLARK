@@ -223,8 +223,30 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 	-- A corner or obstacle in the lane ends the run before the body hits it
 	local laneBlocked = DebugDraw.raycast(rootPart, rootPart.Position, data.tangent * (data.wallRunSpeed * 0.15), checkParams) ~= nil
 
-	local target, dist = TargetingModule.getNearest(rootPart, 18)
+	-- (a read-only look: getNearest assigns targets and cleared this Quin's own whenever nobody
+	-- was within 18 studs, so every wall run lost its target on its first tick)
+	local nearest = TargetingModule.getEnemiesInRange(rootPart, 18)[1]
+	local target, dist = nearest and nearest.model, nearest and nearest.distance
 	local interceptTarget = target ~= nil and dist ~= nil and dist <= 14.0 and elapsed >= MIN_COMMIT_TIME
+
+	-- At the top of the arc, high on the wall: it may leave the wall with a dash at its target
+	-- (once per run; Modules/AirDash)
+	if not data.dashChecked and not wallLost and elapsed >= MIN_COMMIT_TIME and data.rise <= 0
+		and rootPart.Position.Y - data.startY >= (CombatConfig.AirDash_WallMinHeight or 4) then
+		data.dashChecked = true
+		local committed = TargetingModule.getCommittedTarget(fighter, rootPart, CombatConfig.AirDash_WallRange or 45)
+		local dashed = committed and require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).fromWall(fighter, humanoid, rootPart, committed, data.normal, function()
+			if data.stepConn then data.stepConn:Disconnect() end
+			data.linearVelocity = nil
+			removeMovers(rootPart)
+		end)
+		if dashed then
+			RuntimeTracer.checkpoint(fighter, string.format("Wall Dash (%.2fs)", elapsed))
+			fighter:SetAttribute("WallKickReason", string.format("WallDash %.2fs", elapsed))
+			VfxModule.createShockwave(rootPart.Position + data.normal * 0.5, 6, 0.3, fighter:GetAttribute("Element"))
+			return require(script.Parent:WaitForChild("ChaseState"))
+		end
+	end
 
 	if elapsed >= data.maxDuration or wallLost or laneBlocked or interceptTarget or spent then
 		local reason = (wallLost and "WallEnd") or (laneBlocked and "LaneBlocked") or (interceptTarget and "TargetIntercept") or (spent and "ArcSpent") or "Duration"

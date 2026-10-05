@@ -48,7 +48,7 @@ local Cognition = require(QuinCore:WaitForChild("Cognition"))
 -- States in which a Quin is not in control of itself: it does not pick a new target in them
 -- (measured: 22 % of all target changes happened knocked down or in mid-jump, where it cannot act
 -- on the choice and comes out of it turned to someone else)
-local NO_RETARGET_STATES = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, Airborne = true }
+local NO_RETARGET_STATES = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, Airborne = true, WallRun = true }
 local STANDING_STATES = { Idle = true, Fight = true, Circling = true, Chase = true, Retreat = true, Overwatch = true }
 SocialSystem.start() -- the social layer (pack leaders, respect customs, arena events)
 

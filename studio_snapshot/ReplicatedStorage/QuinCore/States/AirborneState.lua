@@ -95,7 +95,10 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	
 	-- Find target
-	local target, distance = TargetingModule.getNearest(rootPart, 30)
+	-- (a read-only look: getNearest assigns targets and cleared this Quin's own in mid-air whenever
+	-- nobody was within 30 studs)
+	local nearest = TargetingModule.getEnemiesInRange(rootPart, 30)[1]
+	local target, distance = nearest and nearest.model, nearest and nearest.distance
 	if not TargetingModule.isValid(target) then
 		return AirborneState
 	end

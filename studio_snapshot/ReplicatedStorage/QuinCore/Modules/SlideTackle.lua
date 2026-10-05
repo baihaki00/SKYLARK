@@ -219,7 +219,7 @@ function SlideTackle.slide(fighter, humanoid, rootPart, target)
 							-- (Studio demo switch: Workspace TackleOutcome = "hurdle" | "sweep" decides the reflex)
 							local forced = isStudio and Workspace:GetAttribute("TackleOutcome")
 							if forced == "hurdle" then roll = true elseif forced == "sweep" then roll = false end
-							if (facing or forced == "hurdle") and not busy and feetClearance(enemy, eRoot, eHum) < 1.5 and roll then
+							if (forced == "hurdle" or (facing and not busy)) and feetClearance(enemy, eRoot, eHum) < 1.5 and roll then
 								hurdle(enemy, eHum, eRoot)
 							end
 						end

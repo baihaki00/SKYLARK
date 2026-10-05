@@ -506,6 +506,8 @@ CombatConfig.AirDash_MaxDrop = 30           -- ... or more than this below
 CombatConfig.AirDash_MaxDropSpeed = 45      -- studs/s down at most toward a target below
 CombatConfig.AirDash_Chance = 0.3           -- base chance per airtime, x (0.5 + dash preference) x (0.5 + aggression)
 CombatConfig.AirDash_WallChance = 0.55      -- ... off a wall
+CombatConfig.AirDash_WallMinHeight = 4      -- studs above where the wall run started: at the top of the arc, this high, it may leave the wall with a dash
+CombatConfig.AirDash_WallMinOut = -0.1      -- the target's direction against the wall's normal: below this it is behind the wall
 CombatConfig.AirDash_Force = 40000
 CombatConfig.AirDash_MinAirLeft = 0.3       -- seconds of air it must have left after the dash flattens its jump (a hop lands before the burst is through)
 CombatConfig.AirDash_GroundProbe = 80      -- studs probed below for the ground
@@ -516,7 +518,7 @@ CombatConfig.AirDash_ConeTime = 0.4        -- seconds of vapour cone (the ground
 -- Slide tackle (Modules/SlideTackle): the gap-close slide in Chase takes the legs of an enemy in its lane
 CombatConfig.SlideTackle_Enabled = true
 CombatConfig.SlideTackle_Reach = 4.5         -- studs ahead of the slider at which the legs are taken
-CombatConfig.SlideTackle_Width = 2.5         -- studs either side of the slide's line
+CombatConfig.SlideTackle_Width = 3.0         -- studs either side of the slide's line (2.5 missed a target 2.6 out: the slider's legs reach that far)
 CombatConfig.SlideTackle_ClearHeight = 2.5   -- feet higher than this off the ground clear the slide
 CombatConfig.SlideTackle_DamageMultiplier = 0.8
 CombatConfig.SlideTackle_Launch = 55         -- studs/s up when swept (about half a second in the air)

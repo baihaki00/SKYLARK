@@ -196,6 +196,42 @@ function AirDash.consider(fighter, humanoid, rootPart, target)
 	return perform(fighter, humanoid, rootPart, targetRoot.Position, cfg("MaxTravel", 40), nil, "chase")
 end
 
+-- Off the wall itself, at the top of a wall run (WallRunState asks once per run): the target is in
+-- dash reach and not behind the wall. release() is called before the dash so the run's movers let
+-- go of the body. True when it dashed. (The kick at the end of a full arc comes from about floor
+-- height, with no air left for a dash.)
+function AirDash.fromWall(fighter, humanoid, rootPart, target, normal, release)
+	if CombatConfig.AirDash_Enabled == false then return false end
+	if tick() - (fighter:GetAttribute("LastDashTime") or 0) < cfg("Cooldown", 5) then return skip(fighter, "cooldown") end
+	if (fighter:GetAttribute("Energy") or 100) < cfg("MinEnergy", 20) then return skip(fighter, "energy") end
+	local targetRoot = target and target.Parent and target:FindFirstChild("HumanoidRootPart")
+	if not targetRoot then return false end
+	local toTarget = targetRoot.Position - rootPart.Position
+	local d = flat(toTarget).Magnitude
+	if d < cfg("MinRange", 8) or d > cfg("WallRange", 45) or toTarget.Y < -cfg("MaxDrop", 30) or toTarget.Y > cfg("MaxRise", 8) then
+		return skip(fighter, string.format("wall: out of reach %.0f/%.0f", d, toTarget.Y))
+	end
+	if flat(toTarget).Unit:Dot(normal) < cfg("WallMinOut", -0.1) then return skip(fighter, "wall: target behind the wall") end
+	if not SpatialModule.checkLineOfSight(SpatialModule.getEyePosition(rootPart), SpatialModule.getEyePosition(targetRoot), { fighter, target }) then
+		return skip(fighter, "wall: no sight")
+	end
+	local dashPref = fighter:GetAttribute("Pers_DashPreference") or 0.6
+	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
+	local base = cfg("WallChance", 0.55)
+	if isStudio and Workspace:GetAttribute("AirDashAlways") then base = 10 end -- (test switch)
+	if math.random() >= base * (0.5 + dashPref) * (0.5 + aggression) then
+		stats.declined += 1
+		publish()
+		return skip(fighter, "wall: declined")
+	end
+	release()
+	air[fighter] = { since = os.clock(), used = true, wall = true }
+	local travel = math.clamp(d - (CombatConfig.CombatRange or 8) * 0.9, 6, cfg("MaxTravel", 40))
+	local vertical = toTarget.Y < -4 and math.max(toTarget.Y / (cfg("Duration", 0.26) * 2), -cfg("MaxDropSpeed", 45)) or nil
+	fighter:SetAttribute("ObstacleAwareness", "Dash off the wall at the target")
+	return perform(fighter, humanoid, rootPart, targetRoot.Position, travel, vertical, "attack")
+end
+
 -- Studio test hook: Workspace attribute AirDashDevCommand = "reset" (clears the stats)
 if game:GetService("RunService"):IsStudio() and game:GetService("RunService"):IsServer() then
 	Workspace:GetAttributeChangedSignal("AirDashDevCommand"):Connect(function()
