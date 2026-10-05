@@ -453,7 +453,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	elseif data.airSpeedCap and os.clock() < (data.airCapUntil or 0) then
 		-- In the air nothing pushes the body forward: the run could not speed it up past its
 		-- launch (it carried a shortened jump on at 40 studs/s and into the next obstacle)
-		targetSpeed = math.min(targetSpeed, data.airSpeedCap)
+		targetSpeed = data.airSpeedHold and data.airSpeedCap or math.min(targetSpeed, data.airSpeedCap)
 	end
 
 	-- 1. Smoothly accelerate / decelerate to target speed. AI Quins hand the goal to the
@@ -802,7 +802,10 @@ local function runSkidOver(fighter, humanoid, rootPart, speed, rise, direction)
 	return true
 end
 
-function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpulse, jumpType)
+-- flightTime (optional): a jump aimed at a landing spot (a jump down off a platform) gives the
+-- whole time it will be in the air; it then keeps its launch speed across the ground until it is
+-- down, as a body in the air does.
+function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpulse, jumpType, flightTime)
 	-- Universal argument normalization: support both (fighter, humanoid, rootPart, ...)
 	-- and legacy (humanoid, rootPart, height, forwardImpulse, jumpType) callers
 	if fighter and fighter:IsA("Humanoid") then
@@ -1033,7 +1036,13 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
     end
     rootPart.AssemblyLinearVelocity = plannedHorizontal + Vector3.new(0, upImpulse, 0)
     data.airSpeedCap = math.max(plannedHorizontal.Magnitude, 2)
-    data.airCapUntil = os.clock() + 2 * upImpulse / gravity + 0.15
+    data.airCapUntil = os.clock() + (flightTime or 2 * upImpulse / gravity) + 0.15
+    -- (The chase's own pace took over as soon as the body was in the air: braking for its
+    -- target, it slowed a jump down to half its speed and landed it 40 % short.)
+    data.airSpeedHold = flightTime ~= nil
+    if data.airSpeedHold then
+        humanoid.WalkSpeed = data.airSpeedCap
+    end
 
     -- Debug: the arc this jump was launched on, until it comes back down to launch height
     if DebugDraw.isActive("Jump", fighter) then
@@ -1104,6 +1113,8 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 
 		if align and align.Parent then align:Destroy() end
 		if att and att.Parent then att:Destroy() end
+		-- (down: the pace is the state's again)
+		data.airSpeedHold = false
 
 		AnimationModule.stopConfig(humanoid, jumpAnim, 0.15)
 		AnimationModule.stopConfig(humanoid, "Movement.Fall")

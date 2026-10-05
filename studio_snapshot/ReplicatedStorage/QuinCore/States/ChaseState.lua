@@ -1177,26 +1177,35 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				fighter:SetAttribute("ObstacleAwareness", "Walking off the ledge")
 			end
 
-			-- The leap has to carry past the ledge. It used to be taken whenever the target was
-			-- within 28 studs, however far the ledge was: from the middle of a wide top a 2-stud
-			-- hop of 8-15 studs came down on the same top, played its landing, and was taken
-			-- again (several hops and landings before the Quin finally left).
-			local leapHeight = 2.0
-			local forwardSpeed = math.clamp(flatDist * 1.3, 28.0, 52.0)
-			local leapReach = forwardSpeed * 2 * math.sqrt(2 * leapHeight / workspace.Gravity)
+			-- The jump down is sized for where it wants to come down: in striking distance of its
+			-- target, from wherever on the top it stands (a hop for a near target, a full arc
+			-- for a far one), and always past the ledge. (It used to be one 2-stud hop of 8-14
+			-- studs, taken only from close to the ledge: it walked to the rim first, and landed
+			-- at the foot of the platform whatever the distance to its target. Before that it
+			-- was taken from anywhere and came down on the same top, several times over.)
+			local landAt = math.max(flatDist - (CombatConfig.CombatRange or 8) * 0.9, 6)
+			local leap = TraversalModule.solveJumpDown(rootPart.Position.Y - targetHRP.Position.Y, landAt, ledgeDist,
+				CombatConfig.HighGround_DiveLedgeMargin or 2.5)
+			local toTarget = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z)
+			local facingTarget = toTarget.Magnitude > 0.1 and lookVec:Dot(toTarget.Unit) > 0.85
 			local canDive = (CombatConfig.HighGround_DiveDropEnabled ~= false)
 				and not humanoid.Jump
 				and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
-				and ledgeDist + (CombatConfig.HighGround_DiveLedgeMargin or 2.5) <= leapReach
-				and isFacingTarget
+				and leap ~= nil
+				and isFacingTarget and facingTarget
 				and not casual
 
 			if canDive then
 				fighter:SetAttribute("ObstacleAwareness", "Ledge Dive Down")
 				data.isDismountFalling = true
 				data.wasOnPlatform = false
-				LocomotionModule.jump(fighter, humanoid, rootPart, leapHeight, forwardSpeed, "leap_down")
+				LocomotionModule.jump(fighter, humanoid, rootPart, leap.height, leap.speed, "leap_down", leap.flightTime)
 				return ChaseState
+			end
+			-- (debug HUD, probes: why it has not jumped yet)
+			local skip = casual and "casual" or (not leap and "ledge too far for the arc") or (not (isFacingTarget and facingTarget) and "not facing") or "in the air"
+			if fighter:GetAttribute("DiveSkip") ~= skip then
+				fighter:SetAttribute("DiveSkip", skip)
 			end
 		end
 	end

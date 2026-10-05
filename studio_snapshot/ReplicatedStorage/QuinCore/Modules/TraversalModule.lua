@@ -335,6 +335,29 @@ function TraversalModule.solveJumpOnto(rise, edgeDistance, maxReach, landingDept
     return { height = apex, speed = speed }
 end
 
+-- A jump down off a height, to land `distance` away across the ground and `drop` studs lower.
+-- The arc is as big as the distance asks: a hop for a near spot, a full arc for a far one. A
+-- spot beyond a jump's speed gets the longest jump that way (it lands short and runs on).
+-- Returns { height, speed, flightTime }, or nil when that arc would come down before the ledge
+-- (`ledgeDistance` ahead of the jumper, plus `margin`): then it has to get nearer the ledge
+-- first. (A first version raised the arc until it cleared the ledge: a near target with the
+-- ledge far off got a 15-stud jump straight up that came down where it started.)
+local MAX_JUMP_SPEED = 58 -- studs/s across the ground (the same limit solveJumpOnto works to)
+local MIN_JUMP_SPEED = 14
+
+function TraversalModule.solveJumpDown(drop, distance, ledgeDistance, margin)
+    local gravity = Workspace.Gravity
+    local apex = math.clamp(distance * (CombatConfig.Jump_DownArcPerStud or 0.12), 3, TraversalModule.Config.MaxTraversalHeight)
+    local riseTime = math.sqrt(2 * apex / gravity)
+    local flightTime = riseTime + math.sqrt(2 * (apex + math.max(drop, 0)) / gravity)
+    local speed = math.clamp(distance / flightTime, MIN_JUMP_SPEED, MAX_JUMP_SPEED)
+    -- (back down at the height it left from, it has to be past the ledge)
+    if speed * 2 * riseTime < ledgeDistance + (margin or 2.5) then
+        return nil
+    end
+    return { height = apex, speed = speed, flightTime = flightTime }
+end
+
 function TraversalModule.markTraversal(fighter, plan)
     if not fighter or not plan then return end
     fighter:SetAttribute("TraversalType", plan.type)

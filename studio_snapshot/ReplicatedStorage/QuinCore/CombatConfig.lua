@@ -459,6 +459,7 @@ CombatConfig.ProjectileJump_Cooldown = 14.0            -- seconds between a Quin
 CombatConfig.Combat_MeetJumpChance = 0.5                -- times aggression: chance a Quin answers an incoming projectile jump with its own
 CombatConfig.MidAirClash_TriggerDistance = 40          -- studs between two jumpers at which they clash in the air
 CombatConfig.MidAirClash_MinHeight = 12                -- ... and this high above the floor at least
+CombatConfig.Jump_DownArcPerStud = 0.12                 -- a jump down off a platform rises this many studs per stud it has to cover (3 at least)
 CombatConfig.StopRun_TopSpeedShare = 0.9                -- the stop-run clip plays only when the Quin brakes from at least this share of its top speed
 CombatConfig.Jump_MaxReach = 25.0                       -- studs of height a jump can gain (was 12); anything higher needs a projectile jump
 CombatConfig.Nav_StoneJumpMinWidth = 10                 -- studs: a stepping stone's top at least this wide is jumped on to; a smaller one gets the spot hop
