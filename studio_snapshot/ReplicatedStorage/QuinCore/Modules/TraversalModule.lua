@@ -4,6 +4,7 @@
 
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local Workspace = game:GetService("Workspace")
+local CombatConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 
 local TraversalModule = {}
 
@@ -13,7 +14,7 @@ TraversalModule.Config = {
     StepHeight = 2.2,
     HopHeight = 5.5,
     VaultHeight = 6.8,
-    MaxTraversalHeight = 14,
+    MaxTraversalHeight = (CombatConfig.Jump_MaxReach or 25) + 2, -- apex of the highest jump: what it can gain, plus clearance
     MaxGap = 30,
     LandingMargin = 2.5,
     MinLandingNormalY = 0.55,

@@ -33,16 +33,14 @@ local AudioIds = {
 		"rbxassetid://133592422008028", -- JUMP_UP_HIGH_MID_AIR
 		"rbxassetid://133966294953268"  -- JUMP_UP_HIGH_MID_AIR2
 	},
-	HitChargeup = "rbxassetid://99418155852897",
+	Chargeup = "rbxassetid://99418155852897", -- QUIN_CHARGEUP
 	MidairSwoosh = "rbxassetid://120299431620517",
 	SonicBoom = {
 		"rbxassetid://79960135069211",  -- MIDAIR_OVERHEAD_SONICBOOM
 		"rbxassetid://128073196468988" -- MIDAIR_OVERHEAD_SONICBOOM2
 	},
-	FallOnGround = {
-		"rbxassetid://127998881677599", -- FALL_ON_THE_GROUND
-		"rbxassetid://128160597080272"  -- FALL_ON_THE_GROUND2
-	},
+	FallHard = "rbxassetid://91509667902712",  -- QUIN_FALLHARD
+	FallSoft = "rbxassetid://118003670408309", -- QUIN_FALLSOFT
 	FallOnGroundMidAir = {
 		"rbxassetid://128160597080272"  -- FALL_ON_THE_GROUND2
 	}
@@ -181,8 +179,9 @@ function AudioModule.playJumpUp(position)
 	playSoundAt(AudioIds.JumpUp, position, 0.1, math.random(90, 110)/100, 5)
 end
 
+-- The charge before a projectile jump
 function AudioModule.playChargeup(position)
-	playSoundAt(AudioIds.HitChargeup, position, 0.5, 1, 10)
+	playSoundAt(AudioIds.Chargeup, position, 0.35, 1, 5)
 end
 
 function AudioModule.playMidairSwoosh(position)
@@ -193,8 +192,14 @@ function AudioModule.playSonicBoom(position)
 	playSoundAt(AudioIds.SonicBoom, position, 0.7, math.random(90, 110)/100, 20)
 end
 
-function AudioModule.playFallOnGround(position)
-	playSoundAt(AudioIds.FallOnGround, position, 0.01, math.random(70, 100)/100, 15)
+-- A body meeting the ground: hard by default (a slam, a knockdown, a long drop); `soft` for
+-- the light ones (a short hop, the unhurried landing)
+function AudioModule.playFallOnGround(position, soft)
+	if soft then
+		playSoundAt(AudioIds.FallSoft, position, 0.3, math.random(92, 108)/100, 0)
+	else
+		playSoundAt(AudioIds.FallHard, position, 0.4, math.random(92, 108)/100, 3)
+	end
 end
 
 function AudioModule.playFallOnGroundAfterMidAir(position)

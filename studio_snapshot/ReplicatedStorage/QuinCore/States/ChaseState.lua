@@ -327,14 +327,36 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- onto small tops carried their speed straight off the far side, so these are spot jumps.
 	-- (a smaller climb too when it cannot simply walk up: the last 7 studs from one high stone to
 	-- the target's ran it straight off the stone)
-	local stoneClimb = verticalGap >= (CombatConfig.Nav_StoneMinClimb or 8)
-		or (verticalGap >= 2 and not NavigationModule.isReachable(rootPart, targetHRP))
+	-- A top within a jump's reach is jumped on to (the run-up and jump further down); the
+	-- stones are for what is higher, or when that jump has not come off for
+	-- HighGround_ClimbPatience seconds. (The stones came first for any climb of 8 studs or more,
+	-- so the jump was never taken for those: 67 spot hops to 4 jumps up in a 96 s match.)
+	local jumpable = targetPerched and verticalGap >= (CombatConfig.HighGround_InterceptJumpMinReach or 8.0)
+		and verticalGap <= (CombatConfig.Jump_MaxReach or 25.0)
+	data.jumpClimbSince = jumpable and (data.jumpClimbSince or tick()) or nil
+	local jumpFirst = jumpable and tick() - data.jumpClimbSince < (CombatConfig.HighGround_ClimbPatience or 5)
+	local stoneClimb = not jumpFirst and (verticalGap >= (CombatConfig.Nav_StoneMinClimb or 8)
+		or (verticalGap >= 2 and not NavigationModule.isReachable(rootPart, targetHRP)))
 	if not inShowdown and stoneClimb and LocomotionModule.isOnGround(rootPart, humanoid) and not LocomotionModule.isSliding(fighter) then
 		local stone = NavigationModule.nextStone(fighter, rootPart, targetHRP, 2)
 		if stone then
 			fighter:SetAttribute("ObstacleAwareness", string.format("Stepping stone: %.0f up, %.0f across", stone.rise, stone.hop))
 			if tick() - (fighter:GetAttribute("LastStoneHopTime") or 0) >= 0.6 then
 				fighter:SetAttribute("LastStoneHopTime", tick())
+				-- A stone it is facing, within a jump's reach and range, and wide enough to land
+				-- a running jump on, is simply jumped on to; the spot hop (a projectile arc) is
+				-- for the rest: too high, too far, a small top, or not lined up.
+				local toStone = Vector3.new(stone.point.X - rootPart.Position.X, 0, stone.point.Z - rootPart.Position.Z)
+				local wideTop = math.min(stone.part.Size.X, stone.part.Size.Z) >= (CombatConfig.Nav_StoneJumpMinWidth or 10)
+				local lined = toStone.Magnitude > 0.1 and rootPart.CFrame.LookVector:Dot(toStone.Unit) > 0.85
+				local jumpTo = wideTop and lined
+					and TraversalModule.solveJumpOnto(stone.rise, math.max(stone.hop - 3, 1), CombatConfig.Jump_MaxReach or 25.0, 3)
+				if jumpTo and LocomotionModule.jump(fighter, humanoid, rootPart, jumpTo.height, jumpTo.speed, "jump") then
+					fighter:SetAttribute("ObstacleAwareness", string.format("Jump to a stone: %.0f up, %.0f across", stone.rise, stone.hop))
+					fighter:SetAttribute("StoneJumps", (fighter:GetAttribute("StoneJumps") or 0) + 1) -- (probes)
+					require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).noteJump(fighter, stone.point)
+					return ChaseState
+				end
 				fighter:SetAttribute("LastProjectileJumpTime", tick())
 				local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
 				ProjectileJumpState.aimAtPoint(fighter, stone.point)
@@ -350,7 +372,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local climbEnergyCost = CombatConfig.HighGround_InterceptJumpEnergyCost or 20
 
 		local canLeave = not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
-		if verticalGap <= (CombatConfig.Jump_MaxReach or 12.0) then
+		if verticalGap <= (CombatConfig.Jump_MaxReach or 25.0) then
 			-- Within a jump's reach. The jump is solved for the platform's edge: it needs a
 			-- run-up (too close and the feet hit the lip, too far and they fall short), so the
 			-- Quin backs off or closes in until the jump works, then takes it.
@@ -358,7 +380,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			local edge = platform and PlatformCatalogue.nearestTopPoint(platform, rootPart.Position, 0) or targetHRP.Position
 			local toEdge = Vector3.new(edge.X - rootPart.Position.X, 0, edge.Z - rootPart.Position.Z)
 			local depth = platform and PlatformCatalogue.landingDepth(platform, edge, rootPart.Position) or nil
-			local solution, problem = TraversalModule.solveJumpOnto(verticalGap, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 12.0, depth)
+			local solution, problem = TraversalModule.solveJumpOnto(verticalGap, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 25.0, depth)
 			if problem == "TooClose" and toEdge.Magnitude > 0.1 then
 				fighter:SetAttribute("ObstacleAwareness", "Backing off for a run-up")
 				LocomotionModule.steer(fighter, humanoid, rootPart, rootPart.Position - toEdge.Unit * 14, 24.0, 0.05)
@@ -375,6 +397,16 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 					fighter:SetAttribute("Energy", energy - climbEnergyCost)
 					return ChaseState
 				end
+			end
+			-- A jump that works from here but is not lined up yet (it has just backed off, or
+			-- the last jump was a moment ago): it runs at the edge, and goes when it is. (It
+			-- fell through to the vantage rule below, which walked it away from the platform:
+			-- 21 run-ups and no jump in a 97 s match.)
+			if solution and jumpFirst and energy >= climbEnergyCost and canLeave then
+				fighter:SetAttribute("ObstacleAwareness", "Run-up for a jump")
+				LocomotionModule.steer(fighter, humanoid, rootPart, edge, math.max(solution.speed, 24.0), 0.05)
+				GaitModule.update(humanoid, rootPart, 0.1)
+				return ChaseState
 			end
 		elseif canLeave then
 			-- Higher than any jump: the projectile jump is the way up to a target on a platform
@@ -399,8 +431,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		-- 8 right), so turning towards it moved it: Quins under a perched target ran in circles
 		-- on the spot. Out there it watches, creeping in, until a way up opens.
 		local vantage = CombatConfig.HighGround_VantageDistance or 24
-		local outOfJumpReach = verticalGap > (CombatConfig.Jump_MaxReach or 12.0)
-		if flatDistToTgt < 16.0 or (outOfJumpReach and flatDistToTgt < vantage) then
+		local outOfJumpReach = verticalGap > (CombatConfig.Jump_MaxReach or 25.0)
+		-- (not while it is working at the jump up: the jump's run-up starts closer than this)
+		if (flatDistToTgt < 16.0 and not jumpFirst) or (outOfJumpReach and flatDistToTgt < vantage) then
 			local away = Vector3.new(rootPart.Position.X - targetHRP.Position.X, 0, rootPart.Position.Z - targetHRP.Position.Z)
 			if away.Magnitude < 1 then
 				local saved = fighter:GetAttribute("VantageDir")
@@ -1056,7 +1089,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- High-Ground Seeking: climb to a reachable overhead platform when it grants an
 	-- advantage — target is above, being pressured/bullied, or critically hurt.
-	local overheadPlatform = SpatialModule.findReachableOverheadPlatform(rootPart, 14)
+	local overheadPlatform = SpatialModule.findReachableOverheadPlatform(rootPart, (CombatConfig.Jump_MaxReach or 25) + 2)
 	if overheadPlatform and not inShowdown and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
 		local lastHighGround = data.lastHighGroundJump or 0
 		local targetAbove = targetHRP.Position.Y > rootPart.Position.Y + 5
@@ -1087,7 +1120,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				return ChaseState
 			else
 				local depth = PlatformCatalogue.landingDepth(platform, edge, rootPart.Position)
-				local solution, problem = TraversalModule.solveJumpOnto(rise, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 12.0, depth)
+				local solution, problem = TraversalModule.solveJumpOnto(rise, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 25.0, depth)
 				if solution and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85 then
 					fighter:SetAttribute("ObstacleAwareness", "Climbing High Ground")
 					if LocomotionModule.jump(fighter, humanoid, rootPart, solution.height, solution.speed, "jump") then

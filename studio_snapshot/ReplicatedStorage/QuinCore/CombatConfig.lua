@@ -172,7 +172,7 @@ local CombatConfig = {
 	SlamStumbleDuration = 0.35,           -- seconds (ground slide duration for stumbled victims)
 
 	--// PARKOUR & OB UTILIZATION (Phase: vertical navigation)
-	HighGroundJumpReach = 14.0,           -- studs (max vertical reach to climb an overhead platform)
+	HighGroundJumpReach = 27.0,           -- studs (max vertical reach to climb an overhead platform: Jump_MaxReach + 2)
 	HighGroundJumpCooldown = 6.0,         -- seconds (min interval between high-ground climbs)
 	HighGroundLowHpThreshold = 0.35,      -- hp ratio below which a Quin seeks high ground for safety
 	PositioningJumpMaxReach = 80.0,       -- studs (max platform height for a positioning projectile-jump)
@@ -459,7 +459,10 @@ CombatConfig.ProjectileJump_Cooldown = 14.0            -- seconds between a Quin
 CombatConfig.Combat_MeetJumpChance = 0.5                -- times aggression: chance a Quin answers an incoming projectile jump with its own
 CombatConfig.MidAirClash_TriggerDistance = 40          -- studs between two jumpers at which they clash in the air
 CombatConfig.MidAirClash_MinHeight = 12                -- ... and this high above the floor at least
-CombatConfig.Jump_MaxReach = 12.0                       -- studs of height a jump can gain; anything higher needs a projectile jump
+CombatConfig.Jump_MaxReach = 25.0                       -- studs of height a jump can gain (was 12); anything higher needs a projectile jump
+CombatConfig.Nav_StoneJumpMinWidth = 10                 -- studs: a stepping stone's top at least this wide is jumped on to; a smaller one gets the spot hop
+CombatConfig.ProjectileJump_ChargeTime = 1.0            -- seconds a Quin gathers itself before an attacking projectile jump (0 = none)
+CombatConfig.Landing_SoftSoundAirTime = 0.7             -- a jump shorter than this in the air lands with the soft sound
 
 -- === Projectile jump flight ===
 CombatConfig.ProjectileJump_SlamSpeed = 480            -- studs/s of the dive onto the target (styles 3, 6 and 7 dive 15% faster)

@@ -8,7 +8,7 @@
 --   Level           within 0.5 studs            walk
 --   Step            up to 2.2                    walk (the Humanoid steps up)
 --   Vault           up to 6.8                    hop / vault in stride
---   Jump            up to Jump_MaxReach (12)     a jump: apex = height + 2, taken 6-27 studs
+--   Jump            up to Jump_MaxReach (25)     a jump: apex = height + 2, taken 6-27 studs
 --                                                from the edge depending on speed
 --                                                (TraversalModule.solveJumpOnto)
 --   ProjectileJump  anything higher              only a projectile jump gets there
@@ -103,7 +103,7 @@ function PlatformCatalogue.accessFrom(platform, floorY)
 	if rise <= 0.5 then return PlatformCatalogue.Access.Level end
 	if rise <= TraversalModule.Config.StepHeight then return PlatformCatalogue.Access.Step end
 	if rise <= TraversalModule.Config.VaultHeight then return PlatformCatalogue.Access.Vault end
-	if rise <= (CombatConfig.Jump_MaxReach or 12) then return PlatformCatalogue.Access.Jump end
+	if rise <= (CombatConfig.Jump_MaxReach or 25) then return PlatformCatalogue.Access.Jump end
 	return PlatformCatalogue.Access.ProjectileJump
 end
 

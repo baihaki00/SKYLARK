@@ -446,7 +446,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 			local toEdge = Vector3.new(edge.X - rootPart.Position.X, 0, edge.Z - rootPart.Position.Z)
 			local rise = planPlatform.topY - (rootPart.Position.Y - standHeight)
 			if rise > TraversalModule.Config.StepHeight and toEdge.Magnitude > 0.1 then
-				local solution = TraversalModule.solveJumpOnto(rise, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 12.0,
+				local solution = TraversalModule.solveJumpOnto(rise, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 25.0,
 					PlatformCatalogue.landingDepth(planPlatform, edge, rootPart.Position))
 				if solution and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85 then
 					fighter:SetAttribute("ObstacleAwareness", "Jumping to high ground")

@@ -22,6 +22,10 @@ local BodyAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("Bod
 
 local LocomotionModule = {}
 
+-- Highest apex a jump may be asked for: what a jump can gain (Jump_MaxReach) plus the clearance
+-- over the top it lands on
+local MAX_JUMP_HEIGHT = (CombatConfig.Jump_MaxReach or 25) + 2
+
 -- Active full-body locomotion actions (run slide), keyed by fighter
 local activeSlides = {}
 local endSlide -- forward declaration (section 5)
@@ -868,7 +872,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 			if crossing and flatVelocity.Magnitude > 4 then
 				look = flatVelocity.Unit
 			end
-			local up = math.sqrt(2 * Workspace.Gravity * math.clamp(height or 8.0, 3.0, 14.0))
+			local up = math.sqrt(2 * Workspace.Gravity * math.clamp(height or 8.0, 3.0, MAX_JUMP_HEIGHT))
 			local valid, landing, reason = TraversalModule.validateArc(rootPart, look * across + Vector3.new(0, up, 0), humanoid.HipHeight + rootPart.Size.Y / 2)
 			-- A crossing's arc was solved to clear the obstacle with margin; this coarser trace
 			-- (one point at the feet, 0.06 s steps) called it a wall hit and cancelled it, and the
@@ -939,7 +943,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
         -- The clip leaves the ground at 0.08 s and its feet are down again at 0.97 s (Footstep
         -- marker): that part is fitted to the real flight, so a long obstacle (a longer, higher
         -- flight) plays it slower and a short one faster.
-        local rise = math.clamp(height or 4.0, 3.0, 14.0)
+        local rise = math.clamp(height or 4.0, 3.0, MAX_JUMP_HEIGHT)
         local flight = 2 * math.sqrt(2 * Workspace.Gravity * rise) / Workspace.Gravity
         local track = AnimationModule.playConfig(humanoid, jumpAnim, 1.0, Enum.AnimationPriority.Action3, true)
         if track then
@@ -964,7 +968,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
         -- The jump clip carries its own rise and fall (hips travel ~4 studs up and back down).
         -- Fit the clip to the real flight so that arc lands with the body; at a fixed rate a
         -- short hop touched down while the clip was still at its apex and the mesh dropped late.
-        local estHeight = math.clamp(height or 8.0, 3.0, 14.0)
+        local estHeight = math.clamp(height or 8.0, 3.0, MAX_JUMP_HEIGHT)
         local estFlight = plannedFlightTime or (2 * math.sqrt((2 * estHeight) / Workspace.Gravity))
         local clipDuration = AnimationModule.getEffectiveDuration(humanoid, jumpAnim, 1.0)
         local launchSpeed = math.clamp(clipDuration / math.max(estFlight, 0.2), 0.85, 2.0)
@@ -976,7 +980,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 
 	-- Single vertical ballistic impulse: v_y = sqrt(2 * g * h)
 	local gravity = Workspace.Gravity
-	local targetHeight = math.clamp(height or 8.0, 3.0, 14.0)
+	local targetHeight = math.clamp(height or 8.0, 3.0, MAX_JUMP_HEIGHT)
 	local upImpulse = math.sqrt(2 * gravity * targetHeight)
 
 	-- Forward momentum conservation
@@ -1103,7 +1107,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		-- Audio feedback on landing via QuinCore AudioModule (only if genuinely airborne)
 		local airTime = os.clock() - jumpStartTime
 		if airTime >= 0.18 and rootPart and rootPart.Parent then
-			AudioModule.playFallOnGround(rootPart.Position)
+			AudioModule.playFallOnGround(rootPart.Position, airTime < (CombatConfig.Landing_SoftSoundAirTime or 0.7))
 			VfxModule.createLandingDust(rootPart, math.clamp(airTime / 1.2, 0.25, 0.8))
 		end
 
