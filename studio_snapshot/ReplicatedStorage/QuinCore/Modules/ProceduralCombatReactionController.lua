@@ -168,6 +168,11 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	local quinServer = Workspace:FindFirstChild("QuinServer")
 	if quinServer then table.insert(ignoreList, quinServer) end
 	self.ikRayParams.FilterDescendantsInstances = ignoreList
+	-- Only what a body can stand on is ground. Effect parts are not: the dust, shockwave and
+	-- ground marks that appear right where a body lands were taken for the floor, so a get-up
+	-- that is lowered on to the ground (ClipCorrections `ground`) stayed 4 studs up in the air,
+	-- and feet were planted on them.
+	self.ikRayParams.RespectCanCollide = true
 
 	-- Foot IK state tracking
 	self.leftTargetWeight = 0
