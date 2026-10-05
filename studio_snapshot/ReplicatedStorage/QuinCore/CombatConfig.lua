@@ -62,7 +62,7 @@ local CombatConfig = {
 	WallKickOutwardImpulse = 28,
 	WallKickForwardImpulse = 34,
 	WallKickUpwardImpulse = 18,
-	WallRunTiltDegrees = 18,                 -- whole-body lean away from the wall during the run
+	WallRunTiltDegrees = 30,                 -- whole-body lean away from the wall during the run (30: the feet reach the wall; 18 left them ~1.2 studs off it)
 	WallRunMinRunway = 24,                   -- studs of wall that must lie ahead before a run starts (0.5s at run speed)
 
 	--// PROJECTILE FIGHT (Ablation / Fallback Toggle: set to false to disable)
@@ -549,6 +549,17 @@ CombatConfig.ProceduralLayers = {
 		Enabled = true,  -- Workspace Layer_SoftElbows overrides (A/B)
 		MinBend = 10,    -- degrees: the straightest an elbow gets
 	},
+	WallHand = { -- on a wall run the hand on the wall's side brushes along the wall (Procedural/WallHand)
+		Enabled = true,       -- Workspace Layer_WallHand overrides (A/B)
+		Reach = 4.5,          -- studs from the shoulder the wall is looked for
+		PalmOffset = 0.25,    -- studs the palm stays off the surface
+		Ahead = 0.9,          -- studs ahead of the shoulder along the wall
+		Drop = 0.3,           -- studs below the shoulder
+		Sway = 0.55,          -- studs forward/back with the stride
+		SwayPerStud = 0.19,   -- radians of sway per stud run (one sway per run stride, ~33 studs at 1.0x)
+		FingersForward = 0.6, FingersUp = 0.8, -- the fingers point forward and up along the wall
+		BlendIn = 14, BlendOut = 8, -- per second
+	},
 	ArmClear = { -- an elbow or a wrist stays out of the trunk (not in a strike or a guard)
 		Enabled = true,  -- Workspace Layer_ArmClear overrides (A/B)
 		Radius = 0.95,   -- studs it keeps from the line through the trunk (the clips' own arms: 0.93-1.09)
@@ -587,10 +598,12 @@ CombatConfig.Death_GlitchTime = 1.1        -- seconds of holographic break-up be
 CombatConfig.Death_FallbackClipTime = 2.5  -- used when the clip's length is not known yet
 CombatConfig.Death_SettleSpeed = 90        -- studs/s a body that died in the air is brought to the floor at
 -- The wall-run's arc (States/WallRunState)
-CombatConfig.WallRun_ClimbRatio = 0.5     -- share of the speed it arrives with that goes into the climb
-CombatConfig.WallRun_GravityScale = 0.10  -- fraction of gravity it falls at while its feet are on the wall
-CombatConfig.WallRun_Drag = 5             -- studs/s lost along the wall each second
-CombatConfig.WallRun_SinkSpeed = 20       -- studs/s of sinking at which it kicks off (at 8 it let go at the top of the arc: high but no further than before)
+CombatConfig.WallRun_ClimbRatio = 0.75    -- share of the speed it arrives with that goes into the climb (was 0.5)
+CombatConfig.WallRun_GravityScale = 0.20  -- fraction of gravity it falls at while its feet are on the wall (was 0.10: a 2.3 s float that read as slow motion)
+CombatConfig.WallRun_Drag = 3             -- studs/s lost along the wall each second (was 5)
+CombatConfig.WallRun_SinkSpeed = 22       -- studs/s of sinking at which it kicks off (at 8 it let go at the top of the arc: high but no further than before)
+CombatConfig.WallRun_MinClipRate = 0.9    -- the run clip follows the body's speed (along and up) / Gait_RunAuthoredSpeed, within these
+CombatConfig.WallRun_MaxClipRate = 1.9
 CombatConfig.WallRun_MinAlongSpeed = 14   -- studs/s along the wall under which it cannot stay on
 -- Trespass (Modules/ArenaTrespass): time off the arena floor, on the wall or outside the arena
 CombatConfig.Trespass = {

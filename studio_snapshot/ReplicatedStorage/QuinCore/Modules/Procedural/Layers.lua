@@ -34,6 +34,7 @@ Layers.List = {
 	{ name = "LooseWrists", label = "loose wrists", attribute = "Layer_LooseWrists", added = true, default = function() return CombatConfig.ProceduralLayers.LooseWrists.Enabled ~= false end },
 	{ name = "Breath", label = "breathing (harder when spent)", attribute = "Layer_Breath", added = true, default = function() return CombatConfig.ProceduralLayers.Breath.Enabled ~= false end },
 	{ name = "StrikeFeetFree", label = "feet left to the clip in a strike", attribute = "Layer_StrikeFeetFree", added = true, default = function() return CombatConfig.ProceduralLayers.StrikeFeetFree.Enabled ~= false end },
+	{ name = "WallHand", label = "hand on the wall in a wall run", attribute = "Layer_WallHand", added = true, default = function() return CombatConfig.ProceduralLayers.WallHand.Enabled ~= false end },
 	{ name = "Footfall", label = "weight on each footfall", attribute = "Layer_Footfall", added = true, default = function() return CombatConfig.ProceduralLayers.Footfall.Enabled ~= false end },
 }
 

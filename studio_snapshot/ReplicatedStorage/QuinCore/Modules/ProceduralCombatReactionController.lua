@@ -16,6 +16,7 @@ local SquareUp = require(Procedural:WaitForChild("SquareUp"))
 local KneeOverToe = require(Procedural:WaitForChild("KneeOverToe"))
 local SoftElbows = require(Procedural:WaitForChild("SoftElbows"))
 local ArmClear = require(Procedural:WaitForChild("ArmClear"))
+local WallHand = require(Procedural:WaitForChild("WallHand"))
 local Breath = require(Procedural:WaitForChild("Breath"))
 
 -- States in which the arm layers leave the arms to the clip (thrown, getting up, special moves)
@@ -63,6 +64,7 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	self.kneeOverToe = KneeOverToe.new(ghostModel)
 	self.softElbows = SoftElbows.new(ghostModel)
 	self.armClear = ArmClear.new(ghostModel)
+	self.wallHand = WallHand.new(ghostModel)
 	local nameSum = 0
 	for i = 1, #ghostModel.Name do nameSum += string.byte(ghostModel.Name, i) * i end
 	self.breath = Breath.new(ghostModel, nameSum)
@@ -1244,6 +1246,11 @@ function ProceduralCombatReactionController:update(dt)
 	end
 	if Layers.isOn("ArmClear", serverModel) then
 		self.armClear:apply((self.ghostRootPart or self.rootPart).CFrame, self.armsFree)
+	end
+	-- on a wall run the near hand is on the wall (blends out when the run ends)
+	if Layers.isOn("WallHand", serverModel) then
+		local wallSide = serverState == "WallRun" and serverModel and serverModel:GetAttribute("WallRunSide") or nil
+		self.wallHand:apply(wallSide, (self.ghostRootPart or self.rootPart).CFrame, self.rootPart.AssemblyLinearVelocity.Magnitude, dt)
 	end
 
 	-- Attribute telemetry for diagnostics

@@ -39,6 +39,29 @@ local MIN_COMMIT_TIME = 0.35
 local WALL_PROBE_DISTANCE = 5.5
 local WALL_HOLD_DISTANCE = 2.4
 
+-- The wall beside the body, found by looking both ways. (The run used to assume the wall was
+-- on the left whenever SpatialModule.detectWallRunSurface failed at the start: with the wall on
+-- the right it then probed empty air and dropped off after 0.1 s.)
+local function wallBeside(fighter, rootPart)
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local best, bestSide = nil, nil
+	for _, side in ipairs({ "Left", "Right" }) do
+		local dir = rootPart.CFrame.RightVector * (side == "Left" and -1 or 1)
+		local hit = Workspace:Raycast(rootPart.Position, Vector3.new(dir.X, 0, dir.Z).Unit * (WALL_PROBE_DISTANCE + 1), params)
+		if hit and math.abs(hit.Normal.Y) < 0.3 and (not best or hit.Distance < best.Distance) then
+			best, bestSide = hit, side
+		end
+	end
+	if not best then return nil end
+	local normal = Vector3.new(best.Normal.X, 0, best.Normal.Z).Unit
+	local look = rootPart.CFrame.LookVector
+	local along = Vector3.new(look.X, 0, look.Z) - normal * Vector3.new(look.X, 0, look.Z):Dot(normal)
+	if along.Magnitude < 0.1 then return nil end
+	return { normal = normal, tangent = along.Unit, side = bestSide, wallDistance = best.Distance }
+end
+
 local function removeMovers(rootPart)
 	for _, name in ipairs({ MOVER_NAME, ALIGN_NAME, ATT_NAME }) do
 		local child = rootPart:FindFirstChild(name)
@@ -66,6 +89,7 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 
 	-- The caller just detected the surface; read it again from the current position
 	local wallInfo = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2)
+		or wallBeside(fighter, rootPart)
 	local tangent = rootPart.CFrame.LookVector
 	local normal = -rootPart.CFrame.RightVector
 	local side = "Left"
@@ -74,6 +98,7 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 		normal = wallInfo.normal
 		side = wallInfo.side
 	end
+	fighter:SetAttribute("WallRunFound", wallInfo ~= nil) -- (debug: false = no wall either side, the run is dropped)
 
 	RuntimeTracer.checkpoint(fighter, string.format("Enter WallRun (Side=%s, Speed=%.1f, Runway=%.0f)", side, wallRunSpeed, wallInfo and wallInfo.runway or 0))
 	fighter:SetAttribute("WallRunSide", side)
@@ -134,7 +159,9 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 	align.Attachment0 = att
 	align.Parent = rootPart
 
-	AnimationModule.playConfig(humanoid, "Movement.Run", 1.35, Enum.AnimationPriority.Movement, true)
+	data.noWall = wallInfo == nil
+	-- the stride follows the body's real speed (along and up), not a fixed rate
+	data.track = AnimationModule.playConfig(humanoid, "Movement.Run", 1.35, Enum.AnimationPriority.Movement, true)
 	VfxModule.createDust(rootPart.Position + (normal * 0.8), 3, nil, fighter:GetAttribute("Element"))
 end
 
@@ -142,6 +169,11 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = wallRunData[fighter]
 	if not data then
 		return require(script.Parent:WaitForChild("IdleState"))
+	end
+	if data.noWall then
+		RuntimeTracer.checkpoint(fighter, "WallRun: no wall either side, dropped")
+		fighter:SetAttribute("WallKickReason", "NoWall 0.00s")
+		return require(script.Parent:WaitForChild("ChaseState"))
 	end
 
 	-- Same clock as data.startTime. With tick() here `elapsed` was ~1.7e9 seconds, so every
@@ -214,6 +246,11 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 
 	if data.linearVelocity then
 		data.linearVelocity.VectorVelocity = runVelocity(data, rootPart, wallHit.Distance)
+	end
+	if data.track and data.track.IsPlaying then
+		local speed = math.sqrt(data.along * data.along + data.rise * data.rise)
+		local rate = math.clamp(speed / (CombatConfig.Gait_RunAuthoredSpeed or 29.5), CombatConfig.WallRun_MinClipRate or 0.9, CombatConfig.WallRun_MaxClipRate or 1.9)
+		data.track:AdjustSpeed(rate)
 	end
 
 	-- Friction dust along the wall
