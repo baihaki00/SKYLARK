@@ -277,11 +277,7 @@ local function wireTrackAudio(humanoid, track, animId)
 		if audio and audio.playFallOnGround and fighter and fighter.Parent then
 			local hrp = fighter:FindFirstChild("HumanoidRootPart")
 			if hrp then
-				-- (the unhurried landing clip lands softly; the others land hard)
-				local config = getAnimationConfig()
-				local softEntry = config and config.get("Parkour.LandingSoft")
-				local soft = softEntry ~= nil and track.Animation ~= nil and track.Animation.AnimationId == softEntry.id
-				audio.playFallOnGround(hrp.Position, soft)
+				audio.playFallOnGround(hrp.Position)
 			end
 		end
 	end)

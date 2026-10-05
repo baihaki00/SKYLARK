@@ -1107,7 +1107,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		-- Audio feedback on landing via QuinCore AudioModule (only if genuinely airborne)
 		local airTime = os.clock() - jumpStartTime
 		if airTime >= 0.18 and rootPart and rootPart.Parent then
-			AudioModule.playFallOnGround(rootPart.Position, airTime < (CombatConfig.Landing_SoftSoundAirTime or 0.7))
+			AudioModule.playFallOnGround(rootPart.Position)
 			VfxModule.createLandingDust(rootPart, math.clamp(airTime / 1.2, 0.25, 0.8))
 		end
 

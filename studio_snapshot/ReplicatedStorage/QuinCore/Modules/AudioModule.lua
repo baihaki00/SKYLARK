@@ -13,16 +13,9 @@ local AudioIds = {
 		"rbxassetid://106364380451721",
 		"rbxassetid://137152517374202"
 	},
-	--ImpactHeavy = {
-	--	"rbxassetid://90318464419858",
-	--	"rbxassetid://90318464419858"
-	--},
-	ImpactHeavy = {
-		"rbxassetid://90318464419858",
-		"rbxassetid://90318464419858"
-	},
+	-- (HIT_POWERFUL, 90318464419858, is no longer played: it was the heavy hit, a second layer
+	-- under every slam and under the clash. Heavy hits use the light set, lower and fuller.)
 	Slam = "rbxassetid://128160597080272", -- BOOM / Slam
-	Shockwave = "rbxassetid://90318464419858", -- Explosion/Shockwave
 	Dash = "rbxassetid://113019448050553",
 	
 	-- Authentic Normal Jump Sound
@@ -33,14 +26,16 @@ local AudioIds = {
 		"rbxassetid://133592422008028", -- JUMP_UP_HIGH_MID_AIR
 		"rbxassetid://133966294953268"  -- JUMP_UP_HIGH_MID_AIR2
 	},
-	Chargeup = "rbxassetid://99418155852897", -- QUIN_CHARGEUP
+	HitChargeup = "rbxassetid://99418155852897",
 	MidairSwoosh = "rbxassetid://120299431620517",
 	SonicBoom = {
 		"rbxassetid://79960135069211",  -- MIDAIR_OVERHEAD_SONICBOOM
 		"rbxassetid://128073196468988" -- MIDAIR_OVERHEAD_SONICBOOM2
 	},
-	FallHard = "rbxassetid://91509667902712",  -- QUIN_FALLHARD
-	FallSoft = "rbxassetid://118003670408309", -- QUIN_FALLSOFT
+	FallOnGround = {
+		"rbxassetid://127998881677599", -- FALL_ON_THE_GROUND
+		"rbxassetid://128160597080272"  -- FALL_ON_THE_GROUND2
+	},
 	FallOnGroundMidAir = {
 		"rbxassetid://128160597080272"  -- FALL_ON_THE_GROUND2
 	}
@@ -92,7 +87,7 @@ end
 
 function AudioModule.playImpact(position, isHeavy)
 	if isHeavy then
-		playSoundAt(AudioIds.ImpactHeavy, position, 0.05, math.random(80, 100)/100, 15)
+		playSoundAt(AudioIds.ImpactLight, position, 0.07, math.random(70, 85)/100, 12)
 	else
 		playSoundAt(AudioIds.ImpactLight, position, 0.05, math.random(90, 110)/100, 5)
 	end
@@ -100,7 +95,6 @@ end
 
 function AudioModule.playSlam(position)
 	playSoundAt(AudioIds.Slam, position, 0.05, 0.8, 25)
-	playSoundAt(AudioIds.Shockwave, position, 0.05, 0.7, 30)
 end
 
 function AudioModule.playDash(targetOrPos)
@@ -179,9 +173,8 @@ function AudioModule.playJumpUp(position)
 	playSoundAt(AudioIds.JumpUp, position, 0.1, math.random(90, 110)/100, 5)
 end
 
--- The charge before a projectile jump
 function AudioModule.playChargeup(position)
-	playSoundAt(AudioIds.Chargeup, position, 0.35, 1, 5)
+	playSoundAt(AudioIds.HitChargeup, position, 0.5, 1, 10)
 end
 
 function AudioModule.playMidairSwoosh(position)
@@ -192,14 +185,8 @@ function AudioModule.playSonicBoom(position)
 	playSoundAt(AudioIds.SonicBoom, position, 0.7, math.random(90, 110)/100, 20)
 end
 
--- A body meeting the ground: hard by default (a slam, a knockdown, a long drop); `soft` for
--- the light ones (a short hop, the unhurried landing)
-function AudioModule.playFallOnGround(position, soft)
-	if soft then
-		playSoundAt(AudioIds.FallSoft, position, 0.3, math.random(92, 108)/100, 0)
-	else
-		playSoundAt(AudioIds.FallHard, position, 0.4, math.random(92, 108)/100, 3)
-	end
+function AudioModule.playFallOnGround(position)
+	playSoundAt(AudioIds.FallOnGround, position, 0.01, math.random(70, 100)/100, 15)
 end
 
 function AudioModule.playFallOnGroundAfterMidAir(position)
@@ -257,7 +244,6 @@ end
 
 function AudioModule.playClash(position)
 	playSoundAt(AudioIds.SonicBoom, position, 0.8, 1.2, 20)
-	playSoundAt(AudioIds.ImpactHeavy, position, 0.6, 1.1, 15)
 end
 
 function AudioModule.playDodge(position)

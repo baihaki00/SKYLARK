@@ -64,3 +64,22 @@ studs across, which only a projectile arc covers).
   still the dive / walk-off logic from Pass 45 - 47.
 - Jumps of 18 - 25 studs: allowed by every limit, not observed.
 - The remaining list items (11 wall rim, 14 mind panel, 6 knowledge) were not touched.
+
+## Follow-up (Pass 63b): the owner's verdict
+
+"Remove the chargeup stuff, I don't like it; bring back the previous fall sound, it's fine
+already; just remove the HIT_POWERFUL sound."
+
+- **Charge-up removed** completely: `ProjectileJumpState` is back to its Pass 62 text, the
+  `ProjectileJump_ChargeTime` setting is gone.
+- **Fall sounds reverted** to the two FALL_ON_THE_GROUND sounds at their old volume; the
+  hard / soft split and `Landing_SoftSoundAirTime` are gone. QUIN_FALLHARD, QUIN_FALLSOFT and
+  QUIN_CHARGEUP stay in the Assets folder, unused.
+- **HIT_POWERFUL (90318464419858) is no longer played.** It was in three places: the heavy hit,
+  a second layer under every slam, and a second layer under the mid-air clash. The slam and the
+  clash keep their main sound; a heavy hit now uses the light impact set, lower and fuller
+  (my choice, unheard).
+- The jump reach changes of Pass 63 stay.
+
+Checked in a 16v16, 50 s: 61 projectile jumps, no Charge phase, no HIT_POWERFUL sound created,
+no errors.

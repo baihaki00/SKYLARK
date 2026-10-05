@@ -479,47 +479,6 @@ local function comboNext(data, humanoid, rootPart, lv)
 	end
 end
 
--- The charge: before an attacking jump a Quin gathers itself for ProjectileJump_ChargeTime, on
--- the spot and facing its target (the charge-up sound, the gathering aura), then takes off. Its
--- launch clip is held on its first frame meanwhile; the smack-down clip plays its own wind-up
--- (its first 0.53 s) over the charge. Not before a hop on to a spot nor an interception, which
--- has to leave at once.
-local function startCharge(data, fighter, humanoid, rootPart)
-	if data.smackDown then
-		local entry = AnimationConfig.get(SMACK_PATH)
-		local track = entry and AnimationModule.getTrack(humanoid, entry.id)
-		if track then
-			track.Priority = Enum.AnimationPriority.Action3
-			track.Looped = false
-			track:Play(0.1, 1, SMACK_TAKEOFF / data.chargeTime)
-		end
-		data.animTrack = track
-	else
-		data.animTrack = playClip(humanoid, data.kit.jump, false)
-		if data.animTrack then data.animTrack:AdjustSpeed(0) end
-	end
-	AudioModule.playChargeup(rootPart.Position)
-	VfxModule.createChargePowerUpVfx(rootPart, data.chargeTime, fighter:GetAttribute("Element"))
-end
-
--- The takeoff: the launch clip (or the one smack-down clip) and the launch sound
-local function startLaunch(data, humanoid, rootPart)
-	if data.smackDown then
-		if data.animTrack then
-			data.animTrack:AdjustSpeed(1)
-		else
-			data.animTrack = playSmackDown(humanoid)
-		end
-	elseif data.animTrack then
-		local entry = AnimationConfig.get(data.kit.jump)
-		data.animTrack:AdjustSpeed(entry and entry.speed or 1)
-	else
-		data.animTrack = playClip(humanoid, data.kit.jump, false)
-	end
-	AudioModule.playJumpUp(rootPart.Position)
-	data.startTime = tick() -- (the flight is timed from the takeoff)
-end
-
 function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	humanoid.PlatformStand = true
 	cleanupMovers(rootPart)
@@ -594,15 +553,12 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	if style == 1 and not starting.precise and math.random() < (CombatConfig.ProjectileJump_SmackDownChance or 0.5) then
 		starting.smackDown = true
 		starting.kit = nil -- no airborne loop: the one clip covers the flight
-	end
-	starting.chargeTime = (starting.precise or style == INTERCEPT_STYLE) and 0 or (CombatConfig.ProjectileJump_ChargeTime or 1.0)
-	if starting.chargeTime > 0 then
-		starting.phase = "Charge"
-		fighter:SetAttribute("PJPhase", "Charge")
-		startCharge(starting, fighter, humanoid, rootPart)
+		starting.animTrack = playSmackDown(humanoid)
 	else
-		startLaunch(starting, humanoid, rootPart)
+		starting.animTrack = playClip(humanoid, starting.kit.jump, false)
 	end
+
+	AudioModule.playJumpUp(rootPart.Position)
 
 	local att = Instance.new("Attachment")
 	att.Name = "PJ_Att"
@@ -727,7 +683,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		end
 
 		-- Smack-down timing: the clip's flight part ends exactly at touchdown, whatever the arc
-		if data.smackDown and data.animTrack and data.animTrack.IsPlaying and data.phase ~= "Init" and data.phase ~= "Charge" then
+		if data.smackDown and data.animTrack and data.animTrack.IsPlaying and data.phase ~= "Init" then
 			local track = data.animTrack
 			if track.Length > 0 and track.TimePosition < SMACK_TAKEOFF - 0.05 then
 				track.TimePosition = SMACK_TAKEOFF -- the asset was still loading at launch
@@ -840,18 +796,6 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	local lv = rootPart:FindFirstChild("PJ_LinearVelocity") or rootPart:FindFirstChild("PJ_Velocity")
 	local ao = rootPart:FindFirstChild("PJ_Align") or rootPart:FindFirstChild("PJ_Gyro")
 	if not lv or not ao then return require(script.Parent:WaitForChild("FightState")) end
-
-	if data.phase == "Charge" then
-		local flatTarget = Vector3.new(targetPos.X, rootPart.Position.Y, targetPos.Z)
-		if (flatTarget - rootPart.Position).Magnitude > 0.5 then
-			ao.CFrame = CFrame.lookAt(rootPart.Position, flatTarget)
-		end
-		if timeInPhase < data.chargeTime then
-			return ProjectileJumpState
-		end
-		startLaunch(data, humanoid, rootPart)
-		switchPhase(data, "Init")
-	end
 
 	-- After the launch clip: the kit's airborne loop until the dive (or the landing) takes over
 	if data.kit and not data.inAirLoop and not data.diving and data.phase ~= "Impact" then
