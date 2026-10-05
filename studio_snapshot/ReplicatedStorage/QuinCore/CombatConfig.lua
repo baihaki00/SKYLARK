@@ -89,7 +89,6 @@ local CombatConfig = {
 
 	--// DEATH
 	DeathFadeTime = 3,
-	DeathCleanupDelay = 3,
 
 	--// GAME MODE DEFAULTS
 	DefaultMode = "TestAnimationMode",
@@ -537,6 +536,11 @@ CombatConfig.Chase_TrailGiveUpConfidence = 0.6         -- memory confidence belo
 CombatConfig.Chase_SearchLegDistance = 45              -- studs searched onward along the target's last heading, per leg
 CombatConfig.Chase_DistractionCommitment = 0.6         -- a hunter above this commitment ignores passers-by that are not after it
 CombatConfig.Jump_LandingDepthMax = 8                  -- studs past a platform's rim a jump onto it aims to land (toward the middle; less on small tops)
+-- Death (States/DeathState): the clip plays to its end, then the body rests, glitches out and is removed
+CombatConfig.Death_RestTime = 0.6          -- seconds it lies there after the clip
+CombatConfig.Death_GlitchTime = 1.1        -- seconds of holographic break-up before it is removed
+CombatConfig.Death_FallbackClipTime = 2.5  -- used when the clip's length is not known yet
+CombatConfig.Death_SettleSpeed = 90        -- studs/s a body that died in the air is brought to the floor at
 -- The wall-run's arc (States/WallRunState)
 CombatConfig.WallRun_ClimbRatio = 0.5     -- share of the speed it arrives with that goes into the climb
 CombatConfig.WallRun_GravityScale = 0.10  -- fraction of gravity it falls at while its feet are on the wall

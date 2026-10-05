@@ -1376,4 +1376,53 @@ function VfxModule.createLandingImpact(source, strength, element)
 	clods:Emit(math.round(8 + strength * 18))
 end
 
+-- Holographic glitch over a whole Quin: it flickers, tears (gone for a beat) and glows through in
+-- cyan while it dissolves (direction "out": a defeated Quin) or takes shape ("in": a Quin
+-- teleported onto the field). Runs on the server; every client sees the same flicker.
+-- "in" expects the model as it should end up and returns it to that; "out" leaves it invisible.
+function VfxModule.holoGlitch(model, duration, direction)
+	if not model or not model.Parent then return end
+	duration = duration or 1.0
+	local arriving = direction == "in"
+
+	local parts = {}
+	for _, item in ipairs(model:GetDescendants()) do
+		if (item:IsA("BasePart") and item.Name ~= "HumanoidRootPart" and item.Transparency < 1)
+			or item:IsA("Decal") or item:IsA("Texture") then
+			table.insert(parts, { item = item, base = item.Transparency })
+		end
+	end
+	local glow = Instance.new("Highlight")
+	glow.Name = "HoloGlitch"
+	glow.FillColor = Color3.fromRGB(0, 200, 255)
+	glow.OutlineColor = Color3.fromRGB(200, 250, 255)
+	glow.DepthMode = Enum.HighlightDepthMode.Occluded
+	glow.Adornee = model
+	glow.Parent = model
+
+	task.spawn(function()
+		local rng = Random.new()
+		local started = os.clock()
+		while model.Parent do
+			local progress = math.clamp((os.clock() - started) / duration, 0, 1)
+			local solid = arriving and progress or (1 - progress) -- how much of it is there
+			local tear = progress < 1 and rng:NextNumber() < 0.18
+			local shown = tear and 0 or math.clamp(solid + rng:NextNumber(-0.3, 0.3), 0, 1)
+			if progress >= 1 then
+				shown = arriving and 1 or 0
+			end
+			for _, entry in ipairs(parts) do
+				if entry.item.Parent then
+					entry.item.Transparency = entry.base + (1 - entry.base) * (1 - shown)
+				end
+			end
+			glow.FillTransparency = rng:NextNumber(0.25, 0.85)
+			glow.OutlineTransparency = tear and 1 or rng:NextNumber(0, 0.5)
+			if progress >= 1 then break end
+			task.wait(rng:NextNumber(0.04, 0.09))
+		end
+		glow:Destroy()
+	end)
+end
+
 return VfxModule

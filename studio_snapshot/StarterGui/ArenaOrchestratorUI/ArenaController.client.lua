@@ -515,6 +515,7 @@ local toggleDefs = {
     { key = "Drones",            name = "Spectator Camera Drones" },
     { key = "Screen",            name = "3D Arena Screen Jumbotron" },
     { key = "TimerPreGame",      name = "Pre-Game 5s Countdown Timer" },
+    { key = "InstantMatch",      name = "Instant Match (skip the lead-in, straight to the fight)" },
 }
 
 local checkboxWidgets = {}

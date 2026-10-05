@@ -23,6 +23,7 @@ local ArenaDroneManager = require(ServerScriptService:WaitForChild("ArenaDroneMa
 local ArenaCrowd = require(ServerScriptService:WaitForChild("ArenaCrowdManager"))
 local ArenaGenerator = require(ServerScriptService:WaitForChild("ArenaGenerator"))
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
+local VfxModule = require(ReplicatedStorage.QuinCore.Modules.VfxModule)
 
 local Orchestrator = {}
 
@@ -88,11 +89,24 @@ end
 local remotes = ensureNetwork()
 local StateReplication = remotes.StateReplication
 
+-- Instant match (the InstantMatch toggle): everything before the fight is passed through at once
+-- and quietly. While `instantLeadIn` is set the ceremonial toggles read as off and the lead-in
+-- phases last no time; it is cleared when the fight starts.
+local instantLeadIn = false
+local QUIET_IN_INSTANT = { Announcer = true, Fireworks = true, ProceduralMusic = true, TimerPreGame = true }
+local LEAD_IN_PHASES = { ArenaOpen = 0, ArenaGeneration = 1, PreparationRoom = 0, TeleportingQuins = 0.5, StadiumAnthem = 0, PreGame = 0 }
+
 local function toggle(key)
+    if instantLeadIn and QUIET_IN_INSTANT[key] then
+        return false
+    end
     return activeConfig.Toggles[key] == true
 end
 
 local function duration(key)
+    if instantLeadIn and LEAD_IN_PHASES[key] then
+        return LEAD_IN_PHASES[key]
+    end
     local value = tonumber(activeConfig.Durations[key]) or tonumber(ArenaConfig.DefaultDurations[key]) or 10
     return math.max(0, value)
 end
@@ -230,7 +244,10 @@ local function igniteHolograms()
     end
 end
 
-local function spawnFighters()
+-- Fighters are deployed one at a time, in a random order across both sides, each taking shape in
+-- a holographic glitch, over `window` seconds (0: all at once). A SKIP places the rest at once.
+local function spawnFighters(window, epoch)
+    local jobs = {} -- each places one fighter and returns it
     local mode = activeConfig.Mode
     local teamSize = math.max(1, tonumber(activeConfig.TeamSize) or 4)
     local positions = QuinSpawner.getSpawnPositions()
@@ -251,8 +268,16 @@ local function spawnFighters()
     if mode == "1vs1" then
         local p1 = posAlpha:Lerp(posBeta, 0.6)
         local p2 = posBeta:Lerp(posAlpha, 0.6)
-        settle(QuinSpawner.spawn("Male", p1, "TeamAlpha"), CFrame.lookAt(p1, Vector3.new(p2.X, p1.Y, p2.Z)))
-        settle(QuinSpawner.spawn("Female", p2, "TeamBeta"), CFrame.lookAt(p2, Vector3.new(p1.X, p2.Y, p1.Z)))
+        table.insert(jobs, function()
+            local q = QuinSpawner.spawn("Male", p1, "TeamAlpha")
+            settle(q, CFrame.lookAt(p1, Vector3.new(p2.X, p1.Y, p2.Z)))
+            return q
+        end)
+        table.insert(jobs, function()
+            local q = QuinSpawner.spawn("Female", p2, "TeamBeta")
+            settle(q, CFrame.lookAt(p2, Vector3.new(p1.X, p2.Y, p1.Z)))
+            return q
+        end)
     elseif mode == "FFA" then
         local DroneTrajectories = require(ReplicatedStorage.QuinCore:WaitForChild("ArenaDroneTrajectories"))
         local _, center, _, radius = DroneTrajectories.getArenaMetrics()
@@ -264,8 +289,11 @@ local function spawnFighters()
         for i = 1, count do
             local angle = (i / count) * math.pi * 2
             local pos = center + Vector3.new(math.cos(angle) * r, 2, math.sin(angle) * r)
-            local q = QuinSpawner.spawn((i % 2 == 1) and "Male" or "Female", pos, nil)
-            settle(q, CFrame.lookAt(pos, Vector3.new(center.X, pos.Y, center.Z)))
+            table.insert(jobs, function()
+                local q = QuinSpawner.spawn((i % 2 == 1) and "Male" or "Female", pos, nil)
+                settle(q, CFrame.lookAt(pos, Vector3.new(center.X, pos.Y, center.Z)))
+                return q
+            end)
         end
     elseif ArenaGenerator.isActive() then
         -- Generated arena: each team spawns scattered round its anchor (mirrored pattern)
@@ -273,7 +301,11 @@ local function spawnFighters()
             local points, facing = ArenaGenerator.getSpawnPoints(team, teamSize)
             for i, p in ipairs(points or {}) do
                 local gender = ((i % 2 == 1) == (team == "TeamAlpha")) and "Male" or "Female"
-                settle(QuinSpawner.spawn(gender, p, team), CFrame.lookAt(p, Vector3.new(facing.X, p.Y, facing.Z)))
+                table.insert(jobs, function()
+                    local q = QuinSpawner.spawn(gender, p, team)
+                    settle(q, CFrame.lookAt(p, Vector3.new(facing.X, p.Y, facing.Z)))
+                    return q
+                end)
             end
         end
     else
@@ -282,8 +314,33 @@ local function spawnFighters()
             local sideOffset = (i - (teamSize + 1) * 0.5) * 12
             local pA = posAlpha + sideDir * sideOffset + Vector3.new(0, 2, 0)
             local pB = posBeta + sideDir * sideOffset + Vector3.new(0, 2, 0)
-            settle(QuinSpawner.spawn((i % 2 == 1) and "Male" or "Female", pA, "TeamAlpha"), CFrame.lookAt(pA, pA + forwardDir))
-            settle(QuinSpawner.spawn((i % 2 == 1) and "Female" or "Male", pB, "TeamBeta"), CFrame.lookAt(pB, pB - forwardDir))
+            table.insert(jobs, function()
+                local q = QuinSpawner.spawn((i % 2 == 1) and "Male" or "Female", pA, "TeamAlpha")
+                settle(q, CFrame.lookAt(pA, pA + forwardDir))
+                return q
+            end)
+            table.insert(jobs, function()
+                local q = QuinSpawner.spawn((i % 2 == 1) and "Female" or "Male", pB, "TeamBeta")
+                settle(q, CFrame.lookAt(pB, pB - forwardDir))
+                return q
+            end)
+        end
+    end
+
+    -- Deploy: shuffled, spread over the window
+    local rng = Random.new()
+    for i = #jobs, 2, -1 do
+        local j = rng:NextInteger(1, i)
+        jobs[i], jobs[j] = jobs[j], jobs[i]
+    end
+    window = window or 0
+    for i, job in ipairs(jobs) do
+        local q = job()
+        if q and window > 0 then
+            VfxModule.holoGlitch(q, ArenaConfig.Teleport.GlitchTime, "in")
+        end
+        if window > 0 and i < #jobs and (epoch == nil or skipEpoch == epoch) then
+            task.wait(window / #jobs)
         end
     end
 end
@@ -332,6 +389,7 @@ end
 
 local function runMatchLifecycle()
     local mode = activeConfig.Mode
+    instantLeadIn = activeConfig.Toggles.InstantMatch == true
     ArenaCrowd.resetMatch(mode)
     ArenaCrowd.setEnabled(toggle("CrowdFX"))
 
@@ -416,7 +474,8 @@ local function runMatchLifecycle()
     if toggle("Announcer") then
         ArenaAria.speak("ARIA_TeleportingQuinsToDesignatedAreas")
     end
-    spawnFighters()
+    -- (one at a time over the first seconds of the phase; at once in an instant match)
+    spawnFighters(instantLeadIn and 0 or math.min(ArenaConfig.Teleport.Window, duration("TeleportingQuins") * 0.8), epoch)
     ArenaCrowd.assignTeams(mode) -- stand sections pick a side; kept until the match ends
     if not waitPhase(epoch) then
         ArenaAria.stopAll()
@@ -452,6 +511,7 @@ local function runMatchLifecycle()
     end
 
     -- PHASE 7: IN-GAME. Quins released; ends on an elimination or the game time limit.
+    instantLeadIn = false -- (an instant match is an ordinary match from here on)
     Workspace:SetAttribute("MatchStarted", true)
     epoch = beginPhase("IN_GAME", duration("GameTime"), "COMBAT ENGAGEMENT", "SECTOR ALPHA VS SECTOR BETA")
     -- (the Quins know how long they have: SocialTension)

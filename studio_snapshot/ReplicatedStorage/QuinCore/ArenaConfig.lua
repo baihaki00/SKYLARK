@@ -168,6 +168,14 @@ ArenaConfig.DefaultToggles = {
     ProceduralMusic     = true,
     CrowdFX             = true,  -- Procedural spatial crowd (ArenaCrowdManager, ArenaConfig.CrowdFX)
     ProceduralTerrain   = true,  -- Procedural arena layout (ArenaGenerator, ArenaConfig.ArenaGeneration); off = the edit-mode parts
+    InstantMatch        = false, -- straight to the fight: no opening, preparation, anthem or countdown, fighters placed at once
+}
+
+-- Deployment teleport (ArenaSystemOrchestrator, TELEPORTING_QUINS): fighters arrive one at a time
+-- in a random order across both sides, each taking shape in a holographic glitch
+ArenaConfig.Teleport = {
+    Window = 5,        -- seconds the whole deployment is spread over (at most 80% of the phase)
+    GlitchTime = 0.9,  -- seconds each fighter takes to take shape
 }
 
 ArenaConfig.AriaGapAfterGeneration = 5 -- seconds between ARIA's 'generation completed' and the preparation-room guide
