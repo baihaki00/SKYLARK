@@ -96,9 +96,17 @@ local function perform(fighter, humanoid, rootPart, point, travel, vertical, rea
 			child.CFrame = CFrame.lookAt(Vector3.zero, dir)
 		end
 	end
-	AnimationModule.playConfig(humanoid, "Movement.AirDash", 1.3, Enum.AnimationPriority.Action3, false)
+	-- the pose: the start of the ninja jump (the push-off), cut when the burst ends; the dash's
+	-- own sound and vapour cone, and a puff where it pushed off
+	local track = AnimationModule.playConfig(humanoid, "Movement.AirDash", cfg("ClipSpeed", 1.4), Enum.AnimationPriority.Action3, false)
+	if track then
+		task.delay(duration + cfg("ClipHold", 0.1), function()
+			if track.IsPlaying then track:Stop(cfg("ClipFade", 0.15)) end
+		end)
+	end
 	AudioModule.playDash(rootPart)
-	VfxModule.createVaporCone(rootPart, 0.3)
+	VfxModule.createVaporCone(rootPart, cfg("ConeTime", 0.4))
+	VfxModule.createShockwave(rootPart.Position - dir * 1.5, cfg("PuffSize", 7), 0.3, fighter:GetAttribute("Element"))
 	fighter:SetAttribute("LastDashTime", tick())
 	fighter:SetAttribute("Energy", math.max(0, (fighter:GetAttribute("Energy") or 100) - cfg("EnergyCost", 15)))
 	fighter:SetAttribute("AirDashReason", reason)

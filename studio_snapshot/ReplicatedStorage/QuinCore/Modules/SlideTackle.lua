@@ -5,14 +5,18 @@
 --   the sweep   during the glide (the low part of the slide clip), an enemy whose body is in
 --               front of the slider's feet and whose own feet are still on the ground has its legs
 --               taken: damage through DamageModule (guards, protections and the duel rules apply),
---               a small launch along the slide and a pitch the way the legs went, so the body
---               turns over (~180 degrees) and comes down on its back (KnockbackState, SweptAt)
+--               a small launch along the slide, and it falls the way its legs went: swept from
+--               behind it goes down on its back, from the front on its face (the fall clip from
+--               the first frame, the body's root kept upright like every other knockdown;
+--               KnockbackState, SweptAt / SweepFallSide). (A 180-degree spin of the root ended
+--               it on its head, and Recovery then turned it upright under a get-up clip that
+--               starts lying down: it got up twice.)
 --   the hurdle  each enemy in the lane gets one reflex as the slide closes in: one that is facing
 --               it, not busy striking and on its feet may hop (chance from its mobility); a hop in
 --               time lifts the feet over the slide and it passes underneath
 --
 -- LocomotionModule.slide runs the slide itself and calls back here every glide frame (onGlide).
--- Publishes: SweptAt / SweepSpin on the victim, SlideHurdledAt on a hurdler, Workspace TackleStats.
+-- Publishes: SweptAt / SweepFallSide on the victim, SlideHurdledAt on a hurdler, Workspace TackleStats.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -62,29 +66,6 @@ local function hurdle(victim, humanoid, rootPart)
 	publish()
 end
 
--- The turn-over, flown frame by frame about the sweep's axis (an angular velocity alone was
--- damped to ~90 degrees before touchdown). Ends at touchdown or when the turn is through.
-local function flip(victim, root, humanoid, axis)
-	local RunService = game:GetService("RunService")
-	local start = root.CFrame - root.Position
-	local t0 = os.clock()
-	local total = math.rad(cfg("FlipDegrees", 180))
-	local flipTime = cfg("FlipTime", 0.4)
-	local conn
-	conn = RunService.Heartbeat:Connect(function()
-		local t = os.clock() - t0
-		if not root.Parent or humanoid.Health <= 0 or victim:GetAttribute("CurrentState") == "Recovery" or t > flipTime + 0.6 then
-			conn:Disconnect()
-			return
-		end
-		local p = math.min(1, t / flipTime)
-		local eased = 1 - (1 - p) * (1 - p)
-		root.CFrame = CFrame.new(root.Position) * CFrame.fromAxisAngle(axis, total * eased) * start
-		root.AssemblyAngularVelocity = Vector3.zero
-		if p >= 1 then conn:Disconnect() end
-	end)
-end
-
 -- Its legs are taken
 local function sweep(slider, victim, dir, speed)
 	local DamageModule = require(Modules:WaitForChild("DamageModule"))
@@ -97,18 +78,22 @@ local function sweep(slider, victim, dir, speed)
 	local root = victim:FindFirstChild("HumanoidRootPart")
 	local humanoid = victim:FindFirstChildOfClass("Humanoid")
 	if not (root and humanoid) or humanoid.Health <= 0 then return true end
-	-- the legs go out along the slide, the head the other way: it turns over (dir x up = that pitch)
-	local axis = dir:Cross(Vector3.yAxis).Unit
-	local spin = axis * (math.rad(cfg("FlipDegrees", 180)) / cfg("FlipTime", 0.4))
+	-- Which way it goes down: the legs are knocked along the slide, so the trunk topples the
+	-- other way, and its own momentum carries the trunk on. A Quin standing with its back to the
+	-- slide falls on its back, one facing it on its face, and one running at it goes down forward.
+	local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+	local v = root.AssemblyLinearVelocity
+	local topple = -dir * cfg("Topple", 1) + Vector3.new(v.X, 0, v.Z) / cfg("MomentumSpeed", 30)
+	local side = (look.Magnitude > 0.01 and look.Unit:Dot(topple) >= 0) and "Front" or "Back"
 	victim:SetAttribute("KnockbackType", "air")
 	victim:SetAttribute("LaunchedAt", tick())
 	victim:SetAttribute("SweptAt", os.clock())
-	victim:SetAttribute("SweepSpin", spin)
+	victim:SetAttribute("SweepFallSide", side)
 	victim:SetAttribute("LastAttackerName", slider.Name)
 	humanoid.PlatformStand = true
-	root.AssemblyLinearVelocity = dir * math.min(speed * cfg("Carry", 0.35), 20) + Vector3.new(0, cfg("Launch", 45), 0)
+	root.AssemblyLinearVelocity = dir * math.min(speed * cfg("Carry", 0.35), 20) + Vector3.new(0, cfg("Launch", 30), 0)
+	root.AssemblyAngularVelocity = Vector3.zero
 	victim:SetAttribute("ForceState", "Knockback")
-	flip(victim, root, humanoid, axis)
 	local AudioModule = require(Modules:WaitForChild("AudioModule"))
 	AudioModule.playImpact(root.Position, true)
 	stats.sweeps += 1

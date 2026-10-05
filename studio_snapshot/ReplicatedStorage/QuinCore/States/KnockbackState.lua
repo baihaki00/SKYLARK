@@ -91,11 +91,10 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 		-- A slide tackle took its legs (SlideTackle): it turns over the way the legs went, the
 		-- stabiliser holding off until it is down; otherwise the usual random tumble
 		local sweptAt = fighter:GetAttribute("SweptAt")
-		local spin = fighter:GetAttribute("SweepSpin")
-		if sweptAt and os.clock() - sweptAt < 0.5 and typeof(spin) == "Vector3" then
-			knockbackData[fighter].swept = true
-			align.MaxTorque = 0
-			rootPart.AssemblyAngularVelocity = spin
+		local sweepSide = fighter:GetAttribute("SweepFallSide")
+		if sweptAt and os.clock() - sweptAt < 0.5 and (sweepSide == "Back" or sweepSide == "Front") then
+			knockbackData[fighter].swept = sweepSide
+			rootPart.AssemblyAngularVelocity = Vector3.zero
 		else
 			local tumbleScale = CombatConfig.Ragdoll_TumbleScale or 1.0
 			rootPart.AssemblyAngularVelocity = Vector3.new(
@@ -118,7 +117,15 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 	if kbType == "air" or kbType == "hard_ground" then
 		-- The flight pose is the authored air-knockback clip. While ProceduralRagdollActive is set
 		-- the presentation layer leans the whole body along its travel direction on top of it.
-		AnimationModule.play(humanoid, AnimationIds.FallAirKnockback, Enum.AnimationPriority.Action4, true, 1.0, 0.1)
+		local swept = knockbackData[fighter].swept
+		if swept then
+			-- legs taken: it goes straight into the fall for that side (no flailing first)
+			knockbackData[fighter].fallSide = swept
+			fighter:SetAttribute("FallSide", swept)
+			AnimationModule.playConfig(humanoid, FALL_CLIPS[swept], 1.0, Enum.AnimationPriority.Action4, true)
+		else
+			AnimationModule.play(humanoid, AnimationIds.FallAirKnockback, Enum.AnimationPriority.Action4, true, 1.0, 0.1)
+		end
 		fighter:SetAttribute("ProceduralRagdollActive", CombatConfig.AirKnockback_ProceduralRagdollEnabled == true)
 	else
 		AnimationModule.play(humanoid, AnimationIds.Knockback, Enum.AnimationPriority.Action4, false, 1.0, 0.1)
@@ -179,7 +186,7 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Coming down: the fall pose for the side it lands on takes over from the flailing
 		if not data.fallSide and elapsed >= FALL_MIN_FLIGHT and rootPart.AssemblyLinearVelocity.Y <= FALL_DESCENT then
 			-- (turned over by a sweep it comes down on its back)
-			data.fallSide = data.swept and (CombatConfig.SlideTackle_FallSide or "Back") or fallSide(rootPart)
+			data.fallSide = fallSide(rootPart)
 			fighter:SetAttribute("FallSide", data.fallSide)
 			AnimationModule.stop(humanoid, AnimationIds.FallAirKnockback, 0.25)
 			AnimationModule.playConfig(humanoid, FALL_CLIPS[data.fallSide], 1.0, Enum.AnimationPriority.Action4, true)
@@ -223,7 +230,7 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 			RuntimeTracer.checkpoint(fighter, "GroundContact → IMPACT & SLIDE")
 			if not data.fallSide then
 				-- (a flight too short for the fall pose: the side is still decided for the get-up)
-				fighter:SetAttribute("FallSide", data.swept and (CombatConfig.SlideTackle_FallSide or "Back") or fallSide(rootPart))
+				fighter:SetAttribute("FallSide", fallSide(rootPart))
 			end
 			
 			return require(script.Parent:WaitForChild("RecoveryState"))
