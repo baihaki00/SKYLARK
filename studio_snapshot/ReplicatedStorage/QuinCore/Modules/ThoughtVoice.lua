@@ -7,6 +7,11 @@
 --   social keys   SocialTension / SocialRespect attributes (restless and why, waiting, hunting,
 --                 the respect custom's roles)
 --   action keys   the action taken, for a decision that needed no reason
+--   target keys   why it turned to someone else (TargetingModule's TargetChangedBy)
+--   move keys     how it is getting about (the ObstacleAwareness line a state publishes, its
+--                 state, no room to stand)
+--   body keys     what is being done to it (thrown, legs taken) and where it should not be
+--                 (ArenaTrespass)
 -- Each key has a few phrasings; a bold Quin and a careful one say the same thing differently.
 -- An unknown key falls back to its own name, so a new reason still shows up.
 
@@ -77,7 +82,65 @@ local PHRASES = {
 	["Action:Special"] = { any = { "This is the moment. Everything I've got." } },
 
 	Lost = { any = { "I don't know what to do.", "..." } },
+
+	-- why it turned to someone else (%s: the new target)
+	["Target:Select"] = { bold = { "%s. You're next.", "%s is the one to hit." }, careful = { "%s is the better mark.", "Switch. %s." } },
+	["Target:RearThreat"] = { any = { "%s is right behind me!", "Turn. %s is on my back." } },
+	["Target:Distraction"] = { any = { "%s is right here. Him first.", "Can't run past %s." } },
+	["Target:Nearest"] = { any = { "%s is closest.", "Nobody else near. %s." } },
+	["Target:Dive"] = { any = { "%s, down there. Mine.", "Drop on %s." } },
+	["Target:Intercept"] = { any = { "%s is in the air. Meet him up there." } },
+	["Target:Duel"] = { any = { "%s. Just the two of us." } },
+	["Target:State"] = { any = { "%s. Stay on him." } },
+
+	-- how it is getting about
+	["Move:WallRun"] = { any = { "Up the wall.", "Use the wall." } },
+	["Move:Tackle"] = { bold = { "Take his legs.", "Slide in. Sweep him." }, careful = { "Go low. Take his legs." } },
+	["Move:SlideUnder"] = { any = { "Low gap. Slide under.", "Duck it." } },
+	["Move:RunUp"] = { any = { "Need a run-up for that.", "Back up, then jump." } },
+	["Move:JumpUp"] = { any = { "I can make that jump.", "Up there. Jump." } },
+	["Move:Stone"] = { any = { "Up, one ledge at a time.", "That ledge first." } },
+	["Move:ProjectileJump"] = { bold = { "Up and over. Come down on him.", "From above." }, careful = { "Too far to run. Jump it." } },
+	["Move:AirDash"] = { any = { "Dash. Close it in the air.", "Not landing short. Dash." } },
+	["Move:Dismount"] = { any = { "Down from here.", "Time to get off this." } },
+	["Move:Vault"] = { any = { "Over it." } },
+	["Move:Around"] = { any = { "Go round.", "Something's in the way. Round it." } },
+	["Move:Headroom"] = { any = { "Can't stand up in here. Out.", "Too low. Get out from under this." } },
+
+	-- what is being done to it, and where it should not be
+	["Body:Thrown"] = { bold = { "Agh. That one landed.", "He'll pay for that." }, careful = { "That hurt.", "I'm in the air. Brace." } },
+	["Body:Swept"] = { any = { "My legs!", "He took my legs." } },
+	["Body:Hurdled"] = { any = { "Saw that coming. Over it.", "Jump the slide." } },
+	["Body:GettingUp"] = { any = { "Get up.", "On your feet." } },
+	["Trespass:Wall"] = { any = { "I'm on the wall. That costs me.", "Not long up here. Back to the floor." } },
+	["Trespass:Outside"] = { any = { "I'm out of the arena. Get back in.", "Outside. Back, now." } },
 }
+
+-- The ObstacleAwareness line a state publishes -> the thought it stands for (first match)
+local MOVE_PATTERNS = {
+	{ "Wall%-Running", "Move:WallRun" },
+	{ "Tactical Slide", "Move:Tackle" },
+	{ "Sliding under", "Move:SlideUnder" }, { "low gap", "Move:SlideUnder" },
+	{ "[Rr]un%-up", "Move:RunUp" }, { "stepping out to jump", "Move:RunUp" },
+	{ "Intercept Jump", "Move:JumpUp" }, { "Jump to a stone", "Move:JumpUp" }, { "Jumping to high ground", "Move:JumpUp" },
+	{ "Climbing High Ground", "Move:JumpUp" },
+	{ "Stepping stone", "Move:Stone" },
+	{ "Projectile jump", "Move:ProjectileJump" }, { "Diving from high ground", "Move:ProjectileJump" },
+	{ "Hopped over a slide", "Body:Hurdled" },
+	{ "[Dd]ash", "Move:AirDash" },
+	{ "No room to stand", "Move:Headroom" },
+	{ "Ledge Dive", "Move:Dismount" }, { "[Ww]alking off", "Move:Dismount" },
+	{ "[Vv]ault", "Move:Vault" }, { "Hurdling", "Move:Vault" },
+	{ "Navigating", "Move:Around" }, { "[Gg]oing round", "Move:Around" },
+}
+
+local function moveKey(text: string?): string?
+	if not text or text == "" or text == "Clear" then return nil end
+	for _, pattern in MOVE_PATTERNS do
+		if text:find(pattern[1]) then return pattern[2] end
+	end
+	return nil
+end
 
 -- What it is doing, by state (%s: the target's name)
 local DOING = {
@@ -89,6 +152,9 @@ local DOING = {
 	Idle = "Standing by",
 	Recovery = "Catching its breath",
 	Knockback = "Knocked back",
+	WallRun = "Running the wall",
+	Airborne = "In the air",
+	ReEntry = "Coming back into the arena",
 	ProjectileJump = "In the air, coming down on %s",
 	MidAirClash = "Clashing with %s in mid-air",
 	Special = "Unleashing a special",
@@ -96,7 +162,8 @@ local DOING = {
 }
 
 -- One phrasing for a key. aggression: the Quin's Pers_Aggression (0-1), if known.
-function ThoughtVoice.say(key: string, aggression: number?): string
+-- name: who the thought is about, for phrasings with %s (a new target).
+function ThoughtVoice.say(key: string, aggression: number?, name: string?): string
 	local entry = PHRASES[key]
 	if not entry then
 		return key -- a reason nobody has phrased yet still shows
@@ -105,13 +172,38 @@ function ThoughtVoice.say(key: string, aggression: number?): string
 	if not list then
 		list = (aggression or 0.5) >= 0.6 and entry.bold or entry.careful
 	end
-	return list[math.random(#list)]
+	local text = list[math.random(#list)]
+	if text:find("%%s") then
+		text = string.format(text, name and name ~= "" and name or "That one")
+	end
+	return text
 end
 
 -- The thought keys that hold right now.
--- facts: { action, reasons = {keys}, posture, why, respectRole, inWay, lost }
+-- facts: { action, reasons = {keys}, posture, why, respectRole, inWay, lost,
+--          state, movement (the ObstacleAwareness line), swept, trespass, lowCeiling }
 function ThoughtVoice.keys(facts): { string }
 	local keys = {}
+	-- its body first: what is happening to it outweighs what it had planned
+	if facts.state == "Knockback" then
+		table.insert(keys, facts.swept and "Body:Swept" or "Body:Thrown")
+	elseif facts.state == "Recovery" then
+		table.insert(keys, "Body:GettingUp")
+	elseif facts.state == "WallRun" then
+		table.insert(keys, "Move:WallRun")
+	elseif facts.state == "ProjectileJump" then
+		table.insert(keys, "Move:ProjectileJump")
+	end
+	if facts.trespass then
+		table.insert(keys, "Trespass:" .. facts.trespass)
+	end
+	local move = facts.lowCeiling and "Move:Headroom" or moveKey(facts.movement)
+	if move == "Move:Around" and facts.inWay then
+		move = nil -- (said below as a body in its way)
+	end
+	if move and not table.find(keys, move) then
+		table.insert(keys, move)
+	end
 	if facts.respectRole then
 		table.insert(keys, "Respect:" .. facts.respectRole)
 	end

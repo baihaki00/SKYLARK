@@ -161,6 +161,8 @@ end
 -- The watched Quin
 ----------------------------------------------------------------------------------------
 local watched: Model? = nil
+local lastTarget: string? = nil -- (a change of target is said once, with why)
+local lastSweptAt, sweptUntil = nil, 0 -- (SweptAt changes when its legs are taken: it is "swept" for a moment after)
 local holding = {} -- thought keys that hold right now (a key is said once when it starts to hold)
 local lastSaid = {} -- key -> when it was last said
 
@@ -173,6 +175,8 @@ end
 local function watch(model: Model?)
 	if model == watched then return end
 	watched = model
+	lastTarget = model and (model:GetAttribute("CurrentTarget") or model:GetAttribute("TargetQuin")) or nil
+	lastSweptAt, sweptUntil = model and model:GetAttribute("SweptAt") or nil, 0
 	holding, lastSaid = {}, {}
 	clearStream()
 	mindEvent:FireServer(model and model.Name or "")
@@ -230,7 +234,23 @@ local function refresh()
 
 	-- thoughts: say each one once, when it starts to hold
 	if health <= 0 then return end
+	-- a new target, and why it turned (TargetingModule: TargetChangedBy)
+	if target ~= lastTarget then
+		if target and target ~= "" and lastTarget and lastTarget ~= "" then
+			think(ThoughtVoice.say("Target:" .. tostring(model:GetAttribute("TargetChangedBy") or "Select"), model:GetAttribute("Pers_Aggression"), target))
+		end
+		lastTarget = target
+	end
+	local sweptAt = model:GetAttribute("SweptAt")
+	if sweptAt ~= lastSweptAt then
+		lastSweptAt, sweptUntil = sweptAt, os.clock() + 1.5
+	end
 	local keys = ThoughtVoice.keys({
+		state = state,
+		movement = model:GetAttribute("ObstacleAwareness"),
+		swept = os.clock() < sweptUntil,
+		trespass = model:GetAttribute("Trespass"),
+		lowCeiling = model:GetAttribute("LowCeiling") ~= nil,
 		action = action,
 		reasons = reasons,
 		posture = model:GetAttribute("SocialPosture"),
