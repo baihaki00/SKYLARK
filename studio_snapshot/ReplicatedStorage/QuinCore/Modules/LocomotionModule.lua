@@ -612,15 +612,19 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	local speed = flatVel.Magnitude
 	local now = os.clock()
 
-	local wasSprinting = (fighter:GetAttribute("IsSprinting") == true) or (speed > 24.0)
+	-- The stop-run plant is for a Quin pulling up out of a full run: one that had reached its
+	-- top speed (its Speed, within StopRun_TopSpeedShare). Anything slower just slows down.
+	-- (It used to play from 24 studs/s, or whenever the Quin was flagged as sprinting: a third
+	-- of them were from runs that never got to top speed, some at 60 % of it.)
+	local topSpeed = fighter:GetAttribute("Speed") or 40
+	local atTopSpeed = speed >= topSpeed * (CombatConfig.StopRun_TopSpeedShare or 0.9)
 
 	-- Single-shot latch for braking transition
 	if not data.stopRunTriggered then
 		data.stopRunTriggered = true
 		data.isMoving = false
 
-		-- If the Quin was running/sprinting, play StopRun plant animation (rbxassetid://89237107000987)
-		if wasSprinting and speed > 12.0 then
+		if atTopSpeed then
 			data.lastStopRunTime = now
 			data.stopRunEndTime = now + 0.68
 
