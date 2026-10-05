@@ -47,6 +47,7 @@ AnimationConfig.Registry = {
 		ArcRun30RearRight = { borrows = "Movement.ArcRun30Rear", speed = 1.20, fadeTime = 0.10, priority = "Movement", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "30-Degree Arc Run Right" },
 		BrakingStop = { id = "rbxassetid://83869147275692", speed = 1.65, fadeTime = 0.08, priority = "Movement", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Kinetic Braking Skid" },
 		Dash = { id = "rbxassetid://133182359318358", speed = 1.00, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Dash Burst" },
+		AirDash = { borrows = "Movement.Dash", speed = 1.00, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Air Dash (placeholder: the ground dash)" },
 		Fall = { id = "rbxassetid://79340771026707", speed = 1.00, fadeTime = 0.10, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Airborne Descent" },
 		FallAirKnockback = { id = "rbxassetid://88475997278069", speed = 1.00, fadeTime = 0.10, priority = "Action3", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Air Knockback Flailing" },
 		FallBack = { id = "rbxassetid://88441309301154", speed = 1.00, fadeTime = 0.10, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Fall, Back To The Ground" },

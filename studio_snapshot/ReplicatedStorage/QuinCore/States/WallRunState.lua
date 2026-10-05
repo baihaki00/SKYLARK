@@ -173,6 +173,7 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 	if elapsed >= data.maxDuration or wallLost or laneBlocked or interceptTarget or spent then
 		local reason = (wallLost and "WallEnd") or (laneBlocked and "LaneBlocked") or (interceptTarget and "TargetIntercept") or (spent and "ArcSpent") or "Duration"
 		RuntimeTracer.checkpoint(fighter, string.format("Wall-Kick Dismount (Reason: %s, %.2fs)", reason, elapsed))
+		fighter:SetAttribute("WallKickReason", string.format("%s %.2fs", reason, elapsed)) -- (debug HUD, probes)
 
 		-- Kick off the wall: out, forward and up
 		local kickImpulse = (data.normal * (CombatConfig.WallKickOutwardImpulse or 28))
@@ -202,6 +203,8 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 
 		AnimationModule.playConfig(humanoid, "Parkour.VaultObstacle", 1.25, Enum.AnimationPriority.Action, false)
 		VfxModule.createShockwave(rootPart.Position, 8, 0.35, fighter:GetAttribute("Element"))
+		-- (off the wall it may dash on: at its target, or after one that kept running; Modules/AirDash)
+		require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).noteWallKick(fighter)
 
 		if interceptTarget and dist <= (CombatConfig.CombatRange or 8.2) + 2.0 then
 			return require(script.Parent:WaitForChild("FightState"))

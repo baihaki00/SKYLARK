@@ -451,6 +451,33 @@ CombatConfig.Jump_MaxReach = 12.0                       -- studs of height a jum
 
 -- === Projectile jump flight ===
 CombatConfig.ProjectileJump_SlamSpeed = 480            -- studs/s of the dive onto the target (styles 3, 6 and 7 dive 15% faster)
+-- Air dash (Modules/AirDash): a Quin already in the air may dash once per airtime - in at a target
+-- (a jump or a wall kick, then the dash), on to a ledge a jump is falling short of, or after a
+-- target that kept running off a wall. Shares LastDashTime with the ground dash.
+CombatConfig.AirDash_Enabled = true
+CombatConfig.AirDash_Duration = 0.26        -- seconds of the burst
+CombatConfig.AirDash_Speed = 115            -- studs/s, top speed of the burst
+CombatConfig.AirDash_MaxTravel = 40         -- studs it carries at most
+CombatConfig.AirDash_Lift = 6               -- studs/s of vertical speed set at the start (a flat arc)
+CombatConfig.AirDash_LedgeLift = 14         -- ... when dashing on to a ledge
+CombatConfig.AirDash_LedgeMargin = 1.5      -- studs short of the landing before it dashes on
+CombatConfig.AirDash_MinAirTime = 0.12      -- seconds after leaving the ground before it may dash
+CombatConfig.AirDash_WallKickTime = 0.24    -- ... after the kick off a wall (the kick carries it clear first)
+CombatConfig.AirDash_Cooldown = 5           -- seconds since the last dash, ground or air
+CombatConfig.AirDash_MinEnergy = 20
+CombatConfig.AirDash_EnergyCost = 15
+CombatConfig.AirDash_Range = 36             -- studs across the ground to a target it dashes at
+CombatConfig.AirDash_WallRange = 45         -- ... off a wall
+CombatConfig.AirDash_ChaseRange = 90        -- off a wall, a target further than WallRange but within this: it dashes after it
+CombatConfig.AirDash_MinRange = 8
+CombatConfig.AirDash_MaxRise = 8            -- a target more than this above is out of reach
+CombatConfig.AirDash_MaxDrop = 30           -- ... or more than this below
+CombatConfig.AirDash_MaxDropSpeed = 45      -- studs/s down at most toward a target below
+CombatConfig.AirDash_Chance = 0.3           -- base chance per airtime, x (0.5 + dash preference) x (0.5 + aggression)
+CombatConfig.AirDash_WallChance = 0.55      -- ... off a wall
+CombatConfig.AirDash_Force = 40000
+CombatConfig.AirDash_MinAirLeft = 0.3       -- seconds of air it must have left after the dash flattens its jump (a hop lands before the burst is through)
+CombatConfig.AirDash_GroundProbe = 80      -- studs probed below for the ground
 
 -- === Escape and pursuit at arena scale (RetreatTacticsModule, RetreatState, ChaseState) ===
 CombatConfig.Retreat_EscapeDistanceRatio = 0.5         -- open-ground escape run, as a fraction of the arena radius (60-220 studs)

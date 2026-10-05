@@ -237,6 +237,11 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
 	local targetState = target:GetAttribute("CurrentState")
 
+	-- In the air (a jump, the kick off a wall): a dash may get it somewhere (Modules/AirDash)
+	if require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).consider(fighter, humanoid, rootPart, target) then
+		return ChaseState
+	end
+
 	-- Respect-custom standoff: once within the circling gap it circles, it does not close in
 	local standoffGap = fighter:GetAttribute("SocialStandoff")
 	if standoffGap and distance <= standoffGap + 12 then
@@ -358,6 +363,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			if solution and facingEdge and energy >= climbEnergyCost and (tick() - lastPJ) >= 2.0 and canLeave then
 				fighter:SetAttribute("ObstacleAwareness", "High-Ground Intercept Jump")
 				if LocomotionModule.jump(fighter, humanoid, rootPart, solution.height, solution.speed, "jump") then
+					-- (where it means to land, so a jump coming down short can dash on to it)
+					require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).noteJump(fighter, edge + toEdge.Unit * (depth or 4))
 					fighter:SetAttribute("LastPositioningJumpTime", tick())
 					fighter:SetAttribute("Energy", energy - climbEnergyCost)
 					return ChaseState
@@ -1071,6 +1078,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				if solution and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85 then
 					fighter:SetAttribute("ObstacleAwareness", "Climbing High Ground")
 					if LocomotionModule.jump(fighter, humanoid, rootPart, solution.height, solution.speed, "jump") then
+						require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).noteJump(fighter, edge + toEdge.Unit * (depth or 4))
 						data.lastHighGroundJump, data.highGroundSince = now, nil
 						return ChaseState
 					end
