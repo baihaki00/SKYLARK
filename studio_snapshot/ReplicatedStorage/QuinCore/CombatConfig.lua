@@ -482,14 +482,15 @@ CombatConfig.AirDash_ClipSpeed = 1.4        -- the pose: Movement.AirDash (the n
 CombatConfig.AirDash_ClipHold = 0.1         -- ...held this long past the burst, then faded out over ClipFade
 CombatConfig.AirDash_ClipFade = 0.15
 CombatConfig.AirDash_ConeTime = 0.4        -- seconds of vapour cone (the ground dash's)
-CombatConfig.AirDash_PuffSize = 7          -- studs of the shockwave puff where it pushes off
 -- Slide tackle (Modules/SlideTackle): the gap-close slide in Chase takes the legs of an enemy in its lane
 CombatConfig.SlideTackle_Enabled = true
 CombatConfig.SlideTackle_Reach = 4.5         -- studs ahead of the slider at which the legs are taken
 CombatConfig.SlideTackle_Width = 2.5         -- studs either side of the slide's line
 CombatConfig.SlideTackle_ClearHeight = 2.5   -- feet higher than this off the ground clear the slide
 CombatConfig.SlideTackle_DamageMultiplier = 0.8
-CombatConfig.SlideTackle_Launch = 30         -- studs/s up when swept (the fall clip for the side it was swept from plays from the start)
+CombatConfig.SlideTackle_Launch = 12         -- studs/s up when swept: a hop as the legs go, then it drops
+CombatConfig.SlideTackle_DropBlend = 0.35     -- seconds from its run pose to lying (the first frame of the get-up for its side)
+CombatConfig.SlideTackle_DownTime = 0.8      -- seconds from the sweep before it starts to get up
 CombatConfig.SlideTackle_Topple = 1         -- the fall: the trunk topples against the sweep (weight 1)...
 CombatConfig.SlideTackle_MomentumSpeed = 30  -- ...plus its own velocity / this (a runner swept head-on goes down forward)
 CombatConfig.SlideTackle_Carry = 0.35        -- share of the slide's speed carried into the victim (max 20 studs/s)

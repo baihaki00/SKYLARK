@@ -293,7 +293,9 @@ local function wireTrackAudio(humanoid, track, animId)
 	-- Projectile jump marker
 	track:GetMarkerReachedSignal("ProjectileJump"):Connect(function()
 		local audio = getAudioModule()
-		if audio and audio.playJumpUp and fighter and fighter.Parent then
+		-- (only in a projectile jump: the air dash borrows the ninja jump's push-off, and its
+		-- launch sound played on every dash off a wall)
+		if audio and audio.playJumpUp and fighter and fighter.Parent and fighter:GetAttribute("CurrentState") == "ProjectileJump" then
 			local hrp = fighter:FindFirstChild("HumanoidRootPart")
 			if hrp then
 				audio.playJumpUp(hrp.Position)

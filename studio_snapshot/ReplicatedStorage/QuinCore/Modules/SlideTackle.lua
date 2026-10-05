@@ -27,6 +27,8 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 
 local SlideTackle = {}
 
+local isStudio = game:GetService("RunService"):IsStudio()
+
 local stats = { slides = 0, sweeps = 0, hurdles = 0, guarded = 0 }
 
 local function cfg(key, default)
@@ -89,6 +91,16 @@ local function sweep(slider, victim, dir, speed)
 	victim:SetAttribute("LaunchedAt", tick())
 	victim:SetAttribute("SweptAt", os.clock())
 	victim:SetAttribute("SweepFallSide", side)
+	-- the drop starts on this frame: the body blends into the first (lying) frame of the get-up
+	-- for its side and holds it; KnockbackState keeps it there, Recovery goes on with the clip
+	local AnimationModule = require(Modules:WaitForChild("AnimationModule"))
+	local path = side == "Front" and "Reactions.GetUpFrontFast" or "Reactions.GetUpBackFast"
+	local track = AnimationModule.playConfig(humanoid, path, 1.0, Enum.AnimationPriority.Action4, false)
+	if track then
+		track:Stop(0)
+		track:Play(CombatConfig.SlideTackle_DropBlend or 0.35, 1, 0)
+		victim:SetAttribute("GetUpClipOverride", path)
+	end
 	victim:SetAttribute("LastAttackerName", slider.Name)
 	humanoid.PlatformStand = true
 	root.AssemblyLinearVelocity = dir * math.min(speed * cfg("Carry", 0.35), 20) + Vector3.new(0, cfg("Launch", 30), 0)
@@ -102,6 +114,24 @@ local function sweep(slider, victim, dir, speed)
 end
 
 -- A slide that can tackle. Returns the slide's duration (0 when it could not start).
+-- The get-up clips a sweep drops into are loaded up front (the first sweep on each side
+-- otherwise stood for ~0.4 s while the asset loaded)
+task.spawn(function()
+	local ok, AnimationConfig = pcall(require, QuinCore:WaitForChild("AnimationConfig"))
+	local reg = ok and AnimationConfig.Registry and AnimationConfig.Registry.Reactions
+	if not reg then return end
+	local anims = {}
+	for _, key in ipairs({ "GetUpFrontFast", "GetUpBackFast" }) do
+		local entry = reg[key]
+		if entry and entry.id then
+			local a = Instance.new("Animation")
+			a.AnimationId = entry.id
+			table.insert(anims, a)
+		end
+	end
+	pcall(function() game:GetService("ContentProvider"):PreloadAsync(anims) end)
+end)
+
 function SlideTackle.slide(fighter, humanoid, rootPart, target)
 	local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
 	if CombatConfig.SlideTackle_Enabled == false then
@@ -154,8 +184,11 @@ function SlideTackle.slide(fighter, humanoid, rootPart, target)
 							local facing = Vector3.new(look.X, 0, look.Z).Unit:Dot(-dir) > 0.3
 							local busy = enemy:GetAttribute("Attacking") == true
 							local mobility = enemy:GetAttribute("Pers_MobilityPreference") or 0.6
-							if facing and not busy and feetClearance(enemy, eRoot, eHum) < 1.5
-								and math.random() < cfg("HurdleChance", 0.35) * (0.5 + mobility) then
+							local roll = math.random() < cfg("HurdleChance", 0.35) * (0.5 + mobility)
+							-- (Studio demo switch: Workspace TackleOutcome = "hurdle" | "sweep" decides the reflex)
+							local forced = isStudio and Workspace:GetAttribute("TackleOutcome")
+							if forced == "hurdle" then roll = true elseif forced == "sweep" then roll = false end
+							if (facing or forced == "hurdle") and not busy and feetClearance(enemy, eRoot, eHum) < 1.5 and roll then
 								hurdle(enemy, eHum, eRoot)
 							end
 						end
