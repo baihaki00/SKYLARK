@@ -180,6 +180,31 @@ There is no lock-on today. A Quin's focus is its target (`TargetingModule`, held
   - an optional hard-lock key;
   - a flick to the most urgent threat (Attention already ranks them).
 
+### 5.8 How a normal Quin moves: free and engaged; its sight
+Agreed with the owner (2026-10-07). This is the baseline for every Quin; personality and feelings come later.
+
+**Two ways of moving, chosen by context:**
+
+| Situation | Body faces | Back (S) | Sideways (A / D) |
+|---|---|---|---|
+| **Free:** crossing the arena, chasing, running away | where it is going | turns round and runs that way | turns and runs that way |
+| **Engaged:** focused on an opponent close by | the opponent | steps back, still facing them | circles or sidesteps around them |
+
+- Nobody runs across a stadium backwards, and nobody turns their back on someone a few steps away.
+- **The switch comes from attention (5.7):** when the Quin's focus is a nearby opponent, it squares up and moves with footwork; when the focus is far or gone, it moves freely. The AI's circling and backing-off are the engaged mode it already has.
+- **Free movement steers by the mouse for the player** (section 10.1: Tales Runner style): holding forward runs where the view points, and turning the view curves the run within what the body can do at that speed. The AI steers by goals under the same limits.
+
+**Sight is the head, and the player's view is its sight:**
+- A Quin sees where its head points (Cognition: Gaze → Senses, a sight cone around the head's direction).
+- **For the player, the camera drives the Quin's head and gaze:** it looks where the player looks, within what a neck can turn. The keys drive the body.
+- So what the player's Quin perceives comes from where the player is looking, the same way an AI Quin's sight comes from where its head points.
+- Example: looking forward and pressing back. **Free:** the Quin turns and jogs toward the camera, and can look back over its shoulder. **Engaged:** it steps back, still facing its opponent.
+
+**Clips this needs:**
+- a real **backpedal** (moving backwards facing forward); today backwards movement borrows the strafe clip and reads as a moonwalk;
+- later, footwork steps for close fighting (`StepForward` / `StepBack` in COMBAT_ANIMATION_GUIDE.md, 3.1).
+- The strafe clips (left and right; walk, run, tired) already exist for the sideways engaged movement.
+
 ---
 
 ## 6. Principles (the rules every change is checked against)
@@ -228,7 +253,7 @@ Hit rate isn't the measure; flow is:
 | Phase | What | Why first |
 |---|---|---|
 | **0. Baseline** | Record the numbers and fights of today's 16v16 (section 7). Add the flow measures (section 8). | Nothing else can be judged without it. |
-| **1. Body** | Speed-dependent agility, higher grip, stamina by effort for every Quin, intent shown in layers (head / chest / hips). | The creature can only be as alive as its body. Felt immediately in Player Quin, seen in every fight. |
+| **1. Body** | Speed-dependent agility, higher grip, stamina by effort for every Quin, intent shown in layers (head / chest / hips). Free and engaged movement (5.8); the player's camera drives head and gaze; mouse-steered running. Needs a backpedal clip. | The creature can only be as alive as its body. Felt immediately in Player Quin, seen in every fight. |
 | **2. Continuity** | Momentum hand-off: strikes from motion, dodge into counter, knockback into wall into rebound. Reactions that become beats. | "Nothing resets" is the biggest single difference between a game fight and a fight scene. |
 | **3. Reach + attention** | The 3D time-to-contact bands replace fixed thresholds, Fight first, then the others. Attention-based lock, then the player's lock key. | Range as time is what lets the fight travel and what weapons will plug into. |
 | **4. Instinct + answers** | A reflex layer reading `Windup` and arcs; strikes chosen as answers; learning within a fight. | Two creatures *seeing* each other is what makes it look choreographed. |
@@ -248,5 +273,6 @@ States are not thrown away in one go. Each phase moves one piece of behaviour fr
    - The AI steers by goals under the same body limits.
 2. **Default pace when piloting: jog.** A calm stadium walk-on pace (arena, crowd, broadcast); Shift to run.
 3. **Player instinct: only what the player presses.** No automatic guard, dodge or counter. Being hit still plays the hit reaction (the body taking the hit, not a choice).
-4. **Feelings on show:** open. Should feelings be visible on the body (breathing, posture, stance, guarding a hurt side) or only in behaviour? Asked again with examples.
+4. **Feelings on show: later.** That is personality and dynamics. The current work defines what a normal Quin is.
 5. **First fight to judge phases 1–2 on: 1v1.**
+6. **Backwards and the view: the free / engaged split and "the view is the Quin's sight"** (5.8).
