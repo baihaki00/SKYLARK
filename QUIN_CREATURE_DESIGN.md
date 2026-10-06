@@ -240,10 +240,13 @@ States are not thrown away in one go. Each phase moves one piece of behaviour fr
 
 ---
 
-## 10. Questions for the owner
+## 10. Owner's answers (2026-10-07)
 
-1. **Cornering at a sprint (phase 1):** a sharp planted cut (almost 90°), or a tighter but still visible curve? This sets how superhuman the grip is.
-2. **Default pace when piloting:** run by default (like the AI Quins), or jog?
-3. **The player and instinct:** should a player's Quin ever react on its own (an automatic flinch or guard), or only ever do what the player presses?
-4. **Feelings on show:** should feelings be visible on the body (posture, breathing, stance) or only in behaviour?
-5. **First fight to judge by:** which kind of fight should phases 1–2 be judged on first: 1v1 on the dais, a small brawl, or the 16v16?
+1. **Cornering: steered by the mouse, Tales Runner style; fluid.**
+   - Holding W, the Quin runs where the camera points, and moving the mouse turns the run continuously. The curve is as sharp as the mouse movement, limited by what the body can do at that speed.
+   - "Superhuman grip" means how tight a curve can be at a given speed (sideways pull), never an instant 90° turn.
+   - The AI steers by goals under the same body limits.
+2. **Default pace when piloting: jog.** A calm stadium walk-on pace (arena, crowd, broadcast); Shift to run.
+3. **Player instinct: only what the player presses.** No automatic guard, dodge or counter. Being hit still plays the hit reaction (the body taking the hit, not a choice).
+4. **Feelings on show:** open. Should feelings be visible on the body (breathing, posture, stance, guarding a hurt side) or only in behaviour? Asked again with examples.
+5. **First fight to judge phases 1–2 on: 1v1.**
