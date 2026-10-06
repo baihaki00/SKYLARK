@@ -125,7 +125,7 @@ function BeamStruggleState.enter(fighter, humanoid, rootPart)
 	end
 
 	-- Channeling / Power-Up Stance
-	AnimationModule.playConfig(humanoid, "Attacks.Specials.BeamStruggle", 1.0, Enum.AnimationPriority.Action4)
+	AnimationModule.playConfig(humanoid, "Transition.BeamStruggle", 1.0, Enum.AnimationPriority.Action4)
 
 	-- Phase 1: Power-up charge gathering VFX
 	local chargeVfx = VfxModule.createChargePowerUpVfx(rootPart, powerUpDur, elemA)

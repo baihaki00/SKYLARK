@@ -12,12 +12,12 @@ local dynamicPunches = setmetatable({}, {
 	__index = function(_, idx)
 		local p = AnimationConfig.Registry.Attacks and AnimationConfig.Registry.Attacks.Punches
 		if not p then return nil end
-		local punchKeys = {"Punch1", "CrossLeft", "CrossRight"}
+		local punchKeys = {"LeftPunch", "RightPunch"}
 		local key = punchKeys[idx] or ("Punch" .. tostring(idx))
 		return p[key] and p[key].id or nil
 	end,
 	__len = function(_)
-		return 3
+		return 2
 	end
 })
 
@@ -25,12 +25,12 @@ local dynamicKicks = setmetatable({}, {
 	__index = function(_, idx)
 		local k = AnimationConfig.Registry.Attacks and AnimationConfig.Registry.Attacks.Kicks
 		if not k then return nil end
-		local kickKeys = {"HighKick", "LowKick", "PowerKick", "WheelDrive"}
+		local kickKeys = {"LowKickRight", "LowKickLeft", "HighKickRight", "HighKickLeft", "WheelDriveRight", "WheelDriveLeft"}
 		local key = kickKeys[idx] or ("Kick" .. tostring(idx))
 		return k[key] and k[key].id or nil
 	end,
 	__len = function(_)
-		return 4
+		return 6
 	end
 })
 
@@ -79,10 +79,9 @@ setmetatable(AnimationIds, {
 		if key == "Block" or key == "BlockFront" then return reg.Reactions and reg.Reactions.BlockFront and reg.Reactions.BlockFront.id end
 		if key == "BlockLeft" then return reg.Reactions and reg.Reactions.BlockLeft and reg.Reactions.BlockLeft.id end
 		if key == "BlockRight" then return reg.Reactions and reg.Reactions.BlockRight and reg.Reactions.BlockRight.id end
-		if key == "Uppercut" then return reg.Attacks and reg.Attacks.Specials and reg.Attacks.Specials.Uppercut and reg.Attacks.Specials.Uppercut.id end
-		if key == "Slam" then return reg.Attacks and reg.Attacks.Specials and reg.Attacks.Specials.Slam and reg.Attacks.Specials.Slam.id end
-		if key == "RivalFinisher" then return reg.Attacks and reg.Attacks.Specials and reg.Attacks.Specials.RivalFinisher and reg.Attacks.Specials.RivalFinisher.id end
-		if key == "BeamStruggle" then return reg.Attacks and reg.Attacks.Specials and reg.Attacks.Specials.BeamStruggle and reg.Attacks.Specials.BeamStruggle.id end
+		-- (the rival finisher has no clip of its own: the right high kick)
+		if key == "RivalFinisher" then return reg.Attacks and reg.Attacks.Kicks and reg.Attacks.Kicks.HighKickRight and reg.Attacks.Kicks.HighKickRight.id end
+		if key == "BeamStruggle" then return reg.Transition and reg.Transition.BeamStruggle and reg.Transition.BeamStruggle.id end
 		if key == "Death" then return (reg.Reactions and reg.Reactions.Death and reg.Reactions.Death.id) or (reg.Reactions and reg.Reactions.DeathCollapse and reg.Reactions.DeathCollapse.id) end
 		if key == "DeathOnTheSpot" or key == "OnTheSpotDeath" then return reg.Reactions and reg.Reactions.DeathOnTheSpot and reg.Reactions.DeathOnTheSpot.id end
 		if key == "Dash" then 
@@ -128,7 +127,7 @@ setmetatable(AnimationIds, {
 		if key == "ProceduralSlide2" then return reg.Parkour and reg.Parkour.ProceduralSlide2 and reg.Parkour.ProceduralSlide2.id end
 		if key == "ProceduralEvade1" then return reg.Tactics and reg.Tactics.ProceduralEvade1 and reg.Tactics.ProceduralEvade1.id end
 		if key == "ProceduralEvade2" then return reg.Tactics and reg.Tactics.ProceduralEvade2 and reg.Tactics.ProceduralEvade2.id end
-		if key == "ProceduralSmackDown" then return reg.Attacks and reg.Attacks.Specials and reg.Attacks.Specials.ProceduralSmackDown and reg.Attacks.Specials.ProceduralSmackDown.id end
+		if key == "ProceduralSmackDown" then return reg.Attacks and reg.Attacks.Special and reg.Attacks.Special.ProceduralSmackDown and reg.Attacks.Special.ProceduralSmackDown.id end
 		if key == "LookingBehind" then return reg.Awareness and reg.Awareness.LookingBehind and reg.Awareness.LookingBehind.id end
 
 		-- Behavioral Polish Aliases (Phase 1 - 6)
@@ -141,8 +140,6 @@ setmetatable(AnimationIds, {
 		if key == "DesperateCounter" then return reg.Tactics and reg.Tactics.DesperateCounter and reg.Tactics.DesperateCounter.id end
 		if key == "VaultObstacle" then return reg.Parkour and reg.Parkour.VaultObstacle and reg.Parkour.VaultObstacle.id end
 		if key == "LedgeDropLanding" then return reg.Parkour and reg.Parkour.LedgeDropLanding and reg.Parkour.LedgeDropLanding.id end
-		if key == "SlamImpact" then return reg.Attacks and reg.Attacks.Specials and reg.Attacks.Specials.SlamImpact and reg.Attacks.Specials.SlamImpact.id end
-		if key == "SlamRecovery" then return reg.Attacks and reg.Attacks.Specials and reg.Attacks.Specials.SlamRecovery and reg.Attacks.Specials.SlamRecovery.id end
 		if key == "SlammedDown" then return reg.Reactions and reg.Reactions.SlammedDown and reg.Reactions.SlammedDown.id end
 		if key == "DeathCollapse" then return reg.Reactions and reg.Reactions.DeathCollapse and reg.Reactions.DeathCollapse.id end
 

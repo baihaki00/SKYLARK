@@ -137,18 +137,22 @@ Without the marker the code uses the clip's `cancelRatio` (about 70%).
 
 Grouped by **unique asset**: markers are edited once per asset ID. ⚠️ marks an asset shared by moves that need different timing or meaning.
 
-### 2.1 Strikes
+### 2.1 Strikes (replaced 2026-10-06, Pass 71)
 
-| Asset ID | Used as | Notes |
-|---|---|---|
-| `113219639247452` | Lead Jab, Uppercut (punch), Ground Slam, Slam Impact, Special Move 1, Uppercut (special) | ⚠️ 6 moves, 1 clip |
-| `79937990476934` | Cross Left | |
-| `99362983788110` | Cross Right, Desperate Counter | counter can share |
-| `84162023451491` | High Kick | |
-| `71573540671127` | Low Kick | |
-| `87872094663324` | Power Kick, Special1, Rival Decisive Finisher | ⚠️ 3 moves |
-| `89487629068473` | Wheeldrive, Slam (special) | ⚠️ 2 moves |
-| `71743026406362` | AOE Arc Jump Smack Down | |
+The owner's own clips, each with markers. Left versions are mirrored from Right. The old strike assets are gone from AnimationConfig.
+
+| AnimationConfig path | Asset ID | Length | Markers |
+|---|---|---|---|
+| `Attacks.Punches.LeftPunch` | `90752953215195` | 1.00 s | Windup .27 · Whoosh(Light) .40 · HitStart(LeftHand) .53 · HitEnd .67 · Recover .83 |
+| `Attacks.Punches.RightPunch` | `100294955898321` | 1.00 s | same, RightHand (also `Tactics.DesperateCounter`) |
+| `Attacks.Kicks.LowKickRight` / `LowKickLeft` | `120201409079711` / `128873647170869` | 1.17 s | Windup .27 · Whoosh(Light) .33 · HitStart(foot) .47 · HitEnd .53 · Recover 1.00 |
+| `Attacks.Kicks.HighKickRight` / `HighKickLeft` | `112847704540861` / `78628980439076` | 0.93 s | Windup .17 · Whoosh(Light) .20 · HitStart(foot) .33 · HitEnd .47 · Recover .87 |
+| `Attacks.Kicks.WheelDriveRight` / `WheelDriveLeft` | `72225232579765` / `103890244670922` | 1.23 s | Windup .33 · Whoosh(Light) .47 · HitStart(foot) .53 · HitEnd .63 · Recover 1.10 |
+| `Attacks.Special.ProceduralSmackDown` | `71743026406362` | 2.73 s | ProjectileJump .53 · BodyLanding 1.20 |
+
+- **Not their own clips yet:** the specials (`SpecialState`: right high kick and right wheeldrive), the rival finisher (right high kick). `Transition.BeamStruggle` is the fight idle.
+- **To fix in the clips:** both punches' `HitEnd` has an empty parameter (should name the hand).
+- **Mirroring:** a Left clip can be made from a Right one in Studio (KeyframeSequence in `ServerStorage.RBX_ANIMSAVES`, every bone mirrored in the rig's space, markers' Left/Right swapped), then published by the owner.
 
 ### 2.2 Blocks
 

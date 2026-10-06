@@ -230,7 +230,7 @@ function SpecialState.enter(fighter, humanoid, rootPart)
 		AnimationModule.playConfig(humanoid, "Reactions.Block", 1.2, Enum.AnimationPriority.Action4)
 		fighter:SetAttribute("IsGuarding", true)
 	else
-		AnimationModule.playConfig(humanoid, "Attacks.Special.Special1", 1.0, Enum.AnimationPriority.Action4)
+		AnimationModule.playConfig(humanoid, "Attacks.Kicks.HighKickRight", 1.0, Enum.AnimationPriority.Action4)
 	end
 end
 
@@ -290,9 +290,9 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 			end
 			
 			if move.type == "Defensive" then
-				AnimationModule.playConfig(humanoid, "Attacks.Special.Slam", 1.2, Enum.AnimationPriority.Action4)
+				AnimationModule.playConfig(humanoid, "Attacks.Kicks.WheelDriveRight", 1.2, Enum.AnimationPriority.Action4)
 			else
-				AnimationModule.playConfig(humanoid, "Attacks.Special.Special1", 1.3, Enum.AnimationPriority.Action4)
+				AnimationModule.playConfig(humanoid, "Attacks.Kicks.HighKickRight", 1.3, Enum.AnimationPriority.Action4)
 			end
 			
 			if DEBUG then print(string.format("[%s] Special ACTIVE: %s (%s)", fighter.Name, move.name, move.type)) end

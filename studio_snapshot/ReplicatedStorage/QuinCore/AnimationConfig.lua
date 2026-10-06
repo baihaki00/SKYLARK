@@ -6,31 +6,24 @@ local AnimationConfig = {}
 
 AnimationConfig.Registry = {
 	Attacks = {
+		-- The owner's strike clips (2026-10-06), each with its own markers: Windup, Whoosh,
+		-- HitStart/HitEnd (the limb), Recover. Right and Left are separate clips (Left mirrored from
+		-- Right). Until the marker reader is in, impactRatio = the middle of the HitStart-HitEnd
+		-- window and cancelRatio = Recover, both as a share of the clip.
 		Kicks = {
-			HighKick = { id = "rbxassetid://84162023451491", speed = 1.20, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.80, name = "High Kick" },
-			LowKick = { id = "rbxassetid://71573540671127", speed = 1.35, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.45, cancelRatio = 0.80, name = "Low Kick" },
-			PowerKick = { id = "rbxassetid://87872094663324", speed = 1.35, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.45, cancelRatio = 0.80, name = "Power Kick" },
-			WheelDrive = { id = "rbxassetid://89487629068473", speed = 1.40, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.50, cancelRatio = 0.85, name = "Wheeldrive" },
+			LowKickRight = { id = "rbxassetid://120201409079711", speed = 1.35, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.86, name = "Low Kick Right" },
+			LowKickLeft = { id = "rbxassetid://128873647170869", speed = 1.35, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.86, name = "Low Kick Left" },
+			HighKickRight = { id = "rbxassetid://112847704540861", speed = 1.20, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.93, name = "High Kick Right" },
+			HighKickLeft = { id = "rbxassetid://78628980439076", speed = 1.20, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.93, name = "High Kick Left" },
+			WheelDriveRight = { id = "rbxassetid://72225232579765", speed = 1.40, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.47, cancelRatio = 0.89, name = "Wheeldrive Kick Right" },
+			WheelDriveLeft = { id = "rbxassetid://103890244670922", speed = 1.40, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.47, cancelRatio = 0.89, name = "Wheeldrive Kick Left" },
 		},
 		Punches = {
-			CrossLeft = { id = "rbxassetid://79937990476934", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.35, cancelRatio = 0.70, name = "Cross Left" },
-			CrossRight = { id = "rbxassetid://99362983788110", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.35, cancelRatio = 0.70, name = "Cross Right" },
-			-- (Hook Punch 135206101877204 removed: a re-upload of 118776942028972, which the owner dropped)
-			Punch1 = { id = "rbxassetid://113219639247452", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.35, cancelRatio = 0.70, name = "Lead Jab" },
-			Uppercut = { borrows = "Attacks.Punches.Punch1", speed = 1.20, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.30, cancelRatio = 0.60, name = "Uppercut" },
+			LeftPunch = { id = "rbxassetid://90752953215195", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.60, cancelRatio = 0.83, name = "Left Punch" },
+			RightPunch = { id = "rbxassetid://100294955898321", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.60, cancelRatio = 0.83, name = "Right Punch" },
 		},
 		Special = {
-			Slam = { borrows = "Attacks.Kicks.WheelDrive", speed = 1.10, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.75, name = "Slam" },
-			Special1 = { borrows = "Attacks.Kicks.PowerKick", speed = 1.00, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.45, cancelRatio = 0.80, name = "Special1" },
-		},
-		Specials = {
-			Slam = { borrows = "Attacks.Punches.Punch1", speed = 1.10, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.50, cancelRatio = 0.80, name = "Ground Slam" },
-			SlamImpact = { borrows = "Attacks.Punches.Punch1", speed = 1.20, fadeTime = 0.04, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.80, name = "Ground Slam Impact" },
-			SlamRecovery = { borrows = "Reactions.GetUpBackFast", speed = 1.50, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.50, cancelRatio = 0.90, name = "Ground Slam Recovery Rise" },
-			Special1 = { borrows = "Attacks.Punches.Punch1", speed = 1.00, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.35, cancelRatio = 0.70, name = "Special Move 1" },
-			Uppercut = { borrows = "Attacks.Punches.Punch1", speed = 1.20, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.75, name = "Uppercut" },
-			RivalFinisher = { borrows = "Attacks.Kicks.PowerKick", speed = 1.15, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.50, cancelRatio = 0.85, name = "Rival Decisive Finisher" },
-			BeamStruggle = { trackKey = "Beam", borrows = "Idles.FightIdle", speed = 1.00, fadeTime = 0.10, priority = "Action4", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Beam Struggle Channel" },
+			-- the arc jump's one-clip look (ProjectileJumpState): markers ProjectileJump 0.53 s, BodyLanding 1.20 s
 			ProceduralSmackDown = { id = "rbxassetid://71743026406362", speed = 1.25, fadeTime = 0.05, priority = "Action4", looped = false, impactRatio = 0.45, cancelRatio = 0.80, name = "AOE Arc Jump Smack Down" },
 		},
 	},
@@ -71,6 +64,8 @@ AnimationConfig.Registry = {
 		WalkThug = { borrows = "Movement.WalkConfident", speed = 0.90, fadeTime = 0.15, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Aggressive Walk" },
 	},
 	Transition = {
+		-- (the beam struggle holds the fight stance on its own track; moved here from Attacks.Specials)
+		BeamStruggle = { trackKey = "Beam", borrows = "Idles.FightIdle", speed = 1.00, fadeTime = 0.10, priority = "Action4", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Beam Struggle Channel" },
 		AssessTarget = { trackKey = "Assess", borrows = "Idles.FightIdle", speed = 1.20, fadeTime = 0.15, priority = "Action2", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Target Assessment Survey" },
 	},
 	Awareness = {
@@ -79,7 +74,7 @@ AnimationConfig.Registry = {
 		Turn180Pivot = { borrows = "Movement.RunTurn180", speed = 1.50, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Degree Turn Pivot" },
 	},
 	Tactics = {
-		DesperateCounter = { borrows = "Attacks.Punches.CrossRight", speed = 1.35, fadeTime = 0.06, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.75, name = "Cornered Desperate Counter" },
+		DesperateCounter = { borrows = "Attacks.Punches.RightPunch", speed = 1.35, fadeTime = 0.06, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.75, name = "Cornered Desperate Counter" },
 		ProceduralEvade1 = { id = "rbxassetid://131563762426355", speed = 1.30, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Procedural Evade 01" },
 		ProceduralEvade2 = { id = "rbxassetid://135253684509200", speed = 1.30, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Procedural Evade Enemy 02" },
 		RetreatBackstep = { borrows = "Strafe.StrafeLeftWalk", speed = 1.30, fadeTime = 0.08, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Tactical Backstep Hop" },

@@ -335,11 +335,11 @@ local function playClip(humanoid, path, looped)
 end
 
 -- The arc jump's other look: one smack-down clip over the whole jump (AnimationConfig
--- Attacks.Specials.ProceduralSmackDown, in place). Its markers: ProjectileJump (takeoff) 0.53 s,
+-- Attacks.Special.ProceduralSmackDown, in place). Its markers: ProjectileJump (takeoff) 0.53 s,
 -- BodyLanding 1.20 s, end 2.73 s. It starts at the takeoff; the airborne part is stretched or
 -- squeezed every frame so the BodyLanding frame meets the touchdown, and the rest plays at normal
 -- speed as the landing (RecoveryState carries it on instead of a landing clip).
-local SMACK_PATH = "Attacks.Specials.ProceduralSmackDown"
+local SMACK_PATH = "Attacks.Special.ProceduralSmackDown"
 local SMACK_TAKEOFF = 0.53
 local SMACK_LANDING = 1.2
 

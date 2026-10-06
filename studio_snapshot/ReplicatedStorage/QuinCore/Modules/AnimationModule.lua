@@ -13,17 +13,17 @@ local animationTracks = {}
 -- Clip lengths in seconds, measured on the Quin rig for every clip in AnimationConfig. Used only
 -- until a track reports its own Length (an unloaded track reports 0). Regenerate when a clip changes.
 local KNOWN_TRACK_LENGTHS = {
-	["rbxassetid://84162023451491"] = 1.167, -- Attacks.Kicks.HighKick
-	["rbxassetid://71573540671127"] = 1.133, -- Attacks.Kicks.LowKick
-	["rbxassetid://87872094663324"] = 0.933, -- Attacks.Kicks.PowerKick, Attacks.Special.Special1, Attacks.Specials.RivalFinisher
-	["rbxassetid://89487629068473"] = 1.233, -- Attacks.Kicks.WheelDrive, Attacks.Special.Slam
-	["rbxassetid://79937990476934"] = 1.000, -- Attacks.Punches.CrossLeft
-	["rbxassetid://99362983788110"] = 1.000, -- Attacks.Punches.CrossRight
-	["rbxassetid://135206101877204"] = 1.200, -- Attacks.Punches.Hook, Tactics.DesperateCounter
-	["rbxassetid://113219639247452"] = 0.833, -- Attacks.Punches.Punch1, Attacks.Punches.Uppercut, Attacks.Specials.Slam, Attacks.Specials.SlamImpact, Attacks.Specials.Special1, Attacks.Specials.Uppercut
-	["rbxassetid://109837817595150"] = 3.867, -- Attacks.Specials.BeamStruggle, Idles.CombatIdle, Idles.FightIdle, Idles.SurveyIdle, Transition.AssessTarget
-	["rbxassetid://71743026406362"] = 2.733, -- Attacks.Specials.ProceduralSmackDown
-	["rbxassetid://79207866638803"] = 3.200, -- Reactions.GetUpBackFast, Attacks.Specials.SlamRecovery
+	["rbxassetid://120201409079711"] = 1.167, -- Attacks.Kicks.LowKickRight
+	["rbxassetid://128873647170869"] = 1.167, -- Attacks.Kicks.LowKickLeft
+	["rbxassetid://112847704540861"] = 0.933, -- Attacks.Kicks.HighKickRight
+	["rbxassetid://78628980439076"] = 0.933, -- Attacks.Kicks.HighKickLeft
+	["rbxassetid://72225232579765"] = 1.233, -- Attacks.Kicks.WheelDriveRight
+	["rbxassetid://103890244670922"] = 1.233, -- Attacks.Kicks.WheelDriveLeft
+	["rbxassetid://90752953215195"] = 1.000, -- Attacks.Punches.LeftPunch
+	["rbxassetid://100294955898321"] = 1.000, -- Attacks.Punches.RightPunch, Tactics.DesperateCounter
+	["rbxassetid://109837817595150"] = 3.867, -- Idles.CombatIdle, Idles.FightIdle, Idles.SurveyIdle, Transition.AssessTarget, Transition.BeamStruggle
+	["rbxassetid://71743026406362"] = 2.733, -- Attacks.Special.ProceduralSmackDown
+	["rbxassetid://79207866638803"] = 3.200, -- Reactions.GetUpBackFast
 	["rbxassetid://82896239168564"] = 3.200, -- Reactions.GetUpFrontFast
 	["rbxassetid://90997656474712"] = 4.933, -- Reactions.GetUpFrontSlow
 	["rbxassetid://98616724907377"] = 4.033, -- Awareness.LookingBehind, Awareness.RearThreatGlance
@@ -73,14 +73,14 @@ local KNOWN_TRACK_LENGTHS = {
 
 -- Display names for trace output (first AnimationConfig path that uses the asset)
 local KNOWN_NAMES = {
-	["rbxassetid://84162023451491"] = "HighKick",
-	["rbxassetid://71573540671127"] = "LowKick",
-	["rbxassetid://87872094663324"] = "PowerKick",
-	["rbxassetid://89487629068473"] = "WheelDrive",
-	["rbxassetid://79937990476934"] = "CrossLeft",
-	["rbxassetid://99362983788110"] = "CrossRight",
-	["rbxassetid://135206101877204"] = "Hook",
-	["rbxassetid://113219639247452"] = "Punch1",
+	["rbxassetid://120201409079711"] = "LowKickRight",
+	["rbxassetid://128873647170869"] = "LowKickLeft",
+	["rbxassetid://112847704540861"] = "HighKickRight",
+	["rbxassetid://78628980439076"] = "HighKickLeft",
+	["rbxassetid://72225232579765"] = "WheelDriveRight",
+	["rbxassetid://103890244670922"] = "WheelDriveLeft",
+	["rbxassetid://90752953215195"] = "LeftPunch",
+	["rbxassetid://100294955898321"] = "RightPunch",
 	["rbxassetid://109837817595150"] = "BeamStruggle",
 	["rbxassetid://71743026406362"] = "ProceduralSmackDown",
 	["rbxassetid://79207866638803"] = "GetUpBackFast",
@@ -503,7 +503,7 @@ function AnimationModule.stopCategory(humanoid, category, fadeOut)
 	collectIds(catData)
 	
 	for animId, track in pairs(animationTracks[humanoid]) do
-		-- (never the base idle: Attacks.BeamStruggle and Awareness.AssessTarget share the fight
+		-- (never the base idle: Transition.BeamStruggle and Transition.AssessTarget share the fight
 		-- idle's asset, so stopping "Attacks" on entering Fight / Circling stopped the idle loop
 		-- itself and the body showed its bind pose until the no-pose watchdog caught it)
 		if idsToStop[animId] and track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Idle then
@@ -700,7 +700,7 @@ function AnimationModule.stopCategory(humanoid, category, fadeOut)
 	end
 	
 	for animId, track in pairs(animationTracks[humanoid]) do
-		-- (never the base idle: Attacks.BeamStruggle and Awareness.AssessTarget share the fight
+		-- (never the base idle: Transition.BeamStruggle and Transition.AssessTarget share the fight
 		-- idle's asset, so stopping "Attacks" on entering Fight / Circling stopped the idle loop
 		-- itself and the body showed its bind pose until the no-pose watchdog caught it)
 		if idsToStop[animId] and track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Idle then

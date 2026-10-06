@@ -32,12 +32,12 @@ local updateRigStatusBadge = nil
 -- UI State
 local activeMainTab = "Powerhouse" -- "Powerhouse", "GameModes", "TestModes"
 local currentCategory = "All"
-local currentEntryPath = "Attacks.Punches.Punch1"
+local currentEntryPath = "Attacks.Punches.LeftPunch"
 local currentEntryData = AnimationConfig.get(currentEntryPath) or {}
 local comboChain = {
-	{ path = "Attacks.Punches.Punch1", name = "Lead Jab" },
-	{ path = "Attacks.Punches.CrossRight", name = "Cross Right" },
-	{ path = "Attacks.Kicks.PowerKick", name = "Power Kick" },
+	{ path = "Attacks.Punches.LeftPunch", name = "Left Punch" },
+	{ path = "Attacks.Punches.RightPunch", name = "Right Punch" },
+	{ path = "Attacks.Kicks.HighKickRight", name = "High Kick Right" },
 }
 local slomoSpeed = 1.0
 local isFreecamActive = true -- Default to Blender Freecam on startup
@@ -1301,7 +1301,7 @@ activeAnimLabel.BackgroundColor3 = Color3.fromRGB(35, 41, 55)
 activeAnimLabel.TextColor3 = C_ACCENT
 activeAnimLabel.Font = Enum.Font.GothamBold
 activeAnimLabel.TextSize = 12
-activeAnimLabel.Text = "Selected: Attacks.Punches.Punch1"
+activeAnimLabel.Text = "Selected: Attacks.Punches.LeftPunch"
 activeAnimLabel.Parent = centerPanel
 applyCorner(activeAnimLabel, 6)
 
@@ -2756,7 +2756,7 @@ do
 			if pData.presetId == "RunPunch" then
 				combinatorLayers = {
 					mkLayer("rbxassetid://109090784752055", "Movement.Run", 0.0, 0.467, 1.0, 1.0, "Movement", "Lower Body", true),
-					mkLayer("rbxassetid://113219639247452", "Attacks.Punch1", 0.0, 0.833, 1.0, 1.0, "Action4", "Upper Body", true),
+					mkLayer("rbxassetid://90752953215195", "Attacks.Punches.LeftPunch", 0.0, 1.0, 1.0, 1.0, "Action4", "Upper Body", true),
 				}
 			elseif pData.presetId == "IdleStance" then
 				combinatorLayers = {

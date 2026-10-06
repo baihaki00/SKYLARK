@@ -428,9 +428,8 @@ end
 local comboStep = 1
 local lastAttackTime = 0
 local PUNCH_TRACKS = {
-	"rbxassetid://113219639247452", -- Lead Jab
-	"rbxassetid://99362983788110",  -- Cross Right
-	"rbxassetid://135206101877204", -- Hook Punch
+	"rbxassetid://90752953215195",  -- Left Punch (AnimationConfig Attacks.Punches.LeftPunch)
+	"rbxassetid://100294955898321", -- Right Punch (Attacks.Punches.RightPunch)
 }
 
 local function executePlayerAttack()
