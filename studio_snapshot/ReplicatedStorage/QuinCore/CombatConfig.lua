@@ -443,6 +443,7 @@ CombatConfig.Combat_StrikeFacingWait = 0.5         -- ...for at most this long (
 CombatConfig.Combat_StrikeLead = 0.6               -- the step-in aims at the target's position this share of its velocity ahead
 CombatConfig.Combat_StrikeTracking = true          -- re-aim the step-in halfway through the wind-up
 CombatConfig.Combat_WhiffRecovery = 0.2            -- seconds: a whiffed swing's follow-through is cut to this, then the Quin moves again
+CombatConfig.Combat_UseStrikeMarkers = true       -- strikes use the markers in their clips (HitStart-HitEnd window checked every frame, free at Recover); false: one check at impactRatio, free at cancelRatio
 CombatConfig.Combat_TradeWindow = 0.08               -- a strike this close to landing still comes out when its thrower is hit (a trade)
 CombatConfig.Combat_LungeMaxSpeed = 60             -- studs/s ceiling of the step-in; its real speed is whatever closes the gap
 CombatConfig.Combat_LungeStopDistance = 4.8            -- an attack lunge stops this far from the target (outside Melee_SweetSpotMin; a jab reaches 6.5)

@@ -329,5 +329,8 @@ do
 	ImpulseModule.start()
 end
 
+-- The timing markers in every strike clip (HitStart, HitEnd, Recover) are read now, not mid-fight
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StrikeMarkers")).preload()
+
 -- Every animation clip is fetched now, so none is first loaded in the middle of a move
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule")).preload()

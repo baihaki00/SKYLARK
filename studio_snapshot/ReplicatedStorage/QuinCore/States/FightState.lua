@@ -22,6 +22,8 @@ local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
+local StrikeMarkers = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StrikeMarkers"))
+local RunService = game:GetService("RunService")
 
 -- Dynamic combat animation pools: directly hot-swappable via AnimationConfig!
 local function getLiveAttacks()
@@ -281,15 +283,30 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- Determine true effective track duration
 	local rawLength = (track and track.Length > 0 and track.Length) or AnimationModule.getRawLength(animData.id) or moveData.duration or 0.7
 	local effectiveDuration = rawLength / playSpeed
-	local impactDelay = effectiveDuration * impactRatio
-	local cancelDelay = effectiveDuration * cancelRatio
+	-- The owner's markers in the clip (Modules/StrikeMarkers): contact is checked on every frame
+	-- from HitStart to HitEnd, and the Quin is free to act and move at Recover. A clip without
+	-- them (or not read yet): one check at impactRatio, free at cancelRatio, done at the clip's end.
+	local markers = CombatConfig.Combat_UseStrikeMarkers ~= false and StrikeMarkers.get(animData.id) or nil
+	local impactDelay, windowEnd, cancelDelay, finishDelay
+	if markers then
+		impactDelay = markers.hitStart / playSpeed
+		windowEnd = markers.hitEnd / playSpeed
+		cancelDelay = (markers.recover or rawLength * cancelRatio) / playSpeed
+		finishDelay = cancelDelay
+	else
+		impactDelay = effectiveDuration * impactRatio
+		windowEnd = impactDelay
+		cancelDelay = effectiveDuration * cancelRatio
+		finishDelay = effectiveDuration
+	end
+	fighter:SetAttribute("StrikeTiming", markers and "markers" or "ratios") -- (debug HUD, probes)
 
 	-- Set telegraphing attributes for causal defense (impact window driven by config)
 	local now = tick()
 	fighter:SetAttribute("Attacking", true)
 	local windupUntil = now + impactDelay
 	fighter:SetAttribute("AttackWindupUntil", windupUntil)
-	task.delay(effectiveDuration, function()
+	task.delay(finishDelay, function()
 		if fighter.Parent and tick() >= (data.attackFinishTime or 0) then
 			fighter:SetAttribute("Attacking", false)
 		end
@@ -335,60 +352,61 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		end
 	end
 	
-	-- Hit detection at exact impact frame
-	task.delay(impactDelay, function()
-		if not fighter.Parent or not target.Parent then return end
-		-- Hit while winding up: the strike never comes out and the chain is broken
-		if fighter:GetAttribute("StrikeInterrupted") == windupUntil then
-			ComboModule.resetCombo(fighter)
-			fighter:SetAttribute("StrikeResult", "Interrupted")
-			fighter:SetAttribute("StrikeSeq", (fighter:GetAttribute("StrikeSeq") or 0) + 1)
-			return
-		end
+	-- Contact: checked from the start of the window on every frame until it closes (one check
+	-- when the clip has no markers). Each body is struck once; the window closes early once the
+	-- target itself has been met (hit, blocked or dodged).
+	local struck = {}
+	local landed = false
+	local result = "Whiff"
+
+	local function check()
 		local hitModels = HitboxModule.castInFront(rootPart, moveData.hitboxSize, Vector3.new(0, 0, -3), fighter)
-		local landed = false
-		local result = "Whiff"
-
 		for _, hitModel in ipairs(hitModels) do
-			local damageInfo = DamageModule.calculate(fighter, hitModel, moveData.step, moveData.damageMultiplier)
-			local applied, isKill, status = DamageModule.apply(fighter, hitModel, damageInfo)
+			if not struck[hitModel] then
+				struck[hitModel] = true
+				local damageInfo = DamageModule.calculate(fighter, hitModel, moveData.step, moveData.damageMultiplier)
+				local applied, isKill, status = DamageModule.apply(fighter, hitModel, damageInfo)
 
-			if status == "Blocked" or status == "Dodged" then
-				result = status
-				if DEBUG then print("[Fight] Combo broken by " .. status .. "!") end
-				ComboModule.resetCombo(fighter)
-				data.lastAttackTime = tick() + 0.3 -- Stagger them slightly
-			elseif applied then
-				landed = true
-				result = "Hit"
-				if DEBUG then
-					print(string.format("[Fight] %s -> %s: %s (DMG=%d%s, Combo=%d)",
-						fighter.Name, hitModel.Name, moveData.name,
-						damageInfo.damage, damageInfo.isCrit and " CRIT!" or "",
-						moveData.step))
-				end
+				if status == "Blocked" or status == "Dodged" then
+					if not landed then result = status end
+					if DEBUG then print("[Fight] Combo broken by " .. status .. "!") end
+					ComboModule.resetCombo(fighter)
+					data.lastAttackTime = tick() + 0.3 -- Stagger them slightly
+				elseif applied then
+					landed = true
+					result = "Hit"
+					if DEBUG then
+						print(string.format("[Fight] %s -> %s: %s (DMG=%d%s, Combo=%d)",
+							fighter.Name, hitModel.Name, moveData.name,
+							damageInfo.damage, damageInfo.isCrit and " CRIT!" or "",
+							moveData.step))
+					end
 
-				if moveData.isLaunch then
-					-- LAUNCH: Send them flying up!
-					AudioModule.playSlam(hitModel:FindFirstChild("HumanoidRootPart").Position)
-					KnockbackModule.applyLaunch(hitModel,
-						CombatConfig.LaunchVerticalForce or 120,
-						CombatConfig.LaunchHorizontalForce or 20)
-					hitModel:SetAttribute("ForceState", "Knockback")
-					if DEBUG then print("[Fight] LAUNCH! -> Airborne pursuit") end
-				else
-					applyHitOutcome(rootPart, hitModel, moveData, DamageModule.resolveOutcome(fighter, hitModel, moveData, damageInfo))
+					if moveData.isLaunch then
+						-- LAUNCH: Send them flying up!
+						AudioModule.playSlam(hitModel:FindFirstChild("HumanoidRootPart").Position)
+						KnockbackModule.applyLaunch(hitModel,
+							CombatConfig.LaunchVerticalForce or 120,
+							CombatConfig.LaunchHorizontalForce or 20)
+						hitModel:SetAttribute("ForceState", "Knockback")
+						if DEBUG then print("[Fight] LAUNCH! -> Airborne pursuit") end
+					else
+						applyHitOutcome(rootPart, hitModel, moveData, DamageModule.resolveOutcome(fighter, hitModel, moveData, damageInfo))
+					end
 				end
 			end
 		end
+	end
 
+	-- The window is over: what became of this strike
+	local function conclude()
 		-- A strike that connects with nothing ends the chain: the next attack opens a new combo
 		-- instead of throwing the finisher at empty air
 		if not landed then
 			ComboModule.resetCombo(fighter)
 		end
 		-- Strike telemetry (HUD / audits): what became of this strike
-		if result == "Whiff" and #hitModels == 0 then
+		if result == "Whiff" and next(struck) == nil then
 			local tHRP = target:FindFirstChild("HumanoidRootPart")
 			fighter:SetAttribute("StrikeMissDist", tHRP and math.floor((tHRP.Position - rootPart.Position).Magnitude * 10) / 10 or -1)
 		end
@@ -413,9 +431,39 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 			data.actionEndTime = math.min(data.actionEndTime or until_, until_)
 			data.attackFinishTime = math.min(data.attackFinishTime or until_, until_)
 		end
+	end
+
+	task.delay(impactDelay, function()
+		if not fighter.Parent or not target.Parent then return end
+		-- Hit while winding up: the strike never comes out and the chain is broken
+		if fighter:GetAttribute("StrikeInterrupted") == windupUntil then
+			ComboModule.resetCombo(fighter)
+			fighter:SetAttribute("StrikeResult", "Interrupted")
+			fighter:SetAttribute("StrikeSeq", (fighter:GetAttribute("StrikeSeq") or 0) + 1)
+			return
+		end
+		check()
+		local span = windowEnd - impactDelay
+		if span <= 0 or struck[target] then
+			conclude()
+			return
+		end
+		local opened = os.clock()
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			-- (the window also closes when the Quin is knocked out of its fight or dies mid-swing)
+			local stillSwinging = fighter.Parent and humanoid.Health > 0 and fighter:GetAttribute("CurrentState") == "Fight"
+			if stillSwinging then
+				check()
+			end
+			if not stillSwinging or struck[target] or os.clock() - opened >= span then
+				conn:Disconnect()
+				conclude()
+			end
+		end)
 	end)
 
-	return effectiveDuration, cancelDelay
+	return finishDelay, cancelDelay
 end
 
 function FightState.enter(fighter, humanoid, rootPart)
