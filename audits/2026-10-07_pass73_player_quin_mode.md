@@ -51,3 +51,22 @@
 - **No AI teammates on your side:** solo vs N.
 - **Social layer:** respect customs and leaders still run among the AI Quins.
 - **No PvP**, by the owner's choice.
+
+## Follow-up 73b: the owner's first try ("walking backwards", "camera stuck on fast turns")
+
+**Walking backwards.** `PilotedState.enter` turned `AutoRotate` off. `LocomotionModule.steer` reads "AutoRotate off and no facing of its own" as strafing (line 517). So it never claimed the body's facing: the body kept facing one way and moved any way, which is backwards and sideways. The AI states leave facing to the steer.
+
+**Fix:** Piloted leaves `AutoRotate` on, clears `IsStrafing`, and turns `AutoRotate` back on before steering if a previous state left it off.
+
+**Measured after** (AI frozen, keys sent through the MCP):
+
+| | Result |
+|---|---|
+| Facing vs velocity | 0.98–1.00 for W, A, S, D (it faces where it moves) |
+| Run, 0 → 40 studs/s | ~0.7 s |
+| Stop from 40 | ~0.45 s |
+| 180° reversal | brake → pivot on the foot → drive out, ~0.6 s |
+| 90° change | carved in ~0.6 s |
+| Jog | a steady 12 |
+
+**Camera stuck on fast mouse turns.** SmoothCamera eased its view toward the mouse yaw by the shortest way round. A flick that put the mouse more than 180° ahead of the eased view flipped that shortest way, so the view stalled or swung back. It now eases straight toward the mouse yaw; every place that sets yaw outright also resets the eased yaw. Not testable from the MCP (the mouse is locked); the owner checks by hand.

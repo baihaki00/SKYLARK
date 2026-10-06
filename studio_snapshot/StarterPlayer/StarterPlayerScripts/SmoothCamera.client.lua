@@ -676,9 +676,10 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		local head = quinModel:FindFirstChild("mixamorig:Head", true)
 		-- the same smooth turning as the orbit camera (it turned 1:1 with the mouse)
 		local rotAlpha = 1 - math.exp(-orbitSmoothness * dt)
-		local diffYaw = (yaw - smoothYaw) % 360
-		if diffYaw > 180 then diffYaw = diffYaw - 360 end
-		smoothYaw = smoothYaw + diffYaw * rotAlpha
+		-- (straight at the mouse's yaw, not the shortest way round: a fast flick put the mouse more
+		-- than 180 degrees ahead of the eased view, the shortest way flipped, and the view stalled
+		-- or swung back. Every place that sets yaw outright sets smoothYaw with it.)
+		smoothYaw = smoothYaw + (yaw - smoothYaw) * rotAlpha
 		smoothPitch = smoothPitch + (pitch - smoothPitch) * rotAlpha
 		local rotCF = CFrame.Angles(0, math.rad(smoothYaw), 0) * CFrame.Angles(math.rad(smoothPitch), 0, 0)
 		local flatLook = Vector3.new(rotCF.LookVector.X, 0, rotCF.LookVector.Z)
@@ -709,9 +710,10 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		local posAlpha = 1 - math.exp(-posSmoothness * dt)
 
 		-- Shortest-path circular angular lerp: ZERO degree boundaries, ZERO snap-backs
-		local diffYaw = (yaw - smoothYaw) % 360
-		if diffYaw > 180 then diffYaw = diffYaw - 360 end
-		smoothYaw = smoothYaw + diffYaw * rotAlpha
+		-- (straight at the mouse's yaw, not the shortest way round: a fast flick put the mouse more
+		-- than 180 degrees ahead of the eased view, the shortest way flipped, and the view stalled
+		-- or swung back. Every place that sets yaw outright sets smoothYaw with it.)
+		smoothYaw = smoothYaw + (yaw - smoothYaw) * rotAlpha
 		smoothPitch = smoothPitch + (pitch - smoothPitch) * rotAlpha
 		currentDistance += (targetDistance - currentDistance) * zoomAlpha
 

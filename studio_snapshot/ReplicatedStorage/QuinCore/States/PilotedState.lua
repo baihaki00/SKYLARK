@@ -108,7 +108,10 @@ function PilotedState.enter(fighter, humanoid, rootPart)
 		attackFinishTime = 0,
 		lastClock = os.clock(),
 	}
-	humanoid.AutoRotate = false
+	-- (facing is the steer's, as for an AI Quin: with AutoRotate off and no facing of its own the
+	-- steer reads the body as strafing and keeps its facing, so it walked backwards and sideways)
+	humanoid.AutoRotate = true
+	fighter:SetAttribute("IsStrafing", nil)
 	fighter:SetAttribute("CurrentIdleStance", "Ready")
 	AnimationModule.ensureBaseIdle(humanoid)
 	RuntimeTracer.checkpoint(fighter, "Enter Piloted (player input)")
@@ -186,6 +189,7 @@ function PilotedState.update(fighter, humanoid, rootPart)
 		-- moving: the body turns with its run, not with the strike's facing gyro
 		local gyro = rootPart:FindFirstChild("FightGyro")
 		if gyro then gyro:Destroy() end
+		if not humanoid.AutoRotate then humanoid.AutoRotate = true end -- (a state before may have left it off)
 		local speed
 		if input.pace == "run" then
 			speed = fighter:GetAttribute("Speed") or CombatConfig.Player_RunSpeed or 40
