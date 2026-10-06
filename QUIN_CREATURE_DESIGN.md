@@ -84,7 +84,7 @@ These come from studying why fight scenes and stickman animations are beautiful.
 | **Strikes are pulled at random** from a pool (punch or kick) | Not chosen as an *answer* to what the opponent is doing. |
 | **Reactions are generic** (a random flinch) | A hit doesn't become the next beat. |
 | **Ranges are fixed stud thresholds** in each state (strike ~10, combat ~8, chase 60, projectile jump 25–90) | The "ring" model, and it would have to be rewritten for every weapon. |
-| **Heavy body at fighting speed.** Lateral grip 90 studs/s² is about 0.43 g in this place's gravity (210). | A sprint needs an ~18-stud radius to turn and ~0.7 s for 90°. Small repositioning, slipping to the rear and stepping off-line are expensive, so they can't dance. Weaker cornering than a human athlete (1–1.5 g). |
+| **Heavy body at fighting speed.** Lateral grip 90 studs/s² is about 0.46 g (gravity here is Roblox's default, 196.2). | A sprint needs an ~18-stud radius to turn and ~0.7 s for 90°. Small repositioning, slipping to the rear and stepping off-line are expensive, so they can't dance. Weaker cornering than a human athlete (1–1.5 g). |
 | **Costs live in states, not the body** (sprinting costs mana only in Chase) | Two Quins doing the same thing pay differently depending on the state they're in. |
 
 ---
@@ -118,6 +118,7 @@ One creature, from the world in to the body out. Each layer is shared by AI and 
 ### 5.1 Body: honest, continuous, able to dance
 - **Agility depends on speed.** At fighting speed (a step, a shuffle, a jog): near-instant direction changes, small steps, cuts. At a full sprint: a real carve and a real plant. Momentum is earned.
 - **Grip fit for superhumans.** Lateral grip raised to about 1 g or more; the exact value is set by eye.
+- **Air control, not lower gravity.** World gravity stays (it keeps ground fights snappy and landings heavy). Anime air time comes from moments: a hang at the apex of a jump or launch, controlled air moves that briefly override gravity (dive, air exchange, air dash), and full or stronger gravity on falls and slams. The wall-run arc already works this way (20 % gravity on the wall).
 - **Intent shows in layers.** Head first, then chest, hips and feet. Velocity cannot change instantly, but the *acknowledgment* can. This is how it can be responsive and weighty at once.
 - **Momentum hand-off.** Every action starts from the current motion and passes its motion to the next: a run into a strike, a dodge into a counter, a knockback into a wall into a rebound.
 - **Costs belong to the body.** Stamina spent by actual effort (speed, strikes, dashes, jumps) and recovered when slow, in every state, for every Quin.
