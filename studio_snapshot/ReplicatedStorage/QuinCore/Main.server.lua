@@ -43,6 +43,7 @@ local HeadroomAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild(
 local ArenaTrespass = require(QuinCore:WaitForChild("Modules"):WaitForChild("ArenaTrespass"))
 local EdgeAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("EdgeAwareness"))
 local BodyStamina = require(QuinCore:WaitForChild("Modules"):WaitForChild("BodyStamina"))
+local Drives = require(QuinCore:WaitForChild("Modules"):WaitForChild("Drives"))
 local lastBodyTick = os.clock()
 local Cognition = require(QuinCore:WaitForChild("Cognition"))
 
@@ -510,6 +511,7 @@ task.spawn(function()
 			local nowBody = os.clock()
 			BodyStamina.update(Quin, humanoid, rootPart, math.min(nowBody - lastBodyTick, 0.25))
 			lastBodyTick = nowBody
+			Drives.update(Quin, humanoid) -- (combat feelings drift back and are published)
 		end
 
 		-- === Arena Safety Net & Cinematic Re-Entry ===

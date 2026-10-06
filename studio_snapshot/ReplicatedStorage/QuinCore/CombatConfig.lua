@@ -1102,6 +1102,8 @@ CombatConfig.PlayerQuin = {
 	JumpHeight = 11,       -- studs: a jump held to the top (let go early it is cut: a short hop)
 	ProjectileJumpRange = 90, -- studs: the furthest a projectile jump is aimed (further aims are pulled in)
 	EngageRange = 16,      -- studs: an enemy this close (and the player not running) and the Quin squares up to it: footwork, not turning to run
+	EngageRelease = 4,     -- studs further out than EngageRange before it lets go again
+	LockRange = 120,       -- studs: a lock is taken within this and lets go beyond it
 	AIProjectileJumps = false, -- the AI Quins may projectile-jump (off: they chase, retreat and fight)
 }
 
@@ -1112,5 +1114,70 @@ CombatConfig.Body_RunEffortShare = 0.8    -- share of its top speed above which 
 CombatConfig.Body_RestSpeed = 10          -- studs/s under which it recovers (EnergyRecovery_Idle standing, EnergyRecovery_Walk moving)
 CombatConfig.Body_HeadLeadsTurn = true    -- the head and chest turn toward where the body means to go before the body does (SteerIntent)
 CombatConfig.Body_HeadLeadMinAngle = 20   -- degrees between facing and intent before the head leads
+
+-- Continuity (QUIN_CREATURE_DESIGN.md phase 2: nothing resets). Every Quin, AI and player.
+CombatConfig.Flow_ArriveHot = true        -- a fight is entered as fast as the body can still brake from by striking range; fast, the strike starts a beat earlier
+CombatConfig.Flow_StrikeLeadTime = 0.1    -- seconds of its own speed added to the strike range when moving in fast...
+CombatConfig.Flow_StrikeLeadMax = 4       -- ...at most this many studs
+CombatConfig.Flow_DodgeCounter = true     -- a dodge opens a counter window (the strike comes without the cooldown) and often slips off the line
+CombatConfig.Flow_CounterWindow = 0.7     -- seconds
+CombatConfig.Flow_DodgeSlipChance = 0.5   -- x (0.5 + mobility): a dodge to the side and back rather than straight back
+CombatConfig.Flow_WallTech = true         -- a thrown Quin can kick off the wall it is about to hit, back at its attacker
+CombatConfig.Knockback_WallTechChance = 0.35 -- x (0.5 + mobility), AI Quins; a player's Quin techs when jump was pressed in the last WallTechInputWindow
+CombatConfig.Knockback_WallTechInputWindow = 0.4
+CombatConfig.Knockback_WallTechMinHealth = 0.25 -- share of health under which it just slams into the wall
+CombatConfig.Knockback_WallTechSpeed = 55 -- studs/s off the wall
+CombatConfig.Knockback_WallTechLift = 28  -- studs/s up
+
+-- Reach (QUIN_CREATURE_DESIGN.md phase 3: range is time). Modules/Reach.
+CombatConfig.Reach_Enabled = true         -- Fight and Chase hand over by time to contact (false: by studs, CombatRange x 2.5 / x 1.5)
+CombatConfig.Reach_FightLeaveTime = 0.4   -- seconds of running to contact past which a fight becomes a chase (a target getting away)
+CombatConfig.Reach_FightEnterTime = 0.15  -- seconds to contact within which a chase becomes a fight (up to CombatRange x 3)
+CombatConfig.Reach_FightMaxRangeFactor = 4 -- x CombatRange: past this a fight always becomes a chase
+CombatConfig.Reach_BurstSpeed = 100       -- studs/s of a lunge / dash / slide
+CombatConfig.Reach_BurstReach = 30        -- studs a burst covers at most
+CombatConfig.Reach_BeatTime = 0.4         -- seconds: within this by a burst is "one beat away"
+CombatConfig.Reach_ClosingTime = 3        -- seconds of running: within this "closing", beyond it "sighted"
+CombatConfig.Reach_AerialSpeed = 150      -- studs/s assumed to meet a target high in the air
+
+-- Instinct and answers (QUIN_CREATURE_DESIGN.md phase 4). Modules/Instinct; FightState chooseStrike.
+CombatConfig.Instinct_Enabled = true      -- AI Quins answer a strike at its tell (Windup marker) after their reaction time (false: the old guard rolls)
+CombatConfig.Instinct_ReactionBase = 0.16 -- seconds, x (1.3 - 0.6 x awareness)
+CombatConfig.Instinct_TiredExtra = 0.08   -- seconds slower under FatigueThreshold mana
+CombatConfig.Instinct_Range = 14          -- studs: strikes from further than this are not answered
+CombatConfig.Instinct_GuardChance = 0.3   -- x (0.5 + defense preference)
+CombatConfig.Instinct_SlipChance = 0.15   -- x (0.5 + mobility); needs SlipMinTime left before contact
+CombatConfig.Instinct_SlipMinTime = 0.12
+CombatConfig.Instinct_SlipSpeed = 35
+CombatConfig.Instinct_HopChance = 0.5     -- x (0.5 + mobility), against a low kick; needs HopMinTime left
+CombatConfig.Instinct_HopMinTime = 0.15
+CombatConfig.Instinct_HopHeight = 6
+CombatConfig.Instinct_GuardHold = 0.2     -- seconds the guard stays up past contact
+CombatConfig.Answers_Enabled = true       -- strikes chosen for the moment (punish an open opponent, kick a guard, reach) and away from what this opponent stops
+CombatConfig.Answers_OpenWindow = 0.6     -- seconds after the opponent's whiff it counts as open
+CombatConfig.Answers_PunishWeight = 3
+CombatConfig.Answers_GuardWeight = 2.5
+CombatConfig.Answers_ReachDistance = 7
+CombatConfig.Answers_ReachWeight = 1.8
+
+-- Drives and rhythm (QUIN_CREATURE_DESIGN.md phase 5). Modules/Drives, Modules/Rhythm.
+CombatConfig.Drives_Enabled = true        -- combat feelings (confidence, fury, caution, thrill, exhaustion) shade aggression and guarding
+CombatConfig.Drives_MinAggression = 0.6   -- the cooldown between strikes is divided by the aggression multiplier, within these
+CombatConfig.Drives_MaxAggression = 1.6
+CombatConfig.Rhythm_Enabled = true        -- a breath after a burst, an explosion after a long quiet
+CombatConfig.Rhythm_BurstStrikes = 5      -- strikes between the two within BurstWindow make a burst
+CombatConfig.Rhythm_BurstWindow = 3       -- seconds
+CombatConfig.Rhythm_BurstEndGap = 0.6     -- seconds without a strike: the burst is over
+CombatConfig.Rhythm_BreathMin = 1.2       -- seconds of breath after a burst...
+CombatConfig.Rhythm_BreathMax = 2.5
+CombatConfig.Rhythm_BreathCooldown = 1.8  -- x the cooldown between strikes during a breath (2.5 cut the 16v16's strikes by a quarter)
+CombatConfig.Rhythm_BreathCircleChance = 0.35 -- a breath turns into circling the opponent
+CombatConfig.Rhythm_LullTime = 4          -- seconds engaged with nothing thrown (or circling): someone explodes
+CombatConfig.Rhythm_ExplodeChance = 0.5   -- x (0.5 + aggression), per check once a circling stand-off has gone LullTime
+
+-- Impact (QUIN_CREATURE_DESIGN.md phase 6). Modules/HitStop.
+CombatConfig.Impact_HitStop = true        -- a landed strike holds both bodies' action clips a beat
+CombatConfig.Impact_HitStopBase = 0.045   -- seconds for the lightest hit...
+CombatConfig.Impact_HitStopHeavyExtra = 0.06 -- ...plus this x weight (a kick 0.6, +0.4 for a finisher or crit)
 
 return CombatConfig

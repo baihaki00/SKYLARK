@@ -9,6 +9,8 @@
 -- hold right click guard, Space jump (let go early: a short hop), C slide, Q / E dash,
 -- V projectile jump at what the crosshair is on: tap = style 1 (an arc onto it), hold and let go =
 -- style 2 (a high launch); in the air, V again dives onto what the crosshair is on then.
+-- T lock on to the nearest threat (again: let go), G move the lock to the next one. A locked
+-- enemy carries a small marker.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -101,6 +103,32 @@ local function aim()
 	return hit.Position, model and model.Name or nil
 end
 
+-- The lock marker: a small diamond over the locked enemy (only while locked)
+local marker = Instance.new("BillboardGui")
+marker.Name = "PilotLockMarker"
+marker.Size = UDim2.fromOffset(18, 18)
+marker.StudsOffsetWorldSpace = Vector3.new(0, 4.2, 0)
+marker.AlwaysOnTop = true
+marker.Enabled = false
+local diamond = Instance.new("Frame")
+diamond.Size = UDim2.fromScale(0.7, 0.7)
+diamond.Position = UDim2.fromScale(0.15, 0.15)
+diamond.Rotation = 45
+diamond.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+diamond.BackgroundTransparency = 0.15
+diamond.BorderSizePixel = 0
+diamond.Parent = marker
+marker.Parent = player:WaitForChild("PlayerGui")
+RunService.Heartbeat:Connect(function()
+	local locked = quin and quin:GetAttribute("PilotLocked") == true
+	local name = locked and quin:GetAttribute("PilotFocus")
+	local folder = Workspace:FindFirstChild("QuinServer")
+	local target = name and folder and folder:FindFirstChild(name)
+	local root = target and target:FindFirstChild("HumanoidRootPart")
+	marker.Adornee = root
+	marker.Enabled = root ~= nil
+end)
+
 -- Which Quin is mine (a match spawns it, a death or the match end takes it away)
 task.spawn(function()
 	while true do
@@ -169,6 +197,10 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		send("action", "Dash")
 	elseif input.KeyCode == Enum.KeyCode.Z then
 		walkMode = not walkMode
+	elseif input.KeyCode == Enum.KeyCode.T then
+		send("action", "Lock")
+	elseif input.KeyCode == Enum.KeyCode.G then
+		send("action", "LockNext")
 	elseif input.KeyCode == Enum.KeyCode.V then
 		-- in a high launch: dive now; otherwise start timing the press
 		if quin:GetAttribute("CurrentState") == "ProjectileJump" and quin:GetAttribute("PJPhase") == "AirborneTimer" then

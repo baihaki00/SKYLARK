@@ -3,6 +3,7 @@
 --   HitStart / HitEnd   the limb is dangerous between these (FightState checks for contact every
 --                       frame of that window)
 --   Recover             the move is done: the Quin is free to act and move again
+--   Windup              the tell: the first frame the attack can be read (Modules/Instinct)
 -- Times are in seconds of the clip at speed 1. Read once per asset from the published animation
 -- (KeyframeSequenceProvider; ~0.4 s each) and cached. Every strike clip is read at server start
 -- (Server.server.lua: StrikeMarkers.preload) so none is read in the middle of a fight; a clip that
@@ -42,6 +43,8 @@ local function read(id)
 				found.hitEnd = keyframe.Time
 			elseif marker.Name == "Recover" then
 				found.recover = keyframe.Time
+			elseif marker.Name == "Windup" then
+				found.windup = keyframe.Time -- (the tell: the first frame a defender can read it)
 			end
 		end
 	end

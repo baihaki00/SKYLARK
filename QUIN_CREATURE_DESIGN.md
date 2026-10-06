@@ -263,6 +263,18 @@ Hit rate isn't the measure; flow is:
 
 States are not thrown away in one go. Each phase moves one piece of behaviour from "a state's rule" to "the creature's layer", behind a switch, and the old path stays until the new one is approved.
 
+### Status (2026-10-07: first pass of every phase, waiting on the owner's 1v1 judgement)
+
+| Phase | First pass | Switches (CombatConfig) | Audit |
+|---|---|---|---|
+| 0 | Baseline numbers. Recorded fights still to come from the owner. | — | [phase0](audits/2026-10-07_phase0_baseline.md) |
+| 1 | Agile grip and reversals, stamina by effort, head leads turns, the player's view drives the head, free and engaged footwork. Still open: the backpedal clip, mouse-steered sprint tuning. | `Body_Agile`, `Body_StaminaByEffort`, `Body_HeadLeadsTurn` | [phase1](audits/2026-10-07_phase1_body.md) |
+| 2 | Arrive hot, dodge into counter, wall tech. Still open: strikes *from* a run need running-strike clips. | `Flow_ArriveHot`, `Flow_DodgeCounter`, `Flow_WallTech` | [phases 2–6](audits/2026-10-07_phase2to6_flow_reach_instinct_drives_impact.md) |
+| 3 | `Modules/Reach` (Fight and Chase hand over by time); the player's lock (T / G). Other states' thresholds still in studs. | `Reach_Enabled` | same |
+| 4 | `Modules/Instinct` (reflexes at the Windup tell: guard, slip, hop); strikes chosen as answers; per-opponent memory. | `Instinct_Enabled`, `Answers_Enabled` | same |
+| 5 | `Modules/Drives` (five feelings shade aggression and guarding); `Modules/Rhythm` (breath after a burst, explosion out of a long stand-off). Feelings on the body: later (owner). | `Drives_Enabled`, `Rhythm_Enabled` | same |
+| 6 | `Modules/HitStop` (a beat of stillness at contact, longer for kicks and finishers). | `Impact_HitStop` | same |
+
 ---
 
 ## 10. Owner's answers (2026-10-07)

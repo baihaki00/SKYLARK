@@ -14,6 +14,7 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local wallTech -- (below)
 
 local KnockbackState = { name = "Knockback" }
 
@@ -40,6 +41,7 @@ local function fallSide(rootPart)
 end
 
 function KnockbackState.enter(fighter, humanoid, rootPart)
+	require(ReplicatedStorage.QuinCore.Modules.Drives).onKnockdown(fighter) -- (fury)
 	local stunDuration = CombatConfig.BaseStunDuration or 0.5
 	local stunResist = fighter:GetAttribute("StunResist") or 0
 	stunDuration = stunDuration * (1 - stunResist)
@@ -160,6 +162,55 @@ function KnockbackState.exit(fighter, humanoid, rootPart)
 	-- No more GetUp stop here, handled by RecoveryState
 end
 
+-- Wall tech (design doc phase 2: knockback into wall into rebound). A thrown body about to hit a
+-- wall gets its feet to it and kicks off back at whoever threw it, instead of slamming in and
+-- bouncing off. An AI Quin does it by chance (Knockback_WallTechChance, more for agile Quins), a
+-- player's Quin when the player pressed jump just before (PilotInput.pressedRecently). Not when
+-- badly hurt. The kick-off counts as a wall kick, so a dash may follow (AirDash). True when it did.
+function wallTech(fighter, humanoid, rootPart, data, hit, normal)
+	if CombatConfig.Flow_WallTech == false then return false end
+	if humanoid.Health < humanoid.MaxHealth * (CombatConfig.Knockback_WallTechMinHealth or 0.25) then return false end
+	if fighter:GetAttribute("PilotedBy") then
+		local PilotInput = require(ReplicatedStorage.QuinCore.Modules.PilotInput)
+		if not PilotInput.pressedRecently(fighter, "Jump", CombatConfig.Knockback_WallTechInputWindow or 0.4) then return false end
+	else
+		local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.5
+		if math.random() >= (CombatConfig.Knockback_WallTechChance or 0.35) * (0.5 + mobility) then return false end
+	end
+	-- off the wall, back toward the attacker if it is in front of the wall, else straight out
+	local away = Vector3.new(normal.X, 0, normal.Z)
+	away = away.Magnitude > 0.01 and away.Unit or -rootPart.CFrame.LookVector
+	local folder = workspace:FindFirstChild("QuinServer")
+	local attacker = folder and folder:FindFirstChild(fighter:GetAttribute("LastAttackerName") or "")
+	local attackerRoot = attacker and attacker:FindFirstChild("HumanoidRootPart")
+	if attackerRoot then
+		local toAttacker = Vector3.new(attackerRoot.Position.X - rootPart.Position.X, 0, attackerRoot.Position.Z - rootPart.Position.Z)
+		if toAttacker.Magnitude > 1 and toAttacker.Unit:Dot(away) > 0.2 then
+			away = toAttacker.Unit
+		end
+	end
+	for _, name in ipairs({ "KB_LinearVelocity", "KB_Stabilizer", "KB_StabilizerAttachment" }) do
+		local child = rootPart:FindFirstChild(name)
+		if child then child:Destroy() end
+	end
+	humanoid.PlatformStand = false
+	rootPart.AssemblyAngularVelocity = Vector3.zero
+	rootPart.AssemblyLinearVelocity = away * (CombatConfig.Knockback_WallTechSpeed or 55) + Vector3.new(0, CombatConfig.Knockback_WallTechLift or 28, 0)
+	rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + away)
+	humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+	AnimationModule.stop(humanoid, AnimationIds.FallAirKnockback, 0.1)
+	AnimationModule.playConfig(humanoid, "Movement.AirDash", 1.4, Enum.AnimationPriority.Action3, false)
+	AudioModule.playDash(rootPart)
+	VfxModule.createShockwave(hit.Position, 10, 0.35, fighter:GetAttribute("Element"))
+	VfxModule.createDust(hit.Position, 5)
+	fighter:SetAttribute("KnockbackType", nil)
+	fighter:SetAttribute("WallTechAt", os.clock())
+	fighter:SetAttribute("WallTechs", (fighter:GetAttribute("WallTechs") or 0) + 1) -- (probes)
+	require(ReplicatedStorage.QuinCore.Modules.AirDash).noteWallKick(fighter)
+	RuntimeTracer.checkpoint(fighter, "Wall tech off " .. hit.Instance.Name)
+	return true
+end
+
 -- Touchdown has to be caught as it happens: at the usual 0.1 s tick a body that had landed stayed
 -- in its airborne pose for up to a tenth of a second before the landing or get-up began.
 KnockbackState.tickInterval = 0.03
@@ -261,7 +312,9 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 		if flat.Magnitude >= (CombatConfig.Knockback_BounceMinSpeed or 25) then
 			-- (as far as it travels before the next update, plus its own half-width)
 			local hit, n = KnockbackModule.wallAhead(rootPart, flat.Unit, flat.Magnitude * 0.035 + 2)
-			if hit and flat:Dot(n) < 0 then
+			if hit and flat:Dot(n) < 0 and wallTech(fighter, humanoid, rootPart, data, hit, n) then
+				return require(script.Parent:WaitForChild("ChaseState"))
+			elseif hit and flat:Dot(n) < 0 then
 				local off = (flat - 2 * flat:Dot(n) * n) * (CombatConfig.Knockback_BounceRestitution or 0.55)
 				rootPart.AssemblyLinearVelocity = Vector3.new(off.X, vel.Y, off.Z)
 				data.bounces = (data.bounces or 0) + 1

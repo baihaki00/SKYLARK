@@ -147,6 +147,9 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 					KnockbackModule.applyMicroKnockback(targetModel, awayDir, CombatConfig.Combat_BlockSlideStuds or 1.5)
 				end
 
+				-- (a strike stopped: the defender's confidence; Modules/Drives)
+				require(ReplicatedStorage.QuinCore.Modules.Drives).onExchange(attackerModel, targetModel, 0, "Blocked")
+
 				-- Trigger Immediate Counter-Attack
 				targetModel:SetAttribute("ImmediateCounter", true)
 				targetModel:SetAttribute("ImmediateCounterTarget", attackerModel.Name)
@@ -334,6 +337,9 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 			attackerModel:SetAttribute("Pers_Confidence", math.min(1.0, curConf + 0.20))
 		end
 	end
+
+	-- (what it did to both: Modules/Drives)
+	require(ReplicatedStorage.QuinCore.Modules.Drives).onExchange(attackerModel, targetModel, damageInfo.damage, "Hit", isHeavy)
 
 	return true, isKill, "Hit"
 end

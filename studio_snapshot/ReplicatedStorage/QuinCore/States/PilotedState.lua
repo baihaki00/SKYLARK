@@ -6,6 +6,10 @@
 --               free: the body faces where it goes; engaged (an enemy within EngageRange and the
 --               player not running): it faces that enemy and moves with footwork (back = steps
 --               back, sideways = circles; the gait picks strafe or backwards from the motion)
+--   lock        (design doc 5.7: lock = attention) the player fixes the Quin's focus on one enemy:
+--               Lock takes the nearest threat in view (or lets go), LockNext moves to the next.
+--               Locked, the Quin is engaged with that enemy at any range unless running, and its
+--               strikes go at it. The lock lets go when the enemy dies or is out of LockRange.
 --   standing    LocomotionModule.brake
 --   strike      FightState.throwStrike (the combo, clip, marker timing, contact and outcome of
 --               an AI strike), turned to the target with FightState.faceTarget first
@@ -49,9 +53,10 @@ end
 
 local function flat(v) return Vector3.new(v.X, 0, v.Z) end
 local projectileJump -- (below)
+local nearestEnemy, nextEnemy -- (below)
 
 -- The nearest living enemy within `range` on about the same level, or nil
-local function nearestEnemy(fighter, rootPart, range)
+function nearestEnemy(fighter, rootPart, range)
 	local folder = Workspace:FindFirstChild("QuinServer")
 	if not folder then return nil end
 	local team = fighter:GetAttribute("Team")
@@ -120,6 +125,11 @@ end
 
 local function strike(fighter, humanoid, rootPart, data, input)
 	local target = strikeTarget(fighter, rootPart, input)
+	-- (locked, the strike goes at the locked enemy when it is within reach)
+	local lockRoot = data.lock and data.lock:FindFirstChild("HumanoidRootPart")
+	if lockRoot and flat(lockRoot.Position - rootPart.Position).Magnitude <= cfg("StrikeLockRange", 12) then
+		target = data.lock
+	end
 	local targetRoot = target and target:FindFirstChild("HumanoidRootPart")
 	if targetRoot then
 		fightState().faceTarget(rootPart, targetRoot, data)
@@ -179,6 +189,30 @@ function projectileJump(fighter, humanoid, rootPart, pj)
 	return ProjectileJumpState
 end
 
+-- The next enemy after `current` by distance within `range` (any height), wrapping round
+function nextEnemy(fighter, rootPart, range, current)
+	local folder = Workspace:FindFirstChild("QuinServer")
+	if not folder then return nil end
+	local team = fighter:GetAttribute("Team")
+	local list = {}
+	for _, enemy in ipairs(folder:GetChildren()) do
+		local hum = enemy:FindFirstChildOfClass("Humanoid")
+		local root = enemy:FindFirstChild("HumanoidRootPart")
+		if enemy ~= fighter and hum and root and hum.Health > 0 and (team == nil or enemy:GetAttribute("Team") ~= team) then
+			local d = (root.Position - rootPart.Position).Magnitude
+			if d <= range then table.insert(list, { enemy, d }) end
+		end
+	end
+	if #list == 0 then return nil end
+	table.sort(list, function(a, b) return a[2] < b[2] end)
+	for i, entry in ipairs(list) do
+		if entry[1] == current then
+			return list[i % #list + 1][1]
+		end
+	end
+	return list[1][1]
+end
+
 function PilotedState.enter(fighter, humanoid, rootPart)
 	pilotData[fighter] = {
 		lastAttackTime = 0,
@@ -200,6 +234,7 @@ function PilotedState.exit(fighter, humanoid, rootPart)
 	if data then setGuard(fighter, humanoid, data, false) end
 	fighter:SetAttribute("IsStrafing", nil)
 	fighter:SetAttribute("PilotFocus", nil)
+	fighter:SetAttribute("PilotLocked", nil)
 	local gyro = rootPart and rootPart:FindFirstChild("FightGyro")
 	if gyro then gyro:Destroy() end
 	pilotData[fighter] = nil
@@ -251,6 +286,14 @@ function PilotedState.update(fighter, humanoid, rootPart)
 		end
 		if action == "JumpRelease" then
 			LocomotionModule.cutJump(fighter, humanoid, rootPart)
+		elseif action == "Lock" then
+			if data.lock then
+				data.lock = nil
+			else
+				data.lock = nearestEnemy(fighter, rootPart, cfg("LockRange", 120))
+			end
+		elseif action == "LockNext" then
+			data.lock = nextEnemy(fighter, rootPart, cfg("LockRange", 120), data.lock)
 		end
 	end
 
@@ -271,7 +314,20 @@ function PilotedState.update(fighter, humanoid, rootPart)
 	end
 
 	-- Engaged or free (design doc 5.8): facing the nearest enemy close by, unless running
-	local focus = (input.pace ~= "run") and nearestEnemy(fighter, rootPart, cfg("EngageRange", 16)) or nil
+	-- (squared up, it stays engaged a little further out than it engages: no flicker at the edge)
+	local range = cfg("EngageRange", 16) + (fighter:GetAttribute("IsStrafing") and cfg("EngageRelease", 4) or 0)
+	-- (a lock holds while its enemy lives and is within LockRange)
+	if data.lock then
+		local hum = data.lock:FindFirstChildOfClass("Humanoid")
+		local root = data.lock:FindFirstChild("HumanoidRootPart")
+		if not (data.lock.Parent and hum and hum.Health > 0 and root and (root.Position - rootPart.Position).Magnitude <= cfg("LockRange", 120)) then
+			data.lock = nil
+		end
+	end
+	if (data.lock ~= nil) ~= (fighter:GetAttribute("PilotLocked") == true) then
+		fighter:SetAttribute("PilotLocked", data.lock ~= nil or nil)
+	end
+	local focus = (input.pace ~= "run") and (data.lock or nearestEnemy(fighter, rootPart, range)) or nil
 	local focusRoot = focus and focus:FindFirstChild("HumanoidRootPart")
 	if (focus and focus.Name or nil) ~= fighter:GetAttribute("PilotFocus") then
 		fighter:SetAttribute("PilotFocus", focus and focus.Name or nil)

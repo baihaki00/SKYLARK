@@ -119,6 +119,7 @@ local function livingSides(fighter)
 end
 
 function CirclingState.enter(fighter, humanoid, rootPart)
+	fighter:SetAttribute("CirclingSince", os.clock()) -- (Rhythm: a stand-off that goes on too long breaks)
 	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
 	local confidence = fighter:GetAttribute("Pers_Confidence") or 0.6
 	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
@@ -251,6 +252,16 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local keepingAway = fighter:GetAttribute("TacticalState") == "RETREATING"
 	if keepingAway and distance < (CombatConfig.Retreat_FleeAgainDistance or 40) then
 		return require(script.Parent:WaitForChild("RetreatState"))
+	end
+
+	-- A stand-off that has gone quiet too long breaks: someone explodes into it (Modules/Rhythm).
+	-- (The fight's own tempo check never saw these lulls: they happen out here, circling.)
+	if not keepingAway and CombatConfig.Rhythm_Enabled ~= false and distance < 20
+		and os.clock() - (fighter:GetAttribute("CirclingSince") or os.clock()) >= (CombatConfig.Rhythm_LullTime or 4)
+		and math.random() < (CombatConfig.Rhythm_ExplodeChance or 0.5) * (0.5 + (fighter:GetAttribute("Pers_Aggression") or 0.6)) then
+		fighter:SetAttribute("ExplodeNext", true)
+		fighter:SetAttribute("CirclingSince", os.clock())
+		return require(script.Parent:WaitForChild("FightState"))
 	end
 
 	-- A target it cannot get to (up on a platform, behind a wall) is not circled: orbiting

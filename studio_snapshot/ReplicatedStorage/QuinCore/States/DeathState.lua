@@ -53,6 +53,7 @@ local function holdBody(fighter, humanoid, rootPart)
 end
 
 function DeathState.enter(fighter, humanoid, rootPart)
+	require(QuinCore.Modules.Drives).onAllyDown(fighter) -- (its allies close by: fury)
 	humanoid.WalkSpeed = 0
 	humanoid.JumpPower = 0
 	AnimationModule.stopAll(humanoid, 0.1)

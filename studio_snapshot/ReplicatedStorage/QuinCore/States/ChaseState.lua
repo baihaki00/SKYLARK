@@ -23,6 +23,7 @@ local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):Wait
 local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
+local Reach = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Reach"))
 
 local function findModelByName(name)
 	if not name or name == "" then return nil end
@@ -806,7 +807,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 	
-	if reachable and distance <= (CombatConfig.CombatRange or 7) * 1.5 then
+	-- In range to fight: by studs, or by time when Reach is on (a target running in is met sooner)
+	local reachNow = Reach.enabled() and Reach.measure(fighter, rootPart, target) or nil
+	if reachNow then Reach.publish(fighter, reachNow) end
+	local inRange = distance <= (CombatConfig.CombatRange or 7) * 1.5
+		or (reachNow ~= nil and reachNow.time <= (CombatConfig.Reach_FightEnterTime or 0.15) and distance <= (CombatConfig.CombatRange or 7) * 3)
+	if reachable and inRange then
 		if math.random() > 0.7 then
 			return require(script.Parent:WaitForChild("CirclingState"))
 		else

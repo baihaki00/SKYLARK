@@ -6,7 +6,7 @@
 -- The client (StarterPlayerScripts.PilotClient) sends, over the RemoteEvent ReplicatedStorage.PilotInput:
 --   "move", direction (flat Vector3, zero to stop), pace ("walk" | "jog" | "run")
 --   "guard", held (boolean)
---   "action", name ("Strike" | "Dash" | "Slide" | "Jump" | "JumpRelease")
+--   "action", name ("Strike" | "Dash" | "Slide" | "Jump" | "JumpRelease" | "Lock" | "LockNext")
 --   "pj", style (1 arc | 2 high launch), aim point (Vector3), aimed Quin's name (or nil)
 --   "dive", aim point, aimed Quin's name (or nil): dive now (a style 2 projectile jump)
 --   "look", yaw, pitch (degrees): where the player's view points (published on the Quin as
@@ -19,7 +19,7 @@ local Workspace = game:GetService("Workspace")
 
 local PilotInput = {}
 
-local ACTIONS = { Strike = true, Dash = true, Slide = true, Jump = true, JumpRelease = true }
+local ACTIONS = { Strike = true, Dash = true, Slide = true, Jump = true, JumpRelease = true, Lock = true, LockNext = true }
 local PJ_STYLES = { [1] = true, [2] = true }
 local PACES = { walk = true, jog = true, run = true }
 local MAX_QUEUED = 3
@@ -88,6 +88,14 @@ function PilotInput.takeDive(quin)
 	return nil
 end
 
+-- Whether the player pressed `action` within the last `window` seconds (a reaction the body makes
+-- on the player's say-so, e.g. a wall tech on jump)
+function PilotInput.pressedRecently(quin, action, window)
+	local s = inputs[quin]
+	local at = s and s.pressedAt and s.pressedAt[action]
+	return at ~= nil and os.clock() - at <= window
+end
+
 function PilotInput.clear(quin)
 	inputs[quin] = nil
 end
@@ -114,6 +122,10 @@ function PilotInput.start()
 		elseif kind == "action" then
 			if ACTIONS[a] and #s.queue < MAX_QUEUED then
 				table.insert(s.queue, a)
+			end
+			if ACTIONS[a] then
+				s.pressedAt = s.pressedAt or {}
+				s.pressedAt[a] = os.clock()
 			end
 		elseif kind == "pj" then
 			local aim = PJ_STYLES[a] and readAim(b, c)

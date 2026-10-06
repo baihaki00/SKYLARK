@@ -329,6 +329,9 @@ do
 	ImpulseModule.start()
 end
 
+-- Reflexes: every Quin answers a strike it sees coming, every frame (Modules/Instinct)
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Instinct")).start()
+
 -- A player's input to the Quin they pilot (Player Quin match mode)
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("PilotInput")).start()
 

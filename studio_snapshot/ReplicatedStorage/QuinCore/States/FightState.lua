@@ -21,6 +21,11 @@ local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
+local Reach = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Reach"))
+local Instinct = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Instinct"))
+local Drives = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Drives"))
+local Rhythm = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Rhythm"))
+local HitStop = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("HitStop"))
 local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 local StrikeMarkers = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StrikeMarkers"))
 local RunService = game:GetService("RunService")
@@ -110,7 +115,7 @@ local function decideAction(fighter, target, distance, data)
 	-- MELEE DEFENSE REACTION: If target is actively winding up an attack in close range
 	local targetAttacking = target:GetAttribute("Attacking")
 	local targetWindupUntil = target:GetAttribute("AttackWindupUntil") or 0
-	if targetAttacking and now < targetWindupUntil and distance <= 9 then
+	if targetAttacking and now < targetWindupUntil and distance <= 9 and not Instinct.enabled() then
 		local lastReaction = fighter:GetAttribute("LastReactionTime") or 0
 		if now - lastReaction > 0.5 then
 			fighter:SetAttribute("LastReactionTime", now)
@@ -289,6 +294,71 @@ function FightState.faceTarget(rootPart, targetHRP, data)
 	alignOri.CFrame = lookCF
 end
 
+-- What each Quin remembers of each opponent within a fight: how its punches and kicks fared
+-- (design doc phase 4: learning within a fight). attacker -> { [opponent name] = { punch = {n, stopped}, kick = {...} } }
+local strikeMemory = setmetatable({}, { __mode = "k" })
+
+local function isKick(entry)
+	return entry and entry.name and entry.name:find("Kick") ~= nil
+end
+
+-- The strike, chosen as an answer (design doc phase 4) rather than rolled:
+--   the opponent is open (its own strike just missed): the fastest, a punch
+--   the opponent is guarding: a kick (heavier, and from further out)
+--   the gap is at the edge of reach: a kick
+--   and away from whatever this opponent has been stopping (blocked or dodged)
+-- Then any clip of that kind. Returns the clip entry and the reason (StrikeAnswer, for probes).
+local function chooseStrike(fighter, target, distance, punches, kicks)
+	if CombatConfig.Answers_Enabled == false or not target or #punches == 0 or #kicks == 0 then
+		local pool = (math.random() > 0.5 and #punches > 0) and punches or kicks
+		if #pool == 0 then pool = punches end
+		return pool[math.random(1, math.max(#pool, 1))], nil
+	end
+	local wPunch, wKick, reason = 1, 1, nil
+	local now = tick()
+	if target:GetAttribute("StrikeResult") == "Whiff" and now - (target:GetAttribute("StrikeEndAt") or 0) < (CombatConfig.Answers_OpenWindow or 0.6) then
+		wPunch *= CombatConfig.Answers_PunishWeight or 3
+		reason = "punish"
+	end
+	if target:GetAttribute("IsGuarding") == true then
+		wKick *= CombatConfig.Answers_GuardWeight or 2.5
+		reason = reason or "guard"
+	end
+	if distance and distance > (CombatConfig.Answers_ReachDistance or 7) then
+		wKick *= CombatConfig.Answers_ReachWeight or 1.8
+		reason = reason or "reach"
+	end
+	local memory = strikeMemory[fighter] and strikeMemory[fighter][target.Name]
+	if memory then
+		for kind, record in pairs(memory) do
+			local stopRate = (record.stopped + 1) / (record.n + 2)
+			if kind == "punch" then wPunch *= (1.25 - stopRate) else wKick *= (1.25 - stopRate) end
+		end
+	end
+	local useKick = math.random() * (wPunch + wKick) < wKick
+	local pool = useKick and kicks or punches
+	return pool[math.random(1, #pool)], reason or (memory and "learned" or nil)
+end
+
+local function remember(fighter, target, entry, result)
+	if not target then return end
+	local byOpponent = strikeMemory[fighter]
+	if not byOpponent then
+		byOpponent = {}
+		strikeMemory[fighter] = byOpponent
+	end
+	local memory = byOpponent[target.Name]
+	if not memory then
+		memory = {}
+		byOpponent[target.Name] = memory
+	end
+	local kind = isKick(entry) and "kick" or "punch"
+	local record = memory[kind] or { n = 0, stopped = 0 }
+	record.n += 1
+	if result == "Blocked" or result == "Dodged" then record.stopped += 1 end
+	memory[kind] = record
+end
+
 local function executeAttack(fighter, humanoid, rootPart, target, moveData, data, DEBUG)
 	-- (target may be nil: a player's Quin can strike at the air; no step-in then)
 	local targetHRP = target and target:FindFirstChild("HumanoidRootPart")
@@ -298,9 +368,10 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	
 	-- Dynamic animation resolution: directly reads live hot-swapped configuration!
 	local punches, kicks = getLiveAttacks()
-	local pool = (math.random() > 0.5 and #punches > 0) and punches or kicks
-	if #pool == 0 then pool = punches end
-	local animData = (#pool > 0) and pool[math.random(1, #pool)] or { id = AnimationIds.Punches[1], speed = 1.3, fadeTime = 0.01, impactRatio = 0.35, cancelRatio = 0.70 }
+	local targetDistance = targetHRP and (targetHRP.Position - rootPart.Position).Magnitude or nil
+	local chosen, answerReason = chooseStrike(fighter, target, targetDistance, punches, kicks)
+	local animData = chosen or { id = AnimationIds.Punches[1], speed = 1.3, fadeTime = 0.01, impactRatio = 0.35, cancelRatio = 0.70 }
+	fighter:SetAttribute("StrikeAnswer", answerReason) -- (probes, mind panel)
 
 	local playSpeed = math.max((fighter:GetAttribute("AttackSpeed") or 1.0) * (animData.speed or 1.0) * fatigueScale, 0.01)
 	local fadeTime = animData.fadeTime or 0.01
@@ -337,11 +408,25 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	fighter:SetAttribute("Attacking", true)
 	local windupUntil = now + impactDelay
 	fighter:SetAttribute("AttackWindupUntil", windupUntil)
-	task.delay(finishDelay, function()
-		if fighter.Parent and tick() >= (data.attackFinishTime or 0) then
-			fighter:SetAttribute("Attacking", false)
+	-- The tell: when this strike can first be read (the Windup marker), and what it is
+	-- (Modules/Instinct answers it after the defender's own reaction time)
+	local tellDelay = (markers and markers.windup) and math.min(markers.windup / playSpeed, impactDelay) or impactDelay * 0.4
+	fighter:SetAttribute("StrikeTellAt", now + tellDelay)
+	fighter:SetAttribute("StrikeLow", animData.name and animData.name:find("Low") ~= nil or nil)
+	-- The strike is over at its finish: then Attacking goes false, unless a newer strike has begun
+	-- (its own AttackWindupUntil). A hit-stop moves the finish on (HitStop): the clear waits for it.
+	-- (It compared tick() with attackFinishTime once, at the original finish: after a hit-stop had
+	-- moved the finish, that check failed and Attacking stayed true until the next strike.)
+	local function strikeOver()
+		if not fighter.Parent or fighter:GetAttribute("AttackWindupUntil") ~= windupUntil then return end
+		local remaining = (data.attackFinishTime or 0) - tick()
+		if remaining > 0.01 and remaining < 1 then
+			task.delay(remaining, strikeOver)
+			return
 		end
-	end)
+		fighter:SetAttribute("Attacking", false)
+	end
+	task.delay(finishDelay, strikeOver)
 		
 	-- Step into the strike with momentum, but only as far as the gap: the attacker closes to
 	-- striking distance and never drives into (or through) its target
@@ -406,6 +491,11 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 				elseif applied then
 					landed = true
 					result = "Hit"
+					-- the contact holds a beat (Modules/HitStop): kicks, finishers and crits longer
+					local held = HitStop.apply(fighter, hitModel, (isKick(animData) and 0.6 or 0.15) + ((moveData.isFinisher or damageInfo.isCrit) and 0.4 or 0))
+					-- (its clip reaches Recover that much later: so does its freedom)
+					data.actionEndTime = (data.actionEndTime or 0) + held
+					data.attackFinishTime = (data.attackFinishTime or 0) + held
 					if DEBUG then
 						print(string.format("[Fight] %s -> %s: %s (DMG=%d%s, Combo=%d)",
 							fighter.Name, hitModel.Name, moveData.name,
@@ -431,6 +521,8 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 
 	-- The window is over: what became of this strike
 	local function conclude()
+		fighter:SetAttribute("StrikeEndAt", tick())
+		remember(fighter, target, animData, result)
 		-- A strike that connects with nothing ends the chain: the next attack opens a new combo
 		-- instead of throwing the finisher at empty air
 		if not landed then
@@ -504,6 +596,7 @@ end
 function FightState.throwStrike(fighter, humanoid, rootPart, target, weight, data, DEBUG)
 	local moveData = ComboModule.nextAttack(fighter, weight or "Light")
 	if not moveData then return nil end
+	Rhythm.noteStrike(fighter) -- (the fight's tempo: Modules/Rhythm)
 	local now = tick()
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	data.currentAction = (weight == "Heavy") and "heavy" or "light"
@@ -515,6 +608,7 @@ end
 
 function FightState.enter(fighter, humanoid, rootPart)
 	RuntimeTracer.checkpoint(fighter, "Enter FightState")
+	fighter:SetAttribute("EngagedSince", os.clock()) -- (Rhythm: a long quiet while engaged)
 	-- Momentum continuity (Rule 3): no speed snap on entry. The distance-management
 	-- brake decelerates the body while the shared gait keeps stepping (or the StopRun
 	-- plant plays from a sprint), so Chase -> Fight reads as one braking motion.
@@ -586,7 +680,9 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- on every tick froze a running body in one frame and kept cancelling the hit push,
 		-- which showed as a stutter during the flinch.
 		humanoid.WalkSpeed = math.max(0, humanoid.WalkSpeed - 30)
-		tryRaiseGuard(fighter, humanoid, data, now, findModelByName(fighter:GetAttribute("LastAttackerName")), comboBreakChance(fighter))
+		if not Instinct.enabled() then -- (with Instinct on, the reflexes answer strikes: Modules/Instinct)
+			tryRaiseGuard(fighter, humanoid, data, now, findModelByName(fighter:GetAttribute("LastAttackerName")), comboBreakChance(fighter))
+		end
 		return FightState
 	end
 
@@ -734,8 +830,19 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("ProjectileJumpState"))
 	end
 	
-	-- Too far? Chase
-	if distance > (CombatConfig.CombatRange or 7) * 2.5 then
+	-- Too far? Chase. By time when Reach is on (design doc 5.2): a target getting away is chased
+	-- at once, one coming in is waited for, whatever the studs (within a hard cap either way).
+	local reach = Reach.enabled() and Reach.measure(fighter, rootPart, target) or nil
+	if reach then Reach.publish(fighter, reach) end
+	local tooFar
+	if reach then
+		local combatRange = CombatConfig.CombatRange or 7
+		tooFar = distance > combatRange * (CombatConfig.Reach_FightMaxRangeFactor or 4)
+			or (distance > combatRange * 1.2 and reach.time > (CombatConfig.Reach_FightLeaveTime or 0.4))
+	else
+		tooFar = distance > (CombatConfig.CombatRange or 7) * 2.5
+	end
+	if tooFar then
 		if DEBUG then print("[Fight] Target too far -> Chase") end
 		return require(script.Parent:WaitForChild("ChaseState"))
 	end
@@ -779,6 +886,13 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Approach pace scales with the gap so a 2-stud correction is a step, not a sprint burst.
 		local maxApproach = fighter:GetAttribute("Speed") or 40
 		local approachSpeed = math.clamp(8 + (distance - idealRange) * 4, 10, maxApproach)
+		if CombatConfig.Flow_ArriveHot ~= false then
+			-- Arriving hot (design doc phase 2: nothing resets): as fast as it can still brake
+			-- from by striking range, not slowing from far out. (Entering a fight kept a third of
+			-- the chase's speed: 0.27-0.46 in the Phase 0 baseline.)
+			local braking = CombatConfig.Locomotion_BrakingDeceleration or 95
+			approachSpeed = math.clamp(math.sqrt(2 * braking * math.max(distance - idealRange, 0)) + 6, 10, maxApproach)
+		end
 		LocomotionModule.steer(fighter, humanoid, rootPart, targetHRP.Position, approachSpeed, locoDt)
 		GaitModule.update(humanoid, rootPart, locoDt)
 	elseif distance < (CombatConfig.Melee_SweetSpotMin or 4.5) then
@@ -820,26 +934,64 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		cooldown = 0.05 / speedMult -- Fast combo chaining immediately at cancel window!
 	else
 		cooldown = (minCooldown + math.random() * (maxCooldown - minCooldown)) / (attackSpeed * speedMult)
+		-- feelings press it on or hold it back (Modules/Drives)
+		cooldown /= Drives.aggression(fighter)
+	end
+	-- The fight's tempo (Modules/Rhythm): a breath after a burst, an explosion after a long quiet
+	local tempo = Rhythm.tempo(fighter, target, distance < 20)
+	if tempo == "breath" and currentComboStep == 0 then
+		cooldown *= CombatConfig.Rhythm_BreathCooldown or 2.5
+		-- (now and then the breath is a stand-off: it circles its opponent)
+		if not data.breathCircled and math.random() < (CombatConfig.Rhythm_BreathCircleChance or 0.35) then
+			data.breathCircled = true
+			return require(script.Parent:WaitForChild("CirclingState"))
+		end
+	else
+		data.breathCircled = nil
+	end
+	if tempo == "explode" then
+		cooldown = 0
 	end
 	
 	if (now - data.lastAttackTime) < cooldown then
 		-- Between its own attacks the Quin can still see a strike coming and guard it
-		if distance <= 9 then
+		if distance <= 9 and not Instinct.enabled() then
 			tryRaiseGuard(fighter, humanoid, data, now, target, reactiveGuardChance(fighter))
 		end
 		-- Maintain base idle stance during recovery / cooldown
 		if now >= (data.attackFinishTime or 0) then
 			AnimationModule.ensureBaseIdle(humanoid)
 		end
-		return FightState
+		-- (out of a dodge the counter does not wait for the cooldown)
+		if not ((fighter:GetAttribute("CounterUntil") or 0) > now) then
+			return FightState
+		end
 	end
-	
+
 	-- DECIDE ACTION
 	local action = decideAction(fighter, target, distance, data)
+	-- (an explosion after a long quiet: in hard, with a dash when there is room for one, else heavy)
+	if tempo == "explode" and (action == "light" or action == "dodge" or action == "block") then
+		local dashOk = distance >= (CombatConfig.DashMinDistance or 10) and (fighter:GetAttribute("Energy") or 0) >= (CombatConfig.DashMinEnergy or 20)
+		action = dashOk and "dash" or "heavy"
+		fighter:SetAttribute("EngagedSince", os.clock())
+	end
+	-- Dodge into counter (phase 2): inside the window a dodge opened, the answer is a strike
+	if (fighter:GetAttribute("CounterUntil") or 0) > now then
+		fighter:SetAttribute("CounterUntil", nil)
+		action = "light"
+		fighter:SetAttribute("CounterAt", now) -- (probes)
+	end
 
 	-- A strike is only thrown at a target the step-in can reach. Out of reach the Quin keeps
 	-- closing (the approach above) instead of swinging at air and losing its combo.
-	if (action == "light" or action == "heavy") and distance > (CombatConfig.Combat_StrikeRange or 10.0) then
+	-- (moving in fast, the strike starts a beat earlier: the lunge covers the extra gap)
+	local strikeReach = CombatConfig.Combat_StrikeRange or 10.0
+	if CombatConfig.Flow_ArriveHot ~= false then
+		local v = rootPart.AssemblyLinearVelocity
+		strikeReach += math.min(Vector3.new(v.X, 0, v.Z).Magnitude * (CombatConfig.Flow_StrikeLeadTime or 0.1), CombatConfig.Flow_StrikeLeadMax or 4)
+	end
+	if (action == "light" or action == "heavy") and distance > strikeReach then
 		-- Step in now. The approach only restarts past idealRange + 2 (10.2), beyond the strike
 		-- range (9): a Quin left 9-10 studs out neither struck nor closed, and two of them stood
 		-- facing each other (21% of close fighting, up to 11 s at a time).
@@ -942,7 +1094,18 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		local awayDir = (rootPart.Position - targetHRP.Position)
 		local awayFlat = Vector3.new(awayDir.X, 0, awayDir.Z)
 		if awayFlat.Magnitude > 0.01 then
-			KnockbackModule.applySlide(fighter, awayFlat.Unit, 35, 0.25)
+			local slideDir = awayFlat.Unit
+			if CombatConfig.Flow_DodgeCounter ~= false then
+				-- A slip off the line, not only straight back: the counter comes from an angle
+				-- (agile Quins slip more often)
+				local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.5
+				if math.random() < (CombatConfig.Flow_DodgeSlipChance or 0.5) * (0.5 + mobility) then
+					local side = Vector3.new(-slideDir.Z, 0, slideDir.X) * (math.random() < 0.5 and -1 or 1)
+					slideDir = (side * 0.85 + slideDir * 0.5).Unit
+				end
+				fighter:SetAttribute("CounterUntil", now + (CombatConfig.Flow_CounterWindow or 0.7))
+			end
+			KnockbackModule.applySlide(fighter, slideDir, 35, 0.25)
 		end
 		return FightState
 		
