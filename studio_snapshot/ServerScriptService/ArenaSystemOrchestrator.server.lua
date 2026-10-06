@@ -24,6 +24,9 @@ local ArenaCrowd = require(ServerScriptService:WaitForChild("ArenaCrowdManager")
 local ArenaGenerator = require(ServerScriptService:WaitForChild("ArenaGenerator"))
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 local VfxModule = require(ReplicatedStorage.QuinCore.Modules.VfxModule)
+local SocialRespect = require(ReplicatedStorage.QuinCore.Modules.SocialRespect)
+local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
+local Players = game:GetService("Players")
 
 local Orchestrator = {}
 
@@ -46,6 +49,12 @@ local activeConfig = {
     Toggles = table.clone(ArenaConfig.DefaultToggles),
     Durations = table.clone(ArenaConfig.DefaultDurations),
 }
+
+-- Player Quin mode: the player who started it pilots a Quin against TeamSize AI Quins, all on the
+-- round dais in the arena's centre (Toggles.ProceduralTerrain: a generated arena round it; off:
+-- an empty arena). Only the inputs differ from an AI Quin (PilotedState, Modules/PilotInput).
+local pilotPlayer = nil
+local matchDais = nil
 
 local matchStats = {
     StartTime = 0,
@@ -265,7 +274,47 @@ local function spawnFighters(window, epoch)
         q:SetAttribute("IsInert", true)
     end
 
-    if mode == "1vs1" then
+    if mode == "PlayerQuin" then
+        -- On the dais (or the floor where it could not rise): the player's Quin on one side, the
+        -- AI Quins in a line facing it on the other
+        local center, floorY = ArenaGenerator.getCenter()
+        center = center or posAlpha:Lerp(posBeta, 0.5)
+        local cfgPQ = CombatConfig.PlayerQuin or {}
+        local top = (floorY or center.Y) + (matchDais and SocialRespect.daisTop() or 0) + 3
+        local radius = matchDais and SocialRespect.daisRadius() or 80
+        local gap = math.min(cfgPQ.SpawnGap or 40, radius * 1.6)
+        local forward = Vector3.new(posBeta.X - posAlpha.X, 0, posBeta.Z - posAlpha.Z)
+        forward = forward.Magnitude > 0.1 and forward.Unit or Vector3.new(1, 0, 0)
+        local side = Vector3.new(-forward.Z, 0, forward.X)
+        local mine = Vector3.new(center.X, top, center.Z) - forward * gap / 2
+        local theirs = Vector3.new(center.X, top, center.Z) + forward * gap / 2
+        local pilot = pilotPlayer
+        table.insert(jobs, function()
+            local q = QuinSpawner.spawn("Male", mine, "TeamAlpha")
+            if q then
+                q:SetAttribute("PilotedBy", pilot and pilot.UserId or nil)
+                q:SetAttribute("PilotName", pilot and pilot.Name or nil)
+                local root = q:FindFirstChild("HumanoidRootPart")
+                if pilot and root then
+                    pcall(function() pilot.ReplicationFocus = root end)
+                end
+            end
+            settle(q, CFrame.lookAt(mine, mine + forward))
+            return q
+        end)
+        local spread = math.min(cfgPQ.EnemySpread or 10, radius * 1.4 / math.max(1, teamSize))
+        for i = 1, teamSize do
+            local p = theirs + side * (i - (teamSize + 1) * 0.5) * spread
+            table.insert(jobs, function()
+                local q = QuinSpawner.spawn((i % 2 == 1) and "Female" or "Male", p, "TeamBeta")
+                if q and cfgPQ.AIProjectileJumps ~= true then
+                    q:SetAttribute("EnableProjectileJump", false) -- (chase, retreat and fight only)
+                end
+                settle(q, CFrame.lookAt(p, p - forward))
+                return q
+            end)
+        end
+    elseif mode == "1vs1" then
         local p1 = posAlpha:Lerp(posBeta, 0.6)
         local p2 = posBeta:Lerp(posAlpha, 0.6)
         table.insert(jobs, function()
@@ -440,9 +489,24 @@ local function runMatchLifecycle()
         while not finished do
             task.wait(0.1)
         end
+    elseif mode == "PlayerQuin" then
+        ArenaGenerator.clearArena() -- (Player Quin, obstacles off: nothing but the dais)
+        generationCompleted = waitPhase(epoch)
     else
         ArenaGenerator.restore() -- (toggle off: the edit-mode arena)
         generationCompleted = waitPhase(epoch)
+    end
+    -- Player Quin: the dais rises in the centre while the fighters are in the preparation room
+    if mode == "PlayerQuin" then
+        local center, floorY = ArenaGenerator.getCenter()
+        if center then
+            matchDais = SocialRespect.buildDais(center, floorY)
+            if matchDais then
+                matchDais.folder.Name = "PlayerQuinDais"
+            else
+                warn("[ArenaSystemOrchestrator] Player Quin: the centre is not clear for the dais; fighting on the floor")
+            end
+        end
     end
 
     -- PHASE 3: PREPARATION ROOM. Fighters calibrating in the backrooms: none on the field.
@@ -601,7 +665,7 @@ end
 -- EXTERNAL API & REMOTE HANDLERS
 -- ============================================================================
 
-function Orchestrator.startMatch(settings)
+function Orchestrator.startMatch(settings, player)
     if currentPhase ~= "IDLE" then
         print("[ArenaSystemOrchestrator] Cannot start match: already active in phase " .. currentPhase)
         return false, "Match already running."
@@ -628,6 +692,15 @@ function Orchestrator.startMatch(settings)
                     activeConfig.Durations[k] = n
                 end
             end
+        end
+    end
+
+    -- Player Quin: the player who pressed start pilots (from Studio's test hook: the first player)
+    pilotPlayer = nil
+    if activeConfig.Mode == "PlayerQuin" then
+        pilotPlayer = player or Players:GetPlayers()[1]
+        if not pilotPlayer then
+            return false, "Player Quin needs a player in the game."
         end
     end
 
@@ -675,6 +748,14 @@ function Orchestrator.stopMatch()
     ArenaAudio.stopAll(1.0)
     ArenaCrowd.setPhase("IDLE")
     ArenaGenerator.restore() -- the edit-mode arena comes back
+    if matchDais then
+        SocialRespect.sinkDais(matchDais)
+        matchDais = nil
+    end
+    if pilotPlayer then
+        pcall(function() pilotPlayer.ReplicationFocus = nil end)
+        pilotPlayer = nil
+    end
     ArenaFireworks.stopAll()
     ArenaDroneManager.resetDrones()
     QuinSpawner.cleanAll()
@@ -694,7 +775,7 @@ end
 
 -- Wire Remotes
 remotes.StartMatch.OnServerInvoke = function(player, settings)
-    return Orchestrator.startMatch(settings)
+    return Orchestrator.startMatch(settings, player)
 end
 
 remotes.StopMatch.OnServerEvent:Connect(function(player)
@@ -735,6 +816,7 @@ _G.ArenaOrchestrator = Orchestrator
 shared.ArenaOrchestrator = Orchestrator
 
 -- Studio test hook: Workspace attribute ArenaDevCommand = "start <json>" | "skip" | "stop"
+-- (e.g. start {"Mode":"PlayerQuin","TeamSize":2,"Toggles":{"InstantMatch":true,"ProceduralTerrain":false}})
 if game:GetService("RunService"):IsStudio() then
     Workspace:GetAttributeChangedSignal("ArenaDevCommand"):Connect(function()
         local cmd = Workspace:GetAttribute("ArenaDevCommand")

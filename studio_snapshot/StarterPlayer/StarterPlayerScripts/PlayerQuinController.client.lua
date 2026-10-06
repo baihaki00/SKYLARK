@@ -535,8 +535,8 @@ end)
 UserInputService.InputBegan:Connect(function(input, gp)
 	if UserInputService:GetFocusedTextBox() then return end
 
-	-- Hotkey P toggles Quin mode
-	if input.KeyCode == Enum.KeyCode.P and not gp then
+	-- Hotkey P toggles Quin mode (not while piloting a match Quin: PilotClient)
+	if input.KeyCode == Enum.KeyCode.P and not gp and not shared.PilotedQuin then
 		toggleQuinControl()
 		return
 	end

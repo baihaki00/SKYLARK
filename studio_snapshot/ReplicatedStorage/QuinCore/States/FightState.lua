@@ -257,11 +257,42 @@ local function reactiveGuardChance(fighter)
 	return (fighter:GetAttribute("BlockChance") or 0.25) * (1.2 - aggression * 0.5)
 end
 
+-- Turn the body to face a target with the fight's facing gyro (FightGyro: torque, capped turn rate).
+-- Used by the fight loop and by a player's Quin (PilotedState). Not across a height difference of
+-- 5 studs or more.
+function FightState.faceTarget(rootPart, targetHRP, data)
+	local yDiff = math.abs(targetHRP.Position.Y - rootPart.Position.Y)
+	if yDiff >= 5 then return end
+	local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
+	local alignOri = rootPart:FindFirstChild("FightGyro")
+	if not alignOri then
+		alignOri = Instance.new("AlignOrientation")
+		alignOri.Name = "FightGyro"
+		alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+		att.Name = "RootAttachment"
+		alignOri.Attachment0 = att
+		alignOri.RigidityEnabled = false
+		alignOri.Responsiveness = 22
+		alignOri.MaxTorque = 60000
+		-- Without a cap the body whipped round at 18-26 rad/s (over 1000 degrees/s) whenever
+		-- the target changed or passed close by
+		alignOri.MaxAngularVelocity = CombatConfig.Combat_FacingMaxTurnRate or 14
+		alignOri.CFrame = rootPart.CFrame
+		alignOri.Parent = rootPart
+	end
+	-- The rear-turn counter stiffens the gyro for its turn; it used to stay stiff for the
+	-- rest of the fight
+	if data and data.currentAction ~= "rear_turn_counter" and alignOri.Responsiveness ~= 22 then
+		alignOri.Responsiveness = 22
+	end
+	alignOri.CFrame = lookCF
+end
+
 local function executeAttack(fighter, humanoid, rootPart, target, moveData, data, DEBUG)
-	local targetHRP = target:FindFirstChild("HumanoidRootPart")
-	if not targetHRP then return 0.5, 0.35 end
-	
-	local dist = (targetHRP.Position - rootPart.Position).Magnitude
+	-- (target may be nil: a player's Quin can strike at the air; no step-in then)
+	local targetHRP = target and target:FindFirstChild("HumanoidRootPart")
+	if target and not targetHRP then return 0.5, 0.35 end
 	local energy = fighter:GetAttribute("Energy") or 100
 	local fatigueScale = energy < (CombatConfig.FatigueThreshold or 25) and 0.65 or 1.0
 	
@@ -320,7 +351,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- The step goes toward where the target will be at impact (its velocity, Combat_StrikeLead
 	-- ahead), not along the body's facing toward where it was
 	local function stepIn(timeLeft)
-		if not (fighter.Parent and targetHRP.Parent) then return end
+		if not (fighter.Parent and targetHRP and targetHRP.Parent) then return end
 		local tv = targetHRP.AssemblyLinearVelocity
 		local aim = targetHRP.Position + Vector3.new(tv.X, 0, tv.Z) * timeLeft * (CombatConfig.Combat_StrikeLead or 0)
 		local offset = Vector3.new(aim.X - rootPart.Position.X, 0, aim.Z - rootPart.Position.Z)
@@ -407,7 +438,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		end
 		-- Strike telemetry (HUD / audits): what became of this strike
 		if result == "Whiff" and next(struck) == nil then
-			local tHRP = target:FindFirstChild("HumanoidRootPart")
+			local tHRP = target and target:FindFirstChild("HumanoidRootPart")
 			fighter:SetAttribute("StrikeMissDist", tHRP and math.floor((tHRP.Position - rootPart.Position).Magnitude * 10) / 10 or -1)
 		end
 		fighter:SetAttribute("StrikeResult", result)
@@ -434,7 +465,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	end
 
 	task.delay(impactDelay, function()
-		if not fighter.Parent or not target.Parent then return end
+		if not fighter.Parent or (target and not target.Parent) then return end
 		-- Hit while winding up: the strike never comes out and the chain is broken
 		if fighter:GetAttribute("StrikeInterrupted") == windupUntil then
 			ComboModule.resetCombo(fighter)
@@ -464,6 +495,22 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	end)
 
 	return finishDelay, cancelDelay
+end
+
+-- Throw the next strike of the combo ("Light" | "Heavy"): the move, the clip, the marker timing,
+-- the contact and its outcome. The fight loop's strikes and a player's Quin's strikes
+-- (PilotedState) both come through here; `data` carries the timing (lastAttackTime,
+-- actionEndTime, attackFinishTime). Returns the move, or nil when there is none.
+function FightState.throwStrike(fighter, humanoid, rootPart, target, weight, data, DEBUG)
+	local moveData = ComboModule.nextAttack(fighter, weight or "Light")
+	if not moveData then return nil end
+	local now = tick()
+	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
+	data.currentAction = (weight == "Heavy") and "heavy" or "light"
+	local attackDuration, cancelDelay = executeAttack(fighter, humanoid, rootPart, target, moveData, data, DEBUG)
+	data.actionEndTime = now + (cancelDelay / speedMult)
+	data.attackFinishTime = now + (attackDuration / speedMult)
+	return moveData, attackDuration
 end
 
 function FightState.enter(fighter, humanoid, rootPart)
@@ -706,33 +753,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	
 	-- Face target smoothly via physics torque AlignOrientation (Zero CFrame snapping / yaw pop)
-	local yDiff = math.abs(targetHRP.Position.Y - rootPart.Position.Y)
-	if yDiff < 5 then
-		local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
-		local alignOri = rootPart:FindFirstChild("FightGyro")
-		if not alignOri then
-			alignOri = Instance.new("AlignOrientation")
-			alignOri.Name = "FightGyro"
-			alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-			local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
-			att.Name = "RootAttachment"
-			alignOri.Attachment0 = att
-			alignOri.RigidityEnabled = false
-			alignOri.Responsiveness = 22
-			alignOri.MaxTorque = 60000
-			-- Without a cap the body whipped round at 18-26 rad/s (over 1000 degrees/s) whenever
-			-- the target changed or passed close by
-			alignOri.MaxAngularVelocity = CombatConfig.Combat_FacingMaxTurnRate or 14
-			alignOri.CFrame = rootPart.CFrame
-			alignOri.Parent = rootPart
-		end
-		-- The rear-turn counter stiffens the gyro for its turn; it used to stay stiff for the
-		-- rest of the fight
-		if data.currentAction ~= "rear_turn_counter" and alignOri.Responsiveness ~= 22 then
-			alignOri.Responsiveness = 22
-		end
-		alignOri.CFrame = lookCF
-	end
+	FightState.faceTarget(rootPart, targetHRP, data)
 	
 	-- Distance management
 	local idealRange = CombatConfig.CombatRange or 8
@@ -854,13 +875,8 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	
 	if action == "light" then
-		local moveData = ComboModule.nextAttack(fighter, "Light")
+		local moveData, attackDuration = FightState.throwStrike(fighter, humanoid, rootPart, target, "Light", data, DEBUG)
 		if moveData then
-			data.currentAction = "light"
-			local attackDuration, cancelDelay = executeAttack(fighter, humanoid, rootPart, target, moveData, data, DEBUG)
-			data.actionEndTime = now + (cancelDelay / speedMult)
-			data.attackFinishTime = now + (attackDuration / speedMult)
-			
 			-- Check for launch transition
 			if moveData.isLaunch then
 				task.delay((attackDuration + 0.05) / speedMult, function()
@@ -872,13 +888,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 		
 	elseif action == "heavy" then
-		local moveData = ComboModule.nextAttack(fighter, "Heavy")
-		if moveData then
-			data.currentAction = "heavy"
-			local attackDuration, cancelDelay = executeAttack(fighter, humanoid, rootPart, target, moveData, data, DEBUG)
-			data.actionEndTime = now + (cancelDelay / speedMult)
-			data.attackFinishTime = now + (attackDuration / speedMult)
-		end
+		FightState.throwStrike(fighter, humanoid, rootPart, target, "Heavy", data, DEBUG)
 		
 	elseif action == "dash" then
 		data.currentAction = "dash"

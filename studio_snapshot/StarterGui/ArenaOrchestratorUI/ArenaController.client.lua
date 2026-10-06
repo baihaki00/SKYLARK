@@ -272,13 +272,14 @@ local modes = {
     { id = "TeamBattle", name = "Team Battle" },
     { id = "1vs1",       name = "1 vs 1 Duel" },
     { id = "FFA",        name = "Free For All" },
+    { id = "PlayerQuin", name = "Player Quin" },
 }
 
 for modeIndex, m in ipairs(modes) do
     local btn = Instance.new("TextButton")
     btn.Name = "Mode_" .. m.id
     btn.LayoutOrder = modeIndex
-    btn.Size = UDim2.new(0, 128, 0, 32)
+    btn.Size = UDim2.new(0, 100, 0, 32)
     btn.BackgroundColor3 = (selectedMode == m.id) and C_CARD_SEL or Color3.fromRGB(18, 22, 32)
     btn.TextColor3 = (selectedMode == m.id) and C_CYAN or C_MUTED
     btn.Font = Enum.Font.GothamBold
@@ -330,11 +331,14 @@ sizeLayout.Parent = sizeContainer
 
 local sizeButtons = {}
 
--- Free For All has no squads: the same buttons pick 2x as many Quins; a duel has no size
+-- Free For All has no squads: the same buttons pick 2x as many Quins; a duel has no size; Player
+-- Quin: you against that many AI Quins (Procedural Arena Generation off: no obstacles round the dais)
 function refreshSizeLabels()
     for sz, b in pairs(sizeButtons) do
         if selectedMode == "FFA" then
             b.btn.Text = string.format("%d Quins", sz * 2)
+        elseif selectedMode == "PlayerQuin" then
+            b.btn.Text = "Me vs " .. sz
         else
             b.btn.Text = sz .. "v" .. sz
         end

@@ -175,6 +175,22 @@ local function sinkPlatform(platform)
 	task.delay(2.7, function() platform.folder:Destroy() end)
 end
 
+-- The same round dais for a match fought on it (Player Quin match mode): rises at `center` from a
+-- floor at floorY. A handle for sinkDais, or nil when the centre is not clear. daisTop: the height
+-- of its top above the floor; daisRadius: its top's radius.
+function SocialRespect.buildDais(center, floorY)
+	return buildPlatform(center, floorY)
+end
+function SocialRespect.sinkDais(handle)
+	sinkPlatform(handle)
+end
+function SocialRespect.daisRadius()
+	return CFG.CeremonyRadius or 80
+end
+function SocialRespect.daisTop()
+	return CFG.CeremonyRise or 3
+end
+
 -- The dais pulls the duellists back toward its middle (SocialSystem.constrainToCeremony is
 -- called by Main and the states). A pull, not a wall: it grows past the margin, then fades out
 -- well off the dais, so a brawl can spill off it and find its way back.

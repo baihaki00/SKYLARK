@@ -153,7 +153,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		TargetingModule.setTarget(fighter, target)
 		
 		-- Execute unique opening action if available (unblocked by arena spawn distance)
-		if data.openingAction == "ProjectileJump" and CombatConfig.EnableProjectileJump then
+		if data.openingAction == "ProjectileJump" and CombatConfig.EnableProjectileJump and fighter:GetAttribute("EnableProjectileJump") ~= false then
 			data.openingAction = nil
 			return require(script.Parent:WaitForChild("ProjectileJumpState"))
 		elseif data.openingAction == "Dash" then

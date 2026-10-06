@@ -329,6 +329,9 @@ do
 	ImpulseModule.start()
 end
 
+-- A player's input to the Quin they pilot (Player Quin match mode)
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("PilotInput")).start()
+
 -- The timing markers in every strike clip (HitStart, HitEnd, Recover) are read now, not mid-fight
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StrikeMarkers")).preload()
 

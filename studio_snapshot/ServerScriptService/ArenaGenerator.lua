@@ -948,6 +948,20 @@ function Gen.isActive()
 	return active
 end
 
+-- The arena with nothing on it: the edit-mode obstacles put aside and nothing generated
+-- (Player Quin match mode, obstacles off). Gen.restore brings them back.
+function Gen.clearArena()
+	if active then Gen.restore() end
+	stashEditLayout()
+	refreshCatalogue()
+end
+
+-- The arena's centre at floor height, and the floor's Y
+function Gen.getCenter()
+	local center, _, _, floorY = metrics()
+	return center, floorY
+end
+
 function Gen.getLayout()
 	return current
 end

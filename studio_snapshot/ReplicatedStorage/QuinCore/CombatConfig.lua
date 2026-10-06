@@ -1079,4 +1079,18 @@ CombatConfig.Social = {
 		WitnessRadius = 30,
 	},
 }
+-- Player Quin match mode: a player pilots a Quin against AI Quins (PilotedState, Modules/PilotInput,
+-- StarterPlayerScripts.PilotClient). Speeds are the Player_* ones above (run = the Quin's own Speed).
+CombatConfig.PlayerQuin = {
+	StrikeLockRange = 12,  -- studs: a strike turns to the nearest enemy within this, favouring the one pushed toward
+	StrikeBuffer = 0.35,   -- seconds a click made mid-strike is kept and thrown once the Quin is free (combos)
+	GuardHoldAfter = 0.15, -- seconds into the block clip where the guard pose is held while guarding
+	InputTimeout = 1.0,    -- seconds without input before the Quin stops moving
+	DashDistance = 35,     -- studs
+	JumpHeight = 8,        -- studs
+	SpawnGap = 40,         -- studs between the player's Quin and the AI line on the dais
+	EnemySpread = 10,      -- studs between AI Quins side by side
+	AIProjectileJumps = false, -- the AI Quins may projectile-jump (off: they chase, retreat and fight)
+}
+
 return CombatConfig

@@ -50,6 +50,10 @@ local Cognition = require(QuinCore:WaitForChild("Cognition"))
 -- on the choice and comes out of it turned to someone else)
 local NO_RETARGET_STATES = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, Airborne = true, WallRun = true }
 local STANDING_STATES = { Idle = true, Fight = true, Circling = true, Chase = true, Retreat = true, Overwatch = true }
+-- A Quin piloted by a player (PilotedBy, Player Quin match mode) takes its decisions from the
+-- player (PilotedState); only what happens to its body is left to the states every Quin has
+local PILOT_STATES = { Piloted = true, Knockback = true, Recovery = true, Death = true, ReEntry = true }
+local function isPiloted() return Quin:GetAttribute("PilotedBy") ~= nil end
 SocialSystem.start() -- the social layer (pack leaders, respect customs, arena events)
 
 -- === STATE MODULES ===
@@ -73,6 +77,7 @@ local States = {
 	ReEntry = require(statesFolder:WaitForChild("ReEntryState")),
 	WallRun = require(statesFolder:WaitForChild("WallRunState")),
 	BeamStruggle = require(statesFolder:WaitForChild("BeamStruggleState")),
+	Piloted = require(statesFolder:WaitForChild("PilotedState")),
 }
 
 -- Aliases for backwards compatibility / absorbed micro-actions
@@ -623,7 +628,7 @@ task.spawn(function()
 		local isShowdownPerimeter = SocialSystem.standsDown(Quin) -- (stepped back for the respect custom: plans no fights)
 		local isBeamStruggling = (currentState.name == "BeamStruggle")
 
-		if not isShowdownPerimeter and not isBeamStruggling and rootPart and humanoid.Health > 0 then
+		if not isShowdownPerimeter and not isBeamStruggling and rootPart and humanoid.Health > 0 and not isPiloted() then
 			local tacticalContext = TacticalPerception.evaluate(Quin)
 			if tacticalContext then
 				-- 1. Utility-based target selection & switching
@@ -719,7 +724,7 @@ task.spawn(function()
 		local newState = forceState
 		-- Under something lower than itself it cannot stand, wait or fight: it knows, and gets out
 		-- to the nearest spot with room before its state does anything else (HeadroomAwareness).
-		if not newState and STANDING_STATES[currentState.name] and CombatConfig.Headroom.Enabled ~= false
+		if not newState and STANDING_STATES[currentState.name] and CombatConfig.Headroom.Enabled ~= false and not isPiloted()
 			and humanoid.FloorMaterial ~= Enum.Material.Air and not humanoid.PlatformStand
 			and not LocomotionModule.isSliding(Quin) then
 			local exit = HeadroomAwareness.exit(Quin, rootPart, humanoid)
@@ -736,7 +741,7 @@ task.spawn(function()
 		-- At a rim with a drop beside it, it knows (NearEdge). Waiting there, or anywhere up on the
 		-- arena wall, it walks in from the rim; fighting, chasing or holding high ground at an
 		-- edge is its business (EdgeAwareness).
-		if not newState and STANDING_STATES[currentState.name] and CombatConfig.EdgeAwareness.Enabled ~= false
+		if not newState and STANDING_STATES[currentState.name] and CombatConfig.EdgeAwareness.Enabled ~= false and not isPiloted()
 			and humanoid.FloorMaterial ~= Enum.Material.Air and not humanoid.PlatformStand then
 			local edge = EdgeAwareness.sense(Quin, rootPart, humanoid)
 			if (edge ~= nil) ~= (Quin:GetAttribute("NearEdge") == true) then
@@ -752,6 +757,9 @@ task.spawn(function()
 		elseif Quin:GetAttribute("NearEdge") then
 			Quin:SetAttribute("NearEdge", nil)
 		end
+		if not newState and isPiloted() and not PILOT_STATES[currentState.name] then
+			newState = States.Piloted
+		end
 		if not newState then
 			local isDebugMode = workspace:GetAttribute("Debug_StateLabels") or false
 			local ok, result = pcall(currentState.update, Quin, humanoid, rootPart, isDebugMode)
@@ -764,6 +772,11 @@ task.spawn(function()
 		end
 
 		
+		if newState and isPiloted() and not PILOT_STATES[newState.name] then
+			newState = States.Piloted
+		elseif newState and not isPiloted() and newState.name == "Piloted" then
+			newState = States.Idle -- (the player let go: the Quin's own decisions again)
+		end
 		if newState and newState ~= currentState then
 			-- State Dwell Commitment Check: prevent rapid 100-300ms fluttering
 			local isInterrupt = (forceState ~= nil)
@@ -771,7 +784,8 @@ task.spawn(function()
 					or newState.name == "MidAirClash" or newState.name == "BeamStruggle" or newState.name == "ReEntry"
 					-- committed moves lasting a second or more, gated by their own cooldowns; held
 					-- back here, a hop onto a stepping stone waited 1.3 s and its spot request lapsed
-					or newState.name == "ProjectileJump" or newState.name == "WallRun")
+					or newState.name == "ProjectileJump" or newState.name == "WallRun"
+				or newState.name == "Piloted" or currentState.name == "Piloted")
 			
 			local dwellElapsed = os.clock() - stateStartTime
 			local minDwell = 0
