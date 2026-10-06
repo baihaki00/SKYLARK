@@ -52,7 +52,8 @@ local NO_RETARGET_STATES = { Knockback = true, Recovery = true, ProjectileJump =
 local STANDING_STATES = { Idle = true, Fight = true, Circling = true, Chase = true, Retreat = true, Overwatch = true }
 -- A Quin piloted by a player (PilotedBy, Player Quin match mode) takes its decisions from the
 -- player (PilotedState); only what happens to its body is left to the states every Quin has
-local PILOT_STATES = { Piloted = true, Knockback = true, Recovery = true, Death = true, ReEntry = true }
+local PILOT_STATES = { Piloted = true, Knockback = true, Recovery = true, Death = true, ReEntry = true,
+	ProjectileJump = true, MidAirClash = true } -- (a jump it chose; a clash it met in the air)
 local function isPiloted() return Quin:GetAttribute("PilotedBy") ~= nil end
 SocialSystem.start() -- the social layer (pack leaders, respect customs, arena events)
 

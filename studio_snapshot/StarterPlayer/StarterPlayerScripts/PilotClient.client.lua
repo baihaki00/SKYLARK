@@ -6,7 +6,9 @@
 -- orbit as Play As Quin: shared.PlayerControlledQuin).
 --
 -- Keys: WASD move (camera-relative), hold Shift run, Z walk on/off, left click strike,
--- hold right click guard, Space jump, C slide, Q / E dash.
+-- hold right click guard, Space jump (let go early: a short hop), C slide, Q / E dash,
+-- V projectile jump at what the crosshair is on: tap = style 1 (an arc onto it), hold and let go =
+-- style 2 (a high launch); in the air, V again dives onto what the crosshair is on then.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -18,9 +20,12 @@ local player = Players.LocalPlayer
 local remote = ReplicatedStorage:WaitForChild("PilotInput")
 
 local SEND_INTERVAL = 0.25 -- seconds between repeats of an unchanged move (the server stops a silent Quin after 1 s)
+local PJ_HOLD = 0.3 -- seconds V is held for a style 2 (high launch) instead of a style 1 (arc)
+local AIM_RANGE = 600
 
 local quin = nil
 local walkMode = false
+local vDownAt = nil
 local lastDir, lastPace, lastSentAt = Vector3.zero, "jog", 0
 
 -- Roblox's default controls must not walk the parked avatar while the keys drive the Quin
@@ -73,8 +78,26 @@ local function detach()
 	setDefaultControlsEnabled(true)
 end
 
-local function send(kind, a, b)
-	pcall(function() remote:FireServer(kind, a, b) end)
+local function send(kind, a, b, c)
+	pcall(function() remote:FireServer(kind, a, b, c) end)
+end
+
+-- What the crosshair (the middle of the view) is on: a point, and the Quin there if it is one
+local function aim()
+	local cam = Workspace.CurrentCamera.CFrame
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { quin, player.Character, Workspace:FindFirstChild("PlayerCostumes") }
+	local hit = Workspace:Raycast(cam.Position, cam.LookVector * AIM_RANGE, params)
+	if not hit then
+		return cam.Position + cam.LookVector * AIM_RANGE, nil
+	end
+	local folder = Workspace:FindFirstChild("QuinServer")
+	local model = hit.Instance:FindFirstAncestorOfClass("Model")
+	while model and model.Parent ~= folder do
+		model = model.Parent and model.Parent:FindFirstAncestorOfClass("Model")
+	end
+	return hit.Position, model and model.Name or nil
 end
 
 -- Which Quin is mine (a match spawns it, a death or the match end takes it away)
@@ -122,7 +145,10 @@ RunService.RenderStepped:Connect(function()
 end)
 
 UserInputService.InputBegan:Connect(function(input, gp)
-	if not quin or gp or UserInputService:GetFocusedTextBox() then return end
+	if not quin or UserInputService:GetFocusedTextBox() then return end
+	-- (Space comes in marked as handled: Roblox's own controls keep a jump action bound to it even
+	-- while they are disabled, so a jump was never sent)
+	if gp and input.KeyCode ~= Enum.KeyCode.Space then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		send("action", "Strike")
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
@@ -135,6 +161,14 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		send("action", "Dash")
 	elseif input.KeyCode == Enum.KeyCode.Z then
 		walkMode = not walkMode
+	elseif input.KeyCode == Enum.KeyCode.V then
+		-- in a high launch: dive now; otherwise start timing the press
+		if quin:GetAttribute("CurrentState") == "ProjectileJump" and quin:GetAttribute("PJPhase") == "AirborneTimer" then
+			local point, name = aim()
+			send("dive", point, name)
+		else
+			vDownAt = os.clock()
+		end
 	end
 end)
 
@@ -142,5 +176,12 @@ UserInputService.InputEnded:Connect(function(input)
 	if not quin then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton2 then
 		send("guard", false)
+	elseif input.KeyCode == Enum.KeyCode.Space then
+		send("action", "JumpRelease")
+	elseif input.KeyCode == Enum.KeyCode.V and vDownAt then
+		local style = (os.clock() - vDownAt >= PJ_HOLD) and 2 or 1
+		vDownAt = nil
+		local point, name = aim()
+		send("pj", style, point, name)
 	end
 end)

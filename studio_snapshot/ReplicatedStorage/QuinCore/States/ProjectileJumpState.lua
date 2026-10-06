@@ -219,8 +219,9 @@ local pointRequests = setmetatable({}, { __mode = "k" }) -- fighter -> { positio
 -- Send a Quin on a projectile jump to a spot instead of at an enemy (a platform to get onto).
 -- The caller then returns this state. The jump is a single arc that lands on the spot itself.
 -- If the state machine does not take the transition on that tick, the request lapses.
-function ProjectileJumpState.aimAtPoint(fighter, position)
-	pointRequests[fighter] = { position = position, time = os.clock() }
+function ProjectileJumpState.aimAtPoint(fighter, position, style)
+	-- (style: a player's jump to a spot may be a high launch with a dive; otherwise one arc)
+	pointRequests[fighter] = { position = position, time = os.clock(), style = style }
 end
 
 -- The stand-in target for a jump to a spot: the flight code aims at a Model's root, so a spot
@@ -502,7 +503,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	pointRequests[fighter] = nil
 	if pointRequest and os.clock() - pointRequest.time <= POINT_REQUEST_LIFETIME then
 		target = createPointTarget(pointRequest.position, humanoid, rootPart)
-		style = 1
+		style = pointRequest.style or 1
 		fighter:SetAttribute("JumpStyle", style)
 	end
 	if targetVal then
@@ -1023,6 +1024,26 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 
 	elseif data.phase == "AirborneTimer" then
+		-- A piloted Quin dives when its player says, at what the player aims at then
+		-- (Modules/PilotInput; otherwise on the timer below, like any Quin)
+		if fighter:GetAttribute("PilotedBy") then
+			local dive = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("PilotInput")).takeDive(fighter)
+			if dive then
+				local aimed = dive.target and dive.target ~= fighter and dive.target:FindFirstChild("HumanoidRootPart")
+				if data.precise and data.target then
+					data.target:Destroy() -- (the previous spot's stand-in)
+				end
+				if aimed then
+					data.target, data.precise = dive.target, false
+				else
+					data.target, data.precise = createPointTarget(dive.point, humanoid, rootPart), true
+				end
+				target = data.target
+				targetPosPart = targetPartOf(target)
+				targetPos = targetPosPart.Position
+				data.dashExactTime = 0
+			end
+		end
 		local timeSinceJump = now - data.startTime
 		local heightAboveTarget = rootPart.Position.Y - targetPos.Y
 		local isFalling = rootPart.AssemblyLinearVelocity.Y < 0

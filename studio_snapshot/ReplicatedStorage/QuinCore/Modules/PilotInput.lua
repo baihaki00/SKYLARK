@@ -6,7 +6,9 @@
 -- The client (StarterPlayerScripts.PilotClient) sends, over the RemoteEvent ReplicatedStorage.PilotInput:
 --   "move", direction (flat Vector3, zero to stop), pace ("walk" | "jog" | "run")
 --   "guard", held (boolean)
---   "action", name ("Strike" | "Dash" | "Slide" | "Jump")
+--   "action", name ("Strike" | "Dash" | "Slide" | "Jump" | "JumpRelease")
+--   "pj", style (1 arc | 2 high launch), aim point (Vector3), aimed Quin's name (or nil)
+--   "dive", aim point, aimed Quin's name (or nil): dive now (a style 2 projectile jump)
 -- A Quin is piloted by the player whose UserId is in its PilotedBy attribute; input for any
 -- other Quin is ignored. The server owns the body throughout (no network ownership change).
 
@@ -15,7 +17,8 @@ local Workspace = game:GetService("Workspace")
 
 local PilotInput = {}
 
-local ACTIONS = { Strike = true, Dash = true, Slide = true, Jump = true }
+local ACTIONS = { Strike = true, Dash = true, Slide = true, Jump = true, JumpRelease = true }
+local PJ_STYLES = { [1] = true, [2] = true }
 local PACES = { walk = true, jog = true, run = true }
 local MAX_QUEUED = 3
 
@@ -55,6 +58,34 @@ function PilotInput.takeActions(quin)
 	return queue
 end
 
+-- An aim from the client: a point, and the Quin under the crosshair (resolved to a model here)
+local function readAim(point, targetName)
+	if typeof(point) ~= "Vector3" or point.X ~= point.X or point.Y ~= point.Y or point.Z ~= point.Z or point.Magnitude > 1e5 then
+		return nil
+	end
+	local folder = Workspace:FindFirstChild("QuinServer")
+	local target = type(targetName) == "string" and folder and folder:FindFirstChild(targetName) or nil
+	return { point = point, target = target, at = os.clock() }
+end
+
+-- The projectile jump asked for (style, point, target), once; nil if none (or older than 0.5 s)
+function PilotInput.takeProjectileJump(quin)
+	local s = stateFor(quin)
+	local pj = s.pj
+	s.pj = nil
+	if pj and os.clock() - pj.at <= 0.5 then return pj end
+	return nil
+end
+
+-- The dive asked for (point, target), once; nil if none (or older than 0.5 s)
+function PilotInput.takeDive(quin)
+	local s = inputs[quin]
+	local dive = s and s.dive
+	if s then s.dive = nil end
+	if dive and os.clock() - dive.at <= 0.5 then return dive end
+	return nil
+end
+
 function PilotInput.clear(quin)
 	inputs[quin] = nil
 end
@@ -68,9 +99,7 @@ function PilotInput.start()
 		remote.Name = "PilotInput"
 		remote.Parent = ReplicatedStorage
 	end
-	remote.OnServerEvent:Connect(function(player, kind, a, b)
-		local quin = PilotInput.quinOf(player)
-		if not quin then return end
+	local function handle(quin, kind, a, b, c)
 		local s = stateFor(quin)
 		s.at = os.clock()
 		if kind == "move" then
@@ -84,8 +113,45 @@ function PilotInput.start()
 			if ACTIONS[a] and #s.queue < MAX_QUEUED then
 				table.insert(s.queue, a)
 			end
+		elseif kind == "pj" then
+			local aim = PJ_STYLES[a] and readAim(b, c)
+			if aim then
+				aim.style = a
+				s.pj = aim
+			end
+		elseif kind == "dive" then
+			s.dive = readAim(a, b)
 		end
+	end
+	remote.OnServerEvent:Connect(function(player, kind, a, b, c)
+		local quin = PilotInput.quinOf(player)
+		if quin then handle(quin, kind, a, b, c) end
 	end)
+
+	-- Studio test hook: Workspace attribute PilotTestInput = JSON {"kind":..., "a":..., "b":...,
+	-- "c":...} drives the first piloted Quin through the same handler as a player's input (vectors
+	-- as [x, y, z]). For tests without a keyboard (MCP), e.g.
+	--   {"kind":"move","a":[0,0,-1],"b":"run"}   {"kind":"action","a":"Jump"}   {"kind":"pj","a":2,"b":[0,10,-500]}
+	if game:GetService("RunService"):IsStudio() then
+		Workspace:GetAttributeChangedSignal("PilotTestInput"):Connect(function()
+			local raw = Workspace:GetAttribute("PilotTestInput")
+			if type(raw) ~= "string" or raw == "" then return end
+			Workspace:SetAttribute("PilotTestInput", nil)
+			local ok, msg = pcall(function() return game:GetService("HttpService"):JSONDecode(raw) end)
+			if not ok or type(msg) ~= "table" then return end
+			local function arg(v)
+				if type(v) == "table" and #v == 3 then return Vector3.new(v[1], v[2], v[3]) end
+				return v
+			end
+			local folder = Workspace:FindFirstChild("QuinServer")
+			for _, quin in ipairs(folder and folder:GetChildren() or {}) do
+				if quin:GetAttribute("PilotedBy") then
+					handle(quin, msg.kind, arg(msg.a), arg(msg.b), arg(msg.c))
+					break
+				end
+			end
+		end)
+	end
 end
 
 return PilotInput

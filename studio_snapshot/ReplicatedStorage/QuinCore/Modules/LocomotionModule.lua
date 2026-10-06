@@ -364,6 +364,31 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 		end
 		fighter:SetAttribute("ReversalPhase", reversal and reversal.phase or nil)
 
+		-- In the air a body keeps the flight it has: it can only lean it a little (air control).
+		-- (With the ground drive in the air the horizontal motion followed the input at once:
+		-- up, across, down, a box instead of an arc.)
+		if isHumanoidAirborne(humanoid) and CombatConfig.Locomotion_AirControl ~= false then
+			local v = rootPart.AssemblyLinearVelocity
+			local current = Vector3.new(v.X, 0, v.Z)
+			local wanted = flat.Magnitude > 0.1 and flat.Unit * math.min(target, math.max(data.airSpeedCap or target, current.Magnitude)) or current
+			local change = wanted - current
+			local most = (CombatConfig.Locomotion_AirAcceleration or 30) * frameDt
+			if change.Magnitude > most then
+				change = change.Unit * most
+			end
+			local nextVelocity = current + change
+			humanoid.WalkSpeed = nextVelocity.Magnitude
+			data.currentSpeed = nextVelocity.Magnitude
+			if nextVelocity.Magnitude > 0.5 then
+				data.groundIntentDirection = nextVelocity.Unit
+				humanoid:Move(nextVelocity.Unit, false)
+			end
+			if data.ownsFacing then
+				updateFacing(data, rootPart, frameDt)
+			end
+			return
+		end
+
 		local speed = humanoid.WalkSpeed
 		if speed < target then
 			speed = math.min(speed + (CombatConfig.Locomotion_Acceleration or 80.0) * frameDt, target)
@@ -612,6 +637,16 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	local speed = flatVel.Magnitude
 	local now = os.clock()
 
+	-- Nothing to brake against in the air: the body carries its flight until it lands. (The
+	-- ground brake ran in the air too, and a jump stopped dead across the ground in mid-flight.)
+	if isHumanoidAirborne(humanoid) and CombatConfig.Locomotion_AirControl ~= false then
+		if speed > 0.5 then
+			humanoid.WalkSpeed = speed
+			humanoid:Move(flatVel.Unit, false)
+		end
+		return
+	end
+
 	-- The stop-run plant is for a Quin pulling up out of a full run: one that had reached its
 	-- top speed (its Speed, within StopRun_TopSpeedShare). Anything slower just slows down.
 	-- (It used to play from 24 studs/s, or whenever the Quin was flagged as sprinting: a third
@@ -702,8 +737,8 @@ end
 -- 4. BALLISTIC JUMP (Zero BodyVelocity; Single Impulse; 88% Landing Retention)
 -- ============================================================================
 
-local MIN_JUMP_HEIGHT = 2.0
-local MAX_JUMP_HEIGHT = 14.0
+-- (MAX_JUMP_HEIGHT is the one at the top: Jump_MaxReach + 2. A second definition here, 14,
+-- shadowed it for every jump below, so Pass 63's reach of 25 never reached a jump.)
 
 function LocomotionModule.getTraversalProbe(rootPart, desiredDirection)
 	return TraversalModule.probe(rootPart, desiredDirection)
@@ -840,6 +875,8 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 
 	-- Traversal parkour planning integration (vaults, jumps, dismounts)
 	local plannedFlightTime = nil
+	-- ("free": a jump a player asked for. It is not re-planned into an obstacle crossing or refused
+	-- because of where it would land: that is the player's choice, as an AI's choice is its own.)
 	local shouldPlan = (jumpType == nil or jumpType == "jump" or jumpType == "vault" or jumpType == "dismount")
 	if shouldPlan and rootPart:IsA("BasePart") then
 		local plan = LocomotionModule.planTraversal(
@@ -869,7 +906,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	-- A jump that was not planned over a known obstacle is checked before it is taken: the
 	-- Quin only leaves the ground when the arc comes down on something it can stand on, inside
 	-- the arena. (A straight-up hop always does.)
-	if not plannedFlightTime and rootPart:IsA("BasePart") then
+	if not plannedFlightTime and rootPart:IsA("BasePart") and jumpType ~= "free" then
 		local flatVelocity = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z)
 		local across = forwardImpulse or (flatVelocity.Magnitude > 2.0 and flatVelocity.Magnitude or 0)
 		if across > 4 then
@@ -1181,6 +1218,19 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		end
 	end)
 	return true -- launched (nil / false: suppressed, debounced or rejected)
+end
+
+-- A jump let go early is a short hop: the rise is cut while it is still climbing (within
+-- Locomotion_JumpCutWindow of the takeoff). Anyone's jump can be cut; a player's Quin cuts it when
+-- the jump button is released.
+function LocomotionModule.cutJump(fighter, humanoid, rootPart)
+	local data = locoData[fighter]
+	if not data or not humanoid or not rootPart then return false end
+	if os.clock() - (data.lastJumpTime or 0) > (CombatConfig.Locomotion_JumpCutWindow or 0.3) then return false end
+	local v = rootPart.AssemblyLinearVelocity
+	if v.Y <= 0 or not isHumanoidAirborne(humanoid) then return false end
+	rootPart.AssemblyLinearVelocity = Vector3.new(v.X, v.Y * (CombatConfig.Locomotion_JumpCutKeep or 0.45), v.Z)
+	return true
 end
 
 function LocomotionModule.checkAndJump(fighter, humanoid, rootPart, forwardImpulse)

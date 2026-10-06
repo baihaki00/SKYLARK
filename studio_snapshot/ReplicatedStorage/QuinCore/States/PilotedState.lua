@@ -7,7 +7,12 @@
 --   strike      FightState.throwStrike (the combo, clip, marker timing, contact and outcome of
 --               an AI strike), turned to the target with FightState.faceTarget first
 --   guard       IsGuarding and the block clip, as an AI guard (DamageModule reads IsGuarding)
---   dash, slide, jump   LocomotionModule.dash / slide / jump
+--   dash, slide, jump   LocomotionModule.dash / slide / jump (a jump let go early is cut short)
+--   projectile jump     ProjectileJumpState, the AI's own: style 1 (an arc onto the aimed spot or
+--                       Quin) or style 2 (a high launch; the player dives when they choose, at
+--                       where they aim then, ProjectileJumpState reads PilotInput.takeDive). The
+--                       body's cost (mana) applies; the AI's cooldown is its own judgement and
+--                       is not a player's limit.
 -- Getting hit is the same as for any Quin: Main hands the body to Knockback, Recovery and Death
 -- and back to this state afterwards (Main: PILOT_STATES).
 
@@ -22,6 +27,7 @@ local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
 local GaitModule = require(Modules:WaitForChild("GaitModule"))
 local PilotInput = require(Modules:WaitForChild("PilotInput"))
 local RuntimeTracer = require(Modules:WaitForChild("RuntimeTracer"))
+local SpatialModule = require(Modules:WaitForChild("SpatialModule"))
 
 local PilotedState = { name = "Piloted", tickInterval = 1 / 30 }
 
@@ -39,6 +45,7 @@ local function fightState()
 end
 
 local function flat(v) return Vector3.new(v.X, 0, v.Z) end
+local projectileJump -- (below)
 
 -- The enemy a strike goes at: the nearest within reach, favouring the one in the direction the
 -- player is pushing (or facing). nil: the strike goes at the air.
@@ -99,6 +106,54 @@ local function strike(fighter, humanoid, rootPart, data, input)
 	fighter:SetAttribute("LastActivityTime", os.clock())
 	fighter:SetAttribute("CurrentIdleStance", "Ready")
 	fightState().throwStrike(fighter, humanoid, rootPart, target, "Light", data)
+end
+
+-- Start a projectile jump at what the player aims at. Returns the state to go to, or nil.
+function projectileJump(fighter, humanoid, rootPart, pj)
+	if CombatConfig.EnableProjectileJump == false then return nil end
+	local energy = fighter:GetAttribute("Energy") or 0
+	if energy < (CombatConfig.ProjectileJumpMinEnergy or 35) then
+		fighter:SetAttribute("PilotNote", "Not enough mana for a projectile jump")
+		return nil
+	end
+	local maxRange = cfg("ProjectileJumpRange", CombatConfig.ProjectileJumpMaxDistance or 90)
+	local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
+	local team = fighter:GetAttribute("Team")
+	local targetRoot = pj.target and pj.target:FindFirstChild("HumanoidRootPart")
+	local targetHum = pj.target and pj.target:FindFirstChildOfClass("Humanoid")
+	if targetRoot and targetHum and targetHum.Health > 0 and pj.target ~= fighter
+		and (team == nil or pj.target:GetAttribute("Team") ~= team)
+		and flat(targetRoot.Position - rootPart.Position).Magnitude <= maxRange then
+		-- at a Quin
+		local value = fighter:FindFirstChild("ProjectileTarget")
+		if not value then
+			value = Instance.new("ObjectValue")
+			value.Name = "ProjectileTarget"
+			value.Parent = fighter
+		end
+		value.Value = pj.target
+		fighter:SetAttribute("JumpStyle", pj.style)
+	else
+		-- at a spot: no further than the jump's reach, on something to stand on, in the arena
+		local offset = flat(pj.point - rootPart.Position)
+		local spot = pj.point
+		if offset.Magnitude > maxRange then
+			spot = Vector3.new(rootPart.Position.X, pj.point.Y, rootPart.Position.Z) + offset.Unit * maxRange
+		end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { Workspace:FindFirstChild("QuinServer") }
+		params.RespectCanCollide = true
+		local ground = Workspace:Raycast(spot + Vector3.new(0, 40, 0), Vector3.new(0, -120, 0), params)
+		if not ground or SpatialModule.isOutOfBounds({ Position = ground.Position }, 4) then
+			fighter:SetAttribute("PilotNote", "Nowhere to land there")
+			return nil
+		end
+		ProjectileJumpState.aimAtPoint(fighter, ground.Position, pj.style)
+		fighter:SetAttribute("JumpStyle", pj.style)
+	end
+	fighter:SetAttribute("PilotNote", nil)
+	return ProjectileJumpState
 end
 
 function PilotedState.enter(fighter, humanoid, rootPart)
@@ -166,9 +221,19 @@ function PilotedState.update(fighter, humanoid, rootPart)
 			elseif action == "Jump" then
 				local v = rootPart.AssemblyLinearVelocity
 				local hSpeed = flat(v).Magnitude
-				LocomotionModule.jump(fighter, humanoid, rootPart, cfg("JumpHeight", 8), hSpeed > 2 and hSpeed or 0, "jump")
+				LocomotionModule.jump(fighter, humanoid, rootPart, cfg("JumpHeight", 11), hSpeed > 2 and hSpeed or 0, "free")
 			end
 		end
+		if action == "JumpRelease" then
+			LocomotionModule.cutJump(fighter, humanoid, rootPart)
+		end
+	end
+
+	-- Projectile jump (from the ground)
+	local pj = PilotInput.takeProjectileJump(fighter)
+	if pj and not striking and not guarding and LocomotionModule.isOnGround(rootPart, humanoid) then
+		local next = projectileJump(fighter, humanoid, rootPart, pj)
+		if next then return next end
 	end
 	if data.strikeAskedAt and not guarding then
 		if clock - data.strikeAskedAt > cfg("StrikeBuffer", 0.35) then

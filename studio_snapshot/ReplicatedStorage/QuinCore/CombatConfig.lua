@@ -256,6 +256,10 @@ local CombatConfig = {
 	Locomotion_JumpImpulse = 56.0,           -- studs/s single vertical ballistic jump impulse
 	Locomotion_JumpDebounce = 1.0,           -- seconds minimum between successive jumps
 	Locomotion_LandingRetention = 0.88,      -- ratio of horizontal velocity preserved on landing (88%)
+	Locomotion_AirControl = true,            -- in the air a body keeps its flight and can only lean it (false: the ground drive steers in the air)
+	Locomotion_AirAcceleration = 30.0,       -- studs/s^2: how hard a body in the air can change its horizontal velocity
+	Locomotion_JumpCutWindow = 0.3,          -- seconds after takeoff a jump can still be cut short (a short hop)
+	Locomotion_JumpCutKeep = 0.45,           -- share of the rising speed kept when a jump is cut
 	Locomotion_SkidSpeedThreshold = 14.0,    -- studs/s minimum speed to trigger dynamic braking skid
 	Locomotion_TurnRateSlow = 10.0,          -- rad/s heading-change ceiling at walking pace (nimble pivots)
 	Locomotion_LateralGrip = 90,             -- studs/s^2 sideways a running body can lean into: turn rate = grip / speed (2.2 rad/s at 40)
@@ -1090,6 +1094,8 @@ CombatConfig.PlayerQuin = {
 	JumpHeight = 8,        -- studs
 	SpawnGap = 40,         -- studs between the player's Quin and the AI line on the dais
 	EnemySpread = 10,      -- studs between AI Quins side by side
+	JumpHeight = 11,       -- studs: a jump held to the top (let go early it is cut: a short hop)
+	ProjectileJumpRange = 90, -- studs: the furthest a projectile jump is aimed (further aims are pulled in)
 	AIProjectileJumps = false, -- the AI Quins may projectile-jump (off: they chase, retreat and fight)
 }
 
