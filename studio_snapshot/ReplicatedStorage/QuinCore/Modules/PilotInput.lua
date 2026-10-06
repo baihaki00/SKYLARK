@@ -9,6 +9,8 @@
 --   "action", name ("Strike" | "Dash" | "Slide" | "Jump" | "JumpRelease")
 --   "pj", style (1 arc | 2 high launch), aim point (Vector3), aimed Quin's name (or nil)
 --   "dive", aim point, aimed Quin's name (or nil): dive now (a style 2 projectile jump)
+--   "look", yaw, pitch (degrees): where the player's view points (published on the Quin as
+--           PilotLookYaw / PilotLookPitch: its head looks there for every other client)
 -- A Quin is piloted by the player whose UserId is in its PilotedBy attribute; input for any
 -- other Quin is ignored. The server owns the body throughout (no network ownership change).
 
@@ -121,6 +123,11 @@ function PilotInput.start()
 			end
 		elseif kind == "dive" then
 			s.dive = readAim(a, b)
+		elseif kind == "look" then
+			if type(a) == "number" and type(b) == "number" and a == a and b == b then
+				quin:SetAttribute("PilotLookYaw", math.round(a))
+				quin:SetAttribute("PilotLookPitch", math.round(math.clamp(b, -89, 89)))
+			end
 		end
 	end
 	remote.OnServerEvent:Connect(function(player, kind, a, b, c)

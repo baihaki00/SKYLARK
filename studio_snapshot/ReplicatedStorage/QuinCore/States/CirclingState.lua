@@ -227,8 +227,10 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Mana / Energy recovery while pacing & circling (two terms, as before: one scales with game speed)
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	local recoveryRate = CombatConfig.EnergyRecovery_Walk or 15
-	local energy = fighter:GetAttribute("Energy") or 100
-	fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recoveryRate * 0.1 * speedMult + recoveryRate * 0.1))
+	if CombatConfig.Body_StaminaByEffort == false then -- (otherwise the body does it: BodyStamina)
+		local energy = fighter:GetAttribute("Energy") or 100
+		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recoveryRate * 0.1 * speedMult + recoveryRate * 0.1))
+	end
 
 	local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 60) * 1.5)
 	if not target then

@@ -69,6 +69,23 @@ function LookController:resolveTargetPosition()
 	-- 1. Check AI server model for active target
 	local serverModel = self.aiModel
 	if serverModel and serverModel.Parent then
+		-- A piloted Quin (Player Quin) looks where its player looks: its sight is the player's view
+		-- (QUIN_CREATURE_DESIGN.md 5.8). The pilot's own client reads its camera; everyone else
+		-- reads the direction the pilot's client sends (PilotLookYaw / PilotLookPitch).
+		local pilotedBy = serverModel:GetAttribute("PilotedBy")
+		if pilotedBy and self.rootPart then
+			local origin = self.headBone and self.headBone.WorldCFrame.Position or (self.rootPart.Position + Vector3.new(0, 2.5, 0))
+			local localPlayer = game:GetService("Players").LocalPlayer
+			if localPlayer and pilotedBy == localPlayer.UserId and Workspace.CurrentCamera then
+				return origin + Workspace.CurrentCamera.CFrame.LookVector * 60, "PILOT_VIEW"
+			end
+			local yaw, pitch = serverModel:GetAttribute("PilotLookYaw"), serverModel:GetAttribute("PilotLookPitch")
+			if yaw then
+				local y, p = math.rad(yaw), math.rad(pitch or 0)
+				return origin + Vector3.new(math.sin(y) * math.cos(p), math.sin(p), math.cos(y) * math.cos(p)) * 60, "PILOT_VIEW"
+			end
+		end
+
 		local isPlayer = (serverModel:GetAttribute("IsPlayerControlled") == true)
 			or (game.Players.LocalPlayer and serverModel:GetAttribute("ControllingPlayer") == game.Players.LocalPlayer.Name)
 
@@ -127,6 +144,25 @@ function LookController:resolveTargetPosition()
 			if flat.Magnitude > 0.01 then
 				local origin = self.headBone and self.headBone.WorldCFrame.Position or self.rootPart.Position
 				return origin + (flat.Unit * math.cos(gazePitch) + Vector3.new(0, math.sin(gazePitch), 0)) * 50, "SCAN"
+			end
+		end
+
+		-- Running into a turn, the head (and chest, through the graduated distribution) turns toward
+		-- where the body means to go before the body does (SteerIntent from the steer; design doc
+		-- phase 1: intent shows in layers)
+		if not isPlayer and self.rootPart and (not okConfig or CombatConfig.Body_HeadLeadsTurn ~= false) then
+			local intent = serverModel:GetAttribute("SteerIntent")
+			local pace = serverModel:GetAttribute("PacingVelocity") or 0
+			if intent and pace > 12 then
+				local yaw = math.rad(intent)
+				local dir = Vector3.new(math.sin(yaw), 0, math.cos(yaw))
+				local look = self.rootPart.CFrame.LookVector
+				local flatLook = Vector3.new(look.X, 0, look.Z)
+				local minAngle = math.rad(okConfig and CombatConfig.Body_HeadLeadMinAngle or 20)
+				if flatLook.Magnitude > 0.01 and flatLook.Unit:Dot(dir) < math.cos(minAngle) then
+					local origin = self.headBone and self.headBone.WorldCFrame.Position or self.rootPart.Position
+					return origin + dir * 40, "INTENT"
+				end
 			end
 		end
 

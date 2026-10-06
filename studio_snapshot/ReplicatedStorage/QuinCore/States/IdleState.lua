@@ -92,10 +92,12 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		return IdleState
 	end
 
-	-- Energy recovery while idle
-	local energy = fighter:GetAttribute("Energy") or 100
-	local recovery = (CombatConfig.EnergyRecovery_Idle or 8) * 0.1
-	fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recovery))
+	-- Energy recovery while idle (the body does it when Body_StaminaByEffort is on: BodyStamina)
+	if CombatConfig.Body_StaminaByEffort == false then
+		local energy = fighter:GetAttribute("Energy") or 100
+		local recovery = (CombatConfig.EnergyRecovery_Idle or 8) * 0.1
+		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recovery))
+	end
 	
 	if game:GetService("Workspace"):GetAttribute("MatchStarted") == false then
 		humanoid.WalkSpeed = 0

@@ -42,6 +42,8 @@ local SocialSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("Soci
 local HeadroomAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("HeadroomAwareness"))
 local ArenaTrespass = require(QuinCore:WaitForChild("Modules"):WaitForChild("ArenaTrespass"))
 local EdgeAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("EdgeAwareness"))
+local BodyStamina = require(QuinCore:WaitForChild("Modules"):WaitForChild("BodyStamina"))
+local lastBodyTick = os.clock()
 local Cognition = require(QuinCore:WaitForChild("Cognition"))
 
 -- States in which a Quin stands on the ground by its own choice (and so needs room to stand)
@@ -501,6 +503,13 @@ task.spawn(function()
 			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 			task.wait(math.clamp(0.15 / speedMult, 0.05, 0.2))
 			continue
+		end
+
+		-- The body's effort: mana spent running hard and recovered when slow, whatever the state
+		do
+			local nowBody = os.clock()
+			BodyStamina.update(Quin, humanoid, rootPart, math.min(nowBody - lastBodyTick, 0.25))
+			lastBodyTick = nowBody
 		end
 
 		-- === Arena Safety Net & Cinematic Re-Entry ===

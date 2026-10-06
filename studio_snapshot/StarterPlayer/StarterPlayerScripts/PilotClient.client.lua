@@ -26,6 +26,7 @@ local AIM_RANGE = 600
 local quin = nil
 local walkMode = false
 local vDownAt = nil
+local lastLookYaw, lastLookPitch, lastLookAt = nil, nil, 0
 local lastDir, lastPace, lastSentAt = Vector3.zero, "jog", 0
 
 -- Roblox's default controls must not walk the parked avatar while the keys drive the Quin
@@ -141,6 +142,13 @@ RunService.RenderStepped:Connect(function()
 	if (dir - lastDir).Magnitude > 0.05 or pace ~= lastPace or now - lastSentAt > SEND_INTERVAL then
 		lastDir, lastPace, lastSentAt = dir, pace, now
 		send("move", dir, pace)
+	end
+	-- where the view points (the Quin's head, for everyone else), at most 5 times a second
+	local lookYaw = math.deg(math.atan2(cam.LookVector.X, cam.LookVector.Z))
+	local lookPitch = math.deg(math.asin(math.clamp(cam.LookVector.Y, -1, 1)))
+	if now - lastLookAt > 0.2 and (not lastLookYaw or math.abs((lookYaw - lastLookYaw + 180) % 360 - 180) > 4 or math.abs(lookPitch - lastLookPitch) > 4) then
+		lastLookYaw, lastLookPitch, lastLookAt = lookYaw, lookPitch, now
+		send("look", lookYaw, lookPitch)
 	end
 end)
 

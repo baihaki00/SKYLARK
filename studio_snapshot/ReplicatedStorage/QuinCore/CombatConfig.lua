@@ -263,7 +263,9 @@ local CombatConfig = {
 	Locomotion_SkidSpeedThreshold = 14.0,    -- studs/s minimum speed to trigger dynamic braking skid
 	Locomotion_TurnRateSlow = 10.0,          -- rad/s heading-change ceiling at walking pace (nimble pivots)
 	Locomotion_LateralGrip = 90,             -- studs/s^2 sideways a running body can lean into: turn rate = grip / speed (2.2 rad/s at 40)
+	Locomotion_LateralGrip_Agile = 200,      -- (the agile body: about 1 g at this gravity; an ~8-stud turn radius at 40 studs/s)
 	Locomotion_TurnRateFast = 2.2,           -- rad/s heading-change ceiling at full sprint (momentum widens the arc)
+	Locomotion_TurnRateFast_Agile = 6.0,     -- (the agile body: the grip sets the sprint turn, not a cap)
 	Locomotion_TurnRateSlowSpeed = 8.0,      -- studs/s at or below which the slow-pace ceiling applies
 	Locomotion_TurnRateFastSpeed = 44.0,     -- studs/s at or above which the sprint ceiling applies
 	EnableOpeningProjectileJump = false,     -- Permanently ban start-of-match projectile jumps; grounded charges first
@@ -893,8 +895,11 @@ CombatConfig.Circling_GyroResponsiveness = 35
 CombatConfig.Combat_FacingMaxTurnRate = 14          -- rad/s cap on the Fight and Circling facing gyros (the locomotion facing uses the same)
 CombatConfig.Locomotion_ReversalPivot = true       -- false: the old running U-turn (speed dropped to 40%, then turned at grip)
 CombatConfig.Locomotion_ReversalBrake = 150        -- studs/s^2 deceleration of the brake phase
+CombatConfig.Locomotion_ReversalBrake_Agile = 220  -- (the agile body)
 CombatConfig.Locomotion_ReversalPivotSpeed = 6     -- studs/s held while the body turns round
+CombatConfig.Locomotion_ReversalPivotSpeed_Agile = 8 -- (the agile body)
 CombatConfig.Locomotion_ReversalTurnRate = 7       -- rad/s heading turn of the pivot (0.45 s for a half turn)
+CombatConfig.Locomotion_ReversalTurnRate_Agile = 11 -- (the agile body: a half turn in ~0.3 s)
 CombatConfig.Locomotion_ReversalAlignedCos = 0.9   -- the pivot ends once heading (and body, 0.1 looser) face the goal this closely
 CombatConfig.SecondaryMotion_TorsoFrequency = 3.5 -- Hz: spine/neck spring (heavier and slower than the arms' SecondaryMotion_Frequency)
 CombatConfig.SecondaryMotion_TorsoDamping = 1.0   -- spine/neck spring damping ratio (1 = settles without overshoot)
@@ -1096,7 +1101,16 @@ CombatConfig.PlayerQuin = {
 	EnemySpread = 10,      -- studs between AI Quins side by side
 	JumpHeight = 11,       -- studs: a jump held to the top (let go early it is cut: a short hop)
 	ProjectileJumpRange = 90, -- studs: the furthest a projectile jump is aimed (further aims are pulled in)
+	EngageRange = 16,      -- studs: an enemy this close (and the player not running) and the Quin squares up to it: footwork, not turning to run
 	AIProjectileJumps = false, -- the AI Quins may projectile-jump (off: they chase, retreat and fight)
 }
+
+-- The body (QUIN_CREATURE_DESIGN.md phase 1). Every switch here is for every Quin, AI and player.
+CombatConfig.Body_Agile = true            -- superhuman grip and quick reversals (the *_Agile values); false: the earlier, heavier body
+CombatConfig.Body_StaminaByEffort = true  -- mana is spent by effort (running, from any state) and recovered when slow; false: per state (Chase / Idle / Circling / Overwatch)
+CombatConfig.Body_RunEffortShare = 0.8    -- share of its top speed above which a Quin is running hard (EnergyDrain_Sprint per second)
+CombatConfig.Body_RestSpeed = 10          -- studs/s under which it recovers (EnergyRecovery_Idle standing, EnergyRecovery_Walk moving)
+CombatConfig.Body_HeadLeadsTurn = true    -- the head and chest turn toward where the body means to go before the body does (SteerIntent)
+CombatConfig.Body_HeadLeadMinAngle = 20   -- degrees between facing and intent before the head leads
 
 return CombatConfig

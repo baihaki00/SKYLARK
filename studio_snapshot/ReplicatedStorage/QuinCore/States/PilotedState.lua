@@ -3,6 +3,9 @@
 -- (Idle / Chase / Retreat / Fight ...). It reads the player's input (Modules/PilotInput) and does
 -- what those states do with the same calls:
 --   moving      LocomotionModule.steer + GaitModule (the AI's acceleration, turning, gait)
+--               free: the body faces where it goes; engaged (an enemy within EngageRange and the
+--               player not running): it faces that enemy and moves with footwork (back = steps
+--               back, sideways = circles; the gait picks strafe or backwards from the motion)
 --   standing    LocomotionModule.brake
 --   strike      FightState.throwStrike (the combo, clip, marker timing, contact and outcome of
 --               an AI strike), turned to the target with FightState.faceTarget first
@@ -46,6 +49,26 @@ end
 
 local function flat(v) return Vector3.new(v.X, 0, v.Z) end
 local projectileJump -- (below)
+
+-- The nearest living enemy within `range` on about the same level, or nil
+local function nearestEnemy(fighter, rootPart, range)
+	local folder = Workspace:FindFirstChild("QuinServer")
+	if not folder then return nil end
+	local team = fighter:GetAttribute("Team")
+	local best, bestDist = nil, range
+	for _, enemy in ipairs(folder:GetChildren()) do
+		local hum = enemy:FindFirstChildOfClass("Humanoid")
+		local root = enemy:FindFirstChild("HumanoidRootPart")
+		if enemy ~= fighter and hum and root and hum.Health > 0 and (team == nil or enemy:GetAttribute("Team") ~= team)
+			and enemy:GetAttribute("CurrentState") ~= "Death" and math.abs(root.Position.Y - rootPart.Position.Y) < 6 then
+			local d = flat(root.Position - rootPart.Position).Magnitude
+			if d < bestDist then
+				best, bestDist = enemy, d
+			end
+		end
+	end
+	return best
+end
 
 -- The enemy a strike goes at: the nearest within reach, favouring the one in the direction the
 -- player is pushing (or facing). nil: the strike goes at the air.
@@ -175,6 +198,8 @@ end
 function PilotedState.exit(fighter, humanoid, rootPart)
 	local data = pilotData[fighter]
 	if data then setGuard(fighter, humanoid, data, false) end
+	fighter:SetAttribute("IsStrafing", nil)
+	fighter:SetAttribute("PilotFocus", nil)
 	local gyro = rootPart and rootPart:FindFirstChild("FightGyro")
 	if gyro then gyro:Destroy() end
 	pilotData[fighter] = nil
@@ -245,16 +270,34 @@ function PilotedState.update(fighter, humanoid, rootPart)
 		end
 	end
 
+	-- Engaged or free (design doc 5.8): facing the nearest enemy close by, unless running
+	local focus = (input.pace ~= "run") and nearestEnemy(fighter, rootPart, cfg("EngageRange", 16)) or nil
+	local focusRoot = focus and focus:FindFirstChild("HumanoidRootPart")
+	if (focus and focus.Name or nil) ~= fighter:GetAttribute("PilotFocus") then
+		fighter:SetAttribute("PilotFocus", focus and focus.Name or nil)
+	end
+	local engaged = focusRoot ~= nil and humanoid.FloorMaterial ~= Enum.Material.Air
+
 	-- Movement
+	if engaged and not LocomotionModule.isSliding(fighter) then
+		-- squared up to it, whether moving or not
+		fightState().faceTarget(rootPart, focusRoot, data)
+		fighter:SetAttribute("IsStrafing", true)
+		if humanoid.AutoRotate then humanoid.AutoRotate = false end -- (its facing is the fight gyro's)
+	elseif fighter:GetAttribute("IsStrafing") then
+		fighter:SetAttribute("IsStrafing", nil)
+	end
 	if LocomotionModule.isSliding(fighter) then
 		-- (a committed slide owns the body until it hands back to the gait)
 	elseif striking or guarding then
 		LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	elseif move.Magnitude > 0.1 then
-		-- moving: the body turns with its run, not with the strike's facing gyro
-		local gyro = rootPart:FindFirstChild("FightGyro")
-		if gyro then gyro:Destroy() end
-		if not humanoid.AutoRotate then humanoid.AutoRotate = true end -- (a state before may have left it off)
+		if not engaged then
+			-- free: the body turns with its run, not with the strike's facing gyro
+			local gyro = rootPart:FindFirstChild("FightGyro")
+			if gyro then gyro:Destroy() end
+			if not humanoid.AutoRotate then humanoid.AutoRotate = true end -- (a state before may have left it off)
+		end
 		local speed
 		if input.pace == "run" then
 			speed = fighter:GetAttribute("Speed") or CombatConfig.Player_RunSpeed or 40

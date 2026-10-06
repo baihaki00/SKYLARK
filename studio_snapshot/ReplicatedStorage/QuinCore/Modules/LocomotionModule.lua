@@ -80,6 +80,19 @@ local function flatUnit(vector, fallback)
 	return fallback
 end
 
+-- The agile body (CombatConfig.Body_Agile, design doc phase 1): a superhuman's grip and quick
+-- reversals. Every tuning read below that has a "<key>_Agile" value takes it while the switch is
+-- on; off, the earlier values.
+local function tune(key, default)
+	if CombatConfig.Body_Agile ~= false then
+		local agile = CombatConfig[key .. "_Agile"]
+		if agile ~= nil then return agile end
+	end
+	local v = CombatConfig[key]
+	if v == nil then return default end
+	return v
+end
+
 -- Fraction of the soft-landing clip spent absorbing the drop (the rest is the rise)
 local LANDING_ABSORB_RATIO = 0.55
 
@@ -123,12 +136,12 @@ function LocomotionModule.resolveGroundIntent(fighter, rootPart, desiredDirectio
 	local fastSpeed = CombatConfig.Locomotion_TurnRateFastSpeed or 44.0
 	local paceT = math.clamp((planarSpeed - slowSpeed) / math.max(fastSpeed - slowSpeed, 1), 0, 1)
 	local slowRate = CombatConfig.Locomotion_TurnRateSlow or 10.0
-	local maxTurnRate = slowRate + ((CombatConfig.Locomotion_TurnRateFast or 2.2) - slowRate) * paceT
+	local maxTurnRate = slowRate + (tune("Locomotion_TurnRateFast", 2.2) - slowRate) * paceT
 	-- A runner turns by leaning into the ground, so how fast it can turn falls with speed:
 	-- yaw rate = sideways grip / speed. The old ceiling (5.5 rad/s at a 40 stud/s sprint, 14 at
 	-- a jog) meant 200-380 studs/s^2 sideways - the body snapped through corners while the run
 	-- clip ran straight ahead and the feet skated. Reversals still go through the skid plant.
-	local grip = CombatConfig.Locomotion_LateralGrip or 90
+	local grip = tune("Locomotion_LateralGrip", 90)
 	maxTurnRate = math.min(maxTurnRate, grip / math.max(planarSpeed, 1))
 	local step = math.clamp(delta * alpha, -maxTurnRate * dt, maxTurnRate * dt)
 	local nextAngle = currentAngle + step
@@ -341,14 +354,14 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			reversal = nil
 		end
 		if reversal then
-			local pivotSpeed = CombatConfig.Locomotion_ReversalPivotSpeed or 6
+			local pivotSpeed = tune("Locomotion_ReversalPivotSpeed", 6)
 			if reversal.phase == "brake" then
 				local v = rootPart.AssemblyLinearVelocity
 				if Vector3.new(v.X, 0, v.Z).Magnitude <= pivotSpeed + 1 or os.clock() - reversal.started > 0.45
 					or not groundAhead(rootPart, reversal.dir) then
 					reversal.phase = "pivot"
 				else
-					decel = CombatConfig.Locomotion_ReversalBrake or 150
+					decel = tune("Locomotion_ReversalBrake", 150)
 				end
 			end
 			target = math.min(target, pivotSpeed)
@@ -413,11 +426,11 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			local heading = data.groundIntentDirection
 			local current = math.atan2(heading.X, heading.Z)
 			local delta = shortestAngleDelta(math.atan2(flat.X, flat.Z), current)
-			local maxStep = (CombatConfig.Locomotion_ReversalTurnRate or 7) * frameDt
+			local maxStep = (tune("Locomotion_ReversalTurnRate", 7)) * frameDt
 			local nextAngle = current + math.clamp(delta, -maxStep, maxStep)
 			data.groundIntentDirection = Vector3.new(math.sin(nextAngle), 0, math.cos(nextAngle))
 			local remaining = delta - math.clamp(delta, -maxStep, maxStep)
-			local lead = (CombatConfig.Locomotion_ReversalTurnRate or 7) * (CombatConfig.Locomotion_FacingLeadTime or 0.11)
+			local lead = (tune("Locomotion_ReversalTurnRate", 7)) * (CombatConfig.Locomotion_FacingLeadTime or 0.11)
 			local facingAngle = nextAngle + math.clamp(remaining, -lead, lead)
 			reversal.facing = Vector3.new(math.sin(facingAngle), 0, math.cos(facingAngle))
 			humanoid:Move(data.groundIntentDirection, false)
@@ -503,6 +516,15 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local flatDesired = Vector3.new(toTarget.X, 0, toTarget.Z)
 	local fallbackForward = flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1))
 	local intentDirection = flatDesired.Magnitude > 0.1 and flatDesired.Unit or fallbackForward
+	-- Where it means to go, for the head: a turn shows in the head and chest before the body
+	-- (LookController). Published only when it changes by 15 degrees or more, at most 5 times a second.
+	if flatDesired.Magnitude > 2 then
+		local intentYaw = math.atan2(intentDirection.X, intentDirection.Z)
+		if not data.intentYaw or (os.clock() - (data.intentAt or 0) > 0.2 and math.abs(shortestAngleDelta(intentYaw, data.intentYaw)) > 0.26) then
+			data.intentYaw, data.intentAt = intentYaw, os.clock()
+			fighter:SetAttribute("SteerIntent", math.round(math.deg(intentYaw)))
+		end
+	end
 	local driveDirection = resolvedDirection
 	if not driveDirection then
 		if useDriver and data.groundIntentDirection then
@@ -552,8 +574,8 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		if cosTheta < -0.42 and (now - (data.lastSkidTime or 0)) >= skidCooldown and not data.reversal
 			and useDriver and CombatConfig.Locomotion_ReversalPivot ~= false then
 			-- Plant and pivot (see groundAhead): the driver brakes along the old line, turns, drives out
-			local pivotSpeed = CombatConfig.Locomotion_ReversalPivotSpeed or 6
-			local turnDuration = math.max(currentSpeed - pivotSpeed, 0) / (CombatConfig.Locomotion_ReversalBrake or 150) + 0.3
+			local pivotSpeed = tune("Locomotion_ReversalPivotSpeed", 6)
+			local turnDuration = math.max(currentSpeed - pivotSpeed, 0) / (tune("Locomotion_ReversalBrake", 150)) + 0.3
 			data.lastSkidTime = now
 			data.skidEndTime = now + turnDuration
 			data.reversal = { dir = curDir, phase = "brake", started = now }
@@ -632,6 +654,10 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 
 	local data = getLocoData(fighter)
 	data.steerUntil = 0 -- braking ends any steer goal
+	if data.intentYaw then
+		data.intentYaw = nil
+		fighter:SetAttribute("SteerIntent", nil)
+	end
 	local currentVel = rootPart.AssemblyLinearVelocity
 	local flatVel = Vector3.new(currentVel.X, 0, currentVel.Z)
 	local speed = flatVel.Magnitude
