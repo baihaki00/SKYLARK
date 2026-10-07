@@ -2,8 +2,9 @@
 -- The player's side of the Player Quin match mode: reads the keys and sends them to the server
 -- (ReplicatedStorage.PilotInput -> Modules/PilotInput -> States/PilotedState). The server owns
 -- and moves the Quin with the same locomotion, strikes and states as an AI Quin; this script only
--- sends what the player asks for. The camera follows the Quin through SmoothCamera (the same
--- orbit as Play As Quin: shared.PlayerControlledQuin).
+-- sends what the player asks for, except the body's movement: while the Quin is in Piloted this
+-- machine moves it, as Play As Quin does (below: "The body, moved here"). The camera follows the
+-- Quin through SmoothCamera (the same orbit as Play As Quin: shared.PlayerControlledQuin).
 --
 -- Keys: WASD move (camera-relative), hold Shift run, Z walk on/off, left click strike,
 -- hold right click guard, Space jump (let go early: a short hop), C slide, Q / E dash,
@@ -143,9 +144,142 @@ task.spawn(function()
 	end
 end)
 
+-- === The body, moved here (PlayerQuin.ClientMovement) ===
+-- While the Quin is in Piloted the server hands its body to this machine (PilotInput.giveBody:
+-- attribute PilotClientMoves), and it is moved here, every frame, with the same LocomotionModule
+-- and GaitModule as every Quin, as Play As Quin moves its Quin. (Moved by the server, the body
+-- reached this screen ~0.2 s after every key and mouse turn.) Strikes, guard, the lock, the
+-- squared-up facing, projectile jumps and hits stay the server's: while it strikes or guards
+-- the body brakes here; when the server takes the body back (a hit that throws it, Knockback,
+-- Recovery, a projectile jump) this lets go.
+local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
+local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
+local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+local PQ = CombatConfig.PlayerQuin or {}
+
+local driving = false
+local jumpAskedAt, jumpLetGo = nil, false
+local lastSteerAt = 0
+local contractFor = nil
+
+local function movesHere()
+	return quin ~= nil and quin.Parent ~= nil and quin:GetAttribute("PilotClientMoves") == true
+		and quin:GetAttribute("CurrentState") == "Piloted"
+end
+
+local function bodyParts()
+	local hum = quin and quin:FindFirstChildOfClass("Humanoid")
+	local root = quin and quin:FindFirstChild("HumanoidRootPart")
+	if hum and root and hum.Health > 0 then return hum, root end
+	return nil, nil
+end
+
+local function letGo()
+	driving = false
+	jumpAskedAt = nil
+	local hum = bodyParts()
+	if quin then LocomotionModule.cancelSteer(quin) end
+	if hum then
+		GaitModule.stop(hum, 0.15)
+		for _, path in ipairs({ "Movement.Jump", "Movement.Fall", "Movement.StopRun", "Movement.Slide" }) do
+			AnimationModule.stopConfig(hum, path, 0.1)
+		end
+	end
+end
+
+local function drive(dir, pace, dt)
+	local hum, root = bodyParts()
+	if not hum then return end
+	-- the ground contract (legs never run in the air; never no pose), here while this moves it
+	if contractFor ~= quin then
+		contractFor = quin
+		local mine = quin
+		GaitModule.bindGroundContract(quin, hum, root, function()
+			return quin == mine and movesHere()
+		end)
+	end
+	driving = true
+	if LocomotionModule.isSliding(quin) then return end
+	local now = os.clock()
+	local busy = quin:GetAttribute("Attacking") == true or quin:GetAttribute("IsGuarding") == true
+	-- Jump, kept for a moment (JumpBuffer) until it can be taken
+	if jumpAskedAt then
+		if now - jumpAskedAt > (PQ.JumpBuffer or 0.15) or busy then
+			jumpAskedAt = nil
+		else
+			local v = root.AssemblyLinearVelocity
+			local across = Vector3.new(v.X, 0, v.Z).Magnitude
+			if LocomotionModule.jump(quin, hum, root, PQ.JumpHeight or 11, across > 2 and across or 0, "free") then
+				jumpAskedAt = nil
+				if jumpLetGo then
+					task.delay(0.05, function() LocomotionModule.cutJump(quin, hum, root) end)
+				end
+			end
+		end
+	end
+	if busy then
+		LocomotionModule.brake(quin, hum, root, dt)
+		return
+	end
+	if dir.Magnitude > 0.1 then
+		local speed
+		if pace == "run" then
+			speed = quin:GetAttribute("Speed") or CombatConfig.Player_RunSpeed or 40
+		elseif pace == "walk" then
+			speed = CombatConfig.Player_WalkSpeed or 7.5
+		else
+			speed = CombatConfig.Player_JogSpeed or 12
+		end
+		-- (the steer's own driver advances the turn and the speed every frame; the goal is
+		-- refreshed at most 60 times a second)
+		if now - lastSteerAt >= 1 / 60 then
+			LocomotionModule.steer(quin, hum, root, root.Position + dir * 15, speed, math.clamp(now - lastSteerAt, 1 / 240, 0.1))
+			lastSteerAt = now
+		end
+		-- squared up (the server's fight gyro has the facing): the body does not turn to its run
+		if quin:GetAttribute("IsStrafing") and hum.AutoRotate then hum.AutoRotate = false end
+		if not AnimationModule.isPlaying(hum, "Movement.StopRun") then
+			GaitModule.update(hum, root, dt)
+		end
+	else
+		LocomotionModule.brake(quin, hum, root, dt)
+	end
+end
+
+-- Space, C and Q / E act here while this moves the body (the server is still told: a jump pressed
+-- just before hitting a wall is a wall tech, PilotInput.pressedRecently)
+local function localJump(down)
+	if not movesHere() then return end
+	if down then
+		jumpAskedAt, jumpLetGo = os.clock(), false
+	else
+		if jumpAskedAt then jumpLetGo = true end
+		local hum, root = bodyParts()
+		if hum then LocomotionModule.cutJump(quin, hum, root) end
+	end
+end
+local function localMove(kind, dir)
+	if not movesHere() then return end
+	local hum, root = bodyParts()
+	if not hum or quin:GetAttribute("Attacking") == true or quin:GetAttribute("IsGuarding") == true then return end
+	dir = dir.Magnitude > 0.1 and dir or Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+	if kind == "Dash" then
+		local distance = PQ.DashDistance or 35
+		LocomotionModule.dash(quin, hum, root, root.Position + dir * distance, distance)
+	else
+		LocomotionModule.slide(quin, hum, root, dir)
+	end
+end
+
 -- Movement, every frame; sent when it changes and repeated while it lasts
-RunService.RenderStepped:Connect(function()
-	if not quin then return end
+local currentDir = Vector3.zero
+RunService.RenderStepped:Connect(function(dt)
+	if not quin then
+		if driving then letGo() end
+		return
+	end
 	local x, z = 0, 0
 	if not UserInputService:GetFocusedTextBox() then
 		if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up) then z -= 1 end
@@ -175,6 +309,22 @@ RunService.RenderStepped:Connect(function()
 	elseif walkMode then
 		pace = "walk"
 	end
+	-- (Studio test hook: Workspace PilotTestMove = "x,z,pace" in world axes drives it instead of the keys)
+	local test = RunService:IsStudio() and Workspace:GetAttribute("PilotTestMove")
+	if type(test) == "string" then
+		local tx, tz, tpace = string.match(test, "^([%-%d%.]+),([%-%d%.]+),(%a+)$")
+		if tx then
+			local v = Vector3.new(tonumber(tx), 0, tonumber(tz))
+			dir = v.Magnitude > 0.1 and v.Unit or Vector3.zero
+			pace = tpace
+		end
+	end
+	currentDir = dir
+	if movesHere() then
+		drive(dir, pace, dt)
+	elseif driving then
+		letGo()
+	end
 
 	local now = os.clock()
 	if (dir - lastDir).Magnitude > 0.05 or pace ~= lastPace or now - lastSentAt > SEND_INTERVAL then
@@ -201,10 +351,13 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		send("guard", true)
 	elseif input.KeyCode == Enum.KeyCode.Space then
 		spaceDownAt = os.clock()
+		localJump(true)
 		send("action", "Jump")
 	elseif input.KeyCode == Enum.KeyCode.C then
+		localMove("Slide", currentDir)
 		send("action", "Slide")
 	elseif input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E then
+		localMove("Dash", currentDir)
 		send("action", "Dash")
 	elseif input.KeyCode == Enum.KeyCode.Z then
 		walkMode = not walkMode
@@ -229,6 +382,7 @@ UserInputService.InputEnded:Connect(function(input)
 		send("guard", false)
 	elseif input.KeyCode == Enum.KeyCode.Space then
 		spaceDownAt = nil
+		localJump(false)
 		send("action", "JumpRelease")
 	elseif input.KeyCode == Enum.KeyCode.V and vDownAt then
 		local style = (os.clock() - vDownAt >= PJ_HOLD) and 2 or 1
@@ -242,7 +396,6 @@ end)
 -- (Space held: a hop fills to a full jump), the projectile-jump gauge (V held: arc, then arc and
 -- dive) and the server's note when something asked for is refused (PilotNote). A dot at the middle
 -- of the view while in the air or aiming a projectile jump: what the aim is on.
-local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local PJ_MANA = CombatConfig.ProjectileJumpMinEnergy or 40
 local JUMP_FULL = CombatConfig.Locomotion_JumpCutWindow or 0.3 -- held this long a jump is not cut
 
@@ -417,3 +570,18 @@ RunService.RenderStepped:Connect(function()
 
 	dot.Visible = airborne or inPJ or vDownAt ~= nil
 end)
+
+-- (Studio test hook: Workspace PilotTestJump = seconds Space is held, as a key press would)
+if RunService:IsStudio() then
+	Workspace:GetAttributeChangedSignal("PilotTestJump"):Connect(function()
+		local hold = Workspace:GetAttribute("PilotTestJump")
+		if type(hold) ~= "number" then return end
+		Workspace:SetAttribute("PilotTestJump", nil)
+		localJump(true)
+		send("action", "Jump")
+		task.delay(hold, function()
+			localJump(false)
+			send("action", "JumpRelease")
+		end)
+	end)
+end

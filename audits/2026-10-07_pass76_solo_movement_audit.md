@@ -91,3 +91,32 @@ The 16v16 is unchanged.
 - **Measured on the client:**
   - running sideways, the body moves to about 10% of the screen width off-centre, and the view catches up when it stops;
   - a jump now shows on the screen: the body rises about 14% of the screen height, then drops below centre on landing until the view catches up.
+
+## Pass 77: the player's machine moves its Quin, as in Play As Quin
+
+Owner: "make it like play as quin".
+- Play As Quin feels immediate because the player's machine moves that Quin.
+- Player Quin mode moved the body on the server, and the screen showed every key and mouse turn ~0.2 s late. During a mouse turn the body looked "locked" to the camera.
+
+**Now (`PlayerQuin.ClientMovement`, on):**
+- **Handover:** while the Quin is in Piloted, the server hands its body to the player (`PilotInput.giveBody`: network ownership, attribute `PilotClientMoves`).
+- **The player's machine:** PilotClient moves it every frame with the same LocomotionModule steer driver and GaitModule as every Quin. That covers turning, air control, reversals, jump with buffer and cut, dash, slide and the ground contract.
+- **The server keeps:** strikes, guard, the lock, the squared-up facing (the fight gyro, a constraint the owner's physics carries out) and projectile jumps. While its Quin strikes or guards, the body brakes on the player's machine.
+- **The server takes the body back:**
+  - on any hit that throws it: `KnockbackModule` (knockback, launch, skid, slam) calls `reclaimBody` first, because velocity the server writes on a body it does not own is ignored;
+  - on leaving Piloted (`PilotedState.exit`: Knockback, Recovery, ProjectileJump...);
+  - it hands the body back on re-entering Piloted, or 0.6 s after a hit that did not end Piloted (`ReclaimHold`).
+- **No doubled clips:** the server's ground contract is off while the player's machine moves the body.
+- **Test hooks (Studio):** Workspace `PilotTestMove = "x,z,pace"` and `PilotTestJump = seconds held`, read by PilotClient.
+
+**Measured (client):**
+- moving 0.05 s after the key;
+- a 90° turn faced in 0.27 s;
+- the run, stop and idle clips play;
+- a full jump +12.5, a tapped hop +5.3;
+- running jumps on the dais land at standing height;
+- the server sees the body (velocity 40), and took it back for a projectile jump while the owner was testing.
+
+**Known:**
+- The leg clips played on the player's machine are not seen by the server or other players. Strikes and reactions, played by the server, are. That's fine player-vs-AI; PvP will need it.
+- Not exercised here: a hit from an AI Quin while running (the owner was in the game).

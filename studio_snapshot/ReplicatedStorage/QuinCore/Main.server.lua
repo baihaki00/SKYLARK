@@ -134,7 +134,8 @@ end
 -- air; the Fall pose covers the body until touchdown. The piloting client enforces it
 -- while a player owns this Quin.
 GaitModule.bindGroundContract(Quin, humanoid, rootPart, function()
-	return Quin:GetAttribute("IsPlayerControlled") ~= true
+	-- (not while a player's machine moves it: Play As Quin, or a piloted Quin in Piloted)
+	return Quin:GetAttribute("IsPlayerControlled") ~= true and Quin:GetAttribute("PilotClientMoves") ~= true
 end)
 
 -- If this Quin becomes possessed by a human player, immediately kill server animation tracks

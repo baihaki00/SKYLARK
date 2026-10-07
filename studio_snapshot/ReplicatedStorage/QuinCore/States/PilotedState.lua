@@ -11,6 +11,10 @@
 --               Locked, the Quin is engaged with that enemy at any range unless running, and its
 --               strikes go at it. The lock lets go when the enemy dies or is out of LockRange.
 --   standing    LocomotionModule.brake
+--   (PlayerQuin.ClientMovement, on by default: moving, standing, jumping, dashing and sliding run on
+--   the player's machine instead, which owns the body while it is in this state, as in Play As
+--   Quin: PilotInput.giveBody / reclaimBody, StarterPlayerScripts.PilotClient. This state keeps
+--   the rest: strikes, guard, the lock, the squared-up facing, projectile jumps.)
 --   strike      FightState.throwStrike (the combo, clip, marker timing, contact and outcome of
 --               an AI strike), turned to the target with FightState.faceTarget first
 --   guard       IsGuarding and the block clip, as an AI guard (DamageModule reads IsGuarding)
@@ -238,7 +242,19 @@ function PilotedState.enter(fighter, humanoid, rootPart)
 	humanoid.AutoRotate = true
 	fighter:SetAttribute("IsStrafing", nil)
 	fighter:SetAttribute("CurrentIdleStance", "Ready")
-	AnimationModule.ensureBaseIdle(humanoid)
+	if cfg("ClientMovement", true) and PilotInput.giveBody(fighter) then
+		-- the player's machine plays the legs from here (gait, idle, jump, fall): the server's
+		-- own are let go so the two do not stack
+		GaitModule.stop(humanoid, 0.15)
+		local animator = humanoid:FindFirstChildOfClass("Animator")
+		for _, track in ipairs(animator and animator:GetPlayingAnimationTracks() or {}) do
+			if track.Priority == Enum.AnimationPriority.Idle or track.Priority == Enum.AnimationPriority.Movement then
+				track:Stop(0.2)
+			end
+		end
+	else
+		AnimationModule.ensureBaseIdle(humanoid)
+	end
 	RuntimeTracer.checkpoint(fighter, "Enter Piloted (player input)")
 end
 
@@ -250,6 +266,7 @@ function PilotedState.exit(fighter, humanoid, rootPart)
 	fighter:SetAttribute("PilotLocked", nil)
 	local gyro = rootPart and rootPart:FindFirstChild("FightGyro")
 	if gyro then gyro:Destroy() end
+	PilotInput.reclaimBody(fighter) -- (the states after this one are the server's to move)
 	pilotData[fighter] = nil
 end
 
@@ -269,6 +286,13 @@ function PilotedState.update(fighter, humanoid, rootPart)
 	local move = (clock - input.at) < cfg("InputTimeout", 1.0) and input.move or Vector3.zero
 	local striking = fighter:GetAttribute("Attacking") == true and now < (data.attackFinishTime or 0)
 	local busy = now < (data.actionEndTime or 0)
+	-- The player's machine moving the body? (Taken back by a hit that did not end this state, it
+	-- is handed back after a moment.)
+	local clientMoves = fighter:GetAttribute("PilotClientMoves") == true
+	if not clientMoves and cfg("ClientMovement", true)
+		and clock - (fighter:GetAttribute("PilotReclaimedAt") or 0) > cfg("ReclaimHold", 0.6) then
+		clientMoves = PilotInput.giveBody(fighter)
+	end
 
 	-- Guard: held while the button is held, never in the middle of its own strike
 	local guarding = fighter:GetAttribute("IsGuarding") == true
@@ -285,7 +309,7 @@ function PilotedState.update(fighter, humanoid, rootPart)
 	for _, action in ipairs(PilotInput.takeActions(fighter)) do
 		if action == "Strike" then
 			data.strikeAskedAt = clock
-		elseif not striking and not guarding then
+		elseif not striking and not guarding and not clientMoves then
 			local dir = move.Magnitude > 0.1 and move.Unit or flat(rootPart.CFrame.LookVector).Unit
 			if action == "Dash" then
 				LocomotionModule.dash(fighter, humanoid, rootPart, rootPart.Position + dir * cfg("DashDistance", 35), cfg("DashDistance", 35))
@@ -295,7 +319,9 @@ function PilotedState.update(fighter, humanoid, rootPart)
 				data.jumpAskedAt, data.jumpLetGo = clock, false -- (taken below)
 			end
 		end
-		if action == "JumpRelease" then
+		if action == "JumpRelease" and clientMoves then
+			-- (the player's machine cuts its own jump)
+		elseif action == "JumpRelease" then
 			if data.jumpAskedAt then data.jumpLetGo = true end -- (not off the ground yet: cut once it is)
 			LocomotionModule.cutJump(fighter, humanoid, rootPart)
 		elseif action == "Lock" then
@@ -368,6 +394,25 @@ function PilotedState.update(fighter, humanoid, rootPart)
 	local engaged = focusRoot ~= nil and humanoid.FloorMaterial ~= Enum.Material.Air
 
 	-- Movement
+	if clientMoves then
+		-- The player's machine moves the body. Squared up to an enemy, the facing is still this
+		-- state's (the fight gyro, a constraint the owner's physics carries out); running free,
+		-- the gyro goes and the steer there faces the run.
+		if engaged then
+			fightState().faceTarget(rootPart, focusRoot, data)
+			fighter:SetAttribute("IsStrafing", true)
+			if humanoid.AutoRotate then humanoid.AutoRotate = false end
+		else
+			if fighter:GetAttribute("IsStrafing") then fighter:SetAttribute("IsStrafing", nil) end
+			if not striking then
+				local gyro = rootPart:FindFirstChild("FightGyro")
+				if gyro then gyro:Destroy() end
+			end
+		end
+		fighter:SetAttribute("IsMoving", move.Magnitude > 0.1)
+		if move.Magnitude > 0.1 then fighter:SetAttribute("LastActivityTime", clock) end
+		return PilotedState
+	end
 	if engaged and not LocomotionModule.isSliding(fighter) then
 		-- squared up to it, whether moving or not
 		fightState().faceTarget(rootPart, focusRoot, data)

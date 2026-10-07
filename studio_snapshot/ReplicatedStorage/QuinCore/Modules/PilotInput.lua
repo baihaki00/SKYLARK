@@ -100,6 +100,32 @@ function PilotInput.clear(quin)
 	inputs[quin] = nil
 end
 
+-- The body (PlayerQuin.ClientMovement): while its Quin is in Piloted, the player's machine moves
+-- it (network ownership; StarterPlayerScripts.PilotClient drives the same LocomotionModule and
+-- GaitModule there), as Play As Quin does. Run by the server, the body reached the player's
+-- screen ~0.2 s after every key and mouse turn. The server takes the body back for whatever it
+-- moves itself: a hit that throws it (KnockbackModule) and the states it runs (Knockback,
+-- Recovery, ProjectileJump...: PilotedState.exit). Attribute PilotClientMoves marks a body
+-- the player's machine is moving.
+function PilotInput.giveBody(quin)
+	if not game:GetService("RunService"):IsServer() then return false end
+	local root = quin and quin:FindFirstChild("HumanoidRootPart")
+	local player = quin and quin:GetAttribute("PilotedBy") and game:GetService("Players"):GetPlayerByUserId(quin:GetAttribute("PilotedBy"))
+	if not root or not player or root.Anchored then return false end
+	local ok = pcall(function() root:SetNetworkOwner(player) end)
+	if ok then quin:SetAttribute("PilotClientMoves", true) end
+	return ok
+end
+
+function PilotInput.reclaimBody(quin)
+	if not quin or quin:GetAttribute("PilotClientMoves") ~= true then return end
+	if not game:GetService("RunService"):IsServer() then return end
+	local root = quin:FindFirstChild("HumanoidRootPart")
+	if root then pcall(function() root:SetNetworkOwner(nil) end) end
+	quin:SetAttribute("PilotClientMoves", nil)
+	quin:SetAttribute("PilotReclaimedAt", os.clock())
+end
+
 -- Creates the RemoteEvent and listens. Called once from Server.server.lua (a script that lives
 -- all session).
 function PilotInput.start()

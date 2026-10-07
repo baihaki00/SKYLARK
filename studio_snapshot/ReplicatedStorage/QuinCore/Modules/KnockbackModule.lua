@@ -14,6 +14,10 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local ImpulseModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("ImpulseModule"))
 
 local Priority = ImpulseModule.Priority
+local PilotInput = require(QuinCore:WaitForChild("Modules"):WaitForChild("PilotInput"))
+-- (a player's Quin is moved by the player's machine while it is piloted: a hit that throws it
+-- hands the body back to the server first, or the velocity written here would be ignored)
+local function takeBack(model) if model and model:GetAttribute("PilotClientMoves") then PilotInput.reclaimBody(model) end end
 local SLIDE_FORCE = 150000 -- slides and knockbacks have full authority over the body's walking
 local FLINCH_TIME = 0.3
 local LUNGE_FORCE = 60000 -- enough to carry the step-in over the Humanoid's own braking
@@ -39,6 +43,7 @@ local KnockbackModule = {}
 
 -- Ground knockback: the victim skids away on its feet like on ice (speed in studs/s at the start)
 function KnockbackModule.applyGroundKnockback(targetModel, direction, speed, duration)
+	takeBack(targetModel)
 	local effectiveSpeed = resisted(targetModel, speed)
 	if effectiveSpeed <= 0 then return end
 	ImpulseModule.push(targetModel, "knockback", direction, effectiveSpeed, duration or 0.5, {
@@ -48,6 +53,7 @@ end
 
 -- Apply horizontal knockback (punches, combos)
 function KnockbackModule.applyKnockback(targetModel, direction, force, duration)
+	takeBack(targetModel)
 	local targetHRP = targetModel:FindFirstChild("HumanoidRootPart")
 	local humanoid = targetModel:FindFirstChildOfClass("Humanoid")
 	if not targetHRP or not humanoid then return end
@@ -95,6 +101,7 @@ end
 
 -- Launch enemy into the air (uppercut)
 function KnockbackModule.applyLaunch(targetModel, verticalForce, horizontalForce)
+	takeBack(targetModel)
 	local targetHRP = targetModel:FindFirstChild("HumanoidRootPart")
 	local humanoid = targetModel:FindFirstChildOfClass("Humanoid")
 	if not targetHRP or not humanoid then return end
@@ -127,12 +134,14 @@ end
 
 -- Ground knockback given as the distance the victim should skid on a free floor
 function KnockbackModule.applyGroundSkid(targetModel, direction, studs, duration)
+	takeBack(targetModel)
 	duration = duration or 0.6
 	KnockbackModule.applyGroundKnockback(targetModel, direction, ImpulseModule.speedForDistance(studs, duration, "friction", 0.05), duration)
 end
 
 -- Meteor slam (air to ground)
 function KnockbackModule.applySlam(targetModel, downForce)
+	takeBack(targetModel)
 	local targetHRP = targetModel:FindFirstChild("HumanoidRootPart")
 	if not targetHRP then return end
 
