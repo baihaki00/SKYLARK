@@ -125,8 +125,8 @@ RunService.Heartbeat:Connect(function()
 	local folder = Workspace:FindFirstChild("QuinServer")
 	local target = name and folder and folder:FindFirstChild(name)
 	local root = target and target:FindFirstChild("HumanoidRootPart")
-	marker.Adornee = root
-	marker.Enabled = root ~= nil
+	marker.Adornee = root or nil -- (unlocked, `root` is false, not nil)
+	marker.Enabled = root ~= nil and root ~= false
 end)
 
 -- Which Quin is mine (a match spawns it, a death or the match end takes it away)

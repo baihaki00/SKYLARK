@@ -273,13 +273,14 @@ local modes = {
     { id = "1vs1",       name = "1 vs 1 Duel" },
     { id = "FFA",        name = "Free For All" },
     { id = "PlayerQuin", name = "Player Quin" },
+    { id = "PlayerSolo", name = "Solo" },
 }
 
 for modeIndex, m in ipairs(modes) do
     local btn = Instance.new("TextButton")
     btn.Name = "Mode_" .. m.id
     btn.LayoutOrder = modeIndex
-    btn.Size = UDim2.new(0, 100, 0, 32)
+    btn.Size = UDim2.new(0, 76, 0, 32) -- (five modes in the 425 px column)
     btn.BackgroundColor3 = (selectedMode == m.id) and C_CARD_SEL or Color3.fromRGB(18, 22, 32)
     btn.TextColor3 = (selectedMode == m.id) and C_CYAN or C_MUTED
     btn.Font = Enum.Font.GothamBold
@@ -342,7 +343,7 @@ function refreshSizeLabels()
         else
             b.btn.Text = sz .. "v" .. sz
         end
-        b.btn.TextTransparency = (selectedMode == "1vs1") and 0.6 or 0
+        b.btn.TextTransparency = (selectedMode == "1vs1" or selectedMode == "PlayerSolo") and 0.6 or 0
     end
 end
 local sizes = { 1, 2, 4, 8, 16 }

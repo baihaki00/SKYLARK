@@ -274,9 +274,9 @@ local function spawnFighters(window, epoch)
         q:SetAttribute("IsInert", true)
     end
 
-    if mode == "PlayerQuin" then
+    if mode == "PlayerQuin" or mode == "PlayerSolo" then
         -- On the dais (or the floor where it could not rise): the player's Quin on one side, the
-        -- AI Quins in a line facing it on the other
+        -- AI Quins in a line facing it on the other (Solo: the player's Quin alone, in the middle)
         local center, floorY = ArenaGenerator.getCenter()
         center = center or posAlpha:Lerp(posBeta, 0.5)
         local cfgPQ = CombatConfig.PlayerQuin or {}
@@ -286,7 +286,8 @@ local function spawnFighters(window, epoch)
         local forward = Vector3.new(posBeta.X - posAlpha.X, 0, posBeta.Z - posAlpha.Z)
         forward = forward.Magnitude > 0.1 and forward.Unit or Vector3.new(1, 0, 0)
         local side = Vector3.new(-forward.Z, 0, forward.X)
-        local mine = Vector3.new(center.X, top, center.Z) - forward * gap / 2
+        local solo = mode == "PlayerSolo"
+        local mine = Vector3.new(center.X, top, center.Z) - forward * (solo and 0 or gap / 2)
         local theirs = Vector3.new(center.X, top, center.Z) + forward * gap / 2
         local pilot = pilotPlayer
         table.insert(jobs, function()
@@ -303,7 +304,7 @@ local function spawnFighters(window, epoch)
             return q
         end)
         local spread = math.min(cfgPQ.EnemySpread or 10, radius * 1.4 / math.max(1, teamSize))
-        for i = 1, teamSize do
+        for i = 1, solo and 0 or teamSize do
             local p = theirs + side * (i - (teamSize + 1) * 0.5) * spread
             table.insert(jobs, function()
                 local q = QuinSpawner.spawn((i % 2 == 1) and "Female" or "Male", p, "TeamBeta")
@@ -396,6 +397,9 @@ end
 
 -- Who won: an elimination, or at the time limit more fighters alive, then more health
 local function decideWinner(mode)
+    if mode == "PlayerSolo" then
+        return pilotPlayer and pilotPlayer.Name or "SOLO", "TeamAlpha", "Solo Session Over"
+    end
     local alphaHp, alphaMax, betaHp, betaMax, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
     if mode == "FFA" then
         local best, bestHp = nil, -1
@@ -489,7 +493,7 @@ local function runMatchLifecycle()
         while not finished do
             task.wait(0.1)
         end
-    elseif mode == "PlayerQuin" then
+    elseif mode == "PlayerQuin" or mode == "PlayerSolo" then
         ArenaGenerator.clearArena() -- (Player Quin, obstacles off: nothing but the dais)
         generationCompleted = waitPhase(epoch)
     else
@@ -497,7 +501,7 @@ local function runMatchLifecycle()
         generationCompleted = waitPhase(epoch)
     end
     -- Player Quin: the dais rises in the centre while the fighters are in the preparation room
-    if mode == "PlayerQuin" then
+    if mode == "PlayerQuin" or mode == "PlayerSolo" then
         local center, floorY = ArenaGenerator.getCenter()
         if center then
             matchDais = SocialRespect.buildDais(center, floorY)
@@ -601,6 +605,8 @@ local function runMatchLifecycle()
         local _, _, _, _, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
         if mode == "FFA" then
             if alphaAlive <= 1 then break end
+        elseif mode == "PlayerSolo" then
+            if alphaAlive == 0 then break end -- (alone: only the clock or a fall ends it)
         elseif alphaAlive == 0 or betaAlive == 0 then
             break
         end
@@ -697,7 +703,7 @@ function Orchestrator.startMatch(settings, player)
 
     -- Player Quin: the player who pressed start pilots (from Studio's test hook: the first player)
     pilotPlayer = nil
-    if activeConfig.Mode == "PlayerQuin" then
+    if activeConfig.Mode == "PlayerQuin" or activeConfig.Mode == "PlayerSolo" then
         pilotPlayer = player or Players:GetPlayers()[1]
         if not pilotPlayer then
             return false, "Player Quin needs a player in the game."
