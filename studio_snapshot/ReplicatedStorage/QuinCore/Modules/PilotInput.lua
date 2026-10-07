@@ -144,7 +144,7 @@ function PilotInput.start()
 	end
 	remote.OnServerEvent:Connect(function(player, kind, a, b, c)
 		local quin = PilotInput.quinOf(player)
-		if quin then handle(quin, kind, a, b, c) end
+		if quin and os.clock() > (stateFor(quin).testUntil or 0) then handle(quin, kind, a, b, c) end
 	end)
 
 	-- Studio test hook: Workspace attribute PilotTestInput = JSON {"kind":..., "a":..., "b":...,
@@ -165,6 +165,9 @@ function PilotInput.start()
 			local folder = Workspace:FindFirstChild("QuinServer")
 			for _, quin in ipairs(folder and folder:GetChildren() or {}) do
 				if quin:GetAttribute("PilotedBy") then
+					-- (the live client sends a still "move" every 0.25 s while no key is down: it
+					-- waits while the hook drives, or the hook's moves were overwritten)
+					stateFor(quin).testUntil = os.clock() + 1.5
 					handle(quin, msg.kind, arg(msg.a), arg(msg.b), arg(msg.c))
 					break
 				end

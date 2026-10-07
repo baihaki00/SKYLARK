@@ -613,6 +613,10 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			end
 		end
 	end
+	-- Where the mouse has turned the view to, before the view's own easing: a piloted Quin is
+	-- steered by it (PilotClient). Steered by the eased view, every mouse turn reached the Quin
+	-- ~0.1 s late.
+	shared.CameraTargetYaw = cameraMode ~= "FREEFLY" and yaw or nil
 
 	if cameraMode == "FREEFLY" then
 		-- === FREEFLY NAVIGATION ===

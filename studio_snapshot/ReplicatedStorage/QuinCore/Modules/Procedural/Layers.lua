@@ -36,6 +36,7 @@ Layers.List = {
 	{ name = "StrikeFeetFree", label = "feet left to the clip in a strike", attribute = "Layer_StrikeFeetFree", added = true, default = function() return CombatConfig.ProceduralLayers.StrikeFeetFree.Enabled ~= false end },
 	{ name = "WallHand", label = "hand on the wall in a wall run", attribute = "Layer_WallHand", added = true, default = function() return CombatConfig.ProceduralLayers.WallHand.Enabled ~= false end },
 	{ name = "Footfall", label = "weight on each footfall", attribute = "Layer_Footfall", added = true, default = function() return CombatConfig.ProceduralLayers.Footfall.Enabled ~= false end },
+	{ name = "AirHold", label = "air pose until the body shown is down", attribute = "Layer_AirHold", default = function() return CombatConfig.Presentation_AirHold ~= false end },
 }
 
 local byName = {}

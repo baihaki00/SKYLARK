@@ -383,7 +383,13 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 		if isHumanoidAirborne(humanoid) and CombatConfig.Locomotion_AirControl ~= false then
 			local v = rootPart.AssemblyLinearVelocity
 			local current = Vector3.new(v.X, 0, v.Z)
-			local wanted = flat.Magnitude > 0.1 and flat.Unit * math.min(target, math.max(data.airSpeedCap or target, current.Magnitude)) or current
+			-- (a planned flight keeps its speed; otherwise a body can drift up to AirDriftSpeed on its
+			-- own: from a standing jump the cap was its takeoff speed, 2 studs/s, and it hung in place)
+			local cap = data.airSpeedCap or target
+			if not data.airSpeedHold then
+				cap = math.max(cap, CombatConfig.Locomotion_AirDriftSpeed or 14)
+			end
+			local wanted = flat.Magnitude > 0.1 and flat.Unit * math.min(target, math.max(cap, current.Magnitude)) or current
 			local change = wanted - current
 			local most = (CombatConfig.Locomotion_AirAcceleration or 30) * frameDt
 			if change.Magnitude > most then
@@ -395,6 +401,11 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			if nextVelocity.Magnitude > 0.5 then
 				data.groundIntentDirection = nextVelocity.Unit
 				humanoid:Move(nextVelocity.Unit, false)
+			end
+			-- (the jump's own facing hold turns with the drift: it held the takeoff facing all flight)
+			local jumpAlign = data.activeAlign
+			if jumpAlign and jumpAlign.Parent and nextVelocity.Magnitude > 3 and CombatConfig.Locomotion_AirFacing ~= false then
+				jumpAlign.CFrame = CFrame.lookAt(Vector3.zero, nextVelocity.Unit)
 			end
 			if data.ownsFacing then
 				updateFacing(data, rootPart, frameDt)
@@ -491,7 +502,8 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	elseif data.airSpeedCap and os.clock() < (data.airCapUntil or 0) then
 		-- In the air nothing pushes the body forward: the run could not speed it up past its
 		-- launch (it carried a shortened jump on at 40 studs/s and into the next obstacle)
-		targetSpeed = data.airSpeedHold and data.airSpeedCap or math.min(targetSpeed, data.airSpeedCap)
+		targetSpeed = data.airSpeedHold and data.airSpeedCap
+			or math.min(targetSpeed, math.max(data.airSpeedCap, CombatConfig.Locomotion_AirDriftSpeed or 14))
 	end
 
 	-- 1. Smoothly accelerate / decelerate to target speed. AI Quins hand the goal to the
@@ -979,6 +991,11 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	-- (an obstacle crossing only needs to be back on the ground: bars in a row are taken
 	-- landing-to-takeoff within a few tenths of a second)
 	local debounce = crossing and 0.15 or (CombatConfig.Locomotion_JumpDebounce or 0.35)
+	-- (down again since the last jump: it can go again once its feet are under it. The debounce
+	-- from takeoff kept a body that had landed waiting ~0.3 s for nothing)
+	if (data.lastLandTime or 0) > data.lastJumpTime then
+		debounce = math.min(debounce, (data.lastLandTime - data.lastJumpTime) + (CombatConfig.Locomotion_JumpReplant or 0.1))
+	end
 	if (now - data.lastJumpTime) < debounce then
 		fighter:SetAttribute("JumpSkip", string.format("debounce %.2f %s", now - data.lastJumpTime, tostring(jumpType)))
 		return
@@ -1157,6 +1174,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	local function onLanded()
 		if landedHandled then return end
 		landedHandled = true
+		data.lastLandTime = os.clock()
 		if data.activeLandedConn then
 			data.activeLandedConn:Disconnect()
 			data.activeLandedConn = nil

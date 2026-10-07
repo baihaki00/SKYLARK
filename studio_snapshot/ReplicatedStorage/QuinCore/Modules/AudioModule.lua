@@ -214,9 +214,10 @@ function AudioModule.playFootstep(fighter, volume)
 		if #footstepSounds == 0 then return end
 	end
 	
-	-- Anti-duplication debounce: enforce minimum 0.15s between footstep triggers per character
+	-- Anti-duplication debounce. (0.15 s dropped real steps: at a sprint every other step comes
+	-- 0.15 s after the last. Steps doubled by blended clips are already silenced by clip weight.)
 	local now = os.clock()
-	if lastFootstepTimes[fighter] and (now - lastFootstepTimes[fighter]) < 0.15 then
+	if lastFootstepTimes[fighter] and (now - lastFootstepTimes[fighter]) < 0.08 then
 		return
 	end
 	lastFootstepTimes[fighter] = now

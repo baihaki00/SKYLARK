@@ -167,17 +167,30 @@ function projectileJump(fighter, humanoid, rootPart, pj)
 		value.Value = pj.target
 		fighter:SetAttribute("JumpStyle", pj.style)
 	else
-		-- at a spot: no further than the jump's reach, on something to stand on, in the arena
-		local offset = flat(pj.point - rootPart.Position)
-		local spot = pj.point
-		if offset.Magnitude > maxRange then
-			spot = Vector3.new(rootPart.Position.X, pj.point.Y, rootPart.Position.Z) + offset.Unit * maxRange
-		end
+		-- at a spot: the crosshair's point, read as where the player wants to be. No nearer than
+		-- ProjectileJumpMinRange (aimed at its own feet it launched and came down on the spot), no
+		-- further than the jump's reach, on something to stand on, in the arena. The ground is looked
+		-- for from above the aim: aimed high (a platform top, a far wall, the sky: the aim's point
+		-- was up in the air and the old 120-stud look down from it found nothing) it finds the top
+		-- or the floor under it.
+		local origin = rootPart.Position
+		local offset = flat(pj.point - origin)
+		local dir = offset.Magnitude > 1 and offset.Unit or flat(rootPart.CFrame.LookVector).Unit
+		local reach = math.clamp(offset.Magnitude, cfg("ProjectileJumpMinRange", 25), maxRange)
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
 		params.FilterDescendantsInstances = { Workspace:FindFirstChild("QuinServer") }
 		params.RespectCanCollide = true
-		local ground = Workspace:Raycast(spot + Vector3.new(0, 40, 0), Vector3.new(0, -120, 0), params)
+		local function groundAt(distance)
+			local spot = Vector3.new(origin.X, 0, origin.Z) + dir * distance
+			local top = math.max(pj.point.Y, origin.Y) + 60
+			return Workspace:Raycast(Vector3.new(spot.X, top, spot.Z), Vector3.new(0, -(top - origin.Y) - 200, 0), params)
+		end
+		local ground = groundAt(reach)
+		-- (aimed at a wall's face, the look from above finds the wall's top: land in front of it)
+		if ground and ground.Position.Y > pj.point.Y + 6 then
+			ground = groundAt(math.max(reach - 5, 0))
+		end
 		if not ground or SpatialModule.isOutOfBounds({ Position = ground.Position }, 4) then
 			fighter:SetAttribute("PilotNote", "Nowhere to land there")
 			return nil
@@ -279,12 +292,11 @@ function PilotedState.update(fighter, humanoid, rootPart)
 			elseif action == "Slide" then
 				LocomotionModule.slide(fighter, humanoid, rootPart, dir)
 			elseif action == "Jump" then
-				local v = rootPart.AssemblyLinearVelocity
-				local hSpeed = flat(v).Magnitude
-				LocomotionModule.jump(fighter, humanoid, rootPart, cfg("JumpHeight", 11), hSpeed > 2 and hSpeed or 0, "free")
+				data.jumpAskedAt, data.jumpLetGo = clock, false -- (taken below)
 			end
 		end
 		if action == "JumpRelease" then
+			if data.jumpAskedAt then data.jumpLetGo = true end -- (not off the ground yet: cut once it is)
 			LocomotionModule.cutJump(fighter, humanoid, rootPart)
 		elseif action == "Lock" then
 			if data.lock then
@@ -297,11 +309,32 @@ function PilotedState.update(fighter, humanoid, rootPart)
 		end
 	end
 
+	-- Jump. Kept for a moment (JumpBuffer) until it can be taken: pressed just before a landing, or
+	-- while the feet were settling from the last one, it went nowhere
+	if data.jumpAskedAt then
+		if clock - data.jumpAskedAt > cfg("JumpBuffer", 0.15) or striking or guarding then
+			data.jumpAskedAt = nil
+		else
+			local hSpeed = flat(rootPart.AssemblyLinearVelocity).Magnitude
+			if LocomotionModule.jump(fighter, humanoid, rootPart, cfg("JumpHeight", 11), hSpeed > 2 and hSpeed or 0, "free") then
+				data.jumpAskedAt = nil
+				if data.jumpLetGo then
+					task.delay(0.05, function()
+						LocomotionModule.cutJump(fighter, humanoid, rootPart)
+					end)
+				end
+			end
+		end
+	end
+
 	-- Projectile jump (from the ground)
 	local pj = PilotInput.takeProjectileJump(fighter)
 	if pj and not striking and not guarding and LocomotionModule.isOnGround(rootPart, humanoid) then
 		local next = projectileJump(fighter, humanoid, rootPart, pj)
 		if next then return next end
+	elseif pj then
+		fighter:SetAttribute("PilotNote", (striking or guarding) and "Busy: no projectile jump mid-strike or guard"
+			or "Projectile jumps start from the ground")
 	end
 	if data.strikeAskedAt and not guarding then
 		if clock - data.strikeAskedAt > cfg("StrikeBuffer", 0.35) then
@@ -352,7 +385,8 @@ function PilotedState.update(fighter, humanoid, rootPart)
 			-- free: the body turns with its run, not with the strike's facing gyro
 			local gyro = rootPart:FindFirstChild("FightGyro")
 			if gyro then gyro:Destroy() end
-			if not humanoid.AutoRotate then humanoid.AutoRotate = true end -- (a state before may have left it off)
+			-- (the steer owns the facing while it moves the body: it turns AutoRotate off for its
+			-- own facing and back on when it lets go. Turning it on here every tick made the two fight)
 		end
 		local speed
 		if input.pace == "run" then

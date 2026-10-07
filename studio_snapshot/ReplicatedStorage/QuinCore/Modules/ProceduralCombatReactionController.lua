@@ -304,6 +304,16 @@ function ProceduralCombatReactionController:applyClipCorrections(dt)
 		local transform = hips.Transform
 		hips.Transform = CFrame.new(transform.Position * correction.translationScale) * (transform - transform.Position)
 	end
+	if correction.noLift then
+		-- the hips are not raised above where they rest: the body's own arc carries the jump
+		local parent = hips.Parent
+		local restW = (parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame) * hips.CFrame
+		local current = hips.TransformedWorldCFrame
+		local lift = current.Position.Y - restW.Position.Y
+		if lift > 0 then
+			hips.Transform = restW:Inverse() * (current - Vector3.new(0, lift * math.clamp(weight, 0, 1), 0))
+		end
+	end
 	local root = self.ghostRootPart or self.rootPart
 	if correction.yaw and root then
 		local rootCF = root.CFrame
@@ -314,6 +324,51 @@ function ProceduralCombatReactionController:applyClipCorrections(dt)
 		hips.Transform = (parentW * hips.CFrame):Inverse() * turned
 	end
 	self:applyGroundCorrection((correction.ground and "ground") or (correction.settle and "settle") or nil, dt)
+end
+
+-- The air pose held until the body shown is down (Presentation_AirHold). A local track: it plays
+-- on this screen only, over the server's clips.
+local AIR_HOLD_SKIP = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, Airborne = true, BeamStruggle = true }
+function ProceduralCombatReactionController:holdAirPose(dt)
+	local humanoid = self.humanoid
+	local root = self.ghostRootPart or self.rootPart
+	if not humanoid or not root then return end
+	local serverModel = self.aiModel
+	local hold = false
+	if Layers.isOn("AirHold", serverModel) then
+		local state = humanoid:GetState()
+		local onFeet = state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.Landed
+			or state == Enum.HumanoidStateType.RunningNoPhysics
+		if onFeet and not AIR_HOLD_SKIP[serverModel and serverModel:GetAttribute("CurrentState") or ""] then
+			local hit = Workspace:Raycast(root.Position, Vector3.new(0, -(self.standHeight + 40), 0), self.ikRayParams)
+			local clearance = hit and (root.Position.Y - hit.Position.Y - self.standHeight) or 0
+			local falling = self.airHoldPrevY ~= nil and root.Position.Y < self.airHoldPrevY - 0.01
+			hold = clearance > (CombatConfig.Presentation_AirHoldClearance or 1.2) and falling
+		end
+	end
+	self.airHoldPrevY = root.Position.Y
+	if hold then
+		if not self.airHoldTrack then
+			local animator = humanoid:FindFirstChildOfClass("Animator")
+			local registry = require(QuinCore:WaitForChild("AnimationConfig")).Registry
+			local id = registry.Movement.Fall.id
+			if animator then
+				local animation = Instance.new("Animation")
+				animation.AnimationId = id
+				local ok, track = pcall(function() return animator:LoadAnimation(animation) end)
+				if ok and track then
+					track.Priority = Enum.AnimationPriority.Action4
+					track.Looped = true
+					self.airHoldTrack = track
+				end
+			end
+		end
+		if self.airHoldTrack and not self.airHoldTrack.IsPlaying then
+			self.airHoldTrack:Play(0.06)
+		end
+	elseif self.airHoldTrack and self.airHoldTrack.IsPlaying then
+		self.airHoldTrack:Stop(0.1)
+	end
 end
 
 -- Trigger a directional hit recoil impulse
@@ -362,6 +417,7 @@ function ProceduralCombatReactionController:update(dt)
 	-- 0. Clips authored facing backwards or with oversized root motion are put right before
 	-- anything here reads the pose (CombatConfig.ClipCorrections)
 	self:applyClipCorrections(dt)
+	self:holdAirPose(dt)
 
 	-- 1. Check server model for new replicated impact event
 	local serverModel = self.aiModel
@@ -778,7 +834,9 @@ function ProceduralCombatReactionController:update(dt)
 
 		-- 2. Turn / Spin Attenuation: Attenuate IK during high angular velocity or rapid heading changes
 		-- Allows athletic plant cuts, 90 cuts, and 180 direction reversals to play cleanly without IK ankle drag
-		local angVelY = math.abs(self.smoothedTurnRate or self.rootPart.AssemblyAngularVelocity.Y)
+		-- (the body's own spin counts too: the smoothed rate is only kept while it moves, and a Quin
+		-- setting off the other way spins round at up to ~12 rad/s before it is moving)
+		local angVelY = math.max(math.abs(self.smoothedTurnRate or 0), math.abs(self.rootPart.AssemblyAngularVelocity.Y))
 		local rawTurnDampen = math.clamp(1.0 - (angVelY - 4.0) / 8.0, 0.0, 1.0)
 		self.currentTurnDampen = (self.currentTurnDampen or 1.0) + (rawTurnDampen - (self.currentTurnDampen or 1.0)) * (1 - math.exp(-8.0 * dt))
 		-- Plant-and-pivot reversals (LocomotionModule, server ReversalPhase "pivot") turn at ~7 rad/s
@@ -1090,12 +1148,17 @@ function ProceduralCombatReactionController:update(dt)
 				bend = lookVec
 			end
 			-- Smoothed over time per leg: the clip's bend and the body's facing both turn fast
-			-- in fight footwork, and the knee plane flipped with them between frames
+			-- in fight footwork, and the knee plane flipped with them between frames. Smoothed in
+			-- the body's own frame, so it turns with the body: smoothed in the world, a body
+			-- setting off the other way (180 degrees in about a tenth of a second) left the knee
+			-- pointing where the body had faced, behind it: a leg bent backward ("horse leg").
 			local key = leg.up
 			self.bendDir = self.bendDir or {}
 			self.bendTime = self.bendTime or {}
+			local bodyCF = (self.ghostRootPart or self.rootPart).CFrame
 			-- (a smoothing left from an earlier solve is stale: start from the clip again)
-			local previous = (now - (self.bendTime[key] or 0) < 0.1) and self.bendDir[key] or nil
+			local previousLocal = (now - (self.bendTime[key] or 0) < 0.1) and self.bendDir[key] or nil
+			local previous = previousLocal and bodyCF:VectorToWorldSpace(previousLocal) or nil
 			self.bendTime[key] = now
 			bend = bend.Unit
 			if previous then
@@ -1103,11 +1166,23 @@ function ProceduralCombatReactionController:update(dt)
 				if bend.Magnitude < 1e-3 then bend = previous end
 				bend = bend.Unit
 			end
-			self.bendDir[key] = bend
+			self.bendDir[key] = bodyCF:VectorToObjectSpace(bend)
 			-- Perpendicular to the hip-goal line again (the smoothing leaves a small tilt)
 			bend = bend - dir * bend:Dot(dir)
 			if bend.Magnitude < 1e-3 then bend = forward.Magnitude > 1e-3 and forward or lookVec end
 			bend = bend.Unit
+			-- A knee only bends forward. A foot planted while standing (PlantWhenStill) stays pinned
+			-- while the body spins round to set off the other way (about 180 degrees in a tenth of a
+			-- second), and the solve bent the knee backward to reach it for ~0.1 s at every such
+			-- start: the "horse leg". Kept on the body's front side of the hip-ankle line.
+			if forward.Magnitude > 1e-3 then
+				local front = forward.Unit
+				local along = bend:Dot(front)
+				if along < 0.2 then
+					bend = bend + front * (0.2 - along) * 2
+					bend = (bend - dir * bend:Dot(dir)).Unit
+				end
+			end
 			local along = (L1 * L1 + d * d - L2 * L2) / (2 * d)
 			local out = math.sqrt(math.max(L1 * L1 - along * along, 0))
 			local newKnee = H + dir * along + bend * out

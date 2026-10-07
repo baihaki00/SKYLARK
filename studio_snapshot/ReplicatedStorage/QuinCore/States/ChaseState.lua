@@ -1332,7 +1332,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	-- Energy drain and recovery scaled with speedMult (the body does it when Body_StaminaByEffort
 	-- is on: BodyStamina)
-	if not CombatConfig.Body_StaminaByEffort == false then
+	if CombatConfig.Body_StaminaByEffort ~= false then
 		-- (nothing here)
 	elseif not shouldWalk then
 		local drain = (CombatConfig.EnergyDrain_Sprint or 1) * 0.1 * speedMult

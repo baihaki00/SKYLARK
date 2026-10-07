@@ -10,7 +10,8 @@
 -- V projectile jump at what the crosshair is on: tap = style 1 (an arc onto it), hold and let go =
 -- style 2 (a high launch); in the air, V again dives onto what the crosshair is on then.
 -- T lock on to the nearest threat (again: let go), G move the lock to the next one. A locked
--- enemy carries a small marker.
+-- enemy carries a small marker. A HUD at the bottom middle shows health, mana and the jump and
+-- projectile-jump gauges; a dot marks the middle of the view while in the air or aiming.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -28,6 +29,7 @@ local AIM_RANGE = 600
 local quin = nil
 local walkMode = false
 local vDownAt = nil
+local spaceDownAt = nil -- (the HUD's jump gauge)
 local lastLookYaw, lastLookPitch, lastLookAt = nil, nil, 0
 local lastDir, lastPace, lastSentAt = Vector3.zero, "jog", 0
 
@@ -154,6 +156,14 @@ RunService.RenderStepped:Connect(function()
 	local cam = Workspace.CurrentCamera.CFrame
 	local fwd = Vector3.new(cam.LookVector.X, 0, cam.LookVector.Z)
 	local right = Vector3.new(cam.RightVector.X, 0, cam.RightVector.Z)
+	-- (where the mouse has turned the view to, not the eased view: SmoothCamera's target yaw.
+	-- Steered by the eased view, every mouse turn reached the Quin ~0.1 s late.)
+	local targetYaw = shared.CameraTargetYaw
+	if type(targetYaw) == "number" then
+		local r = math.rad(targetYaw)
+		fwd = Vector3.new(-math.sin(r), 0, -math.cos(r))
+		right = Vector3.new(math.cos(r), 0, -math.sin(r))
+	end
 	fwd = fwd.Magnitude > 0.01 and fwd.Unit or Vector3.new(0, 0, -1)
 	right = right.Magnitude > 0.01 and right.Unit or Vector3.new(1, 0, 0)
 	local dir = fwd * -z + right * x
@@ -190,6 +200,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
 		send("guard", true)
 	elseif input.KeyCode == Enum.KeyCode.Space then
+		spaceDownAt = os.clock()
 		send("action", "Jump")
 	elseif input.KeyCode == Enum.KeyCode.C then
 		send("action", "Slide")
@@ -217,6 +228,7 @@ UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton2 then
 		send("guard", false)
 	elseif input.KeyCode == Enum.KeyCode.Space then
+		spaceDownAt = nil
 		send("action", "JumpRelease")
 	elseif input.KeyCode == Enum.KeyCode.V and vDownAt then
 		local style = (os.clock() - vDownAt >= PJ_HOLD) and 2 or 1
@@ -224,4 +236,184 @@ UserInputService.InputEnded:Connect(function(input)
 		local point, name = aim()
 		send("pj", style, point, name)
 	end
+end)
+
+-- The HUD (bottom middle): health, mana (with the mark a projectile jump needs), the jump gauge
+-- (Space held: a hop fills to a full jump), the projectile-jump gauge (V held: arc, then arc and
+-- dive) and the server's note when something asked for is refused (PilotNote). A dot at the middle
+-- of the view while in the air or aiming a projectile jump: what the aim is on.
+local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+local PJ_MANA = CombatConfig.ProjectileJumpMinEnergy or 40
+local JUMP_FULL = CombatConfig.Locomotion_JumpCutWindow or 0.3 -- held this long a jump is not cut
+
+local hud = Instance.new("ScreenGui")
+hud.Name = "PilotHUD"
+hud.ResetOnSpawn = false
+hud.IgnoreGuiInset = true -- (the dot sits on the camera's centre, where the aim is taken)
+hud.DisplayOrder = 5
+hud.Enabled = false
+hud.Parent = player:WaitForChild("PlayerGui")
+
+local function corner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+end
+local function label(parent, text, size, xAlign)
+	local l = Instance.new("TextLabel")
+	l.BackgroundTransparency = 1
+	l.Font = Enum.Font.GothamBold
+	l.TextSize = size
+	l.TextColor3 = Color3.fromRGB(235, 240, 245)
+	l.TextStrokeTransparency = 0.6
+	l.TextXAlignment = xAlign or Enum.TextXAlignment.Left
+	l.Text = text
+	l.Parent = parent
+	return l
+end
+-- A bar: returns its fill frame and its text
+local function bar(parent, y, height, color, name)
+	local back = Instance.new("Frame")
+	back.Name = name
+	back.Position = UDim2.new(0, 0, 0, y)
+	back.Size = UDim2.new(1, 0, 0, height)
+	back.BackgroundColor3 = Color3.fromRGB(14, 18, 26)
+	back.BackgroundTransparency = 0.25
+	back.BorderSizePixel = 0
+	back.Parent = parent
+	corner(back, 4)
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.new(1, 0, 1, 0)
+	fill.BackgroundColor3 = color
+	fill.BorderSizePixel = 0
+	fill.Parent = back
+	corner(fill, 4)
+	local text = label(back, name, 11)
+	text.Size = UDim2.new(1, -12, 1, 0)
+	text.Position = UDim2.new(0, 6, 0, 0)
+	text.ZIndex = 3
+	return fill, text, back
+end
+
+local panel = Instance.new("Frame")
+panel.Name = "Panel"
+panel.AnchorPoint = Vector2.new(0.5, 1)
+panel.Position = UDim2.new(0.5, 0, 1, -22)
+panel.Size = UDim2.new(0, 360, 0, 74)
+panel.BackgroundTransparency = 1
+panel.Parent = hud
+
+local hpFill, hpText = bar(panel, 0, 16, Color3.fromRGB(90, 210, 120), "HP")
+local manaFill, manaText, manaBack = bar(panel, 20, 12, Color3.fromRGB(70, 170, 255), "MANA")
+manaText.TextSize = 10
+-- the mark a projectile jump needs
+local manaMark = Instance.new("Frame")
+manaMark.Size = UDim2.new(0, 2, 1, 4)
+manaMark.Position = UDim2.new(PJ_MANA / (CombatConfig.MaxEnergy or 100), -1, 0, -2)
+manaMark.BackgroundColor3 = Color3.fromRGB(255, 200, 80)
+manaMark.BorderSizePixel = 0
+manaMark.ZIndex = 4
+manaMark.Parent = manaBack
+
+local gauges = Instance.new("Frame")
+gauges.Position = UDim2.new(0, 0, 0, 38)
+gauges.Size = UDim2.new(1, 0, 0, 14)
+gauges.BackgroundTransparency = 1
+gauges.Parent = panel
+local jumpHalf = Instance.new("Frame")
+jumpHalf.Size = UDim2.new(0.5, -4, 1, 0)
+jumpHalf.BackgroundTransparency = 1
+jumpHalf.Parent = gauges
+local pjHalf = Instance.new("Frame")
+pjHalf.Position = UDim2.new(0.5, 4, 0, 0)
+pjHalf.Size = UDim2.new(0.5, -4, 1, 0)
+pjHalf.BackgroundTransparency = 1
+pjHalf.Parent = gauges
+local jumpFill, jumpText = bar(jumpHalf, 0, 14, Color3.fromRGB(235, 240, 245), "JUMP")
+local pjFill, pjText = bar(pjHalf, 0, 14, Color3.fromRGB(255, 170, 60), "PJ")
+jumpText.TextSize, pjText.TextSize = 10, 10
+
+local note = label(panel, "", 13, Enum.TextXAlignment.Center)
+note.Size = UDim2.new(1, 0, 0, 16)
+note.Position = UDim2.new(0, 0, 0, 56)
+note.TextColor3 = Color3.fromRGB(255, 205, 120)
+
+local dot = Instance.new("Frame")
+dot.Name = "AimDot"
+dot.AnchorPoint = Vector2.new(0.5, 0.5)
+dot.Position = UDim2.fromScale(0.5, 0.5)
+dot.Size = UDim2.fromOffset(6, 6)
+dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+dot.BorderSizePixel = 0
+dot.Visible = false
+dot.Parent = hud
+corner(dot, 3)
+local dotStroke = Instance.new("UIStroke")
+dotStroke.Color = Color3.fromRGB(0, 0, 0)
+dotStroke.Transparency = 0.4
+dotStroke.Thickness = 1
+dotStroke.Parent = dot
+
+local lastNote, noteAt = nil, 0
+local function textColor(dark)
+	return dark and Color3.fromRGB(20, 24, 30) or Color3.fromRGB(235, 240, 245)
+end
+RunService.RenderStepped:Connect(function()
+	hud.Enabled = quin ~= nil and quin.Parent ~= nil
+	if not hud.Enabled then return end
+	local hum = quin:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+	local now = os.clock()
+
+	local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+	hpFill.Size = UDim2.new(hp, 0, 1, 0)
+	hpFill.BackgroundColor3 = Color3.fromRGB(230, 70, 60):Lerp(Color3.fromRGB(90, 210, 120), hp)
+	hpText.Text = string.format("HP  %d / %d", math.ceil(hum.Health), hum.MaxHealth)
+
+	local energy = quin:GetAttribute("Energy") or 0
+	local maxEnergy = CombatConfig.MaxEnergy or 100
+	manaFill.Size = UDim2.new(math.clamp(energy / maxEnergy, 0, 1), 0, 1, 0)
+	manaText.Text = string.format("MANA  %d", math.floor(energy))
+
+	-- jump: held, a hop fills to a full jump
+	local state = hum:GetState()
+	local airborne = state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping
+	if spaceDownAt then
+		local f = math.clamp((now - spaceDownAt) / JUMP_FULL, 0, 1)
+		jumpFill.Size = UDim2.new(f, 0, 1, 0)
+		jumpText.Text = f >= 1 and "JUMP  FULL" or "JUMP  HOP"
+	else
+		jumpFill.Size = UDim2.new(0, 0, 1, 0)
+		jumpText.Text = airborne and "JUMP  (in the air)" or "JUMP"
+	end
+	jumpText.TextColor3 = textColor(spaceDownAt ~= nil and (now - spaceDownAt) / JUMP_FULL > 0.5)
+
+	-- projectile jump: held, an arc fills to an arc and dive
+	local inPJ = quin:GetAttribute("CurrentState") == "ProjectileJump"
+	if vDownAt then
+		local f = math.clamp((now - vDownAt) / PJ_HOLD, 0, 1)
+		pjFill.Size = UDim2.new(f, 0, 1, 0)
+		pjFill.BackgroundColor3 = f >= 1 and Color3.fromRGB(255, 110, 60) or Color3.fromRGB(255, 170, 60)
+		pjText.Text = f >= 1 and "PJ  ARC + DIVE" or "PJ  ARC"
+	elseif inPJ and quin:GetAttribute("PJPhase") == "AirborneTimer" then
+		pjFill.Size = UDim2.new(1, 0, 1, 0)
+		pjFill.BackgroundColor3 = Color3.fromRGB(255, 110, 60)
+		pjText.Text = "V: DIVE NOW"
+	else
+		local ready = energy >= PJ_MANA
+		pjFill.Size = UDim2.new(ready and 1 or math.clamp(energy / PJ_MANA, 0, 1), 0, 1, 0)
+		pjFill.BackgroundColor3 = ready and Color3.fromRGB(110, 90, 60) or Color3.fromRGB(70, 60, 60)
+		pjText.Text = inPJ and "PJ  (flying)" or (ready and "PJ  READY" or "PJ  NEEDS MANA")
+	end
+	pjText.TextColor3 = textColor(false)
+
+	-- the server's note (a refused projectile jump: no mana, nowhere to land, not from the air)
+	local text = quin:GetAttribute("PilotNote")
+	if text ~= lastNote then
+		lastNote, noteAt = text, now
+	end
+	note.Text = (text and now - noteAt < 2.5) and text or ""
+
+	dot.Visible = airborne or inPJ or vDownAt ~= nil
 end)

@@ -164,6 +164,30 @@ local function buildPlatform(center, floorY)
 		table.insert(parts, part)
 		table.insert(down, upCF - Vector3.new(0, (topY - floorY) * 1.5, 0))
 	end
+	-- The ramp: a ring of invisible wedges from the floor at the outer step's edge up to the top's
+	-- edge, laid over the step corners. (A Quin stepped up each 0.375-stud tier in turn: eight
+	-- pops on the way up.) A wedge's slope falls from its back (+Z, full height) to its front.
+	if CFG.CeremonyRamp ~= false and width > 0 then
+		local n = CFG.CeremonyRampSegments or 72
+		local chord = 2 * (r + width) * math.sin(math.pi / n) * 1.04
+		for k = 1, n do
+			local a = (k - 0.5) / n * 2 * math.pi
+			local out = Vector3.new(math.cos(a), 0, math.sin(a))
+			local mid = Vector3.new(center.X, floorY + rise / 2, center.Z) + out * (r + width / 2)
+			local wedge = Instance.new("WedgePart")
+			wedge.Name = "Ramp"
+			wedge.Size = Vector3.new(chord, rise, width)
+			wedge.Anchored = true
+			wedge.Transparency = 1
+			wedge.CastShadow = false
+			local upCF = CFrame.lookAt(mid, mid + out)
+			wedge.CFrame = upCF - Vector3.new(0, rise, 0) -- starts below the floor
+			wedge.Parent = folder
+			TweenService:Create(wedge, TweenInfo.new(t * 1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { CFrame = upCF }):Play()
+			table.insert(parts, wedge)
+			table.insert(down, upCF - Vector3.new(0, rise * 1.5, 0))
+		end
+	end
 	return { folder = folder, parts = parts, down = down }
 end
 
@@ -186,6 +210,10 @@ function SocialRespect.sinkDais(handle)
 end
 function SocialRespect.daisRadius()
 	return CFG.CeremonyRadius or 80
+end
+-- Seconds the dais takes to finish rising (its slowest tier)
+function SocialRespect.daisRiseTime()
+	return (CFG.CeremonyRiseTime or 2.5) * 1.1
 end
 function SocialRespect.daisTop()
 	return CFG.CeremonyRise or 3

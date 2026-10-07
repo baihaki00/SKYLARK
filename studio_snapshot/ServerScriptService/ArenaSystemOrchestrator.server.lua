@@ -55,6 +55,7 @@ local activeConfig = {
 -- an empty arena). Only the inputs differ from an AI Quin (PilotedState, Modules/PilotInput).
 local pilotPlayer = nil
 local matchDais = nil
+local matchDaisUpAt = 0 -- (os.clock() when the dais has finished rising)
 
 local matchStats = {
     StartTime = 0,
@@ -280,6 +281,11 @@ local function spawnFighters(window, epoch)
         local center, floorY = ArenaGenerator.getCenter()
         center = center or posAlpha:Lerp(posBeta, 0.5)
         local cfgPQ = CombatConfig.PlayerQuin or {}
+        -- (on top of the dais only once it has risen: stood on it while it rose, the Quin was
+        -- inside it and the physics pushed it out onto the floor)
+        if matchDais and os.clock() < matchDaisUpAt then
+            task.wait(matchDaisUpAt - os.clock())
+        end
         local top = (floorY or center.Y) + (matchDais and SocialRespect.daisTop() or 0) + 3
         local radius = matchDais and SocialRespect.daisRadius() or 80
         local gap = math.min(cfgPQ.SpawnGap or 40, radius * 1.6)
@@ -505,6 +511,7 @@ local function runMatchLifecycle()
         local center, floorY = ArenaGenerator.getCenter()
         if center then
             matchDais = SocialRespect.buildDais(center, floorY)
+            matchDaisUpAt = os.clock() + SocialRespect.daisRiseTime()
             if matchDais then
                 matchDais.folder.Name = "PlayerQuinDais"
             else

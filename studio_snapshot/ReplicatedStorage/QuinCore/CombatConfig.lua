@@ -254,18 +254,21 @@ local CombatConfig = {
 	Locomotion_GroundTurnResponse = 16.0,      -- rad/s response for continuous grounded arcs (GTA V / Watch Dogs responsiveness)
 	Locomotion_ForwardTurnLateralScale = 1.00, -- Pure isotropic 360° input (zero angular distortion)
 	Locomotion_JumpImpulse = 56.0,           -- studs/s single vertical ballistic jump impulse
-	Locomotion_JumpDebounce = 1.0,           -- seconds minimum between successive jumps
+	Locomotion_JumpDebounce = 1.0,           -- seconds minimum between successive jumps (unless it has landed in between: Locomotion_JumpReplant)
+	Locomotion_JumpReplant = 0.05,           -- seconds on the ground after a landing before the next jump (a body that has come down can go again at once)
 	Locomotion_LandingRetention = 0.88,      -- ratio of horizontal velocity preserved on landing (88%)
 	Locomotion_AirControl = true,            -- in the air a body keeps its flight and can only lean it (false: the ground drive steers in the air)
-	Locomotion_AirAcceleration = 30.0,       -- studs/s^2: how hard a body in the air can change its horizontal velocity
+	Locomotion_AirAcceleration = 60.0,       -- studs/s^2: how hard a body in the air can change its horizontal velocity (30 felt locked)
+	Locomotion_AirDriftSpeed = 14.0,         -- studs/s a body may drift to in the air on its own (a jump from standing could only reach its takeoff speed: 2 studs/s)
+	Locomotion_AirFacing = true,             -- in the air the body turns toward where it drifts (it held its takeoff facing all flight)
 	Locomotion_JumpCutWindow = 0.3,          -- seconds after takeoff a jump can still be cut short (a short hop)
 	Locomotion_JumpCutKeep = 0.45,           -- share of the rising speed kept when a jump is cut
 	Locomotion_SkidSpeedThreshold = 14.0,    -- studs/s minimum speed to trigger dynamic braking skid
 	Locomotion_TurnRateSlow = 10.0,          -- rad/s heading-change ceiling at walking pace (nimble pivots)
 	Locomotion_LateralGrip = 90,             -- studs/s^2 sideways a running body can lean into: turn rate = grip / speed (2.2 rad/s at 40)
-	Locomotion_LateralGrip_Agile = 200,      -- (the agile body: about 1 g at this gravity; an ~8-stud turn radius at 40 studs/s)
+	Locomotion_LateralGrip_Agile = 260,      -- (the agile body: ~1.3 g at this gravity; a ~6-stud turn radius at 40 studs/s. Was 200: a 180 deg/s mouse sweep trailed by 22 deg)
 	Locomotion_TurnRateFast = 2.2,           -- rad/s heading-change ceiling at full sprint (momentum widens the arc)
-	Locomotion_TurnRateFast_Agile = 6.0,     -- (the agile body: the grip sets the sprint turn, not a cap)
+	Locomotion_TurnRateFast_Agile = 7.5,     -- (the agile body: the grip sets the sprint turn, not a cap)
 	Locomotion_TurnRateSlowSpeed = 8.0,      -- studs/s at or below which the slow-pace ceiling applies
 	Locomotion_TurnRateFastSpeed = 44.0,     -- studs/s at or above which the sprint ceiling applies
 	EnableOpeningProjectileJump = false,     -- Permanently ban start-of-match projectile jumps; grounded charges first
@@ -748,6 +751,10 @@ CombatConfig.ClipCorrections = {
 	["107304638987317"] = { yaw = 180, translationScale = 0.1 }, -- NINJA AIRBORNE LOOP
 	["92021932752253"] = { yaw = 180, translationScale = 0.1 },  -- NINJA CONFIDENT LANDING
 	["121127010274438"] = { yaw = 180 },                         -- PROJECTILE JUMP
+	-- `noLift`: the clip's own hip rise is taken out; the body's arc is the jump. Jump Launch lifts
+	-- the hips 4.3 studs over the root and holds them there through the apex: the body shot up
+	-- 16 studs, sat at the top, then dropped (the "boxy" jump).
+	["85622241844167"] = { noLift = true },                      -- JUMP LAUNCH (also Parkour.VaultObstacle)
 	["122361647744311"] = { yaw = 180 },                         -- PROJECTILE JUMP AIRBORNE LOOP
 	["105219213466134"] = { yaw = 180 },                         -- PJ JUMP STYLE LANDING
 	-- FallFront drops its hips 7 studs to the floor inside the clip (it was a fall from standing):
@@ -765,6 +772,13 @@ CombatConfig.ClipCorrections = {
 	["82896239168564"] = { ground = true },                       -- GET UP FROM THE FRONT (FAST)
 	["90997656474712"] = { ground = true },                       -- GET UP FROM THE FRONT (SLOW)
 }
+-- On a screen, a server-run body's position arrives ~0.2 s after its animations (positions are
+-- interpolated, clips are not). Coming down from a jump, the run clip played while the body shown
+-- was still up to 7 studs in the air. While the body shown is still this far above its ground,
+-- coming down, and the server already has it on its feet, the Fall pose covers it until it is down.
+-- (Workspace Layer_AirHold overrides, A/B)
+CombatConfig.Presentation_AirHold = true
+CombatConfig.Presentation_AirHoldClearance = 1.2 -- studs above standing height
 CombatConfig.ClipCorrections_SettleHeight = 6 -- studs above standing height from which a fall pose is let down to the floor
 CombatConfig.ClipCorrections_GroundPad = 0.45 -- studs the lowest bone is kept above the floor by `ground` (half a limb's thickness)
 CombatConfig.Recovery_SlowGetUpHealth = 0.35  -- health ratio under which a Quin knocked flat gets up slowly
@@ -983,6 +997,9 @@ CombatConfig.Social = {
 		PlatformDelay = 3,
 		CeremonyRadius = 80, CeremonyStepWidth = 12, CeremonyRise = 3, CeremonyRiseTime = 2.5,
 		CeremonyTierHeight = 0.4, DuelEdgeMargin = 12,     -- each step of the dais stays under a Quin's collision-body clearance (0.5)
+		-- an invisible ramp over the steps: a body walks up a smooth slope instead of popping up
+		-- every tier (eight 0.375-stud pops on the way up); the steps are what is seen
+		CeremonyRamp = true, CeremonyRampSegments = 72,
 		DuelStartDistance = 30, DuelStartTimeout = 30, -- (timeout: the walk-in gives up waiting and the standoff starts)
 		-- the standoff on the dais: they circle each other, closing from StartGap to MinGap over
 		-- StandoffTime, walking then prowling; the nerve to go in grows as the circle tightens
@@ -1096,11 +1113,12 @@ CombatConfig.PlayerQuin = {
 	GuardHoldAfter = 0.15, -- seconds into the block clip where the guard pose is held while guarding
 	InputTimeout = 1.0,    -- seconds without input before the Quin stops moving
 	DashDistance = 35,     -- studs
-	JumpHeight = 8,        -- studs
 	SpawnGap = 40,         -- studs between the player's Quin and the AI line on the dais
 	EnemySpread = 10,      -- studs between AI Quins side by side
 	JumpHeight = 11,       -- studs: a jump held to the top (let go early it is cut: a short hop)
 	ProjectileJumpRange = 90, -- studs: the furthest a projectile jump is aimed (further aims are pulled in)
+	ProjectileJumpMinRange = 25, -- studs: the nearest (aimed at its own feet it launched and came down on the spot)
+	JumpBuffer = 0.15,     -- seconds a jump pressed too early (just before landing) is kept and taken as soon as it can be
 	EngageRange = 16,      -- studs: an enemy this close (and the player not running) and the Quin squares up to it: footwork, not turning to run
 	EngageRelease = 4,     -- studs further out than EngageRange before it lets go again
 	LockRange = 120,       -- studs: a lock is taken within this and lets go beyond it
