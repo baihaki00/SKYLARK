@@ -911,14 +911,14 @@ CombatConfig.Locomotion_ReversalPivot = true       -- false: the old running U-t
 CombatConfig.Locomotion_ReversalBrake = 150        -- studs/s^2 deceleration of the brake phase
 CombatConfig.Locomotion_ReversalBrake_Agile = 320  -- (the agile body: a plant. 220 carried a run on 5.4 studs the old way)
 CombatConfig.Locomotion_ReversalPivotSpeed = 6     -- studs/s held while the body turns round
-CombatConfig.Locomotion_ReversalPivotSpeed_Agile = 3 -- (the agile body: turns on the spot; at 8 it swung round a small arc)
+CombatConfig.Locomotion_ReversalPivotSpeed_Agile = 10 -- (the agile body: keeps running through the turn. At 3 it nearly stopped and the gait blended into the idle: a stop, not a turn)
 CombatConfig.Locomotion_ReversalTurnRate = 7       -- rad/s heading turn of the pivot (0.45 s for a half turn)
-CombatConfig.Locomotion_ReversalTurnRate_Agile = 15 -- (the agile body: a half turn in ~0.2 s)
+CombatConfig.Locomotion_ReversalTurnRate_Agile = 22 -- (the agile body: a half turn in ~0.15 s; with the pivot speed, a turn under a stud wide)
 CombatConfig.Locomotion_ReversalAlignedCos = 0.9   -- the pivot ends once heading (and body, 0.1 looser) face the goal this closely
 CombatConfig.Locomotion_ReversalMinSpeed = 3       -- studs/s above which a reversal plants and pivots (it was the skid threshold, 13: a jog or a walk swung round a 2-3 stud arc at full speed)
 CombatConfig.Locomotion_ReversalDriveOutAccel = 150 -- studs/s^2 out of the pivot, for ReversalDriveOutTime (the plain 80 took 0.3 s to get going again)
 CombatConfig.Locomotion_ReversalDriveOutTime = 0.35
-CombatConfig.Locomotion_FacingMaxTurnRate = 20     -- rad/s the steer's facing may turn the body (was 14: it trailed a 15 rad/s pivot)
+CombatConfig.Locomotion_FacingMaxTurnRate = 30     -- rad/s the steer's facing may turn the body (was 14: it trailed the pivot). Studio: Workspace Tune_<key> overrides any of these live
 CombatConfig.SecondaryMotion_TorsoFrequency = 3.5 -- Hz: spine/neck spring (heavier and slower than the arms' SecondaryMotion_Frequency)
 CombatConfig.SecondaryMotion_TorsoDamping = 1.0   -- spine/neck spring damping ratio (1 = settles without overshoot)
 CombatConfig.SecondaryMotion_Inertia = 1.0        -- scale on the body acceleration the springs feel (they run in the body's frame)

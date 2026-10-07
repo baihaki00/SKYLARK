@@ -83,7 +83,13 @@ end
 -- The agile body (CombatConfig.Body_Agile, design doc phase 1): a superhuman's grip and quick
 -- reversals. Every tuning read below that has a "<key>_Agile" value takes it while the switch is
 -- on; off, the earlier values.
+local IS_STUDIO = RunService:IsStudio()
 local function tune(key, default)
+	-- (Studio: a Workspace attribute Tune_<key> overrides it live, for tuning by feel and by probe)
+	if IS_STUDIO then
+		local live = Workspace:GetAttribute("Tune_" .. key)
+		if live ~= nil then return live end
+	end
 	if CombatConfig.Body_Agile ~= false then
 		local agile = CombatConfig[key .. "_Agile"]
 		if agile ~= nil then return agile end
@@ -248,6 +254,7 @@ local function claimFacing(data, humanoid, rootPart)
 	if not data.ownsFacing then
 		align.CFrame = CFrame.lookAt(Vector3.zero, flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1)))
 	end
+	align.MaxAngularVelocity = tune("Locomotion_FacingMaxTurnRate", 14)
 	align.Enabled = true
 	data.ownsFacing = true
 	humanoid.AutoRotate = false

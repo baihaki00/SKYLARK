@@ -52,3 +52,25 @@ Flow probe, 240 s, generated arena:
 | Knockdowns per Quin-minute | 3.17 | 2.92 |
 
 Within run-to-run variance (16v16 runs have read 13.9–16.6 strikes per Quin-minute): the 16v16 is unchanged.
+
+## Pass 78b: fluid, not a stop (owner: "a slight idle animation going on, or full stopping")
+
+At a pivot speed of 3 the body nearly stopped. Below `Gait_IdleBlendSpeed` (3 studs/s) the gait blends into the idle pose, so a turn read as a stop.
+
+- **Grid** (Studio live overrides: Workspace `Tune_<key>`, read by `LocomotionModule.tune`; new):
+
+| Pivot speed, turn rate | Run: faced, 80 % speed | Jog: faced, 80 % speed | Arc | Slowest | Time under 3 studs/s |
+|---|---|---|---|---|---|
+| 3, 15 (78) | 0.43, 0.55 s | 0.33, 0.30 s | 0.6 | 2.7 | 0.05 s |
+| 8, 18 | 0.37, 0.48 | 0.28, 0.23 | 0.9 | 7.0 | 0 |
+| **10, 22 (chosen)** | **0.35, 0.43** | **0.26, 0.20** | **0.9** | **8.3** | **0** |
+| 12, 26 | 0.35, 0.43 | 0.26, 0.14 | 0.9 | 9.4 | 0 |
+
+- **Chosen:** pivot speed 10 and turn rate 22 rad/s, so it keeps running through the turn, with an arc under a stud.
+- **Facing:** constraint 30 rad/s (`Locomotion_FacingMaxTurnRate`, now also set each time the steer claims the facing).
+
+16v16 with 10 / 22 (two runs, 240 s each, generated arena):
+- **Run 1:** 16.1 strikes per Quin-minute; hit / whiff / blocked / interrupted 64.9 / 9.9 / 4.5 / 20.6; Chase → Fight 0.49; CV 0.29.
+- **Run 2:** 17.1 strikes per Quin-minute; 66.8 / 5.7 / 4 / 23.4; engaged 51.9 %; Chase → Fight 0.49; CV 0.27.
+
+The first run's 9.9 % whiffs did not repeat (5.7 %): run-to-run noise. The 16v16 is unchanged.
