@@ -590,8 +590,10 @@ local function runMatchLifecycle()
     Workspace:SetAttribute("MatchStarted", true)
     epoch = beginPhase("IN_GAME", duration("GameTime"), "COMBAT ENGAGEMENT", "SECTOR ALPHA VS SECTOR BETA")
     -- (the Quins know how long they have: SocialTension)
-    Workspace:SetAttribute("MatchLength", duration("GameTime"))
-    Workspace:SetAttribute("MatchEndsAt", Workspace:GetServerTimeNow() + duration("GameTime"))
+    -- (Solo has no time limit: no end for the Quins to feel coming either)
+    local timed = mode ~= "PlayerSolo"
+    Workspace:SetAttribute("MatchLength", timed and duration("GameTime") or nil)
+    Workspace:SetAttribute("MatchEndsAt", timed and (Workspace:GetServerTimeNow() + duration("GameTime")) or nil)
     if not toggle("TimerPreGame") then
         ArenaAudio.playWarhorn(1.0)
         if toggle("Drones") then
@@ -607,13 +609,16 @@ local function runMatchLifecycle()
     if toggle("ProceduralMusic") then
         ArenaAudio.playInGameMusic(activeConfig.SelectedInTrack, 1.0, 1.5)
     end
-    while os.clock() < phaseEndTime and skipEpoch == epoch do
+    while (not timed or os.clock() < phaseEndTime) and skipEpoch == epoch do
+        if not timed then
+            phaseEndTime = os.clock() + phaseDuration -- (Solo: the clock holds; the match runs until the Quin falls or it is stopped / skipped)
+        end
         replicateState()
         local _, _, _, _, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
         if mode == "FFA" then
             if alphaAlive <= 1 then break end
         elseif mode == "PlayerSolo" then
-            if alphaAlive == 0 then break end -- (alone: only the clock or a fall ends it)
+            if alphaAlive == 0 then break end -- (alone, no time limit: only a fall, a stop or a skip ends it)
         elseif alphaAlive == 0 or betaAlive == 0 then
             break
         end
