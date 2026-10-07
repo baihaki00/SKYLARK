@@ -92,6 +92,29 @@ local currentQuinModel = nil
 local cachedHipsBone = nil
 local restHipsRelY = nil
 
+-- === THE QUIN THE PLAYER PILOTS: TORSO-CENTRED, A SMALL GYRO ===
+-- The orbit is centred on the torso, not the root: the body tilt leans the whole body into a run
+-- and a curve from the feet, so centred on the root the body sat off-centre while running. Only
+-- the torso's sideways and forward offset from the root is taken (smoothed, so the stride's own
+-- sway does not shake the view); the height stays the root's plus the body bob below. And a small
+-- roll into a turn (the gyro), only on the piloted Quin.
+local pilotTrackTorso = true
+local pilotTorsoFollow = 12.0      -- 1/s: how fast the focus follows the torso's offset
+local pilotTorsoMaxOffset = 3.0    -- studs
+local pilotGyroDeg = 3.0           -- degrees of roll at most
+local pilotGyroGain = 0.12         -- roll (radians) per rad/s of turn at full speed
+local torsoOffset = Vector3.zero
+local cachedTorsoModel, cachedTorsoBone = nil, nil
+local function getTorsoBone(quinModel)
+	if quinModel ~= cachedTorsoModel then
+		cachedTorsoModel = quinModel
+		cachedTorsoBone = quinModel and (quinModel:FindFirstChild("mixamorig:Spine2", true)
+			or quinModel:FindFirstChild("mixamorig:Spine1", true) or quinModel:FindFirstChild("UpperTorso", true))
+		torsoOffset = Vector3.zero
+	end
+	return cachedTorsoBone
+end
+
 local function getHipsBone(quinModel)
 	if quinModel ~= currentQuinModel then
 		currentQuinModel = quinModel
@@ -738,7 +761,18 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 				bobY = bodyBobSmoothed
 			end
 		end
-		local rawTargetPos = targetHRP.Position + Vector3.new(0, 2.5 + bobY, 0)
+		local focusBase = targetHRP.Position
+		if pilotTrackTorso and isPossessing() and quinModel then
+			local torso = getTorsoBone(quinModel)
+			local torsoPos = torso and (torso:IsA("Bone") and torso.TransformedWorldCFrame.Position or (torso:IsA("BasePart") and torso.Position))
+			if torsoPos then
+				local offset = Vector3.new(torsoPos.X - targetHRP.Position.X, 0, torsoPos.Z - targetHRP.Position.Z)
+				if offset.Magnitude > pilotTorsoMaxOffset then offset = offset.Unit * pilotTorsoMaxOffset end
+				torsoOffset = torsoOffset:Lerp(offset, 1 - math.exp(-pilotTorsoFollow * dt))
+				focusBase = targetHRP.Position + torsoOffset
+			end
+		end
+		local rawTargetPos = focusBase + Vector3.new(0, 2.5 + bobY, 0)
 		-- Zero Lag Character Centering (GTA V / Watch Dogs):
 		-- Camera focus point stays locked 100% dead-center on character root.
 		-- Completely eliminates the body drifting to the left/right edge of the screen during diagonal runs.
@@ -822,10 +856,12 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 
 		-- 4. GYRO & CENTRIPETAL BANKING (DUTCH TILT)
 		local speedRatio = math.clamp(curSpeed / 50.0, 0, 1.25)
-		if gyroEnabled then
+		local pilotGyro = isPossessing() and pilotGyroDeg > 0
+		if gyroEnabled or pilotGyro then
+			local maxGyroRollDeg = pilotGyro and pilotGyroDeg or maxGyroRollDeg
 			local bankAttrDeg = (quinModel and quinModel:GetAttribute("BankRoll")) or 0
 			local hrpAngVelY = targetHRP.AssemblyAngularVelocity.Y
-			local centripetalBank = -math.clamp(hrpAngVelY * speedRatio * 0.08, -math.rad(maxGyroRollDeg), math.rad(maxGyroRollDeg))
+			local centripetalBank = -math.clamp(hrpAngVelY * speedRatio * (pilotGyro and pilotGyroGain or 0.08), -math.rad(maxGyroRollDeg), math.rad(maxGyroRollDeg))
 			local targetRoll = math.rad(bankAttrDeg) * gyroBankWeight + centripetalBank * (1 - gyroBankWeight)
 			targetRoll = math.clamp(targetRoll, -math.rad(maxGyroRollDeg), math.rad(maxGyroRollDeg))
 
