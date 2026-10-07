@@ -130,7 +130,7 @@ function LocomotionModule.resolveGroundIntent(fighter, rootPart, desiredDirectio
 	local currentAngle = math.atan2(current.X, current.Z)
 	local targetAngle = math.atan2(desired.X, desired.Z)
 	local delta = shortestAngleDelta(targetAngle, currentAngle)
-	local response = CombatConfig.Locomotion_GroundTurnResponse or 16.0
+	local response = tune("Locomotion_GroundTurnResponse", 16.0)
 	local alpha = 1.0 - math.exp(-response * dt)
 
 	-- Speed-scaled yaw-rate ceiling: at pace, momentum widens the turn radius instead of
@@ -141,7 +141,7 @@ function LocomotionModule.resolveGroundIntent(fighter, rootPart, desiredDirectio
 	local slowSpeed = CombatConfig.Locomotion_TurnRateSlowSpeed or 8.0
 	local fastSpeed = CombatConfig.Locomotion_TurnRateFastSpeed or 44.0
 	local paceT = math.clamp((planarSpeed - slowSpeed) / math.max(fastSpeed - slowSpeed, 1), 0, 1)
-	local slowRate = CombatConfig.Locomotion_TurnRateSlow or 10.0
+	local slowRate = tune("Locomotion_TurnRateSlow", 10.0)
 	local maxTurnRate = slowRate + (tune("Locomotion_TurnRateFast", 2.2) - slowRate) * paceT
 	-- A runner turns by leaning into the ground, so how fast it can turn falls with speed:
 	-- yaw rate = sideways grip / speed. The old ceiling (5.5 rad/s at a 40 stud/s sprint, 14 at
@@ -181,8 +181,8 @@ function LocomotionModule.modulateSpeed(fighter, humanoid, targetSpeed, dt)
 	local data = getLocoData(fighter)
 	local currentSpeed = humanoid.WalkSpeed
 
-	local accelRate = CombatConfig.Locomotion_Acceleration or 80.0
-	local brakeRate = CombatConfig.Locomotion_BrakingDeceleration or 140.0
+	local accelRate = tune("Locomotion_Acceleration", 80.0)
+	local brakeRate = tune("Locomotion_BrakingDeceleration", 140.0)
 
 	local newSpeed = currentSpeed
 	if currentSpeed < targetSpeed then
@@ -353,7 +353,7 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 		end
 		local toTarget = data.steerTarget - rootPart.Position
 		local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
-		local decel = CombatConfig.Locomotion_BrakingDeceleration or 140.0
+		local decel = tune("Locomotion_BrakingDeceleration", 140.0)
 
 		local reversal = data.reversal
 		if reversal and (os.clock() - reversal.started > 1.2 or isHumanoidAirborne(humanoid)) then
@@ -379,7 +379,7 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 				if flat.Magnitude < 0.1 or (heading and heading:Dot(flat.Unit) > alignedCos and look:Dot(flat.Unit) > alignedCos - 0.1) then
 					data.reversal = nil -- facing the new way: drive out
 					reversal = nil
-					data.driveOutUntil = os.clock() + (CombatConfig.Locomotion_ReversalDriveOutTime or 0)
+					data.driveOutUntil = os.clock() + (tune("Locomotion_ReversalDriveOutTime", 0))
 				end
 			end
 		end
@@ -395,11 +395,11 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			-- own: from a standing jump the cap was its takeoff speed, 2 studs/s, and it hung in place)
 			local cap = data.airSpeedCap or target
 			if not data.airSpeedHold then
-				cap = math.max(cap, CombatConfig.Locomotion_AirDriftSpeed or 14)
+				cap = math.max(cap, tune("Locomotion_AirDriftSpeed", 14))
 			end
 			local wanted = flat.Magnitude > 0.1 and flat.Unit * math.min(target, math.max(cap, current.Magnitude)) or current
 			local change = wanted - current
-			local most = (CombatConfig.Locomotion_AirAcceleration or 30) * frameDt
+			local most = (tune("Locomotion_AirAcceleration", 30)) * frameDt
 			if change.Magnitude > most then
 				change = change.Unit * most
 			end
@@ -423,9 +423,9 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 
 		local speed = humanoid.WalkSpeed
 		if speed < target then
-			local accel = CombatConfig.Locomotion_Acceleration or 80.0
+			local accel = tune("Locomotion_Acceleration", 80.0)
 			if os.clock() < (data.driveOutUntil or 0) then
-				accel = math.max(accel, CombatConfig.Locomotion_ReversalDriveOutAccel or accel) -- (out of a pivot)
+				accel = math.max(accel, tune("Locomotion_ReversalDriveOutAccel", accel)) -- (out of a pivot)
 			end
 			speed = math.min(speed + accel * frameDt, target)
 		elseif speed > target then
@@ -515,7 +515,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		-- In the air nothing pushes the body forward: the run could not speed it up past its
 		-- launch (it carried a shortened jump on at 40 studs/s and into the next obstacle)
 		targetSpeed = data.airSpeedHold and data.airSpeedCap
-			or math.min(targetSpeed, math.max(data.airSpeedCap, CombatConfig.Locomotion_AirDriftSpeed or 14))
+			or math.min(targetSpeed, math.max(data.airSpeedCap, tune("Locomotion_AirDriftSpeed", 14)))
 	end
 
 	-- 1. Smoothly accelerate / decelerate to target speed. AI Quins hand the goal to the
@@ -589,7 +589,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 
 	-- Skid plants need traction: never trigger one in the air or during tactical strafing/feints
 	-- (a reversal plants and pivots from any pace above a slow walk; the old skid stays at a run)
-	local reversalMin = math.min(skidThreshold, CombatConfig.Locomotion_ReversalMinSpeed or skidThreshold)
+	local reversalMin = math.min(skidThreshold, tune("Locomotion_ReversalMinSpeed", skidThreshold))
 	if not isStrafing and currentSpeed > reversalMin and flatDesired.Magnitude > 2.0 and not isHumanoidAirborne(humanoid) then
 		local curDir = flatVel.Unit
 		local desDir = flatDesired.Unit

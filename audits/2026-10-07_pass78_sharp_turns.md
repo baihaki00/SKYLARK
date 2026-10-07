@@ -74,3 +74,18 @@ At a pivot speed of 3 the body nearly stopped. Below `Gait_IdleBlendSpeed` (3 st
 - **Run 2:** 17.1 strikes per Quin-minute; 66.8 / 5.7 / 4 / 23.4; engaged 51.9 %; Chase → Fight 0.49; CV 0.27.
 
 The first run's 9.9 % whiffs did not repeat (5.7 %): run-to-run noise. The 16v16 is unchanged.
+
+## Pass 78c: a tuning panel (owner: "can you add them for me, I wanna test it")
+
+`StarterPlayerScripts/TuningPanel.client.lua`, Studio only:
+- **F3** opens it on the left.
+- **14 settings in four groups:**
+  - sharp turns: pivot speed, pivot turn rate, plant brake, reversal-from speed, drive-out accel, body facing max turn;
+  - cornering: lateral grip, turn rate at a sprint and when slow, turn response;
+  - speed up / slow down: acceleration, braking;
+  - air: air control, air drift speed.
+- **Each row:** − / + steps one setting, shown with its default; changed values turn orange.
+- **Buttons:** Print values (to the Output), Reset all.
+- **Mouse:** while it is open the cursor is free (SmoothCamera `menuOpen`); WASD still drives the Quin.
+- **How it works:** each row sets Workspace `Tune_<key>`, read by `LocomotionModule.tune`. Twelve reads that went straight to CombatConfig now go through `tune`: acceleration, braking, air acceleration and drift, reversal min speed and drive-out, ground turn response, slow turn rate. Without an attribute the values are unchanged.
+- **Scope:** your Quin only (your machine moves it). The AI Quins on the server keep the config.

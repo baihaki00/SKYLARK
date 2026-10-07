@@ -175,6 +175,8 @@ local function menuOpen()
 	local arena = playerGui:FindFirstChild("ArenaOrchestratorUI")
 	local arenaWindow = arena and arena.Enabled and arena:FindFirstChild("ArenaMainWindow", true)
 	if arenaWindow and arenaWindow:IsA("GuiObject") and arenaWindow.Visible then return true end
+	local tuning = playerGui:FindFirstChild("TuningPanel") -- (TuningPanel, Studio: F3)
+	if tuning and tuning.Enabled then return true end
 	return false
 end
 
