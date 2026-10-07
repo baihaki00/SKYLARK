@@ -97,11 +97,11 @@ local restHipsRelY = nil
 -- and a curve from the feet, so centred on the root the body sat off-centre while running. Only
 -- the torso's sideways and forward offset from the root is taken (smoothed, so the stride's own
 -- sway does not shake the view); the height stays the root's plus the body bob below. And a small
--- roll into a turn (the gyro), only on the piloted Quin.
+-- roll into a turn (the gyro, pilotGyroDeg) is there for the piloted Quin, off (owner).
 local pilotTrackTorso = true
 local pilotTorsoFollow = 12.0      -- 1/s: how fast the focus follows the torso's offset
 local pilotTorsoMaxOffset = 3.0    -- studs
-local pilotGyroDeg = 3.0           -- degrees of roll at most
+local pilotGyroDeg = 0.0           -- degrees of roll at most (owner: no gyro; 0 = off)
 local pilotGyroGain = 0.12         -- roll (radians) per rad/s of turn at full speed
 local torsoOffset = Vector3.zero
 local cachedTorsoModel, cachedTorsoBone = nil, nil

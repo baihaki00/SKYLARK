@@ -189,7 +189,10 @@ if renderMode == "Direct" then
 	RunService.PreAnimation:Connect(function()
 		poseFresh = true
 	end)
-	RunService.RenderStepped:Connect(function(dt)
+	-- (bound just before the camera: SmoothCamera centres the piloted Quin on its torso, and read
+	-- before this posed it, the torso it centred was the clip's, not the one drawn - leaned by the
+	-- body tilt, it sat up to 3 % of the screen off-centre in every curve)
+	RunService:BindToRenderStep("QuinPresentation", Enum.RenderPriority.Camera.Value - 1, function(dt)
 		poseDt += dt
 		-- (Workspace PoseEditEveryFrame = true: the old behaviour, for comparison)
 		local editPose, editDt = poseFresh or workspace:GetAttribute("PoseEditEveryFrame") == true, poseDt
