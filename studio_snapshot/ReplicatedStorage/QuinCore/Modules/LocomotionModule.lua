@@ -241,7 +241,7 @@ local function claimFacing(data, humanoid, rootPart)
 		align.RigidityEnabled = false
 		align.Responsiveness = CombatConfig.Locomotion_FacingResponsiveness or 35
 		align.MaxTorque = 400000
-		align.MaxAngularVelocity = 14
+		align.MaxAngularVelocity = CombatConfig.Locomotion_FacingMaxTurnRate or 14
 		align.CFrame = CFrame.lookAt(Vector3.zero, flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1)))
 		align.Parent = rootPart
 	end
@@ -372,6 +372,7 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 				if flat.Magnitude < 0.1 or (heading and heading:Dot(flat.Unit) > alignedCos and look:Dot(flat.Unit) > alignedCos - 0.1) then
 					data.reversal = nil -- facing the new way: drive out
 					reversal = nil
+					data.driveOutUntil = os.clock() + (CombatConfig.Locomotion_ReversalDriveOutTime or 0)
 				end
 			end
 		end
@@ -415,7 +416,11 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 
 		local speed = humanoid.WalkSpeed
 		if speed < target then
-			speed = math.min(speed + (CombatConfig.Locomotion_Acceleration or 80.0) * frameDt, target)
+			local accel = CombatConfig.Locomotion_Acceleration or 80.0
+			if os.clock() < (data.driveOutUntil or 0) then
+				accel = math.max(accel, CombatConfig.Locomotion_ReversalDriveOutAccel or accel) -- (out of a pivot)
+			end
+			speed = math.min(speed + accel * frameDt, target)
 		elseif speed > target then
 			speed = math.max(speed - decel * frameDt, target)
 		end
@@ -576,7 +581,9 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local isStrafing = (fighter:GetAttribute("IsStrafing") == true) or (humanoid.AutoRotate == false and not data.ownsFacing)
 
 	-- Skid plants need traction: never trigger one in the air or during tactical strafing/feints
-	if not isStrafing and currentSpeed > skidThreshold and flatDesired.Magnitude > 2.0 and not isHumanoidAirborne(humanoid) then
+	-- (a reversal plants and pivots from any pace above a slow walk; the old skid stays at a run)
+	local reversalMin = math.min(skidThreshold, CombatConfig.Locomotion_ReversalMinSpeed or skidThreshold)
+	if not isStrafing and currentSpeed > reversalMin and flatDesired.Magnitude > 2.0 and not isHumanoidAirborne(humanoid) then
 		local curDir = flatVel.Unit
 		local desDir = flatDesired.Unit
 		local cosTheta = curDir:Dot(desDir)
@@ -593,8 +600,10 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 			data.reversal = { dir = curDir, phase = "brake", started = now }
 			fighter:SetAttribute("SkidTurnTime", now)
 			fighter:SetAttribute("SkidTurnDuration", turnDuration)
-			VfxModule.createArcaneFootBurst(fighter, rootPart.Position, curDir)
-		elseif cosTheta < -0.42 and (now - (data.lastSkidTime or 0)) >= skidCooldown then
+			if currentSpeed > skidThreshold then -- (the scuff of a plant at a run, not a walk's turn)
+				VfxModule.createArcaneFootBurst(fighter, rootPart.Position, curDir)
+			end
+		elseif cosTheta < -0.42 and (now - (data.lastSkidTime or 0)) >= skidCooldown and currentSpeed > skidThreshold then
 			local turnDuration = skidLockout
 			data.lastSkidTime = now
 			data.skidEndTime = now + turnDuration
