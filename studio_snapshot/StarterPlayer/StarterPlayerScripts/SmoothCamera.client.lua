@@ -64,6 +64,18 @@ local bodyBobRest = nil
 local bodyBobSmoothed = 0
 local bodyBobModel = nil
 
+-- === FOLLOW LAG ON THE QUIN THE PLAYER PILOTS ===
+-- The orbit was locked dead-centre on the root: running sideways or cutting across, the body never
+-- moved on the screen, the world slid past it ("the camera is locked to the body"), and a jump
+-- left the body where it was while the floor dropped away. On the Quin the player pilots, the
+-- camera now follows its focus with a lag, capped, so the body moves across the view and the view
+-- catches up. Spectating an AI Quin keeps the dead-centre framing.
+local pilotFollowRate = 4.0        -- 1/s: how fast the view catches up sideways and in depth
+local pilotFollowRateUp = 6.0      -- 1/s: ... and up and down (a jump shows as a jump)
+local pilotFollowMaxSide = 5.0     -- studs the body may be off-centre sideways
+local pilotFollowMaxDepth = 3.0    -- studs it may pull ahead of / drop behind the focus
+local pilotFollowMaxUp = 4.0       -- studs it may rise above / fall below the focus
+
 local fovSpeedMin = 15.0          -- Speed threshold where dynamic FOV starts expanding
 local fovSpeedMax = 55.0          -- Speed threshold where max FOV is reached
 local fovExpansionMax = 6.5       -- Max FOV expansion in degrees (e.g. 70 -> 76.5)
@@ -739,10 +751,23 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			end
 		end
 		local rawTargetPos = targetHRP.Position + Vector3.new(0, 2.5 + bobY, 0)
-		-- Zero Lag Character Centering (GTA V / Watch Dogs):
-		-- Camera focus point stays locked 100% dead-center on character root.
-		-- Completely eliminates the body drifting to the left/right edge of the screen during diagonal runs.
-		smoothedTargetPos = rawTargetPos
+		-- Spectating: the focus stays dead-centre on the root (no drift to the screen edge on
+		-- diagonal runs). Piloting: it follows with a capped lag (pilotFollow*, above).
+		if isPossessing() and smoothedTargetPos and lastTrackedHRP == targetHRP and pilotFollowRate > 0 then
+			local a = 1 - math.exp(-pilotFollowRate * dt)
+			local aUp = 1 - math.exp(-pilotFollowRateUp * dt)
+			local p = smoothedTargetPos:Lerp(rawTargetPos, a)
+			p = Vector3.new(p.X, smoothedTargetPos.Y + (rawTargetPos.Y - smoothedTargetPos.Y) * aUp, p.Z)
+			local turn = CFrame.Angles(0, math.rad(smoothYaw), 0)
+			local side, ahead = turn.RightVector, turn.LookVector
+			local off = p - rawTargetPos
+			smoothedTargetPos = rawTargetPos
+				+ side * math.clamp(off:Dot(side), -pilotFollowMaxSide, pilotFollowMaxSide)
+				+ ahead * math.clamp(off:Dot(ahead), -pilotFollowMaxDepth, pilotFollowMaxDepth)
+				+ Vector3.new(0, math.clamp(off.Y, -pilotFollowMaxUp, pilotFollowMaxUp), 0)
+		else
+			smoothedTargetPos = rawTargetPos
+		end
 		lastTrackedHRP = targetHRP
 
 		-- 1. BONE & BODY DISPLACEMENT TRACKING (Stride & Vertical Cadence)

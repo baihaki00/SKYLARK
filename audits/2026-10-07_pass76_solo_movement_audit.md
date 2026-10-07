@@ -66,3 +66,28 @@ The 16v16 is unchanged.
   - this build read 8–10 ms;
   - an empty arena read 4.0 ms.
 - So the difference is Studio's state today, not this pass. The body layers off change it by about 1 ms.
+
+## Pass 76b (the owner's second test): the floating and the camera
+
+**Running on air after a jump, 1–2 s (it was still there).**
+- Reproduced with the client sending input the way PilotClient does. After a running jump on the dais, the body landed **1.75 studs above the dais top** and ran on air until it left the dais (about 2 s at a run).
+- Narrowed down:
+  - not the ramp, not the steps, not the cylinder shape, and nothing invisible under the feet;
+  - it does happen on a copy of the dais part placed on the open floor;
+  - it happens on any block **turned 90° on Z** (its local up pointing sideways);
+  - the same block upright, or turned about Y, is fine;
+  - standing jumps are fine.
+- So it is a Roblox Humanoid quirk: landing at a run on a part laid on its side. The round dais tiers are cylinders, which are always laid on their side (their axis is X).
+- **Fix:** the tiers are only seen now (no collision). The top is walked on as invisible upright strips (2 studs wide, `CeremonyFloorStrip`), with the ramp over the steps.
+- **After:** running jumps at the centre, off-centre and sideways all land at standing height (+0.00, was +1.75), and the run up onto the top is smooth.
+- **Elsewhere in the arena:** one obstacle (ArenaOne/OB, a 59-stud-tall block on its side) could do the same if a Quin lands on its top. MOVINGPLATFORM is laid on its side too, but it sits 645 studs up and unanchored, outside play.
+
+**The camera (owner: "locked to the body during turning").**
+- SmoothCamera pinned its focus dead-centre on the root every frame ("zero lag centering", added in an earlier pass for spectating). Running sideways or cutting across, the body never moved on the screen; the world slid past it. A jump left the body fixed on screen while the floor dropped away.
+- **Fix:** on the Quin the player pilots, the focus follows with a capped lag:
+  - 4/s sideways and in depth, 6/s up and down;
+  - at most 5 studs to the side, 3 in depth, 4 up or down.
+- Spectating an AI Quin keeps the dead-centre framing.
+- **Measured on the client:**
+  - running sideways, the body moves to about 10% of the screen width off-centre, and the view catches up when it stops;
+  - a jump now shows on the screen: the body rises about 14% of the screen height, then drops below centre on landing until the view catches up.

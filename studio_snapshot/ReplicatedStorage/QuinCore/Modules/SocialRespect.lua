@@ -187,6 +187,39 @@ local function buildPlatform(center, floorY)
 			table.insert(parts, wedge)
 			table.insert(down, upCF - Vector3.new(0, rise * 1.5, 0))
 		end
+		-- The top is walked on as upright strips, the round tiers are only seen. A Humanoid that
+		-- lands at a run on a part laid on its side (a cylinder is one: its axis is X) hovers 1.75
+		-- studs above it and runs on air until it leaves the part (measured: any part turned 90
+		-- degrees on Z; the same block upright, or turned about Y, is fine). With the ramp in, the
+		-- steps need no collision of their own.
+		local strip = CFG.CeremonyFloorStrip or 2
+		local count = math.ceil(2 * r / strip)
+		for i, part in ipairs(parts) do
+			if part:IsA("Part") and part.Shape == Enum.PartType.Cylinder then
+				part.CanCollide = false
+				part.CanQuery = false
+			end
+		end
+		for k = 1, count do
+			local z = -r + (k - 0.5) * strip
+			-- (long enough at its inner edge: no gap to the ramp at the rim)
+			local inner = math.max(math.abs(z) - strip / 2, 0)
+			local length = 2 * math.sqrt(math.max(r * r - inner * inner, 0))
+			if length > 0.5 then
+				local floorStrip = Instance.new("Part")
+				floorStrip.Name = "DaisFloor"
+				floorStrip.Size = Vector3.new(length, rise, strip)
+				floorStrip.Anchored = true
+				floorStrip.Transparency = 1
+				floorStrip.CastShadow = false
+				local upCF = CFrame.new(center.X, floorY + rise / 2, center.Z + z)
+				floorStrip.CFrame = upCF - Vector3.new(0, rise, 0)
+				floorStrip.Parent = folder
+				TweenService:Create(floorStrip, TweenInfo.new(t * 1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), { CFrame = upCF }):Play()
+				table.insert(parts, floorStrip)
+				table.insert(down, upCF - Vector3.new(0, rise * 1.5, 0))
+			end
+		end
 	end
 	return { folder = folder, parts = parts, down = down }
 end
