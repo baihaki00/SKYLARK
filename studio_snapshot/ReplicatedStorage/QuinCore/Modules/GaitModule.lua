@@ -420,6 +420,13 @@ function GaitModule.update(humanoid, rootPart, dt)
 	-- (80 studs/s^2): at 12 the legs trailed the body by ~8 studs/s through every acceleration.
 	st.speed += (planarSpeed - st.speed) * (1 - math.exp(-SPEED_FOLLOW_RATE * dt))
 	local speed = st.speed
+	-- A reversal (LocomotionModule: ReversalPhase) passes through a standstill on its line while the
+	-- body turns on the spot: the legs keep their stride through it (no idle blend), and on the
+	-- forward cycle (facing the old way while already moving the new way read as a backpedal)
+	local turning = humanoid.Parent ~= nil and humanoid.Parent:GetAttribute("ReversalPhase") ~= nil
+	if turning then
+		speed = math.max(speed, CombatConfig.Gait_ReversalSpeedFloor or 9)
+	end
 
 	local weights = blendWeights(speed)
 	local lens, plants = {}, {}
@@ -473,7 +480,7 @@ function GaitModule.update(humanoid, rootPart, dt)
 	-- gait in its travel form; there the body is often still turning toward its travel, and the
 	-- forward cycle run sideways slid on 43-69% of frames, so the gait picks by angle there too)
 	local directionalSwitch = workspace:GetAttribute("GaitDirectional") -- live A/B switch
-	local directionalOn = directionalSwitch == true or (directionalSwitch == nil and CombatConfig.Gait_Directional ~= false)
+	local directionalOn = (directionalSwitch == true or (directionalSwitch == nil and CombatConfig.Gait_Directional ~= false)) and not turning
 	local diagonalSwitch = workspace:GetAttribute("GaitDiagonal") -- live A/B switch
 	local diagonalOn = directionalOn and (diagonalSwitch == true or (diagonalSwitch == nil and CombatConfig.Gait_DiagonalBlend == true))
 	if diagonalOn and flatLook.Magnitude > 0.01 and planarVel.Magnitude > 1 then

@@ -270,8 +270,13 @@ local function updateFacing(data, rootPart, dt)
 		data.prevMotionYaw = nil
 		data.motionTurnRate = 0
 		align.CFrame = CFrame.lookAt(Vector3.zero, data.reversal.facing or heading)
+		-- (a straight reversal is already running back the other way: the body turns round with
+		-- its target, not ~0.17 s behind it, or it ran backwards for a moment)
+		align.Responsiveness = data.reversal.straight and tune("Locomotion_ReversalFacingResponsiveness", 120)
+			or (CombatConfig.Locomotion_FacingResponsiveness or 35)
 		return
 	end
+	align.Responsiveness = CombatConfig.Locomotion_FacingResponsiveness or 35
 	local v = rootPart.AssemblyLinearVelocity
 	local flat = Vector3.new(v.X, 0, v.Z)
 	local facing = heading
@@ -361,17 +366,32 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			reversal = nil
 		end
 		if reversal then
+			-- Straight (Locomotion_ReversalStraight): the body comes back along its own line. It
+			-- brakes to ReversalFlipSpeed, its motion flips onto the new way at once (nothing
+			-- sideways: no hook), and it drives out while the body turns round on the spot. (With
+			-- the motion following a turning heading it traced a small hook at the bottom, about a
+			-- stud wide, whatever the settings.) Otherwise it pivots at ReversalPivotSpeed.
+			local straight = tune("Locomotion_ReversalStraight", true) ~= false
 			local pivotSpeed = tune("Locomotion_ReversalPivotSpeed", 6)
+			local floorSpeed = straight and tune("Locomotion_ReversalFlipSpeed", 2) or pivotSpeed
 			if reversal.phase == "brake" then
 				local v = rootPart.AssemblyLinearVelocity
-				if Vector3.new(v.X, 0, v.Z).Magnitude <= pivotSpeed + 1 or os.clock() - reversal.started > 0.45
+				if Vector3.new(v.X, 0, v.Z).Magnitude <= floorSpeed + 1 or os.clock() - reversal.started > 0.45
 					or not groundAhead(rootPart, reversal.dir) then
 					reversal.phase = "pivot"
+					if straight then
+						reversal.straight = true
+						local look = flatUnit(rootPart.CFrame.LookVector, reversal.dir)
+						reversal.faceAngle = math.atan2(look.X, look.Z)
+						data.driveOutUntil = os.clock() + tune("Locomotion_ReversalDriveOutTime", 0) + 0.25
+					end
 				else
 					decel = tune("Locomotion_ReversalBrake", 150)
 				end
 			end
-			target = math.min(target, pivotSpeed)
+			if not reversal.straight then
+				target = math.min(target, floorSpeed)
+			end
 			if reversal.phase == "pivot" then
 				local heading = data.groundIntentDirection
 				local look = flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1))
@@ -443,7 +463,22 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			return
 		end
 		if flat.Magnitude < 0.1 then return end
-		if reversal and data.groundIntentDirection then
+		if reversal and reversal.straight then
+			-- straight back along the line; the body turns round on the spot, on its own
+			local goal = flat.Unit
+			data.groundIntentDirection = goal
+			local delta = shortestAngleDelta(math.atan2(goal.X, goal.Z), reversal.faceAngle)
+			if not reversal.side then
+				reversal.side = delta >= 0 and 1 or -1 -- (one way round, not flipping at 180)
+			end
+			if math.abs(delta) > 3.0 then
+				delta = math.abs(delta) * reversal.side
+			end
+			local maxStep = tune("Locomotion_ReversalTurnRate", 7) * frameDt
+			reversal.faceAngle += math.clamp(delta, -maxStep, maxStep)
+			reversal.facing = Vector3.new(math.sin(reversal.faceAngle), 0, math.cos(reversal.faceAngle))
+			humanoid:Move(goal, false)
+		elseif reversal and data.groundIntentDirection then
 			-- the pivot turns at a stepping pace (at the slow-speed turn rate it spun round in
 			-- 0.2 s, faster than feet can step round)
 			local heading = data.groundIntentDirection

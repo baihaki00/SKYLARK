@@ -89,3 +89,23 @@ The first run's 9.9 % whiffs did not repeat (5.7 %): run-to-run noise. The 16v16
 - **Mouse:** while it is open the cursor is free (SmoothCamera `menuOpen`); WASD still drives the Quin.
 - **How it works:** each row sets Workspace `Tune_<key>`, read by `LocomotionModule.tune`. Twelve reads that went straight to CombatConfig now go through `tune`: acceleration, braking, air acceleration and drift, reversal min speed and drive-out, ground turn response, slow turn rate. Without an attribute the values are unchanged.
 - **Scope:** your Quin only (your machine moves it). The AI Quins on the server keep the config.
+
+## Pass 79: straight back along the line (owner's drawings: no hook at the bottom of a turnaround)
+
+- **The hook:** in a pivot the body kept moving (pivot speed) while its heading turned. Moving while turning traces a curve, about a stud wide, whatever the settings: tuning could not remove it.
+- **Now** (`Locomotion_ReversalStraight`, on):
+  1. The plant brakes along the line to `Locomotion_ReversalFlipSpeed` (2 studs/s).
+  2. The motion flips onto the new way at once, with nothing sideways, and drives out with the drive-out burst.
+  3. Meanwhile the body turns round on the spot at the turn-round rate, on one side, following its target tightly (`Locomotion_ReversalFacingResponsiveness` 120; the usual 35 trailed it ~0.17 s and it ran backwards a moment).
+- **The legs:** through the reversal the gait keeps striding (`Gait_ReversalSpeedFloor` 9) on the forward cycle, so there is no idle blend at the standstill and no backpedal clip while the body is still turning.
+- **Cornering:** unchanged.
+- **Tuning panel:** "Pivot speed" became "Flip speed" (the straight turn does not use the pivot speed).
+
+| Turn | Faced | Back to 80 % speed | Carried on | Off the line | Running backwards | Legs not striding |
+|---|---|---|---|---|---|---|
+| W→S run | 0.31 s | 0.35 s | 3.4 | **0.19** (was 0.9) | 0.08 s | 0 |
+| W→S jog | 0.23 | 0.21 | 0.5 | 0.19 | 0.08 | 0 |
+| W→S walk | 0.21 | 0.07 | 0.3 | 0.19 | 0.07 | 0 |
+| A→D run | 0.30 | 0.33 | 3.0 | 0.19 | 0.08 | 0.01 |
+
+16v16 (240 s): 16.1 strikes per Quin-minute; hit / whiff / blocked / interrupted 67 / 6.6 / 4.4 / 21.8; engaged 45.9 %; Chase → Fight 0.48; CV 0.26; knockdowns 3.26. Unchanged.

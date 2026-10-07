@@ -20,8 +20,8 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 -- key, label, what it does, step, min, max
 local ROWS = {
 	{ section = "Sharp turns (reversals: W to S, A to D...)" },
-	{ "Locomotion_ReversalPivotSpeed", "Pivot speed", "studs/s kept while swinging round (higher: more fluid, wider)", 1, 0, 30 },
-	{ "Locomotion_ReversalTurnRate", "Pivot turn rate", "rad/s the body swings round (22 = a half turn in 0.15 s)", 1, 4, 40 },
+	{ "Locomotion_ReversalFlipSpeed", "Flip speed", "studs/s the plant brakes down to before heading straight back the other way", 1, 0, 20 },
+	{ "Locomotion_ReversalTurnRate", "Turn-round rate", "rad/s the body turns round on the spot (22 = a half turn in 0.15 s)", 1, 4, 40 },
 	{ "Locomotion_ReversalBrake", "Plant brake", "studs/s^2 braking before the pivot (higher: less sliding on)", 20, 40, 800 },
 	{ "Locomotion_ReversalMinSpeed", "Reversal from speed", "studs/s above which a reversal plants and pivots", 1, 0, 20 },
 	{ "Locomotion_ReversalDriveOutAccel", "Drive-out accel", "studs/s^2 out of the pivot, for a moment", 10, 40, 500 },
