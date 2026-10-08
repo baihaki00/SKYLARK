@@ -55,7 +55,7 @@ AnimationConfig.Registry = {
 		RunTurn90Left = { borrows = "Movement.RunTurn180", speed = 1.65, fadeTime = 0.04, startCut = 0.00, endCut = 0.38, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "90-Degree Plant Cut Left" },
 		RunTurn90Right = { borrows = "Movement.RunTurn180", speed = 1.65, fadeTime = 0.04, startCut = 0.00, endCut = 0.38, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "90-Degree Plant Cut Right" },
 		RunTurn180 = { id = "rbxassetid://129355316172688", speed = 1.35, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Run Turn Pivot" },
-		RunTurn180Left = { borrows = "Movement.RunTurn180", speed = 1.35, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Run Turn Left" },
+		RunTurn180Left = { id = "rbxassetid://74343002398863", speed = 1.35, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Run Turn Left (mirror of RunTurn180)" },
 		RunTurn180Right = { borrows = "Movement.RunTurn180", speed = 1.35, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "180 Run Turn Right" },
 		StartSprint = { borrows = "Movement.StartRun", speed = 1.15, fadeTime = 0.08, priority = "Action2", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "START RUN" },
 		Slide = { id = "rbxassetid://115642161658755", speed = 1.15, fadeTime = 0.12, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Run Slide (run -> slide -> run)" },

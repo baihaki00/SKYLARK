@@ -758,6 +758,7 @@ CombatConfig.ClipCorrections = {
 	-- `stripYaw`: the clip's own turn of the hips is taken out; the body turns round itself (a
 	-- straight reversal: LocomotionModule). Played as it is, body and clip both turned: 360.
 	["129355316172688"] = { stripYaw = true },                   -- 180 RUN TURN PIVOT (turns right)
+	["74343002398863"] = { stripYaw = true },                    -- 180 RUN TURN LEFT (its mirror)
 	["122361647744311"] = { yaw = 180 },                         -- PROJECTILE JUMP AIRBORNE LOOP
 	["105219213466134"] = { yaw = 180 },                         -- PJ JUMP STYLE LANDING
 	-- FallFront drops its hips 7 studs to the floor inside the clip (it was a fall from standing):
@@ -923,7 +924,7 @@ CombatConfig.Locomotion_ReversalFlipSpeed = 2      -- studs/s the brake goes dow
 CombatConfig.Locomotion_ReversalFacingResponsiveness = 120 -- the body's turn round in a straight reversal follows its target this tightly (the usual 35 trailed it ~0.17 s: it ran backwards a moment)
 CombatConfig.Locomotion_ReversalTurnClip = true        -- a straight reversal plays the 180 turn clip over the legs (its own hip turn taken out: ClipCorrections stripYaw; the body turns round itself)
 CombatConfig.Locomotion_ReversalTurnClipRight = "Movement.RunTurn180" -- the clip that turns right
-CombatConfig.Locomotion_ReversalTurnClipLeft = nil      -- the one that turns left (the owner publishes the mirror of the right one); without it a near-half turn goes right
+CombatConfig.Locomotion_ReversalTurnClipLeft = "Movement.RunTurn180Left" -- the one that turns left (the owner's published mirror of the right one); nil: a near-half turn goes right
 CombatConfig.Locomotion_ReversalTurnClipExtra = 0.12    -- seconds added to brake + turn-round when the clip is fitted to them
 CombatConfig.Gait_ReversalSpeedFloor = 9           -- studs/s the legs keep striding at through a reversal (no idle blend at its standstill)
 CombatConfig.Locomotion_ReversalMinSpeed = 3       -- studs/s above which a reversal plants and pivots (it was the skid threshold, 13: a jog or a walk swung round a 2-3 stud arc at full speed)

@@ -129,3 +129,16 @@ The first run's 9.9 % whiffs did not repeat (5.7 %): run-to-run noise. The 16v16
   - saved as `ServerStorage.RBX_ANIMSAVES.QUINTESTMALE."Run Turn 180 Left (mirrored)"`;
   - the owner publishes it, then its id goes into AnimationConfig (`Movement.RunTurn180Left`), `Locomotion_ReversalTurnClipLeft = "Movement.RunTurn180Left"`, and a `stripYaw` ClipCorrections entry for the new id.
 - **The place is now QUIN_COMBATV4** (placeId 95070334615130), with the same scripts.
+
+### Pass 80b: the left turn clip (owner published 74343002398863)
+
+- **Wired in:**
+  - `Movement.RunTurn180Left` = 74343002398863 (it was a borrow of the right clip);
+  - `Locomotion_ReversalTurnClipLeft` = "Movement.RunTurn180Left";
+  - a `stripYaw` ClipCorrections entry for it.
+- **The published clip** matches the mirror (hips turn +3 → +177° where the right one goes -3 → -177°).
+- **Measured on the client,** turnarounds of 160° each way:
+  - a left turn plays the LEFT clip and the body turns +160°;
+  - a right turn plays the RIGHT clip and the body turns -160°.
+- **Hips against the body's facing,** on the frames drawn (sampled at the end of the render step, after the poser): at most 4° (left) and 2° (right). The hip turn is stripped, and the HipTwist hold works.
+- **Measuring trap:** sampled at PreAnimation, every other frame showed the raw clip pose (up to 111° off). Those are animation steps the poser has not edited yet, and they are never drawn. Since the poser moved before the camera (BindToRenderStep Camera - 1), sample what is drawn at RenderPriority.Last + n.
