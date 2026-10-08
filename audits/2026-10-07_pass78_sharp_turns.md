@@ -142,3 +142,11 @@ The first run's 9.9 % whiffs did not repeat (5.7 %): run-to-run noise. The 16v16
   - a right turn plays the RIGHT clip and the body turns -160°.
 - **Hips against the body's facing,** on the frames drawn (sampled at the end of the render step, after the poser): at most 4° (left) and 2° (right). The hip turn is stripped, and the HipTwist hold works.
 - **Measuring trap:** sampled at PreAnimation, every other frame showed the raw clip pose (up to 111° off). Those are animation steps the poser has not edited yet, and they are never drawn. Since the poser moved before the camera (BindToRenderStep Camera - 1), sample what is drawn at RenderPriority.Last + n.
+
+### Pass 80c: the turn clip only out of a run, and slower (owner)
+
+- **Only out of a run:** the clip plays only when the turnaround starts at `Locomotion_ReversalTurnClipMinSpeedShare` (0.85) of the Quin's top speed (its Speed attribute) or more. A jog or walk turns round on the plain stride.
+- **Its own pace:** `Locomotion_ReversalTurnClipRate` 1.2 (the 0.67 s clip takes ~0.56 s), instead of being squeezed into brake + turn-round (it was ~1.8× at a run). It finishes its last steps as the body drives out.
+- **It is let go:** when it ends, at a new reversal, or in the air.
+- **Tuning panel:** both values added ("Turn clip rate", "Turn clip from speed"). Values with two decimals now show them.
+- **Not tested in Play:** Studio would not start Play after the push.

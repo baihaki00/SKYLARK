@@ -345,11 +345,12 @@ local function startTurnClip(data, humanoid, reversal, fromDir, toDir, speed)
 	end
 	reversal.side = side
 	if not path then return end
-	local len = AnimationModule.getRawLength(path)
-	len = (type(len) == "number" and len > 0) and len or 0.67
-	local brakeTime = math.max(speed - tune("Locomotion_ReversalFlipSpeed", 2), 0) / tune("Locomotion_ReversalBrake", 150)
-	local turnTime = math.pi / tune("Locomotion_ReversalTurnRate", 7)
-	local want = math.clamp(len / (brakeTime + turnTime + (CombatConfig.Locomotion_ReversalTurnClipExtra or 0.12)), 1, 3.5)
+	-- only out of a real run (owner): a jog or a walk turns round on the plain stride
+	local top = (humanoid.Parent and humanoid.Parent:GetAttribute("Speed")) or 40
+	if speed < top * tune("Locomotion_ReversalTurnClipMinSpeedShare", 0.85) then return end
+	-- at its own pace (owner: slower), not squeezed into the turn-round: it finishes its last
+	-- steps as the body drives out (it is let go when it ends, at a new reversal, or in the air)
+	local want = tune("Locomotion_ReversalTurnClipRate", 1.2)
 	local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
 	local entry = AnimationConfig.get and AnimationConfig.get(path)
 	local track = AnimationModule.playConfig(humanoid, path, want / ((entry and entry.speed) or 1), Enum.AnimationPriority.Action2)
@@ -376,7 +377,8 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			steerConns[fighter] = nil
 			return
 		end
-		if data.turnClip and (not data.reversal or data.reversal.clipTrack ~= data.turnClip) then
+		if data.turnClip and (not data.turnClip.IsPlaying or isHumanoidAirborne(humanoid)
+			or (data.reversal and data.reversal.clipTrack ~= data.turnClip)) then
 			stopTurnClip(data, humanoid)
 		end
 		if data.ownsFacing and (not data.steerTarget or os.clock() > (data.steerUntil or 0) or activeSlides[fighter]

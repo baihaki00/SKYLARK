@@ -25,6 +25,8 @@ local ROWS = {
 	{ "Locomotion_ReversalBrake", "Plant brake", "studs/s^2 braking before the pivot (higher: less sliding on)", 20, 40, 800 },
 	{ "Locomotion_ReversalMinSpeed", "Reversal from speed", "studs/s above which a reversal plants and pivots", 1, 0, 20 },
 	{ "Locomotion_ReversalDriveOutAccel", "Drive-out accel", "studs/s^2 out of the pivot, for a moment", 10, 40, 500 },
+	{ "Locomotion_ReversalTurnClipRate", "Turn clip rate", "playback rate of the 180 turn animation (lower: slower)", 0.1, 0.5, 3 },
+	{ "Locomotion_ReversalTurnClipMinSpeedShare", "Turn clip from speed", "share of top speed a turnaround needs for the turn animation", 0.05, 0, 1 },
 	{ "Locomotion_FacingMaxTurnRate", "Body facing max turn", "rad/s the body may turn to face its run", 2, 6, 60 },
 	{ section = "Cornering (curves, mouse turns)" },
 	{ "Locomotion_LateralGrip", "Lateral grip", "studs/s^2 sideways: how tight a run can curve", 20, 40, 800 },
@@ -54,7 +56,7 @@ end
 local function fmt(v)
 	if v == nil then return "-" end
 	if math.abs(v - math.round(v)) < 1e-6 then return tostring(math.round(v)) end
-	return string.format("%.1f", v)
+	return (string.format("%.2f", v):gsub("0$", "")) -- (0.85 shows as 0.85, 7.5 as 7.5)
 end
 
 -- === UI ===
