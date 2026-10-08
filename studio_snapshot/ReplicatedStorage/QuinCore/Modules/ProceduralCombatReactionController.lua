@@ -304,6 +304,13 @@ function ProceduralCombatReactionController:applyClipCorrections(dt)
 		local transform = hips.Transform
 		hips.Transform = CFrame.new(transform.Position * correction.translationScale) * (transform - transform.Position)
 	end
+	if correction.stripYaw then
+		-- the clip's turn of the hips about the vertical, taken out (the hips' own up is the vertical)
+		local transform = hips.Transform
+		local look = transform.LookVector
+		local yaw = math.atan2(-look.X, -look.Z)
+		hips.Transform = CFrame.new(transform.Position) * CFrame.Angles(0, -yaw * math.clamp(weight, 0, 1), 0) * (transform - transform.Position)
+	end
 	if correction.noLift then
 		-- the hips are not raised above where they rest: the body's own arc carries the jump
 		local parent = hips.Parent
@@ -592,6 +599,10 @@ function ProceduralCombatReactionController:update(dt)
 		end
 		local targetHipsYaw = moveAngle * 0.38 * (self.twistScale or 1)
 		if not Layers.isOn("HipTwist", serverModel) then
+			targetHipsYaw = 0
+		elseif serverModel and serverModel:GetAttribute("ReversalPhase") ~= nil then
+			-- (a turnaround: the body turns round over a line it is already running back along; the
+			-- travel's angle off the facing is the turn itself, not a sideways step to twist into)
 			targetHipsYaw = 0
 		elseif Layers.isOn("StrafeUpright", serverModel) then
 			-- Not under a strafe clip: it carries the hips turned toward the travel itself (65

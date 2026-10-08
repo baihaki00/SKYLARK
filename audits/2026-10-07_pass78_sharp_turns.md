@@ -109,3 +109,23 @@ The first run's 9.9 % whiffs did not repeat (5.7 %): run-to-run noise. The 16v16
 | A→D run | 0.30 | 0.33 | 3.0 | 0.19 | 0.08 | 0.01 |
 
 16v16 (240 s): 16.1 strikes per Quin-minute; hit / whiff / blocked / interrupted 67 / 6.6 / 4.4 / 21.8; engaged 45.9 %; Chase → Fight 0.48; CV 0.26; knockdowns 3.26. Unchanged.
+
+## Pass 80: the 180 turn clip on turnarounds; air control 300, drift 40 (owner)
+
+- **Air:** `Locomotion_AirAcceleration` 60 → 300 and `Locomotion_AirDriftSpeed` 14 → 40 (the owner's values from the tuning panel).
+- **The clip** (Movement.RunTurn180, 129355316172688, 0.67 s):
+  - in place, two pivot steps (Footstep180 at 0.23 and 0.47);
+  - the hips turn 180° **right** (through +X), and drop 1.6 studs at the plant;
+  - only one side existed: Left and Right were both borrows of it.
+- **Wired in:**
+  - **Start:** a straight reversal plays it from the start of the plant (Action2), fitted to brake time + turn-round + 0.12 s and clamped to 1–3.5× (`startTurnClip`).
+  - **Which clip:** the right clip for a right turn-round; the left clip, once it exists (`Locomotion_ReversalTurnClipLeft`), for a left one. Without it, a near-half turn (> 150°) goes right.
+  - **Stop:** the clip stops when the reversal ends.
+  - **Side:** the turn-round honours the chosen side, the long way round if needed.
+- **The clip's own hip turn is taken out:** ClipCorrections `stripYaw` (the poser removes the hips' turn about their vertical axis). Measured: the body turned exactly 180° per turnaround, with no double spin, and the clip on screen for 52–64 frames.
+- **The hips were still up to 69° off the body's facing:** the HipTwist layer twisted them toward the travel, which in a turnaround is the turn itself. The twist is now held at 0 while `ReversalPhase` is set. **Not re-measured:** Studio Play would not start afterwards.
+- **The left clip:**
+  - mirrored in Studio (KeyframeSequenceProvider; rest symmetry 0.005; hips turn through -X);
+  - saved as `ServerStorage.RBX_ANIMSAVES.QUINTESTMALE."Run Turn 180 Left (mirrored)"`;
+  - the owner publishes it, then its id goes into AnimationConfig (`Movement.RunTurn180Left`), `Locomotion_ReversalTurnClipLeft = "Movement.RunTurn180Left"`, and a `stripYaw` ClipCorrections entry for the new id.
+- **The place is now QUIN_COMBATV4** (placeId 95070334615130), with the same scripts.

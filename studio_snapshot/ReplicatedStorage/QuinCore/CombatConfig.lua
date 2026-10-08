@@ -258,8 +258,8 @@ local CombatConfig = {
 	Locomotion_JumpReplant = 0.05,           -- seconds on the ground after a landing before the next jump (a body that has come down can go again at once)
 	Locomotion_LandingRetention = 0.88,      -- ratio of horizontal velocity preserved on landing (88%)
 	Locomotion_AirControl = true,            -- in the air a body keeps its flight and can only lean it (false: the ground drive steers in the air)
-	Locomotion_AirAcceleration = 60.0,       -- studs/s^2: how hard a body in the air can change its horizontal velocity (30 felt locked)
-	Locomotion_AirDriftSpeed = 14.0,         -- studs/s a body may drift to in the air on its own (a jump from standing could only reach its takeoff speed: 2 studs/s)
+	Locomotion_AirAcceleration = 300.0,      -- studs/s^2: how hard a body in the air can change its horizontal velocity (30 felt locked; owner tuned 300)
+	Locomotion_AirDriftSpeed = 40.0,         -- studs/s a body may drift to in the air on its own (owner tuned 40; a jump from standing could only reach its takeoff speed, 2 studs/s)
 	Locomotion_AirFacing = true,             -- in the air the body turns toward where it drifts (it held its takeoff facing all flight)
 	Locomotion_JumpCutWindow = 0.3,          -- seconds after takeoff a jump can still be cut short (a short hop)
 	Locomotion_JumpCutKeep = 0.45,           -- share of the rising speed kept when a jump is cut
@@ -755,6 +755,9 @@ CombatConfig.ClipCorrections = {
 	-- the hips 4.3 studs over the root and holds them there through the apex: the body shot up
 	-- 16 studs, sat at the top, then dropped (the "boxy" jump).
 	["85622241844167"] = { noLift = true },                      -- JUMP LAUNCH (also Parkour.VaultObstacle)
+	-- `stripYaw`: the clip's own turn of the hips is taken out; the body turns round itself (a
+	-- straight reversal: LocomotionModule). Played as it is, body and clip both turned: 360.
+	["129355316172688"] = { stripYaw = true },                   -- 180 RUN TURN PIVOT (turns right)
 	["122361647744311"] = { yaw = 180 },                         -- PROJECTILE JUMP AIRBORNE LOOP
 	["105219213466134"] = { yaw = 180 },                         -- PJ JUMP STYLE LANDING
 	-- FallFront drops its hips 7 studs to the floor inside the clip (it was a fall from standing):
@@ -918,6 +921,10 @@ CombatConfig.Locomotion_ReversalAlignedCos = 0.9   -- the pivot ends once headin
 CombatConfig.Locomotion_ReversalStraight = true    -- a reversal comes straight back along its line (brake, flip, drive out; the body turns on the spot). false: it pivots round at ReversalPivotSpeed (a small hook)
 CombatConfig.Locomotion_ReversalFlipSpeed = 2      -- studs/s the brake goes down to before the motion flips onto the new way (straight reversals)
 CombatConfig.Locomotion_ReversalFacingResponsiveness = 120 -- the body's turn round in a straight reversal follows its target this tightly (the usual 35 trailed it ~0.17 s: it ran backwards a moment)
+CombatConfig.Locomotion_ReversalTurnClip = true        -- a straight reversal plays the 180 turn clip over the legs (its own hip turn taken out: ClipCorrections stripYaw; the body turns round itself)
+CombatConfig.Locomotion_ReversalTurnClipRight = "Movement.RunTurn180" -- the clip that turns right
+CombatConfig.Locomotion_ReversalTurnClipLeft = nil      -- the one that turns left (the owner publishes the mirror of the right one); without it a near-half turn goes right
+CombatConfig.Locomotion_ReversalTurnClipExtra = 0.12    -- seconds added to brake + turn-round when the clip is fitted to them
 CombatConfig.Gait_ReversalSpeedFloor = 9           -- studs/s the legs keep striding at through a reversal (no idle blend at its standstill)
 CombatConfig.Locomotion_ReversalMinSpeed = 3       -- studs/s above which a reversal plants and pivots (it was the skid threshold, 13: a jog or a walk swung round a 2-3 stud arc at full speed)
 CombatConfig.Locomotion_ReversalDriveOutAccel = 150 -- studs/s^2 out of the pivot, for ReversalDriveOutTime (the plain 80 took 0.3 s to get going again)

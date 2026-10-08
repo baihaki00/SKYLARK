@@ -327,6 +327,45 @@ local function groundAhead(rootPart, direction)
 	return Workspace:Raycast(rootPart.Position + direction * 4, Vector3.new(0, -16, 0), reversalRay) ~= nil
 end
 
+-- The 180 turn clip over a straight reversal: the right or the left one by the way the body turns
+-- round (without a left one, a near-half turn goes right), sped up to the brake and the turn-round
+local function startTurnClip(data, humanoid, reversal, fromDir, toDir, speed)
+	if tune("Locomotion_ReversalTurnClip", true) == false then return end
+	local delta = shortestAngleDelta(math.atan2(toDir.X, toDir.Z), math.atan2(fromDir.X, fromDir.Z))
+	local side = delta >= 0 and 1 or -1 -- (+1 turns left, -1 right)
+	local right = CombatConfig.Locomotion_ReversalTurnClipRight
+	local left = CombatConfig.Locomotion_ReversalTurnClipLeft
+	local path
+	if side < 0 then
+		path = right
+	elseif left then
+		path = left
+	elseif math.abs(delta) > 2.6 then
+		side, path = -1, right
+	end
+	reversal.side = side
+	if not path then return end
+	local len = AnimationModule.getRawLength(path)
+	len = (type(len) == "number" and len > 0) and len or 0.67
+	local brakeTime = math.max(speed - tune("Locomotion_ReversalFlipSpeed", 2), 0) / tune("Locomotion_ReversalBrake", 150)
+	local turnTime = math.pi / tune("Locomotion_ReversalTurnRate", 7)
+	local want = math.clamp(len / (brakeTime + turnTime + (CombatConfig.Locomotion_ReversalTurnClipExtra or 0.12)), 1, 3.5)
+	local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
+	local entry = AnimationConfig.get and AnimationConfig.get(path)
+	local track = AnimationModule.playConfig(humanoid, path, want / ((entry and entry.speed) or 1), Enum.AnimationPriority.Action2)
+	if track then
+		data.turnClip, data.turnClipPath = track, path
+		reversal.clipTrack = track
+	end
+end
+
+local function stopTurnClip(data, humanoid)
+	if data.turnClip then
+		if data.turnClip.IsPlaying then data.turnClip:Stop(0.15) end
+		data.turnClip, data.turnClipPath = nil, nil
+	end
+end
+
 local function ensureSteerDriver(fighter, humanoid, rootPart)
 	if steerConns[fighter] then return end
 	local conn
@@ -336,6 +375,9 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			conn:Disconnect()
 			steerConns[fighter] = nil
 			return
+		end
+		if data.turnClip and (not data.reversal or data.reversal.clipTrack ~= data.turnClip) then
+			stopTurnClip(data, humanoid)
 		end
 		if data.ownsFacing and (not data.steerTarget or os.clock() > (data.steerUntil or 0) or activeSlides[fighter]
 			or humanoid.PlatformStand or otherAlignActive(rootPart)) then
@@ -471,8 +513,9 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			if not reversal.side then
 				reversal.side = delta >= 0 and 1 or -1 -- (one way round, not flipping at 180)
 			end
-			if math.abs(delta) > 3.0 then
-				delta = math.abs(delta) * reversal.side
+			if delta * reversal.side < 0 then
+				-- the chosen way round (the turn clip's; near a half turn the short way can flip)
+				delta = delta - 2 * math.pi * (delta > 0 and 1 or -1)
 			end
 			local maxStep = tune("Locomotion_ReversalTurnRate", 7) * frameDt
 			reversal.faceAngle += math.clamp(delta, -maxStep, maxStep)
@@ -640,6 +683,9 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 			data.lastSkidTime = now
 			data.skidEndTime = now + turnDuration
 			data.reversal = { dir = curDir, phase = "brake", started = now }
+			if tune("Locomotion_ReversalStraight", true) ~= false then
+				startTurnClip(data, humanoid, data.reversal, curDir, desDir, currentSpeed)
+			end
 			fighter:SetAttribute("SkidTurnTime", now)
 			fighter:SetAttribute("SkidTurnDuration", turnDuration)
 			if currentSpeed > skidThreshold then -- (the scuff of a plant at a run, not a walk's turn)
