@@ -5,9 +5,10 @@ The live copy is at `D:\SKYLARK\ANIMATIONCASCADEUR\`, with the scripts in `_conv
 **To use it:**
 1. Drop Cascadeur FBX exports into the folder.
 2. Double-click `run_cascadeur_to_quin.bat`.
-3. Each `<Name>.fbx` gets a `<Name>_CascadeurQuin` folder with two files:
+3. Each `<Name>.fbx` gets a `<Name>_CascadeurQuin` folder with four files:
    - `<Name>_Quin[x0.044].fbx`: the motion as animated, travel included;
-   - `<Name>_Quin_InPlace[x0.044].fbx`: the hips stay on their spot (height and every rotation kept).
+   - `<Name>_Quin_InPlace[x0.044].fbx`: the hips stay on their spot (height and every rotation kept);
+   - `<Name>_Quin_Mirror[x0.044].fbx` and `<Name>_Quin_Mirror_InPlace[x0.044].fbx`: the same, mirrored left ↔ right. Each bone takes its twin's turn, reflected across the body's side plane, and the hips' travel flips. Verified on SIDESTEP: every joint is the exact reflection of its twin.
 
 **Import into Roblox:**
 - Rig Type: Custom.

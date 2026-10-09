@@ -1,11 +1,13 @@
 """
 Cascadeur FBX -> Quin (Roblox) one-clicker
 ==========================================
-For every Cascadeur FBX in the folder above this one, it writes two files into
+For every Cascadeur FBX in the folder above this one, it writes four files into
 `<Name>_CascadeurQuin/` beside it, the clip
 on the Quin's skeleton (Mixamo bone names, the Quin's rest pose), sized for Roblox:
   <Name>_Quin[x0.044].fbx          the motion as authored (travel included)
   <Name>_Quin_InPlace[x0.044].fbx  the hips stay on their spot (height and rotations kept)
+and the same two mirrored left <-> right (a left sidestep becomes a right one):
+  <Name>_Quin_Mirror[x0.044].fbx, <Name>_Quin_Mirror_InPlace[x0.044].fbx
 
 Bones are not just renamed: the two skeletons point their bones different ways and rest in
 different poses (A vs T), so a renamed clip would twist every limb. The clip is retargeted
@@ -41,34 +43,36 @@ def find_blender():
 def convert(blender, src, scale, force):
     name = os.path.splitext(os.path.basename(src))[0]
     out_dir = os.path.join(os.path.dirname(src), name + "_CascadeurQuin")
-    out = os.path.join(out_dir, "%s_Quin[x%s].fbx" % (name, scale))
-    out_in_place = os.path.join(out_dir, "%s_Quin_InPlace[x%s].fbx" % (name, scale))
+    outputs = {label: (os.path.join(out_dir, "%s_Quin%s[x%s].fbx" % (name, label, scale)),
+                       os.path.join(out_dir, "%s_Quin%s_InPlace[x%s].fbx" % (name, label, scale)))
+               for label in ("", "_Mirror")}
     if not force and all(os.path.exists(p) and os.path.getmtime(p) >= os.path.getmtime(src)
-                         for p in (out, out_in_place)):
+                         for pair in outputs.values() for p in pair):
         print("  [SKIPPED] %s -> already up-to-date" % name)
         return False
     print("  Converting %s ..." % os.path.basename(src))
     os.makedirs(out_dir, exist_ok=True)
     template = os.path.join(HERE, "quin_rig_template.fbx")
-    clip_json = os.path.join(tempfile.gettempdir(), "cascadeur_to_quin_%s.json" % name)
-    result = subprocess.run(
-        [blender, "-b", "--factory-startup", "--python", os.path.join(HERE, "cascadeur_to_quin_blender.py"),
-         "--", src, template, clip_json],
-        capture_output=True, text=True)
-    log = result.stdout + result.stderr
-    for line in log.splitlines():
-        if line.startswith("  (skipped"):
-            print("  " + line.strip())
-    if "RETARGET_OK" not in log or not os.path.exists(clip_json):
-        logfile = os.path.join(os.path.dirname(src), name + "_Quin_error.txt")
-        with open(logfile, "w", encoding="utf-8") as f:
-            f.write(log)
-        raise RuntimeError("retarget failed (see %s)" % os.path.basename(logfile))
-    quin_fbx.build(template, clip_json, out, scale)  # into the template's own Mixamo layout, x scale
-    quin_fbx.build(template, clip_json, out_in_place, scale, in_place=True)
-    os.remove(clip_json)
-    print("  [OK] " + os.path.basename(out))
-    print("  [OK] " + os.path.basename(out_in_place))
+    for mirror, label in ((False, ""), (True, "_Mirror")):
+        clip_json = os.path.join(tempfile.gettempdir(), "cascadeur_to_quin_%s%s.json" % (name, label))
+        result = subprocess.run(
+            [blender, "-b", "--factory-startup", "--python", os.path.join(HERE, "cascadeur_to_quin_blender.py"),
+             "--", src, template, clip_json] + (["mirror"] if mirror else []),
+            capture_output=True, text=True)
+        log = result.stdout + result.stderr
+        for line in log.splitlines():
+            if line.startswith("  (skipped") and not mirror:
+                print("  " + line.strip())
+        if "RETARGET_OK" not in log or not os.path.exists(clip_json):
+            logfile = os.path.join(out_dir, name + label + "_error.txt")
+            with open(logfile, "w", encoding="utf-8") as f:
+                f.write(log)
+            raise RuntimeError("retarget failed (see %s)" % os.path.basename(logfile))
+        for in_place, path in ((False, outputs[label][0]), (True, outputs[label][1])):
+            # into the template's own Mixamo layout, x scale
+            quin_fbx.build(template, clip_json, path, scale, in_place=in_place)
+            print("  [OK] " + os.path.basename(path))
+        os.remove(clip_json)
     return True
 
 

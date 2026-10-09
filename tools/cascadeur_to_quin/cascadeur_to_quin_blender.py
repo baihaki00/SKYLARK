@@ -1,7 +1,7 @@
 """
 Cascadeur -> Quin (Mixamo) retarget, run inside Blender (headless).
 
-  blender -b --python cascadeur_to_quin_blender.py -- <cascadeur.fbx> <quin_template.fbx> <out.json>
+  blender -b --python cascadeur_to_quin_blender.py -- <cascadeur.fbx> <quin_template.fbx> <out.json> [mirror]
 
 The two skeletons differ in bone names, bone axes (Cascadeur's right side points backwards),
 rest pose (Cascadeur: A-pose, Mixamo: T-pose), spine count (2 vs 3) and finger count, so the
@@ -11,6 +11,10 @@ Mixamo T-pose onto the Cascadeur rest directions, so A-pose vs T-pose does not m
 The hips follow the pelvis's travel (scaled by hip height). Out comes every Quin bone's local
 transform per frame (JSON); quin_fbx.py writes them into the template FBX. The clip's own
 motion (travel included) is kept as authored.
+
+`mirror`: the clip mirrored left <-> right (a left sidestep becomes a right one): each Quin bone
+takes its twin's turn away from rest (Left <-> Right), reflected across the body's left-right
+plane, and the hips' travel flips sideways. (The Mixamo rig is symmetric, so twin rests mirror.)
 """
 import sys
 import bpy
@@ -18,6 +22,7 @@ from mathutils import Matrix, Vector, Quaternion
 
 argv = sys.argv[sys.argv.index("--") + 1:]
 SRC_PATH, TEMPLATE_PATH, OUT_PATH = argv[0], argv[1], argv[2]
+MIRROR = len(argv) > 3 and argv[3] == "mirror"
 
 P = "mixamorig:"
 
@@ -136,6 +141,21 @@ for pb in tgt.pose.bones:
     pb.rotation_quaternion = (1, 0, 0, 0)
     pb.scale = (1, 1, 1)
 
+def twin(q):
+    """the bone on the other side (Left <-> Right); the middle ones are their own twins"""
+    if q.startswith("Left"):
+        return "Right" + q[4:]
+    if q.startswith("Right"):
+        return "Left" + q[5:]
+    return q
+
+
+def mirror_q(r):
+    """a world turn reflected across the body's left-right plane (world X is the body's side
+    axis: Cascadeur's and the Quin's left both sit at +X)"""
+    return Quaternion((r.w, r.x, -r.y, -r.z))
+
+
 last_q = {}
 for f in range(f0, f1 + 1):
     scene.frame_set(f)
@@ -143,17 +163,18 @@ for f in range(f0, f1 + 1):
     for q, c in MAP.items():
         src_w = src_mw_q @ rot(src.pose.bones[c].matrix)
         deltas[q] = src_w @ src_rest_w[c].inverted()
+    # each Quin bone's world turn away from its own rest this frame
+    turn = {q: deltas[q] @ swing.get(q, Quaternion()) for q in deltas}
+    for q, (a, z, t) in BLEND.items():
+        if a in deltas and z in deltas:
+            turn[q] = deltas[a].slerp(deltas[z], t)
+    if MIRROR:
+        turn = {q: mirror_q(turn[twin(q)]) for q in turn if twin(q) in turn}
     pose_w = {}  # world rotation of each Quin bone this frame
     for b in order:
         q = b.name[len(P):] if b.name.startswith(P) else b.name
         rest_w = tgt_rest_w[b.name]
-        if q in deltas:
-            want = deltas[q] @ swing.get(q, Quaternion()) @ rest_w
-        elif q in BLEND and BLEND[q][0] in deltas and BLEND[q][1] in deltas:
-            a, z, t = BLEND[q]
-            want = deltas[a].slerp(deltas[z], t) @ rest_w
-        else:
-            want = None
+        want = turn[q] @ rest_w if q in turn else None
         if b.parent:
             parent_rest_w = tgt_rest_w[b.parent.name]
             follow = pose_w[b.parent.name] @ parent_rest_w.inverted() @ rest_w  # rest relative to the posed parent
@@ -176,6 +197,8 @@ for f in range(f0, f1 + 1):
             want_pos = tgt_hips_rest + (src_pelvis - src_pelvis_rest) * travel_scale
             # world offset -> the bone's rest frame (armature scale and axes)
             off_world = want_pos - tgt_hips_rest
+            if MIRROR:
+                off_world.x = -off_world.x
             off_arm = tgt.matrix_world.inverted().to_3x3() @ off_world
             off_bone = b.matrix_local.to_3x3().inverted() @ off_arm
             pb.location = off_bone
