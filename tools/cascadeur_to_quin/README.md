@@ -9,7 +9,7 @@ The live copy is at `D:\SKYLARK\ANIMATIONCASCADEUR\`, with the scripts in `_conv
 
 **Import into Roblox:**
 - Rig Type: Custom.
-- Rest Pose Source: **Imported Rig**.
+- Rest Pose Source: **Imported Rig (Zeroed Rotations)**, the same as the Mixamo clips.
 - Scale Unit: Stud, Scale Factor 1.0.
 
 The motion is kept as you animated it. Nothing is made in-place.
@@ -35,10 +35,12 @@ So `cascadeur_to_quin_blender.py` retargets in world space, in headless Blender:
 ## Files
 
 - **`quin_rig_template.fbx`** (only in the live folder): a copy of `NEW ANIMATION\Standard Run.fbx`, a Mixamo download of the Quin's rig. Its own clip is discarded.
-- **`fbx_resize.py`:** multiplies every bone's position (rest and animated) by 0.044, byte for byte.
-  - The old autofixer only scaled the hips' curves. Blender writes a position curve for every bone, so the rest of the skeleton stayed full size, which showed up as the giant rig in Roblox.
-  - Blender's own `global_scale` only puts the scale on a root node.
-- **Blender export details:**
-  - Arrays are written uncompressed, so they can be patched in place.
-  - A rest key at frame -1 makes the static bone transforms the rest pose.
-  - The clip is keyed from frame 0, which is FBX time 0.
+- **`quin_fbx.py` + `fbx_tree.py`:** write the clip into the template FBX itself (a minimal binary FBX reader/writer; an untouched template writes back with an identical node tree). The result is laid out exactly like a Mixamo download:
+  - each bone's rest angle stays in its PreRotation;
+  - the rotation curves carry only the motion;
+  - the hips carry the only position curve;
+  - every distance is x0.044.
+- **Why not a Blender FBX export (tried first):**
+  - Blender mixes rest and motion into one rotation. "Imported Rig" and "Zeroed Rotations" then read a crippled rest, and "Animation Editor Rig" floats the hips (it measured them from the ground, not from the body).
+  - Blender writes a position curve for every bone, and only the hips' was scaled, which gave the giant rig.
+- The Blender step now only outputs each bone's local transform per frame (JSON). Its clip is keyed from frame 0 (FBX time 0).

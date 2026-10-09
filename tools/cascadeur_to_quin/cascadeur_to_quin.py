@@ -8,15 +8,17 @@ for Roblox. The motion is kept as authored (no in-placing). Import that file int
 Bones are not just renamed: the two skeletons point their bones different ways and rest in
 different poses (A vs T), so a renamed clip would twist every limb. The clip is retargeted
 headless in Blender (cascadeur_to_quin_blender.py) onto quin_rig_template.fbx (a Mixamo
-download of the Quin's rig), then fbx_resize.py shrinks it x0.044 for Roblox.
+download of the Quin's rig); quin_fbx.py writes it into that template file itself (the exact
+Mixamo layout), scaled x0.044. Import with Rest Pose Source "Imported Rig (Zeroed Rotations)".
 """
 import os
 import glob
 import shutil
 import argparse
+import tempfile
 import subprocess
 
-import fbx_resize
+import quin_fbx
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -41,20 +43,23 @@ def convert(blender, src, scale, force):
         print("  [SKIPPED] %s -> already up-to-date" % name)
         return False
     print("  Converting %s ..." % os.path.basename(src))
+    template = os.path.join(HERE, "quin_rig_template.fbx")
+    clip_json = os.path.join(tempfile.gettempdir(), "cascadeur_to_quin_%s.json" % name)
     result = subprocess.run(
         [blender, "-b", "--factory-startup", "--python", os.path.join(HERE, "cascadeur_to_quin_blender.py"),
-         "--", src, os.path.join(HERE, "quin_rig_template.fbx"), out],
+         "--", src, template, clip_json],
         capture_output=True, text=True)
     log = result.stdout + result.stderr
     for line in log.splitlines():
         if line.startswith("  (skipped"):
             print("  " + line.strip())
-    if "RETARGET_OK" not in log or not os.path.exists(out):
+    if "RETARGET_OK" not in log or not os.path.exists(clip_json):
         logfile = os.path.join(os.path.dirname(src), name + "_Quin_error.txt")
         with open(logfile, "w", encoding="utf-8") as f:
             f.write(log)
         raise RuntimeError("retarget failed (see %s)" % os.path.basename(logfile))
-    fbx_resize.resize(out, scale)  # every bone's position, rest and animated, x scale
+    quin_fbx.build(template, clip_json, out, scale)  # into the template's own Mixamo layout, x scale
+    os.remove(clip_json)
     print("  [OK] " + os.path.basename(out))
     return True
 

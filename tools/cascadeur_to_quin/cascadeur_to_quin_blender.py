@@ -1,16 +1,16 @@
 """
 Cascadeur -> Quin (Mixamo) retarget, run inside Blender (headless).
 
-  blender -b --python cascadeur_to_quin_blender.py -- <cascadeur.fbx> <quin_template.fbx> <out.fbx>
+  blender -b --python cascadeur_to_quin_blender.py -- <cascadeur.fbx> <quin_template.fbx> <out.json>
 
 The two skeletons differ in bone names, bone axes (Cascadeur's right side points backwards),
 rest pose (Cascadeur: A-pose, Mixamo: T-pose), spine count (2 vs 3) and finger count, so the
 clip is not renamed but retargeted in world space: every Quin bone takes the world-space
 rotation its Cascadeur twin made away from rest. Arms and fingers are first swung from the
 Mixamo T-pose onto the Cascadeur rest directions, so A-pose vs T-pose does not matter.
-The hips follow the pelvis's travel (scaled by hip height). The result is a Mixamo-named FBX
-with the Quin's own rest pose, in Mixamo centimetres (fbx_resize.py then sizes it for Roblox).
-The clip's own motion (travel included) is kept as authored.
+The hips follow the pelvis's travel (scaled by hip height). Out comes every Quin bone's local
+transform per frame (JSON); quin_fbx.py writes them into the template FBX. The clip's own
+motion (travel included) is kept as authored.
 """
 import sys
 import bpy
@@ -181,38 +181,20 @@ for f in range(f0, f1 + 1):
             pb.location = off_bone
             pb.keyframe_insert("location", frame=f - f0)
 
-# Blender writes each bone's static transform from the pose at the current frame; a rest key just
-# before the clip, exported from that frame, makes them the rest pose (as in a Mixamo download:
-# Roblox's "Imported Rig" rest pose reads them). The bake covers only the clip's frames.
-for pb in tgt.pose.bones:
-    pb.rotation_quaternion = (1, 0, 0, 0)
-    pb.location = (0, 0, 0)
-    pb.keyframe_insert("rotation_quaternion", frame=-1)
-    pb.keyframe_insert("location", frame=-1)
-# the clip is keyed on frames 0.. (FBX time 0, like the Cascadeur and Mixamo files; Blender's
-# importer shows it from frame 1)
-scene.frame_start, scene.frame_end = 0, f1 - f0
-scene.frame_set(-1)
-
-act = tgt.animation_data.action
-if act:
-    act.name = "Quin|" + bpy.path.display_name_from_filepath(SRC_PATH)
-
-# plain (uncompressed) arrays, so fbx_resize.py can patch the curves byte for byte
-from io_scene_fbx import encode_bin
-def _add_array_helper_plain(self, data, prop_type, length):
-    self.props_type.append(prop_type)
-    self.props.append(encode_bin.pack('<3I', length, 0, len(data)) + data)
-encode_bin.FBXElem._add_array_helper = _add_array_helper_plain
-
+# Each Quin bone's transform relative to its parent, per frame, in the template's own FBX space
+# (the armature space of an FBX import is the file's space, in its centimetres). quin_fbx.py
+# writes these into the template file itself, so the result is laid out exactly like a Mixamo
+# download (rest angles in PreRotation, the motion in the rotation curves).
+import json
 bpy.data.objects.remove(src, do_unlink=True)
-bpy.ops.object.select_all(action="DESELECT")
-tgt.select_set(True)
-bpy.context.view_layer.objects.active = tgt
-bpy.ops.export_scene.fbx(
-    filepath=OUT_PATH, use_selection=True, object_types={"ARMATURE"},
-    add_leaf_bones=False, bake_anim=True, bake_anim_use_all_actions=False,
-    bake_anim_use_nla_strips=False, bake_anim_force_startend_keying=True,
-    bake_anim_simplify_factor=0.0, apply_unit_scale=True, armature_nodetype="NULL",
-)
+frames = []
+for i in range(0, f1 - f0 + 1):
+    scene.frame_set(i)
+    pose = {}
+    for pb in tgt.pose.bones:
+        rel = pb.parent.matrix.inverted() @ pb.matrix if pb.parent else pb.matrix
+        pose[pb.name] = [list(row) for row in rel]
+    frames.append(pose)
+with open(OUT_PATH, "w") as f:
+    json.dump({"fps": scene.render.fps / scene.render.fps_base, "frames": frames}, f)
 print("RETARGET_OK", OUT_PATH, "frames", f0, f1, "bones", len(MAP))
