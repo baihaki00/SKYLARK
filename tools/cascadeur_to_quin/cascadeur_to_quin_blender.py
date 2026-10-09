@@ -1,7 +1,7 @@
 """
 Cascadeur -> Quin (Mixamo) retarget, run inside Blender (headless).
 
-  blender -b --python cascadeur_to_quin_blender.py -- <cascadeur.fbx> <quin_template.fbx> <out_mixamo.fbx>
+  blender -b --python cascadeur_to_quin_blender.py -- <cascadeur.fbx> <quin_template.fbx> <out.fbx>
 
 The two skeletons differ in bone names, bone axes (Cascadeur's right side points backwards),
 rest pose (Cascadeur: A-pose, Mixamo: T-pose), spine count (2 vs 3) and finger count, so the
@@ -9,7 +9,8 @@ clip is not renamed but retargeted in world space: every Quin bone takes the wor
 rotation its Cascadeur twin made away from rest. Arms and fingers are first swung from the
 Mixamo T-pose onto the Cascadeur rest directions, so A-pose vs T-pose does not matter.
 The hips follow the pelvis's travel (scaled by hip height). The result is a Mixamo-named FBX
-with the Quin's own rest pose, the same as a Mixamo download, ready for autofixer.py.
+with the Quin's own rest pose, in Mixamo centimetres (fbx_resize.py then sizes it for Roblox).
+The clip's own motion (travel included) is kept as authored.
 """
 import sys
 import bpy
@@ -182,7 +183,7 @@ for f in range(f0, f1 + 1):
 
 # Blender writes each bone's static transform from the pose at the current frame; a rest key just
 # before the clip, exported from that frame, makes them the rest pose (as in a Mixamo download:
-# autofixer finds the hips' rest height there). The bake covers only the clip's frames.
+# Roblox's "Imported Rig" rest pose reads them). The bake covers only the clip's frames.
 for pb in tgt.pose.bones:
     pb.rotation_quaternion = (1, 0, 0, 0)
     pb.location = (0, 0, 0)
@@ -197,7 +198,7 @@ act = tgt.animation_data.action
 if act:
     act.name = "Quin|" + bpy.path.display_name_from_filepath(SRC_PATH)
 
-# uncompressed arrays, so autofixer.py's byte patcher can read the curves
+# plain (uncompressed) arrays, so fbx_resize.py can patch the curves byte for byte
 from io_scene_fbx import encode_bin
 def _add_array_helper_plain(self, data, prop_type, length):
     self.props_type.append(prop_type)
