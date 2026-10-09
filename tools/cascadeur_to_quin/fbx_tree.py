@@ -95,8 +95,8 @@ def read(path):
     d = open(path, 'rb').read()
     assert d[:23] == HEAD, "not a binary FBX"
     version = struct.unpack('<I', d[23:27])[0]
-    nodes, _ = _parse(d, 27, len(d), version >= 7500)
-    return version, nodes
+    nodes, after = _parse(d, 27, len(d), version >= 7500)
+    return version, nodes, bytes(d[after:after + 16])
 
 
 def _size(node, v64):
@@ -124,16 +124,17 @@ def _write(out, node, v64, offset):
     return end
 
 
-def write(path, version, nodes):
-    """(The footer follows Blender's writer, whose files Roblox imports; readers ignore it.)"""
+def write(path, version, nodes, foot_id=FOOT_ID):
+    """The footer is written the FBX SDK's way (Roblox reads files with it): the source file's
+    own footer id (the SDK ties it to the file's CreationTime, kept unchanged), then zeros up to
+    the next 16-byte boundary plus 4. (A Blender-style footer would not load in Roblox.)"""
     v64 = version >= 7500
     h = 25 if v64 else 13
     out = bytearray(HEAD + struct.pack('<I', version))
     for n in nodes:
         _write(out, n, v64, len(out))
     out += b'\0' * h
-    out += FOOT_ID + b'\0' * 4
-    pad = ((len(out) + 15) & ~15) - len(out)
-    out += b'\0' * (pad or 16)
+    out += foot_id
+    out += b'\0' * (4 + (16 - len(out) % 16 or 16))
     out += struct.pack('<I', version) + b'\0' * 120 + FOOT_MAGIC
     open(path, 'wb').write(out)

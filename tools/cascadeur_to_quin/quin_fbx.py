@@ -55,7 +55,7 @@ def _props70(node):
 
 
 def build(template_path, clip_json, out_path, scale):
-    version, nodes = fbx_tree.read(template_path)
+    version, nodes, foot_id = fbx_tree.read(template_path)
     top = {n.name: n for n in nodes}
     objects = top["Objects"].children
     by_id = {o.value(0): o for o in objects if o.props and o.props[0][0] == "L"}
@@ -116,11 +116,14 @@ def build(template_path, clip_json, out_path, scale):
             for key, p in _props70(o).items():
                 if key in ("d|X", "d|Y", "d|Z"):
                     p.set_scalar(4, first["XYZ".index(key[-1])])
-        elif o.name == "AnimationCurve" and oid in curve_axis:
-            cn_id, axis = curve_axis[oid]
-            if cn_id not in channel:
-                continue
-            vals = [v[axis] for v in channel[cn_id]]
+        elif o.name == "AnimationCurve":
+            if oid in curve_axis and curve_axis[oid][0] in channel:
+                cn_id, axis = curve_axis[oid]
+                vals = [v[axis] for v in channel[cn_id]]
+            else:
+                # a leftover curve the template drives nothing with: held still, the clip's length
+                # (every curve in the file then has the same keys)
+                vals = [o.find("KeyValueFloat").value(0)[0]] * n
             o.find("Default").set_scalar(0, vals[0])
             o.find("KeyTime").set_array(0, times)
             o.find("KeyValueFloat").set_array(0, vals)
@@ -139,5 +142,5 @@ def build(template_path, clip_json, out_path, scale):
             if node:
                 node.set_scalar(1, times[-1])
 
-    fbx_tree.write(out_path, version, nodes)
+    fbx_tree.write(out_path, version, nodes, foot_id)
     return n
