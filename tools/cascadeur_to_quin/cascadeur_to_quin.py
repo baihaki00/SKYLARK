@@ -1,15 +1,16 @@
 """
 Cascadeur FBX -> Quin (Roblox) one-clicker
 ==========================================
-For every Cascadeur FBX in the folder above this one, it writes `<Name>_Quin[x0.044].fbx`
-beside it: the clip on the Quin's skeleton (Mixamo bone names, the Quin's rest pose), sized
-for Roblox. The motion is kept as authored (no in-placing). Import that file into Roblox.
+For every Cascadeur FBX in the folder above this one, it writes two files beside it, the clip
+on the Quin's skeleton (Mixamo bone names, the Quin's rest pose), sized for Roblox:
+  <Name>_Quin[x0.044].fbx          the motion as authored (travel included)
+  <Name>_Quin_InPlace[x0.044].fbx  the hips stay on their spot (height and rotations kept)
 
 Bones are not just renamed: the two skeletons point their bones different ways and rest in
 different poses (A vs T), so a renamed clip would twist every limb. The clip is retargeted
 headless in Blender (cascadeur_to_quin_blender.py) onto quin_rig_template.fbx (a Mixamo
 download of the Quin's rig); quin_fbx.py writes it into that template file itself (the exact
-Mixamo layout), scaled x0.044. Import with Rest Pose Source "Imported Rig (Zeroed Rotations)".
+Mixamo layout), scaled x0.044. Import with Rest Pose Source "Imported Rig".
 """
 import os
 import glob
@@ -39,7 +40,9 @@ def find_blender():
 def convert(blender, src, scale, force):
     name = os.path.splitext(os.path.basename(src))[0]
     out = os.path.join(os.path.dirname(src), "%s_Quin[x%s].fbx" % (name, scale))
-    if not force and os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(src):
+    out_in_place = os.path.join(os.path.dirname(src), "%s_Quin_InPlace[x%s].fbx" % (name, scale))
+    if not force and all(os.path.exists(p) and os.path.getmtime(p) >= os.path.getmtime(src)
+                         for p in (out, out_in_place)):
         print("  [SKIPPED] %s -> already up-to-date" % name)
         return False
     print("  Converting %s ..." % os.path.basename(src))
@@ -59,8 +62,10 @@ def convert(blender, src, scale, force):
             f.write(log)
         raise RuntimeError("retarget failed (see %s)" % os.path.basename(logfile))
     quin_fbx.build(template, clip_json, out, scale)  # into the template's own Mixamo layout, x scale
+    quin_fbx.build(template, clip_json, out_in_place, scale, in_place=True)
     os.remove(clip_json)
     print("  [OK] " + os.path.basename(out))
+    print("  [OK] " + os.path.basename(out_in_place))
     return True
 
 
@@ -73,7 +78,7 @@ def main():
 
     folder = os.path.dirname(HERE)
     files = args.inputs or [f for f in sorted(glob.glob(os.path.join(folder, "*.fbx")))
-                            if "_Quin[" not in os.path.basename(f)]
+                            if "_Quin[" not in os.path.basename(f) and "_Quin_InPlace[" not in os.path.basename(f)]
     if not files:
         print("No Cascadeur FBX files found in " + folder)
         return

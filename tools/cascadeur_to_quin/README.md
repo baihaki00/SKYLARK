@@ -5,14 +5,16 @@ The live copy is at `D:\SKYLARK\ANIMATIONCASCADEUR\`, with the scripts in `_conv
 **To use it:**
 1. Drop Cascadeur FBX exports into the folder.
 2. Double-click `run_cascadeur_to_quin.bat`.
-3. Each `<Name>.fbx` gets a `<Name>_Quin[x0.044].fbx` beside it.
+3. Each `<Name>.fbx` gets two files beside it:
+   - `<Name>_Quin[x0.044].fbx`: the motion as animated, travel included;
+   - `<Name>_Quin_InPlace[x0.044].fbx`: the hips stay on their spot (height and every rotation kept).
 
 **Import into Roblox:**
 - Rig Type: Custom.
-- Rest Pose Source: **Imported Rig (Zeroed Rotations)**, the same as the Mixamo clips.
+- Rest Pose Source: **Imported Rig**. The rest is the file's own skeleton, rest angles included, which is the same as the Quin rig in Studio.
+  - **Zeroed Rotations** comes out crippled: it zeroes those rest angles too, and the Quin's bones don't rest unrotated (its leg bones rest turned 180°, for one).
+  - **Animation Editor Rig** measures against the Studio rig.
 - Scale Unit: Stud, Scale Factor 1.0.
-
-The motion is kept as you animated it. Nothing is made in-place.
 
 ## Why a retarget, not a rename
 

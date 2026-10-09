@@ -4,9 +4,11 @@ like a Mixamo download: each bone's rest angle stays in its PreRotation, the rot
 carry the motion, the hips carry the only position curve, all in the template's units, then
 everything that is a distance is scaled (x0.044 for Roblox, as the autofixer did).
 
-That layout is what Roblox's "Imported Rig (Zeroed Rotations)" rest pose expects (the mode the
-Mixamo clips import with). A Blender export mixes rest and motion into one rotation, which that
-mode reads as a crippled rest, and the Animation Editor Rig mode then floats the hips.
+Import with Rest Pose Source "Imported Rig": the rest is the file's own skeleton, rest angles
+included, the same as the Quin rig in Studio. "Zeroed Rotations" zeroes those rest angles too
+(it suits rigs whose bones rest unrotated), and the Quin's do not (its leg bones rest turned
+180 degrees, for one), so it comes out crippled. A Blender export mixed rest and motion into one
+rotation (crippled in both), and "Animation Editor Rig" floated its hips.
 """
 import json
 import math
@@ -54,7 +56,9 @@ def _props70(node):
     return {p.value(0): p for p in p70.children} if p70 else {}
 
 
-def build(template_path, clip_json, out_path, scale):
+def build(template_path, clip_json, out_path, scale, in_place=False):
+    """in_place: the hips keep their rest spot across the ground (no travel); their height,
+    and every rotation, stay as animated."""
     version, nodes, foot_id = fbx_tree.read(template_path)
     top = {n.name: n for n in nodes}
     objects = top["Objects"].children
@@ -100,6 +104,10 @@ def build(template_path, clip_json, out_path, scale):
                 prev = e
         elif prop == "Lcl Translation":
             vals = [[m[0][3] * scale, m[1][3] * scale, m[2][3] * scale] for m in mats]
+            if in_place:  # (FBX space is Y-up: X and Z are across the ground)
+                rest = _props70(model).get("Lcl Translation")
+                rx, rz = (rest.value(4), rest.value(6)) if rest else (0.0, 0.0)
+                vals = [[rx * scale, v[1], rz * scale] for v in vals]
         else:
             vals = [[1.0, 1.0, 1.0]] * n
         channel[cn_id] = vals
