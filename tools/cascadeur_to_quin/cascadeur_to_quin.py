@@ -1,7 +1,8 @@
 """
 Cascadeur FBX -> Quin (Roblox) one-clicker
 ==========================================
-For every Cascadeur FBX in the folder above this one, it writes two files beside it, the clip
+For every Cascadeur FBX in the folder above this one, it writes two files into
+`<Name>_CascadeurQuin/` beside it, the clip
 on the Quin's skeleton (Mixamo bone names, the Quin's rest pose), sized for Roblox:
   <Name>_Quin[x0.044].fbx          the motion as authored (travel included)
   <Name>_Quin_InPlace[x0.044].fbx  the hips stay on their spot (height and rotations kept)
@@ -39,13 +40,15 @@ def find_blender():
 
 def convert(blender, src, scale, force):
     name = os.path.splitext(os.path.basename(src))[0]
-    out = os.path.join(os.path.dirname(src), "%s_Quin[x%s].fbx" % (name, scale))
-    out_in_place = os.path.join(os.path.dirname(src), "%s_Quin_InPlace[x%s].fbx" % (name, scale))
+    out_dir = os.path.join(os.path.dirname(src), name + "_CascadeurQuin")
+    out = os.path.join(out_dir, "%s_Quin[x%s].fbx" % (name, scale))
+    out_in_place = os.path.join(out_dir, "%s_Quin_InPlace[x%s].fbx" % (name, scale))
     if not force and all(os.path.exists(p) and os.path.getmtime(p) >= os.path.getmtime(src)
                          for p in (out, out_in_place)):
         print("  [SKIPPED] %s -> already up-to-date" % name)
         return False
     print("  Converting %s ..." % os.path.basename(src))
+    os.makedirs(out_dir, exist_ok=True)
     template = os.path.join(HERE, "quin_rig_template.fbx")
     clip_json = os.path.join(tempfile.gettempdir(), "cascadeur_to_quin_%s.json" % name)
     result = subprocess.run(
