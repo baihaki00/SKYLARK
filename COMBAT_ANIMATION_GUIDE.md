@@ -363,3 +363,72 @@ Grabs and footwork are optional extras.
    - limb-following hitboxes;
    - reaction choice by hit location, side and weight;
    - a marker checker and a Combat Lab test mode (see TEST_MODES.md).
+
+---
+
+## Part 5. The range plan: what to animate next (2026-10-11)
+
+The owner's direction (2026-10-09): fights in three ranges with stepping in and out between them, like real martial arts, Naruto, or The Legend of Hei 2.
+- **Ranges are measured in time to contact, not studs.** A rushing opponent is already "close".
+- **The moves between ranges matter as much as the ranges.**
+- **A wrong-range move costs you:** a big kick at point blank gets jammed or checked, and a jab from long range whiffs.
+
+### How to make each clip
+- **Animate in Cascadeur, in place, one side only** (Right).
+- Run `D:\SKYLARK\ANIMATIONCASCADEUR\run_cascadeur_to_quin.bat`. It writes the Quin version and the **mirrored** Left version, each also as InPlace.
+- **Import:** Rest Pose Source **Imported Rig**.
+- **Add the Part 1 markers in Roblox,** then publish and send the IDs with the names below.
+- Rough is fine; it is judged in game.
+
+### 5.1 Mid range: the main game (first)
+One step to touch. The 8 strikes in 2.1 live here. These clips turn standing and trading into footwork.
+
+| # | Name | What | Markers |
+|---|---|---|---|
+| 1 | `FightStance` | the ready loop between moves, weight shifting and bouncing | none |
+| 2 | `StepIn` | a quick 1–2 step lunge forward, the doorway into a strike | `Plant`(front foot) |
+| 3 | `StepOut` | a hop back out of reach after a strike, or away from a straight attack | `EvadeStart`(Back) · `EvadeEnd` · `Recover` |
+| 4 | `SidestepRight` / `Left` | off the line of attack, then answer | `EvadeStart`(SideRight) · `EvadeEnd` · `Recover` |
+| 5 | `Backpedal` | moving backwards facing the opponent (loop) | `Footstep`(Left/Right) |
+| 6 | `LegCheckRight` / `Left` | shin up, checking a low or mid kick | `GuardUp`(Low) · `GuardDown` |
+
+✅ Started: `SIDESTEP` (2026-10-09, through the converter).
+
+### 5.2 Point blank: inside a kick (second)
+Touching distance, Muay Thai and close quarters. Today the Quins just strike from too close.
+
+| # | Name | What | Markers |
+|---|---|---|---|
+| 7 | `KneeRight` | knee to the body | strike set, limb `RightKnee` |
+| 8 | `ElbowRight` | short horizontal elbow | strike set, limb `RightElbow` |
+| 9 | `ShortHookRight` | tight hook, no step | strike set, `RightHand` |
+| 10 | `PushOff` (teep shove) | shove or push kick: point blank → mid | strike set, `Body` / foot |
+| 11 | `ShoulderBump` | body check that makes space | strike set, `Body` |
+| 12 | `ClinchEntry` / `ClinchKnee` | grab the neck, then knee (optional, with grabs) | `GrabStart`/`GrabEnd` · strike set |
+
+### 5.3 Long range: reading, then exploding in (third)
+Several steps away, or rushing in. Chase and the projectile jump already exist.
+
+| # | Name | What | Markers |
+|---|---|---|---|
+| 13 | `DashIn` | burst entry from far: long → mid | `Plant` · `Recover` |
+| 14 | `FlyingKnee` / `FlyingKick` | leaping strike out of a run | strike set |
+| 15 | `StanceCircle` | circling at a distance, reading (loop) | `Footstep` |
+
+### 5.4 Answers: defence and reactions (alongside)
+Part 3 has the full list. The ones that make ranges readable:
+- `SlipRight`, `Duck`, `Parry`, `BlockHit`, `Parried` (the attacker's recoil);
+- `HitHeadFront`, `HitBodyFront`, `HitLegBuckle`, `FlinchLight` (which replaces the braking skid).
+
+### 5.5 Order
+1. **5.1 #1–3**: stance, step in, step out.
+2. **5.1 #4–6**: sidestep, backpedal, leg check.
+3. **5.2 point blank.**
+4. **5.3 long range.**
+5. **5.4 throughout**, as wanted.
+
+**Code side (Claude):**
+- a move database: every clip gets a card with entry range → exit range, what it answers, the momentum it carries, and its start and end feet;
+- a range layer on `Modules/Reach`;
+- a selector that picks the next move from what is happening.
+- New clips join once their IDs are in. All behind switches; 1v1 first, then the 16v16 is re-checked.
