@@ -41,6 +41,8 @@ local KNOWN_TRACK_LENGTHS = {
 	["rbxassetid://91301995989516"] = 0.833, -- Movement.Jog
 	["rbxassetid://85622241844167"] = 0.933, -- Movement.Jump, Parkour.VaultObstacle
 	["rbxassetid://109090784752055"] = 0.467, -- Movement.Run
+	["rbxassetid://77977577669807"] = 0.900, -- Movement.RunLeapRight
+	["rbxassetid://134666516301359"] = 0.900, -- Movement.RunLeapLeft
 	["rbxassetid://115642161658755"] = 1.533, -- Movement.Slide
 	["rbxassetid://89237107000987"] = 0.900, -- Movement.StopRun
 	["rbxassetid://117985748552966"] = 1.033, -- Movement.WalkConfident, Movement.WalkThug
@@ -101,6 +103,8 @@ local KNOWN_NAMES = {
 	["rbxassetid://91301995989516"] = "Jog",
 	["rbxassetid://85622241844167"] = "Jump",
 	["rbxassetid://109090784752055"] = "Run",
+	["rbxassetid://77977577669807"] = "RunLeapRight",
+	["rbxassetid://134666516301359"] = "RunLeapLeft",
 	["rbxassetid://115642161658755"] = "Slide",
 	["rbxassetid://89237107000987"] = "StopRun",
 	["rbxassetid://117985748552966"] = "WalkConfident",
@@ -136,7 +140,7 @@ local KNOWN_NAMES = {
 
 -- Temporary locomotion overlays (turns, vaults, slides, stops, falls, landings)
 local LOCOMOTION_OVERLAY_PATHS = {
-	"Movement.Slide", "Movement.StartRun", "Movement.StopRun", "Movement.Jump", "Movement.Fall",
+	"Movement.Slide", "Movement.StartRun", "Movement.StopRun", "Movement.Jump", "Movement.RunLeapRight", "Movement.RunLeapLeft", "Movement.Fall",
 	"Movement.FallFront", "Movement.FallBack", "Movement.FallAirKnockback", "Movement.RunTurn180", "Movement.ArcRun30Rear",
 	"Parkour.LandingSoft", "Parkour.LandingHard", "Parkour.LandingSuperHero", "Parkour.ProceduralJump1",
 	"Parkour.ProceduralSlide1", "Parkour.ProceduralSlide2", "Parkour.SkidOverOB", "Awareness.RearThreatGlance",

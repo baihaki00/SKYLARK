@@ -50,6 +50,8 @@ AnimationConfig.Registry = {
 		IdleToRun1 = { borrows = "Movement.StartRun", speed = 1.15, fadeTime = 0.08, priority = "Action2", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "START RUN" },
 		IdleToRun2 = { borrows = "Movement.StartRun", speed = 1.15, fadeTime = 0.08, priority = "Action2", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "START RUN" },
 		Jump = { id = "rbxassetid://85622241844167", speed = 1.00, fadeTime = 0.05, priority = "Movement", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Jump Launch" },
+		RunLeapRight = { id = "rbxassetid://77977577669807", speed = 1.00, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Run Leap (off the right foot, lands on the left)" },
+		RunLeapLeft = { id = "rbxassetid://134666516301359", speed = 1.00, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Run Leap (off the left foot, lands on the right)" },
 		Jog = { id = "rbxassetid://91301995989516", speed = 1.00, fadeTime = 0.15, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Jog Loop" },
 		Run = { id = "rbxassetid://109090784752055", speed = 1.00, fadeTime = 0.10, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Sprint / Chase Run" },
 		RunTurn90Left = { borrows = "Movement.RunTurn180", speed = 1.65, fadeTime = 0.04, startCut = 0.00, endCut = 0.38, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "90-Degree Plant Cut Left" },
