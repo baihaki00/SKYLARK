@@ -927,19 +927,6 @@ CombatConfig.Locomotion_ReversalTurnClipRight = "Movement.RunTurn180" -- the cli
 CombatConfig.Locomotion_ReversalTurnClipLeft = "Movement.RunTurn180Left" -- the one that turns left (the owner's published mirror of the right one); nil: a near-half turn goes right
 CombatConfig.Locomotion_ReversalTurnClipMinSpeedShare = 0.85 -- the clip only out of a run at this share of the Quin's top speed or more (owner: not at a jog)
 CombatConfig.Locomotion_ReversalTurnClipRate = 1.2      -- its playback rate (0.67 s clip: ~0.56 s); it finishes as the body drives out (owner: slower than fitted into the turn)
--- The run leap: a jump out of a run plays one huge airborne stride (Movement.RunLeapRight/Left,
--- made from the run itself: push-off pose -> wide hang -> one air cycle -> contact pose) instead
--- of the jump clip, off whichever foot the run is on, fitted to the flight, and the run picks up
--- on the foot it lands on.
-CombatConfig.Locomotion_RunLeap = true
-CombatConfig.Locomotion_RunLeapMinSpeedShare = 0.85 -- out of a run at this share of the Quin's top speed or more
-CombatConfig.Locomotion_RunLeapMinFlight = 0.35     -- seconds of flight at least (a small hop keeps the jump clip)
-CombatConfig.Locomotion_RunLeapRateMin = 0.6        -- the clip's rate fitted to the flight, kept within these
-CombatConfig.Locomotion_RunLeapRateMax = 2.6
-CombatConfig.Locomotion_RunLeapLandFade = 0.12      -- seconds the clip fades out at touchdown (the run takes over)
-CombatConfig.Locomotion_RunLeapRightContactPhase = 0.57 -- gait phase (0 = left foot plant) of the run's right-foot contact: where RunLeapLeft hands back
-CombatConfig.Locomotion_RunLeapLeftContactTime = 0.167  -- seconds into Movement.Run of its left-foot contact (its Footstep marker): where RunLeapRight lands
-CombatConfig.Locomotion_RunLeapRightContactTime = 0.433 -- ... of its right-foot contact: where RunLeapLeft lands
 CombatConfig.Gait_ReversalSpeedFloor = 9           -- studs/s the legs keep striding at through a reversal (no idle blend at its standstill)
 CombatConfig.Locomotion_ReversalMinSpeed = 3       -- studs/s above which a reversal plants and pivots (it was the skid threshold, 13: a jog or a walk swung round a 2-3 stud arc at full speed)
 CombatConfig.Locomotion_ReversalDriveOutAccel = 150 -- studs/s^2 out of the pivot, for ReversalDriveOutTime (the plain 80 took 0.3 s to get going again)

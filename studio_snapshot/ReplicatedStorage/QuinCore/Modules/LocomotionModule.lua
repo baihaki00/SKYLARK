@@ -974,34 +974,6 @@ local function runSkidOver(fighter, humanoid, rootPart, speed, rise, direction)
 	return true
 end
 
--- The run leap (Locomotion_RunLeap): a jump out of a run at top speed, long enough in the air,
--- plays one huge airborne stride instead of the jump clip. It goes off the foot the run is on:
--- RunLeapRight starts on the run's right push-off (run phase 0) and lands on the left foot,
--- RunLeapLeft starts half a cycle later and lands on the right. Returns the clip's path and the
--- gait phase it lands on, or nil.
-local function runLeapFor(fighter, humanoid, rootPart, jumpType, flight)
-	local function skip(reason)
-		if fighter and fighter:IsA("Instance") then fighter:SetAttribute("RunLeapSkip", reason) end
-		return nil
-	end
-	if tune("Locomotion_RunLeap", true) == false then return nil end
-	if jumpType ~= "free" and jumpType ~= "longjump" and jumpType ~= "hurdle" and jumpType ~= nil then return skip("type " .. tostring(jumpType)) end
-	if flight < tune("Locomotion_RunLeapMinFlight", 0.35) then return skip(string.format("flight %.2f", flight)) end
-	local v = rootPart.AssemblyLinearVelocity
-	local top = (fighter and fighter:IsA("Instance") and fighter:GetAttribute("Speed")) or 40
-	local across = Vector3.new(v.X, 0, v.Z).Magnitude
-	if across < top * tune("Locomotion_RunLeapMinSpeedShare", 0.85) then return skip(string.format("speed %.1f", across)) end
-	local run = AnimationModule.getExistingTrack(humanoid, "Movement.Run")
-	if not (run and run.IsPlaying and run.WeightTarget > 0.3 and run.Length > 0) then
-		return skip(run and string.format("run weight %.2f", run.WeightTarget) or "no run track")
-	end
-	local share = (run.TimePosition % run.Length) / run.Length
-	if share >= 0.25 and share < 0.75 then
-		return "Movement.RunLeapLeft", tune("Locomotion_RunLeapRightContactPhase", 0.57)
-	end
-	return "Movement.RunLeapRight", 0 -- (lands on the left foot: gait phase 0)
-end
-
 -- flightTime (optional): a jump aimed at a landing spot (a jump down off a platform) gives the
 -- whole time it will be in the air; it then keeps its launch speed across the ground until it is
 -- down, as a body in the air does.
@@ -1145,14 +1117,6 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
     local isSkid = (jumpType == "skidover")
     local jumpAnim = isSkid and "Parkour.SkidOverOB" or (isVault and "Parkour.VaultObstacle" or "Movement.Jump")
 
-    -- (the run leap is chosen while the run still plays: the launch below releases it)
-    local leapPath, landPhase
-    if not (isDismount or isSkid or isVault or isHop) then
-        local estHeight = math.clamp(height or 8.0, 3.0, MAX_JUMP_HEIGHT)
-        leapPath, landPhase = runLeapFor(fighter, humanoid, rootPart, jumpType,
-            plannedFlightTime or (2 * math.sqrt((2 * estHeight) / Workspace.Gravity)))
-    end
-
     -- Keep the gait underneath the traversal layer. The parkour clip supplies
     -- anticipation and silhouette while the run cycle preserves continuity.
     AnimationModule.stopConfig(humanoid, "Movement.Fall", 0.10)
@@ -1192,64 +1156,9 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
         -- short hop touched down while the clip was still at its apex and the mesh dropped late.
         local estHeight = math.clamp(height or 8.0, 3.0, MAX_JUMP_HEIGHT)
         local estFlight = plannedFlightTime or (2 * math.sqrt((2 * estHeight) / Workspace.Gravity))
-        if leapPath then
-            -- the leap's last frame is the run's foot contact: fitted so it comes with touchdown
-            local clipDuration = AnimationModule.getEffectiveDuration(humanoid, leapPath, 1.0)
-            local rate = math.clamp(clipDuration / math.max(estFlight, 0.2),
-                tune("Locomotion_RunLeapRateMin", 0.6), tune("Locomotion_RunLeapRateMax", 2.6))
-            local track = AnimationModule.playConfig(humanoid, leapPath, rate, Enum.AnimationPriority.Action3, true)
-            if fighter and fighter:IsA("Instance") then fighter:SetAttribute("RunLeap", leapPath) end
-            -- In the air the clip is kept on the real flight: every frame the time left to come back
-            -- down to the takeoff height (from the body's own height and vertical speed) sets its
-            -- rate, so a cut jump (a tap) or a longer one still lands on the clip's contact pose.
-            -- At touchdown the run takes over on the foot it lands on.
-            local launchY = rootPart.Position.Y
-            local rateMin, rateMax = tune("Locomotion_RunLeapRateMin", 0.6), tune("Locomotion_RunLeapRateMax", 2.6)
-            task.spawn(function()
-                local start = os.clock()
-                local wasUp = false
-                while humanoid.Parent and os.clock() - start < estFlight + 1.5 do
-                    local up = isHumanoidAirborne(humanoid)
-                    if up then
-                        wasUp = true
-                        if track and track.IsPlaying and track.Length > 0 and os.clock() - start > 0.05 then
-                            local g = Workspace.Gravity
-                            local vy = rootPart.AssemblyLinearVelocity.Y
-                            local above = math.max(rootPart.Position.Y - launchY, 0)
-                            local left = (vy + math.sqrt(math.max(vy * vy + 2 * g * above, 0))) / g
-                            local clipLeft = track.Length - track.TimePosition
-                            if left > 0.03 and clipLeft > 0.02 then
-                                track:AdjustSpeed(math.clamp(clipLeft / left, rateMin, rateMax))
-                            end
-                        end
-                    elseif wasUp or os.clock() - start > 0.3 then
-                        break
-                    end
-                    task.wait()
-                end
-                if not humanoid.Parent then return end
-                GaitModule.setEntryPhase(humanoid, landPhase)
-                if track and track.IsPlaying then track:Stop(tune("Locomotion_RunLeapLandFade", 0.12)) end
-                if fighter and fighter:IsA("Instance") then fighter:SetAttribute("RunLeap", nil) end
-                -- the run picks up at the contact the leap lands on (a run already playing keeps its own
-                -- phase, so it is put there)
-                local contactAt = leapPath == "Movement.RunLeapRight" and tune("Locomotion_RunLeapLeftContactTime", 0.167)
-                    or tune("Locomotion_RunLeapRightContactTime", 0.433)
-                local until_ = os.clock() + 0.25
-                while humanoid.Parent and os.clock() < until_ do
-                    local run = AnimationModule.getExistingTrack(humanoid, "Movement.Run")
-                    if run and run.IsPlaying and run.Length > 0 then
-                        run.TimePosition = contactAt % run.Length
-                        break
-                    end
-                    task.wait()
-                end
-            end)
-        else
-            local clipDuration = AnimationModule.getEffectiveDuration(humanoid, jumpAnim, 1.0)
-            local launchSpeed = math.clamp(clipDuration / math.max(estFlight, 0.2), 0.85, 2.0)
-            AnimationModule.playConfig(humanoid, jumpAnim, launchSpeed, Enum.AnimationPriority.Action3, true)
-        end
+        local clipDuration = AnimationModule.getEffectiveDuration(humanoid, jumpAnim, 1.0)
+        local launchSpeed = math.clamp(clipDuration / math.max(estFlight, 0.2), 0.85, 2.0)
+        AnimationModule.playConfig(humanoid, jumpAnim, launchSpeed, Enum.AnimationPriority.Action3, true)
     end
 
     -- Audio feedback via QuinCore AudioModule (Authentic normal jump sound)

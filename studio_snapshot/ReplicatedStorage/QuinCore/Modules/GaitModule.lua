@@ -652,7 +652,7 @@ local CONTRACT_EXEMPT_STATES = { WallRun = true, Death = true }
 
 -- Clips loaded ahead of first use so the first slide / jump / fall never starts on an
 -- unloaded track (an unloaded track reports IsPlaying = false and Length = 0).
-local PRELOAD_PATHS = { "Movement.WalkConfident", "Movement.Jog", "Movement.Run", FALL_PATH, "Movement.Slide", "Movement.StopRun", "Movement.Jump", "Movement.RunLeapRight", "Movement.RunLeapLeft" }
+local PRELOAD_PATHS = { "Movement.WalkConfident", "Movement.Jog", "Movement.Run", FALL_PATH, "Movement.Slide", "Movement.StopRun", "Movement.Jump" }
 
 function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 	if not model or not humanoid or not rootPart then return nil end
