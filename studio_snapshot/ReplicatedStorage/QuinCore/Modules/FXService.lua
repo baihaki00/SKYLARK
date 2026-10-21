@@ -35,7 +35,8 @@ function FXService.applyElementAppearance(model, elementName)
 	-- (CombatConfig.BodyColorBy = "Team"), otherwise its element's.
 	-- A MeshPart TextureID overrides Color, so the skin texture is cleared for the
 	-- element color to read (QuinMale carries a skin texture; QuinFemale does not).
-	for _, part in ipairs(model:GetDescendants()) do
+	-- (a body that carries its own colours, the owner's QuinMale_New, is left as it is)
+	for _, part in ipairs(model:GetAttribute("KeepBodyColors") and {} or model:GetDescendants()) do
 		if part:IsA("BasePart") and (part.Name == "Alpha_Surface" or part.Name == "Beta_Surface" or part.Name:find("Surface") or part.Name:find("Mesh") or part.Name == "Body") then
 			part.Color = bodyColor
 			-- (QuinMale's body carries the "Roblox Grid" material variant, QuinFemale's none: the

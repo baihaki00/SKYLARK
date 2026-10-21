@@ -203,7 +203,11 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 	-- Templates live in ReplicatedStorage.QuinType only. They used to be taken from rigs standing
 	-- in the Workspace: live, unanimated, unanchored bodies that the physics engine moved around
 	-- in a T-pose where spectators could see them.
-	template = QuinTypeFolder:FindFirstChild(selectedGender == "Female" and "QuinFemale" or "QuinMale")
+	local templateName = selectedGender == "Female" and "QuinFemale" or "QuinMale"
+	if templateName == "QuinMale" and CombatConfig.Body_UseNewMale and QuinTypeFolder:FindFirstChild("QuinMale_New") then
+		templateName = "QuinMale_New" -- the owner's own body (CombatConfig.Body_UseNewMale)
+	end
+	template = QuinTypeFolder:FindFirstChild(templateName)
 
 	if not template then
 		warn("[QuinSpawner] Template not found for: " .. tostring(selectedGender))
