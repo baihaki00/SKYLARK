@@ -35,7 +35,9 @@ function FXService.applyElementAppearance(model, elementName)
 	-- (CombatConfig.BodyColorBy = "Team"), otherwise its element's.
 	-- A MeshPart TextureID overrides Color, so the skin texture is cleared for the
 	-- element color to read (QuinMale carries a skin texture; QuinFemale does not).
-	-- (a body that carries its own colours, the owner's QuinMale_New, is left as it is)
+	-- (a body that carries its own colours is left as it is: template attribute KeepBodyColors,
+	-- set by scripts/build_quin_template.lua on the owner's bodies; their zone colours are the
+	-- template's ShellColor/JointsColor attributes)
 	for _, part in ipairs(model:GetAttribute("KeepBodyColors") and {} or model:GetDescendants()) do
 		if part:IsA("BasePart") and (part.Name == "Alpha_Surface" or part.Name == "Beta_Surface" or part.Name:find("Surface") or part.Name:find("Mesh") or part.Name == "Body") then
 			part.Color = bodyColor

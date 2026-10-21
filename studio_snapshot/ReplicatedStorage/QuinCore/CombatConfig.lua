@@ -411,11 +411,6 @@ CombatConfig.Knockback_BounceStun = 0.5         -- seconds of stun each adds
 -- What a Quin's body is colored by: "Team" (TeamColors below; a Quin with no listed team keeps
 -- its element's color) or "Element"
 CombatConfig.BodyColorBy = "Team"
--- The owner's own male Quin body (ReplicatedStorage.QuinType.QuinMale_New: wood shell `Alpha_Surface`
--- + bronze `Quin_Joints` on the same Mixamo skeleton). On: male Quins spawn from it instead of
--- QuinMale. It keeps its own colours (template attribute KeepBodyColors: no team paint; team
--- wristbands are to come).
-CombatConfig.Body_UseNewMale = false
 CombatConfig.TeamColors = {
 	TeamAlpha = Color3.fromRGB(40, 110, 255),
 	TeamBeta = Color3.fromRGB(230, 45, 45),
