@@ -446,7 +446,9 @@ local function getAllAliveQuins()
 				or model:GetAttribute("IsPlayerControlled")
 				or string.match(model.Name, "^Quin_")
 
-			if isArenaQuin and model.Name ~= "QuinTest" and model.Name ~= "QuinTypeA" then
+			-- (shared.SpectateFilter: while at a preparation room terminal, only the player's own Quins)
+			local allowed = not shared.SpectateFilter or shared.SpectateFilter(model)
+			if isArenaQuin and allowed and model.Name ~= "QuinTest" and model.Name ~= "QuinTypeA" then
 				local hum = model:FindFirstChildOfClass("Humanoid")
 				local hrp = model:FindFirstChild("HumanoidRootPart")
 				if hum and hum.Health > 0 and hrp then
@@ -465,6 +467,9 @@ local function getAllAliveQuins()
 end
 
 local function setSpectatedQuin(model)
+	if model and shared.SpectateFilter and not shared.SpectateFilter(model) then
+		return -- (someone else's Quin, from a preparation room terminal)
+	end
 	shared.SpectatedQuin = model
 	_G.SpectatedQuin = model
 	Workspace:SetAttribute("SpectatedQuin", model and model.Name or "")

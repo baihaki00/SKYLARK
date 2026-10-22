@@ -426,6 +426,9 @@ local function getActiveSpectatedQuin()
 			specQuin = qServer and qServer:FindFirstChild(specName)
 		end
 	end
+	if specQuin and shared.SpectateFilter and not shared.SpectateFilter(specQuin) then
+		specQuin = nil -- (at a preparation room terminal: the player's own Quins only)
+	end
 	if specQuin and specQuin.Parent and specQuin.Parent.Name == "QuinServer" and specQuin.Name ~= "QuinTest" and specQuin.Name ~= "QuinTypeA" then
 		local hum = specQuin:FindFirstChildOfClass("Humanoid")
 		local hrp = specQuin:FindFirstChild("HumanoidRootPart")
