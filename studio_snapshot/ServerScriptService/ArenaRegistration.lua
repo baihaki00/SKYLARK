@@ -1,22 +1,27 @@
 --// ArenaRegistration.lua
--- Entering the arena's events with your own Quin, and the fair queue that seats the rounds.
+-- Entering the arena's events with your own Quins, at an Arena Terminal, and the fair queue that
+-- seats the rounds.
 --
---   * Registration is for an event WINDOW (ArenaSchedule): it opens one Skylark hour (20 real
---     minutes) before the window and lasts all window long. You register once; you stay in the
---     queue for every round of that window. When the window ends, the entries are cleared.
---   * One Quin per player per round (the roster slot you chose).
---   * Fair queue: at each round the seats go to the players who have sat out the most rounds,
---     then to who registered first. Seated: back to 0. Not seated: +1, so you are first next time.
---     Nobody waits more than one round while the queue is shorter than the seats.
+--   * Walk up to an Arena Terminal (the Workspace parts named "ArenaTerminal"; each gets a
+--     ProximityPrompt) and register for the event window: the one on now, or the next one in its
+--     last 20 minutes before it opens. Entry closes 5 real minutes before the window ends.
+--     You register once and stay in the queue for every round of that window; when the window
+--     ends the entries are cleared.
+--   * How many Quins: the window's PerPlayer (ArenaSchedule): 2 in the 16v16 battles, entered
+--     together (same team), 1 otherwise.
+--   * Fair queue: each round, the players who have sat out the most rounds go first, then who
+--     registered first. Every player in that order gets their first Quin seated before anyone
+--     gets a second. Seated: back to 0. Not seated: +1, so you are first next time.
 --   * Empty seats are filled by the arena's own Quins (NPQs), so a round never waits for players.
 --
--- The Arena System Orchestrator calls pickRound when the preparation room opens (the chosen Quins
--- "calibrate in the backrooms" there) and roundOver when the match ends.
+-- The Arena System Orchestrator calls pickRound when the preparation room opens (the Quins and
+-- their owners go to the pads: ArenaPrepRoom) and roundOver when the match ends.
 --
--- State the clients read (no polling): Workspace ArenaRegOpen / ArenaRegWindow / ArenaRegKind
--- ("Live" / "Soon") / ArenaRegStartsAt / ArenaRegEndsAt / ArenaEntrants / ArenaRoundSeats;
--- each Player ArenaEntered / ArenaEntrySlot / ArenaQueuePos / ArenaSatOut / ArenaInRound.
--- Remote: ArenaNetwork.ArenaEntry (RemoteFunction) "roster" | "register", slot | "withdraw".
+-- State the clients read: Workspace ArenaRegOpen / ArenaRegWindow / ArenaRegKind ("Live" /
+-- "Soon") / ArenaRegStartsAt / ArenaRegEndsAt / ArenaRegClosesAt / ArenaRegPerPlayer /
+-- ArenaEntrants / ArenaRoundSeats; each Player ArenaEntered / ArenaEntrySlots ("1,3") /
+-- ArenaQueuePos / ArenaSatOut / ArenaInRound.
+-- Remote: ArenaNetwork.ArenaEntry (RemoteFunction) "roster" | "register", {slots} | "withdraw".
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -30,11 +35,55 @@ local QuinRosterService = require(ServerScriptService:WaitForChild("QuinRosterSe
 
 local Registration = {}
 
-local OPENS_BEFORE = SkylarkTime.HOUR -- Skylark seconds before a window that entry opens
+local OPENS_BEFORE = SkylarkTime.HOUR -- Skylark seconds before a window that entry opens (20 real min)
+local CLOSES_BEFORE_END = 5 * 60 -- real seconds before the window ends that entry closes
+local TERMINAL_RANGE = 16 -- studs: register only at a terminal
 
-local entries = {} -- [userId] = { player, slot, registeredAt, satOut }
+local entries = {} -- [userId] = { player, slots = {..}, registeredAt, satOut }
 local windowKey = nil -- the event window the entries are for
 local windowSlot = nil
+
+-- ============================================================================
+-- ARENA TERMINALS
+-- ============================================================================
+
+local function terminals()
+    local list = {}
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part.Name == "ArenaTerminal" and part:IsA("BasePart") then
+            table.insert(list, part)
+        end
+    end
+    return list
+end
+
+for _, terminal in ipairs(terminals()) do
+    terminal.Anchored = true -- (they were loose parts and could be knocked over)
+    if not terminal:FindFirstChild("ArenaTerminalPrompt") then
+        local prompt = Instance.new("ProximityPrompt")
+        prompt.Name = "ArenaTerminalPrompt"
+        prompt.ActionText = "Register Quins"
+        prompt.ObjectText = "Arena Terminal"
+        prompt.HoldDuration = 0
+        prompt.MaxActivationDistance = 12
+        prompt.RequiresLineOfSight = false
+        prompt.Parent = terminal
+    end
+end
+
+local function nearTerminal(player)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then
+        return false
+    end
+    for _, terminal in ipairs(terminals()) do
+        if (terminal.Position - root.Position).Magnitude <= TERMINAL_RANGE then
+            return true
+        end
+    end
+    return false
+end
 
 -- ============================================================================
 -- QUEUE
@@ -57,8 +106,12 @@ end
 local function publish()
     local list = ordered()
     for pos, e in ipairs(list) do
+        local slots = {}
+        for _, s in ipairs(e.slots) do
+            table.insert(slots, tostring(s))
+        end
         e.player:SetAttribute("ArenaEntered", true)
-        e.player:SetAttribute("ArenaEntrySlot", e.slot)
+        e.player:SetAttribute("ArenaEntrySlots", table.concat(slots, ","))
         e.player:SetAttribute("ArenaQueuePos", pos)
         e.player:SetAttribute("ArenaSatOut", e.satOut)
     end
@@ -67,7 +120,7 @@ end
 
 local function clearPlayer(player)
     player:SetAttribute("ArenaEntered", false)
-    player:SetAttribute("ArenaEntrySlot", nil)
+    player:SetAttribute("ArenaEntrySlots", nil)
     player:SetAttribute("ArenaQueuePos", nil)
     player:SetAttribute("ArenaSatOut", nil)
 end
@@ -80,7 +133,7 @@ local function clearAll()
     publish()
 end
 
--- The window entry is open for: the event on now, or the next one if it opens soon
+-- The window entry is for: the event on now, or the next one if it opens soon
 local function targetWindow()
     local t = SkylarkTime.now()
     local slot = ArenaSchedule.slotAt(t)
@@ -94,6 +147,15 @@ local function targetWindow()
     return nil
 end
 
+-- Entry closes 5 real minutes before the window ends (never while the clock is paused)
+local function closesAt(slot)
+    return slot.EndsAt - CLOSES_BEFORE_END * math.max(SkylarkTime.rate(), 0)
+end
+
+local function entryOpen()
+    return windowSlot ~= nil and SkylarkTime.now() < closesAt(windowSlot)
+end
+
 local function refreshWindow()
     local slot, kind = targetWindow()
     local key = slot and slot.Key
@@ -105,11 +167,13 @@ local function refreshWindow()
         windowKey = key
         windowSlot = slot
     end
-    Workspace:SetAttribute("ArenaRegOpen", slot ~= nil)
+    Workspace:SetAttribute("ArenaRegOpen", entryOpen())
     Workspace:SetAttribute("ArenaRegWindow", slot and slot.Name or nil)
     Workspace:SetAttribute("ArenaRegKind", kind)
     Workspace:SetAttribute("ArenaRegStartsAt", slot and slot.StartsAt or nil)
     Workspace:SetAttribute("ArenaRegEndsAt", slot and slot.EndsAt or nil)
+    Workspace:SetAttribute("ArenaRegClosesAt", slot and closesAt(slot) or nil)
+    Workspace:SetAttribute("ArenaRegPerPlayer", ArenaSchedule.perPlayer(slot))
 end
 
 -- ============================================================================
@@ -127,8 +191,9 @@ local function seatsFor(mode, teamSize)
     return 0 -- (Player Quin modes: the pilot's own match)
 end
 
--- The players seated in this round: { player, quin, team } (team nil in FFA). Only while the
--- window the entries are for is live, so a test match before a window leaves the queue alone.
+-- The Quins seated in this round: { player, quin, team } each (team nil in FFA); a player's
+-- Quins are on the same side. Only while the window the entries are for is live, so a test match
+-- before a window leaves the queue alone.
 function Registration.pickRound(mode, teamSize)
     refreshWindow()
     local slot = ArenaSchedule.slotAt(SkylarkTime.now())
@@ -137,15 +202,49 @@ function Registration.pickRound(mode, teamSize)
     if seats == 0 or not windowKey or slot.Key ~= windowKey or not next(entries) then
         return {}
     end
+    local perTeam = mode == "FFA" and seats or (mode == "1vs1" and 1 or teamSize)
+    local perPlayer = ArenaSchedule.perPlayer(windowSlot)
+    local queue = ordered()
     local entrants = {}
-    for _, e in ipairs(ordered()) do
-        local quin = #entrants < seats and QuinRosterService.getQuinInSlot(e.player, e.slot)
-        if quin then
-            local team = nil
-            if mode ~= "FFA" then
-                team = (#entrants % 2 == 0) and "TeamAlpha" or "TeamBeta" -- (alternating: the sides stay even)
+    local teamCount = { TeamAlpha = 0, TeamBeta = 0 }
+    local sideOf = {}
+
+    local function seat(e, slotIndex)
+        if #entrants >= seats then
+            return false
+        end
+        local quin = QuinRosterService.getQuinInSlot(e.player, slotIndex)
+        if not quin then
+            return false
+        end
+        local team = nil
+        if mode ~= "FFA" then
+            team = sideOf[e]
+            if not team then -- (the side with fewer seated Quins; the owner's next Quin joins it)
+                team = teamCount.TeamAlpha <= teamCount.TeamBeta and "TeamAlpha" or "TeamBeta"
             end
-            table.insert(entrants, { player = e.player, quin = quin, team = team })
+            if teamCount[team] >= perTeam then
+                return false
+            end
+            sideOf[e] = team
+            teamCount[team] += 1
+        end
+        table.insert(entrants, { player = e.player, quin = quin, team = team })
+        return true
+    end
+
+    -- first Quins in queue order, then second Quins in the same order
+    local seated = {}
+    for pass = 1, perPlayer do
+        for _, e in ipairs(queue) do
+            local slotIndex = e.slots[pass]
+            if slotIndex and (pass == 1 or seated[e]) and seat(e, slotIndex) then
+                seated[e] = true
+            end
+        end
+    end
+    for _, e in ipairs(queue) do
+        if seated[e] then
             e.satOut = 0
             e.player:SetAttribute("ArenaInRound", true)
         else
@@ -153,7 +252,7 @@ function Registration.pickRound(mode, teamSize)
         end
     end
     publish()
-    print(string.format("[ArenaRegistration] %s: %d of %d seats to players, %d arena Quins fill the rest",
+    print(string.format("[ArenaRegistration] %s: %d of %d seats to players' Quins, %d arena Quins fill the rest",
         windowSlot and windowSlot.Name or "Round", #entrants, seats, seats - #entrants))
     return entrants
 end
@@ -177,9 +276,8 @@ local function rosterSummary(player)
             local record = q.BattleRecord or {}
             table.insert(list, {
                 Slot = slot,
-                QuinId = q.QuinId,
+                Tag = q.QuinId and q.QuinId:sub(3, 6) or "?",
                 Gender = q.Gender,
-                Element = q.Element,
                 Title = q.Titles and q.Titles.Current or nil,
                 Wins = record.Wins or 0,
                 Losses = record.Losses or 0,
@@ -189,23 +287,40 @@ local function rosterSummary(player)
     return list
 end
 
-local function register(player, slot)
+local function register(player, slots)
     refreshWindow()
     if not windowKey then
-        return false, "Entry is closed: it opens 20 minutes before the next event."
+        return false, "No event open: entry opens 20 minutes before each event."
     end
-    slot = tonumber(slot)
-    if not slot or not QuinRosterService.getQuinInSlot(player, slot) then
+    if not entryOpen() then
+        return false, "Entry for " .. windowSlot.Name .. " has closed."
+    end
+    if not nearTerminal(player) then
+        return false, "Register at an Arena Terminal."
+    end
+    if type(slots) ~= "table" then
+        slots = { slots }
+    end
+    local perPlayer = ArenaSchedule.perPlayer(windowSlot)
+    local chosen, seen = {}, {}
+    for _, s in ipairs(slots) do
+        s = tonumber(s)
+        if s and not seen[s] and #chosen < perPlayer and QuinRosterService.getQuinInSlot(player, s) then
+            seen[s] = true
+            table.insert(chosen, s)
+        end
+    end
+    if #chosen == 0 then
         return false, "Pick one of your Quins."
     end
     local existing = entries[player.UserId]
     if existing then
-        existing.slot = slot -- (switching Quin keeps your place in the queue)
+        existing.slots = chosen -- (changing your Quins keeps your place in the queue)
     else
-        entries[player.UserId] = { player = player, slot = slot, registeredAt = os.clock(), satOut = 0 }
+        entries[player.UserId] = { player = player, slots = chosen, registeredAt = os.clock(), satOut = 0 }
     end
     publish()
-    return true, "Entered " .. tostring(windowSlot and windowSlot.Name)
+    return true, string.format("Entered %s with %d Quin%s", windowSlot.Name, #chosen, #chosen > 1 and "s" or "")
 end
 
 local function withdraw(player)
@@ -255,13 +370,10 @@ task.spawn(function()
     end
 end)
 
--- (test hooks for Studio / the flow probe)
-Registration.register = register
-Registration.withdraw = withdraw
 Registration.queue = function()
     local out = {}
     for pos, e in ipairs(ordered()) do
-        table.insert(out, { pos = pos, name = e.player.Name, slot = e.slot, satOut = e.satOut })
+        table.insert(out, { pos = pos, name = e.player.Name, slots = e.slots, satOut = e.satOut })
     end
     return out
 end

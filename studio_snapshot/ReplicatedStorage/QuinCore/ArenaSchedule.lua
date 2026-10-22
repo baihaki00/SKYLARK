@@ -10,6 +10,8 @@
 -- `Match` is what a round hands the Arena System Orchestrator (ArenaSystemOrchestrator.startMatch).
 -- `Sizes` rotates the team size round by round (brackets: 1v1, 2v2, 4v4, 8v8 until the bracket
 -- ladder exists). 20v20 is on the sheet; the arena runs 16v16 for now.
+-- `PerPlayer`: how many of their Quins a player may enter together (ArenaRegistration); 2 in the
+-- 16v16 battles, 1 otherwise. Scheduled rounds give the preparation room a full minute.
 
 local SkylarkTime = require(script.Parent:WaitForChild("SkylarkTime"))
 
@@ -26,8 +28,8 @@ ArenaSchedule.DAILY = {
 }
 
 local BRACKETS = { Mode = "TeamBattle", Sizes = { 1, 2, 4, 8 } }
-local TEAM = { Mode = "TeamBattle", TeamSize = 16 }
-local TEAM_TERRAIN = { Mode = "TeamBattle", TeamSize = 16, Toggles = { ProceduralTerrain = true } }
+local TEAM = { Mode = "TeamBattle", TeamSize = 16, PerPlayer = 2 }
+local TEAM_TERRAIN = { Mode = "TeamBattle", TeamSize = 16, PerPlayer = 2, Toggles = { ProceduralTerrain = true } }
 
 -- Event slots by weekday (1 = Monday ... 7 = Sunday)
 ArenaSchedule.EVENTS = {
@@ -61,6 +63,8 @@ ArenaSchedule.EVENTS = {
 }
 
 ArenaSchedule.EVENT_SLOTS = { "Brackets", "TeamBattles", "Night" }
+
+ArenaSchedule.PREPARATION_SECONDS = 60
 
 -- The slot of Skylark day `day` that holds Skylark hour `hours`
 local function resolve(day, index)
@@ -135,11 +139,21 @@ function ArenaSchedule.matchFor(slot, round)
     if not match then
         return nil
     end
-    local settings = { Mode = match.Mode, TeamSize = match.TeamSize, Toggles = match.Toggles }
+    local settings = {
+        Mode = match.Mode,
+        TeamSize = match.TeamSize,
+        Toggles = match.Toggles,
+        Durations = { PreparationRoom = ArenaSchedule.PREPARATION_SECONDS },
+    }
     if match.Sizes then
         settings.TeamSize = match.Sizes[(round - 1) % #match.Sizes + 1]
     end
     return settings
+end
+
+-- How many Quins one player may enter in an event window
+function ArenaSchedule.perPlayer(slot)
+    return slot and slot.Match and slot.Match.PerPlayer or 1
 end
 
 return ArenaSchedule

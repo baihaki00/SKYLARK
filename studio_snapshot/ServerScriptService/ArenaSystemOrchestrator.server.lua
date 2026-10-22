@@ -24,6 +24,7 @@ local ArenaCrowd = require(ServerScriptService:WaitForChild("ArenaCrowdManager")
 local ArenaGenerator = require(ServerScriptService:WaitForChild("ArenaGenerator"))
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 local ArenaRegistration = require(ServerScriptService:WaitForChild("ArenaRegistration"))
+local ArenaPrepRoom = require(ServerScriptService:WaitForChild("ArenaPrepRoom"))
 local VfxModule = require(ReplicatedStorage.QuinCore.Modules.VfxModule)
 local SocialRespect = require(ReplicatedStorage.QuinCore.Modules.SocialRespect)
 local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
@@ -59,7 +60,8 @@ local matchDais = nil
 local matchDaisUpAt = 0 -- (os.clock() when the dais has finished rising)
 
 -- Players' own Quins in this round (ArenaRegistration.pickRound, at the preparation room):
--- { player, quin, team }; spawnFighters seats them, the arena's Quins fill the other seats
+-- { player, quin, team, model }; they wait on their owner's pad (ArenaPrepRoom), spawnFighters
+-- moves them into the arena, the arena's Quins fill the other seats
 local roundEntrants = {}
 
 local matchStats = {
@@ -260,7 +262,7 @@ local function igniteHolograms()
 end
 
 -- Spawn a fighter for `team`: an entered player's Quin if one is waiting for that side (any side
--- in FFA), else an arena Quin of `gender`
+-- in FFA; the one from the preparation room if it is there), else an arena Quin of `gender`
 local function spawnSeat(gender, position, team)
     local entry = nil
     for _, e in ipairs(roundEntrants) do
@@ -271,6 +273,10 @@ local function spawnSeat(gender, position, team)
     end
     if entry then
         entry.seated = true
+        if entry.model and entry.model.Parent then
+            ArenaPrepRoom.moveToArena(entry.model, position, entry.standOffset)
+            return entry.model
+        end
     end
     local q = QuinSpawner.spawn(entry and entry.quin or gender, position, team)
     if q and entry then
@@ -550,6 +556,7 @@ local function runMatchLifecycle()
     QuinSpawner.cleanAll()
     Workspace:SetAttribute("MatchStarted", false)
     roundEntrants = ArenaRegistration.pickRound(mode, math.max(1, tonumber(activeConfig.TeamSize) or 4))
+    ArenaPrepRoom.open(roundEntrants) -- (their owners join them on their pads)
     local prepTime = duration("PreparationRoom")
     epoch = beginPhase("PREPARATION_ROOM", prepTime, "PREPARATION ROOM", string.format("FIGHTERS CALIBRATING IN BACKROOMS • %d SECONDS", prepTime))
     if toggle("Announcer") then
@@ -806,6 +813,7 @@ function Orchestrator.stopMatch()
     QuinSpawner.cleanAll()
     roundEntrants = {}
     ArenaRegistration.roundOver()
+    ArenaPrepRoom.close()
     replicateState()
 end
 

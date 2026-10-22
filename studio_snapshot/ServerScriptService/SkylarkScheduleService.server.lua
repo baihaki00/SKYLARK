@@ -75,6 +75,14 @@ local function applyCommand(action, value)
     return true
 end
 
+-- Studio test start: the Workspace attribute SkylarkTestHour (set in Edit, so it stays) starts every
+-- Play session with the clock paused at that Skylark hour of today; remove it for real time
+local testHour = tonumber(Workspace:GetAttribute("SkylarkTestHour"))
+if RunService:IsStudio() and testHour then
+    applyCommand("hour", testHour)
+    applyCommand("rate", 0)
+end
+
 local function mayDebug(player)
     return RunService:IsStudio() or (game.CreatorType == Enum.CreatorType.User and player.UserId == game.CreatorId)
 end

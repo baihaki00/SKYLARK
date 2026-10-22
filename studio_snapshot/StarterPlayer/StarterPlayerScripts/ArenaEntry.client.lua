@@ -1,12 +1,16 @@
 --// ArenaEntry.client.lua
--- Entering the arena's events (ArenaRegistration on the server), under the Skylark clock:
---   * the entry bar: closed / ENTER <event> / registered, place in the queue / your Quin fights;
---   * click it for the entry panel: pick one of your Quins, Register or Withdraw, the queue rules.
+-- Entering the arena's events (ArenaRegistration on the server):
+--   * the entry bar under the Skylark clock: closed / open at the terminals / entered and your
+--     place in the queue / your Quins fight this round;
+--   * the registration popup, opened at an Arena Terminal (its ProximityPrompt): pick your Quins
+--     (up to the event's limit: 2 in the 16v16 battles), Register, change them or Withdraw.
+--     It closes when you walk away from the terminal.
 -- Everything shown comes from attributes the server keeps (Workspace ArenaReg*, Player Arena*).
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -17,9 +21,11 @@ local entryRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild(
 
 local gui = player:WaitForChild("PlayerGui"):WaitForChild("SkylarkClockUI", 30)
 if not gui or not entryRemote then
-    warn("[ArenaEntry] No clock UI or entry remote: entry bar not shown")
+    warn("[ArenaEntry] No clock UI or entry remote: entry not shown")
     return
 end
+
+local WALK_AWAY = 20 -- studs from the terminal that close the popup
 
 -- Colour palette (the Arena System panel's)
 local C_BG = Color3.fromRGB(15, 18, 26)
@@ -48,7 +54,7 @@ local function corner(inst, radius)
 end
 
 local function stroke(inst, color)
-    new("UIStroke", { Color = color or C_STROKE, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = inst })
+    return new("UIStroke", { Color = color or C_STROKE, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = inst })
 end
 
 local function label(parent, props)
@@ -59,6 +65,32 @@ local function label(parent, props)
     props.TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Left
     props.TextTruncate = props.TextTruncate or Enum.TextTruncate.AtEnd
     return new("TextLabel", props)
+end
+
+local function notify(title, text)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", { Title = title, Text = text, Duration = 5 })
+    end)
+end
+
+local function untilText(t)
+    local real = SkylarkTime.realSecondsUntil(t)
+    if real then
+        return SkylarkTime.formatDuration(real)
+    end
+    return SkylarkTime.formatDuration((t - SkylarkTime.now()) / SkylarkTime.HOUR * 3600) .. " SST"
+end
+
+local function enteredSlots()
+    local set, list = {}, {}
+    local raw = player:GetAttribute("ArenaEntrySlots")
+    if type(raw) == "string" then
+        for s in raw:gmatch("%d+") do
+            set[tonumber(s)] = true
+            table.insert(list, tonumber(s))
+        end
+    end
+    return set, list
 end
 
 -- ============================================================================
@@ -78,52 +110,74 @@ local bar = new("TextButton", {
     BackgroundTransparency = 0.12,
 })
 corner(bar, 8)
-local barStroke = new("UIStroke", { Color = C_STROKE, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = bar })
+local barStroke = stroke(bar)
 local barLabel = label(bar, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -24, 1, 0), Font = Enum.Font.GothamBold, TextSize = 12, Text = "" })
 
 -- ============================================================================
--- ENTRY PANEL (left of the clock)
+-- REGISTRATION POPUP (an Arena Terminal)
 -- ============================================================================
 
-local PANEL_H = 300
-local panel = new("Frame", {
-    Name = "EntryPanel",
+local PW, PH = 340, 340
+local QUIN_Y, QUIN_H = 92, 34
+local popup = new("Frame", {
+    Name = "TerminalPopup",
     Parent = gui,
-    AnchorPoint = Vector2.new(1, 0),
-    Position = UDim2.new(1, -16 - W - 8, 0, 12),
-    Size = UDim2.fromOffset(W, PANEL_H),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(PW, PH),
     BackgroundColor3 = C_BG,
-    BackgroundTransparency = 0.06,
+    BackgroundTransparency = 0.04,
     Visible = false,
 })
-corner(panel, 10)
-stroke(panel)
+corner(popup, 12)
+stroke(popup, C_AMBER)
 
-label(panel, { Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(W - 60, 16), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_AMBER, Text = "ARENA ENTRY" })
-local closeButton = new("TextButton", { Parent = panel, Text = "X", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(W - 34, 8), Size = UDim2.fromOffset(22, 22) })
-corner(closeButton, 5)
-local windowLabel = label(panel, { Position = UDim2.fromOffset(14, 30), Size = UDim2.fromOffset(W - 28, 16), Font = Enum.Font.GothamBold, TextSize = 12, Text = "" })
-local whenLabel = label(panel, { Position = UDim2.fromOffset(14, 46), Size = UDim2.fromOffset(W - 28, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
-label(panel, { Position = UDim2.fromOffset(14, 68), Size = UDim2.fromOffset(W - 28, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED, Text = "YOUR QUIN" })
+label(popup, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 60, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "ARENA TERMINAL" })
+local closeButton = new("TextButton", { Parent = popup, Text = "X", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(PW - 38, 10), Size = UDim2.fromOffset(26, 26) })
+corner(closeButton, 6)
+local windowLabel = label(popup, { Position = UDim2.fromOffset(16, 36), Size = UDim2.fromOffset(PW - 32, 18), Font = Enum.Font.GothamBold, TextSize = 13, Text = "" })
+local whenLabel = label(popup, { Position = UDim2.fromOffset(16, 54), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
+local pickLabel = label(popup, { Position = UDim2.fromOffset(16, 74), Size = UDim2.fromOffset(PW - 32, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED, Text = "" })
 
-local QUIN_Y, QUIN_H = 86, 30
-local quinButtons = {}
-local selectedSlot = nil
-local roster = {}
-
-local actionButton = new("TextButton", { Parent = panel, Text = "REGISTER", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_BG, BackgroundColor3 = C_AMBER, Position = UDim2.fromOffset(14, QUIN_Y + 4 * QUIN_H + 6), Size = UDim2.fromOffset(W - 28, 32) })
-corner(actionButton, 6)
-local statusLabel = label(panel, { Position = UDim2.fromOffset(14, QUIN_Y + 4 * QUIN_H + 42), Size = UDim2.fromOffset(W - 28, 14), TextSize = 11, Text = "" })
-label(panel, {
-    Position = UDim2.fromOffset(14, PANEL_H - 50),
-    Size = UDim2.fromOffset(W - 28, 42),
+local actionButton = new("TextButton", { Parent = popup, Text = "REGISTER", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_BG, BackgroundColor3 = C_AMBER, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 8), Size = UDim2.fromOffset(PW - 32, 34) })
+corner(actionButton, 7)
+local withdrawButton = new("TextButton", { Parent = popup, Text = "WITHDRAW", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_RED, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 48), Size = UDim2.fromOffset(PW - 32, 24), Visible = false })
+corner(withdrawButton, 6)
+local statusLabel = label(popup, { Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 76), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, Text = "" })
+label(popup, {
+    Position = UDim2.fromOffset(16, PH - 38),
+    Size = UDim2.fromOffset(PW - 32, 30),
     TextSize = 10,
     TextColor3 = C_MUTED,
     TextWrapped = true,
     TextTruncate = Enum.TextTruncate.None,
     TextYAlignment = Enum.TextYAlignment.Top,
-    Text = "One Quin per round. Sat out a round? You go first next round. Empty seats are filled by arena Quins, so rounds never wait.",
+    Text = "Sat out a round? You go first next round. Your Quins fight on the same side. Empty seats are filled by arena Quins.",
 })
+
+local roster = {}
+local selected = {} -- [slot] = order picked
+local quinButtons = {}
+local openTerminal = nil
+
+local function perPlayer()
+    return Workspace:GetAttribute("ArenaRegPerPlayer") or 1
+end
+
+local function selectedList()
+    local list = {}
+    for slot, order in pairs(selected) do
+        table.insert(list, { slot = slot, order = order })
+    end
+    table.sort(list, function(a, b)
+        return a.order < b.order
+    end)
+    local slots = {}
+    for _, item in ipairs(list) do
+        table.insert(slots, item.slot)
+    end
+    return slots
+end
 
 local function refreshQuinButtons()
     for slot = 1, 4 do
@@ -136,42 +190,41 @@ local function refreshQuinButtons()
         end
         b.Visible = q ~= nil
         if q then
-            b.Text = string.format("  %d   %s %s  •  %s   W%d L%d", slot, q.Element or "?", q.Gender or "", q.Title or "Rookie", q.Wins, q.Losses)
-            local selected = slot == selectedSlot
-            b.BackgroundColor3 = selected and C_CARD_SEL or C_CARD
-            b.TextColor3 = selected and C_AMBER or C_TEXT
+            local on = selected[slot] ~= nil
+            b.Text = string.format("   %s  %s Quin #%s   •   %s   •   W%d L%d", on and "[x]" or "[  ]", q.Gender or "", q.Tag, q.Title or "Rookie", q.Wins, q.Losses)
+            b.BackgroundColor3 = on and C_CARD_SEL or C_CARD
+            b.TextColor3 = on and C_AMBER or C_TEXT
         end
     end
 end
 
 for slot = 1, 4 do
     local b = new("TextButton", {
-        Parent = panel,
+        Parent = popup,
         Text = "",
         Font = Enum.Font.Gotham,
-        TextSize = 11,
+        TextSize = 12,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextColor3 = C_TEXT,
         BackgroundColor3 = C_CARD,
-        Position = UDim2.fromOffset(14, QUIN_Y + (slot - 1) * QUIN_H),
-        Size = UDim2.fromOffset(W - 28, QUIN_H - 4),
+        Position = UDim2.fromOffset(16, QUIN_Y + (slot - 1) * QUIN_H),
+        Size = UDim2.fromOffset(PW - 32, QUIN_H - 5),
         Visible = false,
     })
-    corner(b, 5)
+    corner(b, 6)
     b.MouseButton1Click:Connect(function()
-        selectedSlot = slot
+        if selected[slot] then
+            selected[slot] = nil
+        else
+            local list = selectedList()
+            if #list >= perPlayer() then -- (at the limit: the oldest pick makes way)
+                selected[list[1]] = nil
+            end
+            selected[slot] = os.clock()
+        end
         refreshQuinButtons()
     end)
     quinButtons[slot] = b
-end
-
-local function loadRoster()
-    local ok, result = pcall(function()
-        return entryRemote:InvokeServer("roster")
-    end)
-    roster = ok and type(result) == "table" and result or {}
-    selectedSlot = player:GetAttribute("ArenaEntrySlot") or selectedSlot or (roster[1] and roster[1].Slot)
-    refreshQuinButtons()
 end
 
 local function setStatus(text, color)
@@ -179,19 +232,34 @@ local function setStatus(text, color)
     statusLabel.TextColor3 = color or C_TEXT
 end
 
-actionButton.MouseButton1Click:Connect(function()
-    local entered = player:GetAttribute("ArenaEntered") == true
-    local enteredSlot = player:GetAttribute("ArenaEntrySlot")
-    local ok, result, message
-    if entered and selectedSlot == enteredSlot then
-        ok, result, message = pcall(function()
-            return entryRemote:InvokeServer("withdraw")
-        end)
-    else
-        ok, result, message = pcall(function()
-            return entryRemote:InvokeServer("register", selectedSlot)
-        end)
+local function openPopup(terminal)
+    openTerminal = terminal
+    popup.Visible = true
+    setStatus("")
+    local ok, result = pcall(function()
+        return entryRemote:InvokeServer("roster")
+    end)
+    roster = ok and type(result) == "table" and result or {}
+    selected = {}
+    local _, already = enteredSlots()
+    for i, s in ipairs(already) do
+        selected[s] = i
     end
+    if not next(selected) and roster[1] then
+        selected[roster[1].Slot] = 1
+    end
+    refreshQuinButtons()
+end
+
+local function closePopup()
+    popup.Visible = false
+    openTerminal = nil
+end
+
+actionButton.MouseButton1Click:Connect(function()
+    local ok, result, message = pcall(function()
+        return entryRemote:InvokeServer("register", selectedList())
+    end)
     if ok then
         setStatus(message, result and C_GREEN or C_RED)
     else
@@ -199,53 +267,60 @@ actionButton.MouseButton1Click:Connect(function()
     end
 end)
 
-bar.MouseButton1Click:Connect(function()
-    panel.Visible = not panel.Visible
-    if panel.Visible then
-        setStatus("")
-        loadRoster()
+withdrawButton.MouseButton1Click:Connect(function()
+    local ok, _, message = pcall(function()
+        return entryRemote:InvokeServer("withdraw")
+    end)
+    setStatus(ok and message or "Could not reach the arena", ok and C_TEXT or C_RED)
+end)
+
+closeButton.MouseButton1Click:Connect(closePopup)
+
+ProximityPromptService.PromptTriggered:Connect(function(prompt)
+    if prompt.Name == "ArenaTerminalPrompt" then
+        openPopup(prompt.Parent)
     end
 end)
-closeButton.MouseButton1Click:Connect(function()
-    panel.Visible = false
+
+bar.MouseButton1Click:Connect(function()
+    if not popup.Visible then
+        notify("Arena Terminal", "Walk up to an Arena Terminal by the arena entrance to register your Quins.")
+    end
 end)
 
 -- ============================================================================
 -- STATE
 -- ============================================================================
 
-local function untilText(t)
-    local real = SkylarkTime.realSecondsUntil(t)
-    if real then
-        return SkylarkTime.formatDuration(real)
-    end
-    return SkylarkTime.formatDuration((t - SkylarkTime.now()) / SkylarkTime.HOUR * 3600) .. " SST"
-end
-
 local function update()
     local open = Workspace:GetAttribute("ArenaRegOpen") == true
     local window = Workspace:GetAttribute("ArenaRegWindow")
     local kind = Workspace:GetAttribute("ArenaRegKind")
     local startsAt = Workspace:GetAttribute("ArenaRegStartsAt")
-    local endsAt = Workspace:GetAttribute("ArenaRegEndsAt")
+    local closesAt = Workspace:GetAttribute("ArenaRegClosesAt")
     local entered = player:GetAttribute("ArenaEntered") == true
     local inRound = player:GetAttribute("ArenaInRound") == true
     local pos = player:GetAttribute("ArenaQueuePos")
     local satOut = player:GetAttribute("ArenaSatOut") or 0
     local entrants = Workspace:GetAttribute("ArenaEntrants") or 0
+    local _, mine = enteredSlots()
 
     if inRound then
-        barLabel.Text = "YOUR QUIN FIGHTS THIS ROUND"
+        barLabel.Text = #mine > 1 and "YOUR QUINS FIGHT THIS ROUND" or "YOUR QUIN FIGHTS THIS ROUND"
         barLabel.TextColor3 = C_AMBER
         barStroke.Color = C_AMBER
     elseif entered then
         barLabel.Text = satOut > 0 and string.format("ENTERED  •  #%d  •  first next round", pos or 0)
-            or string.format("ENTERED  •  #%d of %d in queue", pos or 0, entrants)
+            or string.format("ENTERED (%d)  •  #%d of %d in queue", #mine, pos or 0, entrants)
         barLabel.TextColor3 = C_GREEN
         barStroke.Color = C_GREEN
     elseif open then
-        barLabel.Text = string.format("ENTER  %s  >", string.upper(window or "EVENT"))
+        barLabel.Text = "ENTRY OPEN  •  go to an Arena Terminal" -- (the clock above names the event)
         barLabel.TextColor3 = C_AMBER
+        barStroke.Color = C_STROKE
+    elseif window then
+        barLabel.Text = "ENTRY CLOSED FOR THIS EVENT"
+        barLabel.TextColor3 = C_MUTED
         barStroke.Color = C_STROKE
     else
         barLabel.Text = "ENTRY CLOSED  •  opens 20m before events"
@@ -253,37 +328,35 @@ local function update()
         barStroke.Color = C_STROKE
     end
 
-    if panel.Visible then
-        windowLabel.Text = open and string.upper(window or "") or "NO EVENT OPEN"
-        if open and kind == "Live" and endsAt then
-            whenLabel.Text = string.format("Live now  •  %s left  •  %d entered", untilText(endsAt), entrants)
+    if popup.Visible then
+        -- walked away from the terminal: close
+        local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if openTerminal and root and (openTerminal.Position - root.Position).Magnitude > WALK_AWAY then
+            closePopup()
+            return
+        end
+        windowLabel.Text = window and string.upper(window) or "NO EVENT OPEN"
+        if open and kind == "Live" and closesAt then
+            whenLabel.Text = string.format("Live now  •  entry closes in %s  •  %d entered", untilText(closesAt), entrants)
         elseif open and startsAt then
             whenLabel.Text = string.format("Starts in %s  •  %d entered", untilText(startsAt), entrants)
+        elseif window then
+            whenLabel.Text = "Entry has closed for this event"
         else
             whenLabel.Text = "Entry opens 20 minutes before each event"
         end
-        local enteredSlot = player:GetAttribute("ArenaEntrySlot")
-        if entered and selectedSlot == enteredSlot then
-            actionButton.Text = "WITHDRAW"
-            actionButton.BackgroundColor3 = C_CARD
-            actionButton.TextColor3 = C_RED
-        else
-            actionButton.Text = entered and "SWITCH TO THIS QUIN" or "REGISTER"
-            actionButton.BackgroundColor3 = open and C_AMBER or C_CARD
-            actionButton.TextColor3 = open and C_BG or C_MUTED
-        end
+        local limit = perPlayer()
+        pickLabel.Text = limit > 1 and string.format("PICK UP TO %d QUINS (THEY FIGHT TOGETHER)", limit) or "PICK YOUR QUIN"
+        actionButton.Text = entered and "UPDATE MY ENTRY" or "REGISTER"
+        actionButton.BackgroundColor3 = open and C_AMBER or C_CARD
+        actionButton.TextColor3 = open and C_BG or C_MUTED
+        withdrawButton.Visible = entered
     end
 end
 
 player:GetAttributeChangedSignal("ArenaInRound"):Connect(function()
     if player:GetAttribute("ArenaInRound") == true then
-        pcall(function()
-            StarterGui:SetCore("SendNotification", {
-                Title = "You're in!",
-                Text = "Your Quin is in the preparation room for this round.",
-                Duration = 6,
-            })
-        end)
+        notify("You're in!", "Off to the preparation room: your Quins are waiting on your pad.")
     end
 end)
 

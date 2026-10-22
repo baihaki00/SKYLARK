@@ -138,10 +138,10 @@ local function findSpawnLocation()
 	return workspace:FindFirstChild("SpawnLocation", true) or workspace:FindFirstChildOfClass("SpawnLocation")
 end
 
--- Fly Spectator is the default (pass 24): the game opens in the free camera above the arena; the
--- avatar is parked, hidden and still. B walks as the avatar, R (or B again) flies.
-local cameraMode = "FREEFLY"
-shared.SpectatorState = { Mode = "FREEFLY" }
+-- The game opens as an ordinary Roblox player walking the avatar (owner, 2026-10-23: walk up to
+-- the Arena Terminals); B flies the free camera (Fly Spectator, pass 24), B again walks, R flies.
+local cameraMode = "DEFAULT"
+shared.SpectatorState = { Mode = "DEFAULT" }
 local playerSpawnObj = findSpawnLocation()
 local cameraPos = playerSpawnObj and (playerSpawnObj.Position + Vector3.new(0, 15, 30)) or Vector3.new(161, 159, -722.5)
 local yaw = 0

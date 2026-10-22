@@ -68,6 +68,16 @@ local function createDefaultRoster(userId)
 	roster.Slots[3] = nil
 	roster.Slots[4] = nil
 
+	-- Studio test player: a full roster of 4, to try entering 2 of 4 Quins at the Arena Terminal
+	if RunService:IsStudio() then
+		roster.UnlockedSlots = 4
+		for slot = 3, 4 do
+			local extra = QuinInstance.create({ OwnerId = userId, Type = "Standard" })
+			extra.Titles = { Current = "Rookie", Earned = { "Rookie" } }
+			roster.Slots[slot] = extra
+		end
+	end
+
 	return roster
 end
 
