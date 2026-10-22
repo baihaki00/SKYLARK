@@ -165,7 +165,7 @@ RunService.Heartbeat:Connect(function()
             local state = hum:GetState()
             local v = rig.root.AssemblyLinearVelocity
             local speed = Vector3.new(v.X, 0, v.Z).Magnitude
-            if hum.Sit or state == Enum.HumanoidStateType.Seated then
+            if hum.SeatPart then -- (the seat itself: Sit / the Seated state can stay set after standing up)
                 setBase(rig, "sit")
             elseif state == Enum.HumanoidStateType.Jumping then
                 if rig.base ~= "jump" then

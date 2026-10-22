@@ -31,9 +31,11 @@ local Crowd = require(ServerScriptService:WaitForChild("ArenaCrowdManager"))
 
 local DEFAULT_COUNT = 1000
 local SPACING = 3.4 -- studs between avatars on the stands
-local LOOKS = 40 -- different avatars
-local LOOK_WORKERS = 8 -- avatar lookups at once
-local LOOK_ATTEMPTS = 700 -- random users tried at most (most are undressed or gone)
+local LOOKS = 90 -- different avatars
+local LOOK_WORKERS = 12 -- avatar lookups at once
+local LOOK_ATTEMPTS = 1500 -- random users tried at most (most are undressed or gone)
+local RARE_ACCESSORIES = { "hook" } -- looks wearing these come up rarely (owner: the pirate hook hand)
+local RARE_WEIGHT = 0.12
 local USER_ID_RANGE = { 20000000, 4000000000 }
 
 local SKIN = {
@@ -150,7 +152,9 @@ local function plainLook(index)
     return ok and model and finishLook(model, index) or nil
 end
 
--- A random user's avatar, if it wears a classic shirt (or t-shirt) and pants
+-- A random user's avatar, if it wears a real shirt and pants (owner: everyone clothed; Roblox
+-- fills in empty Shirt / Pants objects, so the clothes' templates are what is checked). Each look
+-- gets its own height and build, so the stands are not all one size.
 local function userLook(index)
     local userId = rng:NextInteger(USER_ID_RANGE[1], USER_ID_RANGE[2])
     local ok, desc = pcall(function()
@@ -159,6 +163,14 @@ local function userLook(index)
     if not ok or not desc then
         return nil
     end
+    if desc.Shirt == 0 or desc.Pants == 0 then
+        return nil
+    end
+    local tall = rng:NextNumber() < 0.12 and rng:NextNumber(0.78, 0.88) or rng:NextNumber(0.9, 1.14)
+    desc.HeightScale = math.clamp(desc.HeightScale * tall, 0.7, 1.2)
+    desc.WidthScale = math.clamp(desc.WidthScale * rng:NextNumber(0.9, 1.1), 0.7, 1.05)
+    desc.DepthScale = math.clamp(desc.DepthScale * rng:NextNumber(0.92, 1.08), 0.7, 1.05)
+    desc.HeadScale = math.clamp(desc.HeadScale * rng:NextNumber(0.94, 1.06), 0.9, 1.05)
     local dressed = desc.HatAccessory ~= "" or desc.HairAccessory ~= "" or desc.Shirt ~= 0 or desc.GraphicTShirt ~= 0
     if not dressed then
         return nil
@@ -171,11 +183,22 @@ local function userLook(index)
     end
     finishLook(model, index)
     -- (layered clothing is left off: an avatar dressed only in it would stand there bare)
-    if not (model:FindFirstChildOfClass("Shirt") or model:FindFirstChildOfClass("ShirtGraphic"))
-        or not model:FindFirstChildOfClass("Pants") then
+    local shirt, pants = model:FindFirstChildOfClass("Shirt"), model:FindFirstChildOfClass("Pants")
+    if not (shirt and shirt.ShirtTemplate ~= "" and pants and pants.PantsTemplate ~= "") then
         model:Destroy()
         return nil
     end
+    local weight = 1
+    for _, accessory in ipairs(model:GetChildren()) do
+        if accessory:IsA("Accessory") then
+            for _, word in ipairs(RARE_ACCESSORIES) do
+                if accessory.Name:lower():find(word) then
+                    weight = RARE_WEIGHT
+                end
+            end
+        end
+    end
+    model:SetAttribute("Weight", weight)
     return model
 end
 
@@ -266,9 +289,23 @@ local function relayout()
         end
         local count = math.min(tonumber(Workspace:GetAttribute("CrowdNpcCount")) or DEFAULT_COUNT, #spots)
         local sections = Crowd.getSections()
+        local totalWeight = 0
+        for _, t in ipairs(templates) do
+            totalWeight += t:GetAttribute("Weight") or 1
+        end
+        local function pickLook()
+            local roll = rng:NextNumber(0, totalWeight)
+            for i, t in ipairs(templates) do
+                roll -= t:GetAttribute("Weight") or 1
+                if roll <= 0 then
+                    return i
+                end
+            end
+            return #templates
+        end
         for i = 1, count do
             local p, axis, from, to = spots[i][1], spots[i][2], spots[i][3], spots[i][4]
-            local look = rng:NextInteger(1, #templates)
+            local look = pickLook()
             local y = p.Y + templates[look]:GetAttribute("RootAboveFloor")
             table.insert(layout, {
                 math.floor(p.X * 10) / 10, math.floor(y * 100) / 100, math.floor(p.Z * 10) / 10,

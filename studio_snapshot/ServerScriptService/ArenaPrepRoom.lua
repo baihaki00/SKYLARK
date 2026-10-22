@@ -36,6 +36,7 @@ local RELEASE_DELAY = 6 -- seconds after an owner's last Quin falls
 local NPC_LET_IN_CHANCE = 0.6
 
 local rooms = nil -- built once from the Workspace
+local rng = Random.new()
 local active = {} -- [room] = { owner, ownerName, isNpc, team, models = {}, allowed = {[userId]=true}, releasing }
 
 -- ============================================================================
@@ -229,8 +230,45 @@ local function onKnock(player, room)
     notice(player, string.format("You knock on %s's door...", state.ownerName))
 end
 
+-- An owner's NPC friend knocking (ArenaNpcOwners.addFriends): an NPC owner lets friends in; a
+-- player owner is asked like any knock (negative ids tell them apart); no answer is a no
+local pendingFriendKnocks = {} -- [negative id] = { owner, callback }
+local friendKnockId = 0
+local function friendKnock(room, name, callback, stranger)
+    local state = active[room]
+    if not state then
+        callback(false)
+        return
+    end
+    if state.isNpc then
+        task.delay(rng:NextNumber(1, 2.5), function()
+            callback(active[room] == state and (not stranger or rng:NextNumber() < 0.6))
+        end)
+        return
+    end
+    friendKnockId -= 1
+    local id = friendKnockId
+    pendingFriendKnocks[id] = { owner = state.owner, callback = callback }
+    remote:FireClient(state.owner, "knock", stranger and name or (name .. " (your friend)"), id)
+    task.delay(16, function()
+        local p = pendingFriendKnocks[id]
+        if p then
+            pendingFriendKnocks[id] = nil
+            p.callback(false)
+        end
+    end)
+end
+
 remote.OnServerEvent:Connect(function(player, action, requesterId, allow)
     if action ~= "knockReply" then
+        return
+    end
+    local friendKnockReply = type(requesterId) == "number" and pendingFriendKnocks[requesterId]
+    if friendKnockReply then
+        if friendKnockReply.owner == player then
+            pendingFriendKnocks[requesterId] = nil
+            friendKnockReply.callback(allow == true)
+        end
         return
     end
     local pending = pendingKnocks[player.UserId]
@@ -362,6 +400,16 @@ function PrepRoom.open(entrants)
                     table.insert(state.models, q)
                 end
             end
+            -- the owner's friends: in already, or knocking later; they roam the hallway and other rooms
+            ArenaNpcOwners.addFriends(room, PrepRoom, friendKnock, function()
+                local list = {}
+                for other in pairs(active) do
+                    if other ~= room and other.side == room.side and math.abs(other.floorY - room.floorY) < 5 then
+                        table.insert(list, other)
+                    end
+                end
+                return list
+            end)
             room.door.DoorPrompt.ObjectText = state.ownerName .. "'s room"
             room.door.DoorPrompt.Enabled = true
             publish(room, state)
@@ -418,6 +466,7 @@ local function releaseRoom(room, sendHome)
     active[room] = nil
     publish(room, nil)
     room.door.DoorPrompt.Enabled = false
+    ArenaNpcOwners.removeFriends(room, sendHome ~= false)
     if state.isNpc then
         ArenaNpcOwners.leave(state.owner, sendHome ~= false)
     elseif state.owner.Parent then
