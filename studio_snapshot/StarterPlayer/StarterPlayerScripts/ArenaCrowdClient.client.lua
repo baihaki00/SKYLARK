@@ -17,9 +17,12 @@
 -- write); the looks are rigid Motor6D bodies, so none of it wakes physics.
 -- Reactions: cheers and roars -> cheering, clapping, jumping (big moments: jumping again and again,
 -- dancing); groans and disappointment -> booing (pointing, slumping); gasps -> hands on the head.
--- Together, in time (server time, so every player sees the same): the anthem (the whole stadium
--- sways side to side, arms up, singing), Mexican waves round the stands (the server starts them),
--- and chants (the chanted team's sections pump their fists on the beat).
+-- Together, in time: the anthem is a rave (owner: it is loud and pumping, not a quiet national
+-- anthem): the beat is read from the anthem's drum stem as it plays (its loudness, here on this
+-- machine), and on every beat the stadium goes off: jumpers jump, pumpers punch the air and
+-- headbang, wavers swing their arms side to side, headbangers whip their heads, faces screaming.
+-- Mexican waves round the stands (the server starts them, so every player sees the same), and
+-- chants (the chanted team's sections pump their fists).
 -- Live knobs (Workspace attributes): CrowdAnimateMax, CrowdHopMax, CrowdReactScale,
 -- CrowdAlwaysOn (true: the crowd stays between matches too).
 
@@ -35,7 +38,7 @@ local FACE_RANGE = 70
 local POSE_RANGE = 380 -- beyond this the crowd stands still
 local POSE_UPDATES_PER_FRAME = 160 -- posed avatars re-posed per frame
 local POSE_UPDATES_ANTHEM = 360 -- (during the anthem every avatar sways: more a frame)
-local ANTHEM_PERIOD = 2.6 -- seconds per sway, left and right
+local ANTHEM_FALLBACK_BEAT = 60 / 128 -- seconds per beat when no drum stem is found
 local CHANT_BEAT = 0.5 -- seconds per fist pump
 local WAVE_WIDTH = 9 -- degrees of the stands up at once
 local HOP_MAX = 250 -- avatars in the air at once
@@ -221,6 +224,54 @@ end
 
 local rad = math.rad
 
+-- The anthem's beat, from its drum stem's loudness (a hit: well over the running average)
+local beat = { last = 0, interval = ANTHEM_FALLBACK_BEAT, count = 0, avg = 0, drum = nil, scanAt = 0, u = 0, signalAt = 0 }
+
+local function findDrum()
+    -- (the anthem's stems play on the ArenaGlobe and the stands' emitters, inside ArenaOne)
+    local arena = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
+    for _, d in ipairs(arena and arena:GetDescendants() or {}) do
+        if d:IsA("Sound") and d.IsPlaying and d.Name:upper():find("DRUM") then
+            return d
+        end
+    end
+    return nil
+end
+
+local function updateBeat(now)
+    local drum = beat.drum
+    if not (drum and drum.Parent and drum.IsPlaying) then
+        beat.drum = nil
+        if now >= beat.scanAt then
+            beat.scanAt = now + 1.5
+            beat.drum = findDrum()
+        end
+    end
+    local hit = false
+    local loud = beat.drum and beat.drum.PlaybackLoudness or 0
+    if loud > 1 then
+        beat.signalAt = now
+    end
+    -- (no drum, or one that gives no signal: the player's audio is off: a steady pulse instead)
+    if beat.drum and now - beat.signalAt < 2 then
+        beat.avg += (loud - beat.avg) * 0.08
+        if loud > beat.avg * 1.3 + 8 and now - beat.last > 0.24 then
+            local gap = now - beat.last
+            if gap < 1.2 then
+                beat.interval = beat.interval * 0.7 + gap * 0.3
+            end
+            hit = true
+        end
+    elseif now - beat.last >= beat.interval then
+        hit = true
+    end
+    if hit then
+        beat.last = now
+        beat.count += 1
+    end
+    beat.u = math.clamp((now - beat.last) / math.max(0.2, beat.interval), 0, 1)
+end
+
 local function syncTime()
     return Workspace:GetServerTimeNow() -- (the same moment on every player's machine)
 end
@@ -228,13 +279,40 @@ end
 -- pose -> function(t, phase) returning { joint key = CFrame }; t is server time, so the poses
 -- that ignore `phase` (anthem, pump) move in unison across the stadium
 local POSES = {
-    anthem = function(t)
-        local sway = math.sin(t * math.pi * 2 / ANTHEM_PERIOD)
+    anthem = function(_, p)
+        local u = beat.u
+        local hit = 1 - u -- strongest right on the beat
+        local bounce = math.sin(math.pi * u) -- up between beats, down on them
+        local kind = math.floor(p / 6.29 * 4) + 1
+        if kind == 1 then -- jumpers: off the ground every beat, arms up
+            return {
+                Root = CFrame.new(0, 2.6 * bounce, 0),
+                LS = CFrame.Angles(rad(165), 0, rad(-25 * bounce)), RS = CFrame.Angles(rad(165), 0, rad(25 * bounce)),
+                LE = CFrame.Angles(rad(15), 0, 0), RE = CFrame.Angles(rad(15), 0, 0),
+                Neck = CFrame.Angles(rad(18), 0, 0),
+            }
+        elseif kind == 2 then -- fist pumpers: punching the air, headbanging
+            return {
+                Root = CFrame.new(0, 0.9 * bounce, 0),
+                RS = CFrame.Angles(rad(105 + 65 * hit), 0, rad(8)), RE = CFrame.Angles(rad(85 - 75 * hit), 0, 0),
+                LS = CFrame.Angles(rad(45), 0, rad(-10)), LE = CFrame.Angles(rad(95), 0, 0),
+                Neck = CFrame.Angles(rad(12 - 32 * hit), 0, 0), Waist = CFrame.Angles(rad(-12 * hit), 0, 0),
+            }
+        elseif kind == 3 then -- wavers: arms up, swinging side to side every two beats
+            local sway = math.sin(math.pi * (beat.count + u))
+            return {
+                Root = CFrame.new(0, 1.1 * bounce, 0),
+                Waist = CFrame.Angles(0, 0, rad(12 * sway)),
+                LS = CFrame.Angles(rad(158), 0, rad(-10 + 28 * sway)), RS = CFrame.Angles(rad(158), 0, rad(10 + 28 * sway)),
+                Neck = CFrame.Angles(rad(14), 0, rad(-9 * sway)),
+            }
+        end
+        -- headbangers: both fists up, heads whipping on the beat
         return {
-            Waist = CFrame.Angles(0, 0, rad(7 * sway)),
-            LS = CFrame.Angles(rad(150), 0, rad(-12 + 16 * sway)), RS = CFrame.Angles(rad(150), 0, rad(12 + 16 * sway)),
-            LE = CFrame.Angles(rad(20), 0, 0), RE = CFrame.Angles(rad(20), 0, 0),
-            Neck = CFrame.Angles(rad(12), 0, rad(-5 * sway)),
+            Root = CFrame.new(0, 0.7 * bounce, 0),
+            LS = CFrame.Angles(rad(100 + 55 * hit), 0, rad(-6)), RS = CFrame.Angles(rad(100 + 55 * hit), 0, rad(6)),
+            LE = CFrame.Angles(rad(60), 0, 0), RE = CFrame.Angles(rad(60), 0, 0),
+            Neck = CFrame.Angles(rad(18 - 45 * hit), 0, 0), Waist = CFrame.Angles(rad(-18 * hit), 0, 0),
         }
     end,
     pump = function(t)
@@ -305,6 +383,9 @@ local function applyPose(a)
         if j then
             j.Transform = set[k] or CFrame.identity
         end
+    end
+    if set.Root and a.rootJoint and not hopping[a] then
+        a.rootJoint.Transform = set.Root
     end
 end
 
@@ -761,10 +842,13 @@ local function setAnthem(on)
                     a.emote = nil
                 end
                 setPose(a, "anthem")
-                setExpression(a, "talk") -- (singing)
+                setExpression(a, "cheer") -- (screaming along)
                 a.faceUntil = nil
             else
                 setPose(a, "idle")
+                if a.rootJoint and not hopping[a] then
+                    a.rootJoint.Transform = CFrame.identity
+                end
                 setExpression(a, "happy")
                 a.faceUntil = os.clock() + 3
             end
@@ -960,12 +1044,17 @@ RunService.RenderStepped:Connect(function(dt)
     local budget = anthemOn and POSE_UPDATES_ANTHEM or POSE_UPDATES_PER_FRAME
     local range = anthemOn and math.huge or POSE_RANGE
     local turn = math.max(0, (posingCount / budget) * dt * 0.9)
+    if anthemOn then
+        updateBeat(now)
+    end
     for a in pairs(posing) do
         if budget <= 0 then
             break
         end
         if a.poseUntil and now > a.poseUntil then
             setPose(a, anthemOn and "anthem" or (a.walking and "walk" or "idle"))
+        elseif anthemOn and a.near and not a.emote then
+            applyPose(a) -- (the nearest, every frame: the jumps and headbangs read crisp up close)
         elseif not a.emote and (a.posedAt or 0) <= now - turn and eyeDistance(a) < range then
             a.posedAt = now
             applyPose(a)
