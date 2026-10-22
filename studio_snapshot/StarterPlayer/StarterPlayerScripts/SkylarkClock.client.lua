@@ -460,7 +460,7 @@ if isOwner then
         Name = "TimeDebug",
         Parent = gui,
         AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.new(1, -16, 0, 124),
+        Position = UDim2.new(1, -16, 0, 162), -- (under the clock and ArenaEntry's entry bar)
         Size = UDim2.fromOffset(PANEL_W, 300),
         BackgroundColor3 = C_BG,
         BackgroundTransparency = 0.06,
@@ -620,7 +620,7 @@ local function updateWidget(info)
     timeLabel.Text = SkylarkTime.formatHours(info.Hours)
     periodLabel.Text = "SST • " .. string.upper(info.Period)
     dateLabel.Text = string.format("%s • %s %d • Y%d", SkylarkTime.WEEKDAYS[info.Weekday], info.Season, info.SeasonDay, info.Year)
-    local left = untilText(slot.EndsAt)
+    local left = untilText(slot.EndsAt):gsub(" SST", "") -- (the badge says the clock is paused)
     if slot.Kind == "Event" then
         slotLabel.Text = string.format("LIVE  %s  •  %s left", string.upper(slot.Name), left)
     elseif slot.Kind == "Rest" then

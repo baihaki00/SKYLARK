@@ -23,6 +23,7 @@ local ArenaDroneManager = require(ServerScriptService:WaitForChild("ArenaDroneMa
 local ArenaCrowd = require(ServerScriptService:WaitForChild("ArenaCrowdManager"))
 local ArenaGenerator = require(ServerScriptService:WaitForChild("ArenaGenerator"))
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
+local ArenaRegistration = require(ServerScriptService:WaitForChild("ArenaRegistration"))
 local VfxModule = require(ReplicatedStorage.QuinCore.Modules.VfxModule)
 local SocialRespect = require(ReplicatedStorage.QuinCore.Modules.SocialRespect)
 local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
@@ -56,6 +57,10 @@ local activeConfig = {
 local pilotPlayer = nil
 local matchDais = nil
 local matchDaisUpAt = 0 -- (os.clock() when the dais has finished rising)
+
+-- Players' own Quins in this round (ArenaRegistration.pickRound, at the preparation room):
+-- { player, quin, team }; spawnFighters seats them, the arena's Quins fill the other seats
+local roundEntrants = {}
 
 local matchStats = {
     StartTime = 0,
@@ -254,6 +259,27 @@ local function igniteHolograms()
     end
 end
 
+-- Spawn a fighter for `team`: an entered player's Quin if one is waiting for that side (any side
+-- in FFA), else an arena Quin of `gender`
+local function spawnSeat(gender, position, team)
+    local entry = nil
+    for _, e in ipairs(roundEntrants) do
+        if not e.seated and e.team == team then
+            entry = e
+            break
+        end
+    end
+    if entry then
+        entry.seated = true
+    end
+    local q = QuinSpawner.spawn(entry and entry.quin or gender, position, team)
+    if q and entry then
+        q:SetAttribute("OwnerUserId", entry.player.UserId)
+        q:SetAttribute("OwnerName", entry.player.Name)
+    end
+    return q
+end
+
 -- Fighters are deployed one at a time, in a random order across both sides, each taking shape in
 -- a holographic glitch, over `window` seconds (0: all at once). A SKIP places the rest at once.
 local function spawnFighters(window, epoch)
@@ -325,12 +351,12 @@ local function spawnFighters(window, epoch)
         local p1 = posAlpha:Lerp(posBeta, 0.6)
         local p2 = posBeta:Lerp(posAlpha, 0.6)
         table.insert(jobs, function()
-            local q = QuinSpawner.spawn("Male", p1, "TeamAlpha")
+            local q = spawnSeat("Male", p1, "TeamAlpha")
             settle(q, CFrame.lookAt(p1, Vector3.new(p2.X, p1.Y, p2.Z)))
             return q
         end)
         table.insert(jobs, function()
-            local q = QuinSpawner.spawn("Female", p2, "TeamBeta")
+            local q = spawnSeat("Female", p2, "TeamBeta")
             settle(q, CFrame.lookAt(p2, Vector3.new(p1.X, p2.Y, p1.Z)))
             return q
         end)
@@ -346,7 +372,7 @@ local function spawnFighters(window, epoch)
             local angle = (i / count) * math.pi * 2
             local pos = center + Vector3.new(math.cos(angle) * r, 2, math.sin(angle) * r)
             table.insert(jobs, function()
-                local q = QuinSpawner.spawn((i % 2 == 1) and "Male" or "Female", pos, nil)
+                local q = spawnSeat((i % 2 == 1) and "Male" or "Female", pos, nil)
                 settle(q, CFrame.lookAt(pos, Vector3.new(center.X, pos.Y, center.Z)))
                 return q
             end)
@@ -358,7 +384,7 @@ local function spawnFighters(window, epoch)
             for i, p in ipairs(points or {}) do
                 local gender = ((i % 2 == 1) == (team == "TeamAlpha")) and "Male" or "Female"
                 table.insert(jobs, function()
-                    local q = QuinSpawner.spawn(gender, p, team)
+                    local q = spawnSeat(gender, p, team)
                     settle(q, CFrame.lookAt(p, Vector3.new(facing.X, p.Y, facing.Z)))
                     return q
                 end)
@@ -371,12 +397,12 @@ local function spawnFighters(window, epoch)
             local pA = posAlpha + sideDir * sideOffset + Vector3.new(0, 2, 0)
             local pB = posBeta + sideDir * sideOffset + Vector3.new(0, 2, 0)
             table.insert(jobs, function()
-                local q = QuinSpawner.spawn((i % 2 == 1) and "Male" or "Female", pA, "TeamAlpha")
+                local q = spawnSeat((i % 2 == 1) and "Male" or "Female", pA, "TeamAlpha")
                 settle(q, CFrame.lookAt(pA, pA + forwardDir))
                 return q
             end)
             table.insert(jobs, function()
-                local q = QuinSpawner.spawn((i % 2 == 1) and "Female" or "Male", pB, "TeamBeta")
+                local q = spawnSeat((i % 2 == 1) and "Female" or "Male", pB, "TeamBeta")
                 settle(q, CFrame.lookAt(pB, pB - forwardDir))
                 return q
             end)
@@ -523,6 +549,7 @@ local function runMatchLifecycle()
     -- PHASE 3: PREPARATION ROOM. Fighters calibrating in the backrooms: none on the field.
     QuinSpawner.cleanAll()
     Workspace:SetAttribute("MatchStarted", false)
+    roundEntrants = ArenaRegistration.pickRound(mode, math.max(1, tonumber(activeConfig.TeamSize) or 4))
     local prepTime = duration("PreparationRoom")
     epoch = beginPhase("PREPARATION_ROOM", prepTime, "PREPARATION ROOM", string.format("FIGHTERS CALIBRATING IN BACKROOMS • %d SECONDS", prepTime))
     if toggle("Announcer") then
@@ -777,6 +804,8 @@ function Orchestrator.stopMatch()
     ArenaFireworks.stopAll()
     ArenaDroneManager.resetDrones()
     QuinSpawner.cleanAll()
+    roundEntrants = {}
+    ArenaRegistration.roundOver()
     replicateState()
 end
 
