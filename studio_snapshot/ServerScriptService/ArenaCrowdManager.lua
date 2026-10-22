@@ -12,6 +12,9 @@
 --   asks getStemEmitters).
 --
 -- Driven by ArenaSystemOrchestrator: setEnabled, resetMatch, setPhase, assignTeams, onWinner.
+-- Crowd.Reacted (an event: team or nil, category, major) fires with every reaction, and
+-- Crowd.getSections() gives each section's centre and team: the NPC crowd (ArenaCrowdNpcs) moves
+-- with the sound.
 
 local Workspace = game:GetService("Workspace")
 local SoundService = game:GetService("SoundService")
@@ -22,6 +25,9 @@ local ArenaConfig = require(ReplicatedStorage.QuinCore.ArenaConfig)
 local CFG = ArenaConfig.CrowdFX
 
 local Crowd = {}
+
+local reactedEvent = Instance.new("BindableEvent")
+Crowd.Reacted = reactedEvent.Event
 
 local library = nil        -- Category name -> { Sound templates }
 local lastPick = {}        -- Category -> last template (avoid back-to-back repeats)
@@ -274,6 +280,7 @@ local function react(team, category, chance, major)
 		if now - lastMinorAt < CFG.MinorGap then return end
 		lastMinorAt = now
 	end
+	reactedEvent:Fire(team, category, major == true)
 	for _, section in ipairs(sections) do
 		if (team == nil or section.team == team) and math.random() < (chance or 1) then
 			if major or now >= section.nextMinor then
@@ -758,6 +765,16 @@ end
 
 function Crowd.getRollOff()
 	return CFG.RollOffMin, CFG.RollOffMax
+end
+
+-- Each section's centre and allegiance (TeamAlpha / TeamBeta / Neutral)
+function Crowd.getSections()
+	if not sections then buildSections() end
+	local list = {}
+	for _, s in ipairs(sections or {}) do
+		table.insert(list, { center = s.center, team = s.team })
+	end
+	return list
 end
 
 -- Debug/telemetry

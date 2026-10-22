@@ -2,9 +2,10 @@
 -- Simulated Quin owners: some of the seats the arena fills with its own Quins go to NPC owners,
 -- so the preparation rooms are lived in like a full server.
 --
---   * fillRound (the orchestrator, after ArenaRegistration.pickRound): of the seats players left
---     empty, about NPC_SHARE go to NPC owners with 1 or 2 Quins each (the event's limit), as many as
---     there are free rooms on that side. Real players are always seated first.
+--   * fillRound (the orchestrator, after ArenaRegistration.pickRound): the seats players left empty
+--     go to NPC owners (share: Workspace attribute ArenaNpcShare, default 1 = all of them), one
+--     owner per free room on that side first, so every room is lived in; seats beyond the rooms
+--     become owners' second Quins (up to the event's limit). Real players are always seated first.
 --   * Each NPC owner is a Roblox avatar (random colours, a name tag) put in their room
 --     (ArenaPrepRoom). They are never still: they wander, sit on the chairs, stand at the glass
 --     watching the arena (once the fight is on, turned towards their own Quin), use the terminals,
@@ -19,10 +20,11 @@ local PhysicsService = game:GetService("PhysicsService")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local QuinInstance = require(QuinCore:WaitForChild("Modules"):WaitForChild("QuinInstance"))
+local NpcAnimator = require(script.Parent:WaitForChild("NpcAnimator"))
 
 local NpcOwners = {}
 
-local NPC_SHARE = 0.6 -- of the empty seats
+local NPC_SHARE = 1 -- of the empty seats (Workspace attribute ArenaNpcShare overrides)
 local WALK_SPEED = { 10, 14 }
 
 local NAMES = {
@@ -30,6 +32,8 @@ local NAMES = {
     "Gearwright", "Lumen", "OkiDoki", "Rook", "TidalGrin", "Vesper", "ZeroFuse", "Ashgrove",
     "CobaltKid", "Marrow", "Juno_Q", "Patchwork", "Starling", "Hollowpoint", "Ember_Lark",
     "Quill", "Basalt", "Fennec", "Glint", "Harbor", "Inkwell", "Jubilee", "Kitebird",
+    "Lanternfish", "Mireille", "Nox_7", "Orrery", "Pebblestep", "Quasar_Q", "Ravenwood", "Sablecat",
+    "Thistle", "Umbra", "Velvetine", "Wrenfield", "Xylo", "Yarrow", "Zephyrine", "Bramble",
 }
 
 local SKIN = {
@@ -87,34 +91,29 @@ function NpcOwners.fillRound(entrants, mode, teamSize, perPlayer, roomsPerSide)
         end
         roomsLeft[team] = math.max(0, (roomsPerSide or 16) - used)
     end
-    local budget = math.floor((seats - #entrants) * NPC_SHARE + 0.5)
+    local share = tonumber(Workspace:GetAttribute("ArenaNpcShare")) or NPC_SHARE
     local added = 0
-    while budget > 0 do
-        local team = nil
-        if mode ~= "FFA" then
-            team = teamCount.TeamAlpha <= teamCount.TeamBeta and "TeamAlpha" or "TeamBeta"
-            if teamCount[team] >= perTeam or roomsLeft[team] <= 0 then
-                team = team == "TeamAlpha" and "TeamBeta" or "TeamAlpha"
-                if teamCount[team] >= perTeam or roomsLeft[team] <= 0 then
-                    break
-                end
+    -- owners for `team` (nil: FFA) in up to `rooms` rooms, holding `npcSeats` Quins between them
+    local function addOwners(team, npcSeats, rooms)
+        local owners = math.min(rooms, npcSeats)
+        local extra = math.min(npcSeats - owners, owners * (perPlayer - 1))
+        for i = 1, owners do
+            nameIndex = nameIndex % #NAMES + 1
+            local npc = { name = NAMES[nameIndex], npc = true }
+            for _ = 1, (i <= extra) and 2 or 1 do
+                local quin = QuinInstance.create({ Type = "Standard", OwnerId = "NPC_" .. npc.name })
+                table.insert(entrants, { npc = npc, quin = quin, team = team })
+                added += 1
             end
-            roomsLeft[team] -= 1
         end
-        nameIndex = nameIndex % #NAMES + 1
-        local npc = { name = NAMES[nameIndex], npc = true }
-        local count = math.min(budget, rng:NextNumber() < 0.55 and perPlayer or 1)
-        for _ = 1, count do
-            if team and teamCount[team] >= perTeam then
-                break
-            end
-            local quin = QuinInstance.create({ Type = "Standard", OwnerId = "NPC_" .. npc.name })
-            table.insert(entrants, { npc = npc, quin = quin, team = team })
-            if team then
-                teamCount[team] += 1
-            end
-            budget -= 1
-            added += 1
+    end
+    if mode == "FFA" then
+        local free = math.max(0, seats - #entrants)
+        addOwners(nil, math.floor(free * share + 0.5), roomsLeft.TeamAlpha + roomsLeft.TeamBeta)
+    else
+        for _, team in ipairs({ "TeamAlpha", "TeamBeta" }) do
+            local free = math.max(0, perTeam - teamCount[team])
+            addOwners(team, math.floor(free * share + 0.5), roomsLeft[team])
         end
     end
     if added > 0 then
@@ -162,6 +161,7 @@ local function makeAvatar(npc, cf)
     model:SetAttribute("NpcOwner", true)
     model:PivotTo(cf)
     model.Parent = folder
+    NpcAnimator.attach(model, { moving = true })
     local root = model:FindFirstChild("HumanoidRootPart")
     if root then
         pcall(function()
@@ -295,6 +295,14 @@ local function act(npc, action)
         end
     elseif action == "window" then
         walkTo(npc, Api.windowPoint(room))
+        if Workspace:GetAttribute("MatchStarted") == true and rng:NextNumber() < 0.6 then
+            -- watching their Quin fight: cheering it on, or pointing it at something
+            task.delay(rng:NextNumber(1, 4), function()
+                if alive(npc) then
+                    NpcAnimator.emote(npc.model, pick({ "cheer", "cheer", "point", "wave" }), rng:NextNumber(2, 4))
+                end
+            end)
+        end
         idle(npc, rng:NextNumber(5, 14), function()
             return ownQuinPosition(npc) or (npc.model:GetPivot().Position + room.toArena * 50)
         end)

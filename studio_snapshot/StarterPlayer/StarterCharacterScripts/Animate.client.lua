@@ -1,11 +1,6 @@
 -- humanoidAnimateR15Moods.lua
--- ✅ Admin Whitelist
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-if player.Name ~= "Bai" and player.Name ~= "baiyyaki00" then
-	return
-end
+-- (Every player animates: an admin whitelist here used to leave everyone else's avatar frozen.
+-- Walk and run are Roblox's defaults again; the custom ones were 103396337997545 / 108246513830939.)
 
 local Character = script.Parent
 local Humanoid = Character:WaitForChild("Humanoid")
@@ -49,10 +44,10 @@ local animNames = {
 				{ id = "http://www.roblox.com/asset/?id=507766388", weight = 9 }
 			},
 	walk = 	{ 	
-		{ id = "http://www.roblox.com/asset/?id=103396337997545", weight = 10 } 
+		{ id = "http://www.roblox.com/asset/?id=507777826", weight = 10 } 
 			}, 
 	run = 	{
-		{ id = "http://www.roblox.com/asset/?id=108246513830939", weight = 10 } 
+		{ id = "http://www.roblox.com/asset/?id=507767714", weight = 10 } 
 			}, 
 	swim = 	{
 				{ id = "http://www.roblox.com/asset/?id=507784897", weight = 10 } 
