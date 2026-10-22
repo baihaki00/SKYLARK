@@ -11,7 +11,9 @@
 --     to their own Quin while it fights); otherwise they sit on the chairs, stroll, use the
 --     terminals, or visit another owner's room on the same side and floor: friends walk in, others
 --     knock and are let in (or not), and then host and guest stand side by side at the glass
---     talking the fight over (speech bubbles, pointing) like two managers. They walk with
+--     talking the fight over (speech bubbles, pointing) like two managers. Talk is a discussion
+--     (OwnerChatter: one topic, 4 to 7 turns, the other answers; pre-game, live and post-game
+--     topics), shown with the same bubbles as the stands (NpcChatBubbles: near the camera only). They walk with
 --     PathfindingService round chairs, terminals and door frames, and after a stroll turn to the
 --     glass or the room, never a wall. When their Quins are down they sit, then leave; when the
 --     match ends they walk out and are gone.
@@ -28,6 +30,15 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local QuinInstance = require(QuinCore:WaitForChild("Modules"):WaitForChild("QuinInstance"))
 local NpcAnimator = require(script.Parent:WaitForChild("NpcAnimator"))
 local AvatarTidy = require(script.Parent:WaitForChild("AvatarTidy"))
+local OwnerChatter = require(QuinCore:WaitForChild("OwnerChatter"))
+
+-- (speech goes to every machine, which shows it as a chat bubble when near: NpcChatBubbles)
+local sayRemote = ReplicatedStorage:FindFirstChild("NpcSay")
+if not sayRemote then
+    sayRemote = Instance.new("RemoteEvent")
+    sayRemote.Name = "NpcSay"
+    sayRemote.Parent = ReplicatedStorage
+end
 
 local NpcOwners = {}
 
@@ -125,7 +136,7 @@ function NpcOwners.fillRound(entrants, mode, teamSize, perPlayer, roomsPerSide)
         local extra = math.min(npcSeats - owners, owners * (perPlayer - 1))
         for i = 1, owners do
             nameIndex = nameIndex % #NAMES + 1
-            local npc = { name = NAMES[nameIndex], npc = true }
+            local npc = { name = NAMES[nameIndex], npc = true, team = team }
             for _ = 1, (i <= extra) and 2 or 1 do
                 local quin = QuinInstance.create({ Type = "Standard", OwnerId = "NPC_" .. npc.name })
                 table.insert(entrants, { npc = npc, quin = quin, team = team })
@@ -321,40 +332,45 @@ local function idle(npc, seconds, lookAt)
     end
 end
 
--- A speech bubble over the head (server-side, so everyone sees it)
+-- A chat bubble over the head: every machine near enough shows it (the stands' bubbles)
 local function say(npc, text)
     local head = npc.model and npc.model:FindFirstChild("Head")
-    if not head then
-        return
+    if head then
+        sayRemote:FireAllClients(head, text)
     end
-    local old = head:FindFirstChild("NpcBubble")
-    if old then
-        old:Destroy()
+end
+
+local function teamOf(npc)
+    return npc.team or (npc.room and npc.room.npc and npc.room.npc.team)
+end
+
+-- Two talk a topic over: one says something, the other answers a moment later, back and forth
+-- (OwnerChatter). Yields until it's done; false if either is already in a conversation.
+local function converse(a, b, context)
+    if a.talking or b.talking or not (a.model and b.model) then
+        return false
     end
-    local gui = Instance.new("BillboardGui")
-    gui.Name = "NpcBubble"
-    gui.Size = UDim2.fromOffset(200, 44)
-    gui.StudsOffset = Vector3.new(0, 2.8, 0)
-    gui.MaxDistance = 90
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.fromScale(1, 1)
-    label.BackgroundColor3 = Color3.new(1, 1, 1)
-    label.BackgroundTransparency = 0.1
-    label.TextColor3 = Color3.fromRGB(20, 22, 28)
-    label.Font = Enum.Font.GothamMedium
-    label.TextScaled = true
-    label.TextWrapped = true
-    label.Text = text
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
-    corner.Parent = label
-    local pad = Instance.new("UIPadding")
-    pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 8), UDim.new(0, 8)
-    pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 4), UDim.new(0, 4)
-    pad.Parent = label
-    label.Parent = gui
-    gui.Parent = head
-    Debris:AddItem(gui, 3.8)
+    local phase = OwnerChatter.phaseOf(Workspace:GetAttribute("CrowdPhase"))
+    local turns = OwnerChatter.conversation(phase, context, rng, teamOf(a))
+    a.talking, b.talking = true, true
+    task.wait(rng:NextNumber(0.2, 0.7))
+    for _, t in ipairs(turns) do
+        if not (a.alive and b.alive and a.model and b.model and a.model.Parent and b.model.Parent) then
+            break
+        end
+        local speaker, listener = t.who == 1 and a or b, t.who == 1 and b or a
+        say(speaker, t.text)
+        local roll = rng:NextNumber()
+        if roll < 0.18 then
+            NpcAnimator.emote(speaker.model, pick({ "point", "wave", "cheer" }), 1.6)
+        elseif roll < 0.3 then
+            NpcAnimator.emote(listener.model, "laugh", 1.4)
+        end
+        -- (time to read it, then the other answers)
+        task.wait(math.clamp(#t.text * 0.05, 1.8, 3.6) + rng:NextNumber(0, 0.8))
+    end
+    a.talking, b.talking = false, false
+    return true
 end
 
 local function ownQuinPosition(npc)
@@ -409,17 +425,17 @@ local function discuss(npc, partner, room, spot, seconds, opener)
     walkTo(npc, spot)
     local untilT = os.clock() + seconds
     local look = outThere(npc, room)
-    local nextLine = os.clock() + (opener and 0.5 or 2.2)
+    local nextTalk = os.clock() + (opener and rng:NextNumber(1, 2.5) or math.huge)
     while alive(npc) and os.clock() < untilT and partner.alive do
         face(npc, look())
-        if os.clock() >= nextLine then
-            nextLine = os.clock() + rng:NextNumber(3.5, 6)
-            say(npc, pick(MANAGER_LINES))
-            if rng:NextNumber() < 0.4 then
-                NpcAnimator.emote(npc.model, pick({ "point", "point", "cheer" }), rng:NextNumber(1.5, 2.5))
-            end
+        if os.clock() >= nextTalk and not npc.talking and not partner.talking then
+            nextTalk = os.clock() + rng:NextNumber(2, 5)
+            task.spawn(converse, npc, partner, "glass")
         end
         task.wait(0.5)
+    end
+    while npc.talking and alive(npc) do
+        task.wait(0.3) -- (let the last word be said)
     end
 end
 
@@ -580,6 +596,26 @@ local FRIEND_LINES = {
     "No way it's still standing.", "Snacks after this?",
 }
 
+-- Someone near this friend at the glass to talk to: the owner (an NPC) or another friend
+local function glassPartner(npc, room)
+    local root = rootOf(npc)
+    if not root then
+        return nil
+    end
+    local options = {}
+    local near = { table.unpack(room.friends or {}) }
+    if room.npc then
+        table.insert(near, room.npc)
+    end
+    for _, other in ipairs(near) do
+        local r = other and other ~= npc and other.alive and not other.talking and rootOf(other)
+        if r and (r.Position - root.Position).Magnitude < 14 then
+            table.insert(options, other)
+        end
+    end
+    return #options > 0 and pick(options) or nil
+end
+
 local function friendGlass(npc, room)
     walkTo(npc, room.Api.windowPoint(room))
     local untilT = os.clock() + rng:NextNumber(8, 18)
@@ -591,7 +627,13 @@ local function friendGlass(npc, room)
     end
     while alive(npc) and os.clock() < untilT do
         face(npc, look())
-        if rng:NextNumber() < 0.12 then
+        local roll = rng:NextNumber()
+        if roll < 0.14 and not npc.talking then
+            local partner = glassPartner(npc, room)
+            if partner then
+                task.spawn(converse, npc, partner, "glass")
+            end
+        elseif roll < 0.17 and not npc.talking then
             say(npc, pick(FRIEND_LINES))
             NpcAnimator.emote(npc.model, pick({ "cheer", "cheer", "point", "wave" }), 2)
         end
@@ -675,14 +717,32 @@ local function hallHangout(npc, room)
     walkTo(npc, spot, 14)
     local untilT = os.clock() + rng:NextNumber(10, 28)
     while alive(npc) and os.clock() < untilT do
-        face(npc, g.center)
+        face(npc, g.speaker and g.speaker ~= npc and rootOf(g.speaker) and rootOf(g.speaker).Position or g.center)
         local roll = rng:NextNumber()
-        if roll < 0.14 then
-            say(npc, pick(HALL_LINES))
-        elseif roll < 0.2 then
+        if roll < 0.16 and not g.talking and not npc.talking then
+            local others = {}
+            for _, m in ipairs(g.members) do
+                if m ~= npc and m.alive and not m.talking and rootOf(m) then
+                    table.insert(others, m)
+                end
+            end
+            if #others > 0 then
+                g.talking = true
+                g.speaker = npc
+                task.spawn(function()
+                    converse(npc, pick(others), "hall")
+                    g.talking, g.speaker = false, nil
+                end)
+            elseif roll < 0.05 then
+                say(npc, pick(HALL_LINES)) -- (alone for now: a word to nobody in particular)
+            end
+        elseif roll < 0.2 and not npc.talking then
             NpcAnimator.emote(npc.model, pick({ "laugh", "point", "wave" }), 2)
         end
         task.wait(rng:NextNumber(0.8, 1.6))
+    end
+    while npc.talking and alive(npc) do
+        task.wait(0.3)
     end
     leaveHallGroup(npc, g, list)
     if alive(npc) then
@@ -756,10 +816,12 @@ local function runFriend(npc)
             if hostRoot then
                 walkTo(npc, hostRoot.Position + Vector3.new(rng:NextNumber(-3, 3), 0, rng:NextNumber(-3, 3)))
                 face(npc, hostRoot.Position)
-                say(npc, pick(FRIEND_LINES))
-                idle(npc, rng:NextNumber(3, 6), function()
-                    return hostRoot.Position
-                end)
+                if not converse(npc, host, "glass") then
+                    say(npc, pick(FRIEND_LINES))
+                    idle(npc, rng:NextNumber(3, 6), function()
+                        return hostRoot.Position
+                    end)
+                end
             else
                 act(npc, "wander")
             end

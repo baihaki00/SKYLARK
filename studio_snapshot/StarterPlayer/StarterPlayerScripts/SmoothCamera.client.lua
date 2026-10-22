@@ -445,6 +445,9 @@ local function getActiveSpectatedQuin()
 	if specQuin and shared.SpectateFilter and not shared.SpectateFilter(specQuin) then
 		specQuin = nil -- (at a preparation room terminal: the player's own Quins only)
 	end
+	if specQuin and not shared.SpectateFilter and not (shared.IsAdmin and shared.IsAdmin()) then
+		specQuin = nil -- (a Roblox player watches Quins through a terminal only: SkylarkRoles)
+	end
 	if specQuin and specQuin.Parent and specQuin.Parent.Name == "QuinServer" and specQuin.Name ~= "QuinTest" and specQuin.Name ~= "QuinTypeA" then
 		local hum = specQuin:FindFirstChildOfClass("Humanoid")
 		local hrp = specQuin:FindFirstChild("HumanoidRootPart")
@@ -469,7 +472,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	if UserInputService:GetFocusedTextBox() then return end
 
 	-- Hotkey B toggles the free camera from any state (F flies the body: TheArchitectCode)
-	if input.KeyCode == Enum.KeyCode.B and not gp then
+	if input.KeyCode == Enum.KeyCode.B and not gp and (shared.IsAdmin and shared.IsAdmin()) then
 		if cameraMode == "FREEFLY" then
 			cameraMode = "AVATAR"
 			avatarEnterPending = true
@@ -494,7 +497,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 
 	-- Hotkey R: back to the free camera (Fly Spectator) from anything
-	if input.KeyCode == Enum.KeyCode.R and not gp then
+	if input.KeyCode == Enum.KeyCode.R and not gp and (shared.IsAdmin and shared.IsAdmin()) then
 		if cameraMode ~= "FREEFLY" then
 			cameraMode = "FREEFLY"
 			shared.SpectatorState.Mode = cameraMode

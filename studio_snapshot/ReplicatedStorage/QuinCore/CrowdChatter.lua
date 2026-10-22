@@ -266,6 +266,43 @@ function CrowdChatter.conversation(phase, rng)
     return turns
 end
 
+-- Heading home together: an invitation, a yes (and sometimes a last word on the way)
+local LEAVING = {
+    open = {
+        "That was a fun watch. Wanna grab a bite at the Argonia Trade Center?", "I'm starving. ATC food court?",
+        "Okay, I've seen enough. Food?", "Let's beat the rush out.", "Wanna get noodles by the gate?",
+        "I'm heading out. Coming?", "Night market's still open, let's go.", "Let's go before the trams fill up.",
+        "My legs are done. Let's walk.", "Want to catch the replay at the ATC?", "Drinks? I'm buying.",
+        "That's me for tonight. Walk with me?", "I need food after all that screaming.", "Let's go find {name}.",
+        "The workshop's open late, wanna go see the Quins?", "Okay, we've earned dessert.",
+        "If we leave now we get a table at the ATC.", "Come on, I know a shortcut out.",
+        "Let's grab something before the next round.", "I promised {name} I'd meet them at the ATC.",
+    },
+    reply = {
+        "Sure! Let's go, you lead the way.", "Yes, please. I'm so hungry.", "Okay, okay, right behind you.",
+        "Only if you're paying.", "Go on, I'll follow.", "Finally. Let's go.", "Yeah, good call.",
+        "Lead the way.", "I was about to say the same.", "Let's do it.", "Sure, the usual place?",
+        "Wait for me!", "Deal. Last one there pays.", "Ooh, yes.", "Fine, but we come back next week.",
+        "Perfect, let's move.", "You read my mind.", "Okay, after you.", "Ha, sure. Go.", "Let's go, let's go.",
+    },
+    follow = {
+        "Watch the steps.", "This way, it's quicker.", "Did you see that last hit though?", "I'm getting the big bowl.",
+        "Text {name}, tell them we're coming.", "Hold on, where's my ticket?", "Same time next week?",
+        "Best night in ages.", "Stay close, it's packed.", "I'll tell you about my bet on the way.",
+    },
+}
+
+function CrowdChatter.leaving(rng)
+    local turns = {
+        { who = 1, text = fill(pick(LEAVING.open, rng), rng) },
+        { who = 2, text = fill(pick(LEAVING.reply, rng), rng) },
+    }
+    if rng:NextNumber() < 0.35 then
+        table.insert(turns, { who = 1, text = fill(pick(LEAVING.follow, rng), rng) })
+    end
+    return turns
+end
+
 function CrowdChatter.count()
     local n = 0
     for _, set in pairs(LINES) do

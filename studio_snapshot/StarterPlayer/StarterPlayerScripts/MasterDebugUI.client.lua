@@ -47,7 +47,7 @@ listLayout.Parent = scrollFrame
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
-	if input.KeyCode == Enum.KeyCode.G then
+	if input.KeyCode == Enum.KeyCode.G and (shared.IsAdmin and shared.IsAdmin()) then
 		panel.Visible = not panel.Visible
 	end
 end)

@@ -2,9 +2,13 @@
 -- The NPC crowd on the stands, drawn on this machine only (ArenaCrowdNpcs.server lays out the
 -- stands and passes on the procedural crowd's reactions).
 --
--- The crowd arrives when the arena opens (a match leaves IDLE): avatars flicker in over a few
--- seconds, holographic (the nearest with a cyan glow), some already walking along their bench row,
--- cheering or chatting with a neighbour; at the end of the match they flicker out again.
+-- The crowd comes and goes like a real one (owner): a few when the arena opens, more through
+-- the preparation, almost full for the anthem, full for the fight (ATTENDANCE). Five minutes into
+-- the fight some start heading home, and through the arena closure the stands empty slowly; at
+-- IDLE the rest go. Arrivals flicker in, holographic (the nearest with a cyan glow), some already
+-- walking, cheering or chatting. Leavers either walk off along their row and flicker out on the
+-- way, flicker out where they stand, or (a pair) agree on plans ("wanna grab a bite at the ATC?"
+-- / "Sure! Let's go, you lead the way.") and walk off together.
 --
 -- Three distances, so thousands still look alive at little cost:
 --   near (ANIMATE_MAX within ANIMATE_RANGE): Roblox animations and emotes, an expressive face
@@ -64,8 +68,14 @@ local TURN_TIME = 0.6 -- seconds to turn
 local PERSONAL_SPACE = 2.2 -- studs a walker keeps from anyone in their way
 local RESPOND_PER_FRAME = 60
 local NEAR_CHANGES_PER_FRAME = 12
-local ARRIVE_TIME = 8 -- seconds for the stands to fill
-local LEAVE_TIME = 4
+local ATTENDANCE = { -- of the crowd in the stands, by arena phase
+    ARENA_OPEN = 0.15, ARENA_GENERATION = 0.3, PREPARATION_ROOM = 0.5, TELEPORTING_QUINS = 0.7,
+    STADIUM_ANTHEM = 0.9, PRE_GAME = 0.95, IN_GAME = 1, WINNER_DETERMINATION = 1, POST_GAME = 0.85,
+}
+local LEAVE_AFTER = 300 -- seconds into the fight before anyone heads home
+local LEAVE_PER_MINUTE = 0.03 -- of the crowd heading home each minute after that (up to 25%)
+local CLOSURE_LEAVE = 0.012 -- of the crowd leaving each second of the arena closure
+local ARRIVE_RATE = 0.12 -- of the gap filled each second (at least 4 a second)
 local GLITCH_TIME = 0.9
 local GLOW_MAX = 20 -- cyan glows at once (Roblox draws ~31 highlights)
 local ARENA_CENTER = Vector3.new(0, 0, -438)
@@ -128,6 +138,8 @@ local pending = {}
 local nearQueue = {}
 local buildToken = 0
 local present = false -- the crowd is in the stands
+local shownCount = 0 -- in the stands and not on their way out
+local vanish = nil -- (attendance: flicker out and gone)
 local lastPhaseForChat = nil -- (the arena phase, for what the crowd talks about)
 local anthemOn = false -- the stadium anthem: everyone sways together
 local wave = nil -- a Mexican wave going round: { start, angle, speed, id }
@@ -576,7 +588,7 @@ local function hop(a, times, height)
 end
 
 local function startWalk(a)
-    if a.walking or not a.shown or hopping[a] then
+    if a.walking or not a.shown or a.departing or hopping[a] then
         return
     end
     if a.to - a.from < 6 then
@@ -612,6 +624,9 @@ local function stopWalk(a)
         a.tracks.walk:Stop(0.25)
     end
     setPose(a, "idle")
+    if a.departing and vanish then
+        vanish(a) -- (a leaver's walk is over: gone)
+    end
 end
 
 local function chatPhase()
@@ -711,6 +726,7 @@ end
 
 local function clear()
     avatars, hopping, hopCount, walkers, walkerCount, posing, pending = {}, {}, 0, {}, 0, {}, {}
+    shownCount = 0
     posingCount = 0
     table.clear(nearQueue)
     folder:ClearAllChildren()
@@ -854,75 +870,6 @@ local function glitch(a, arriving)
     end)
 end
 
-local function arrive(instant)
-    if present then
-        return
-    end
-    present = true
-    local order = table.clone(avatars)
-    for i = #order, 2, -1 do
-        local j = rng:NextInteger(1, i)
-        order[i], order[j] = order[j], order[i]
-    end
-    task.spawn(function()
-        local started = os.clock()
-        for i, a in ipairs(order) do
-            if not present then
-                return
-            end
-            local at = instant and 0 or (i / #order) * ARRIVE_TIME
-            while os.clock() - started < at do
-                RunService.Heartbeat:Wait()
-            end
-            a.model.Parent = folder
-            a.shown = true
-            if not instant and eyeDistance(a) < POSE_RANGE then
-                glitch(a, true)
-            end
-            -- some come in already busy
-            local roll = rng:NextNumber()
-            if roll < 0.08 then
-                startWalk(a)
-            elseif roll < 0.18 then
-                express(a, pick({ "cheer", "clap" }), rng:NextNumber(2, 4))
-            elseif roll < 0.26 then
-                talk(a)
-            end
-            if instant and i % 100 == 0 then
-                RunService.Heartbeat:Wait()
-            end
-        end
-    end)
-end
-
-local function leave()
-    if not present then
-        return
-    end
-    present = false
-    local list = table.clone(avatars)
-    task.spawn(function()
-        local started = os.clock()
-        for i, a in ipairs(list) do
-            if present then
-                return
-            end
-            local at = (i / #list) * LEAVE_TIME
-            while os.clock() - started < at do
-                RunService.Heartbeat:Wait()
-            end
-            a.shown = false
-            stopWalk(a)
-            setPose(a, "idle")
-            if a.model.Parent and eyeDistance(a) < POSE_RANGE then
-                glitch(a, false)
-            else
-                a.model.Parent = nil
-            end
-        end
-    end)
-end
-
 -- The anthem: what each fan does, by how hot their part of the stands is and how far in it is
 local anthemStart, ultras = 0, {}
 
@@ -1010,9 +957,249 @@ local function setAnthem(on)
     end
 end
 
+-- ============================================================================
+-- ATTENDANCE: arriving and leaving
+-- ============================================================================
+
+local phaseStarted = os.clock()
+local cap = 1 -- (once people head home the stands don't fill up again)
+local instantFill = false
+local arriveBudget, leaveBudget = 0, 0
+
+local function attendance(now)
+    if Workspace:GetAttribute("CrowdAlwaysOn") == true then
+        return 1
+    end
+    local phase = lastPhaseForChat
+    if phase == nil or phase == "IDLE" then
+        return 0
+    end
+    local share = ATTENDANCE[phase] or 0.5
+    local t = now - phaseStarted
+    local leaving = phase == "WINNER_DETERMINATION" or phase == "POST_GAME"
+    if phase == "IN_GAME" and t > LEAVE_AFTER then
+        share -= math.min(0.25, (t - LEAVE_AFTER) / 60 * LEAVE_PER_MINUTE)
+        leaving = true
+    elseif phase == "POST_GAME" then
+        share = math.max(0.05, share - t * CLOSURE_LEAVE)
+    end
+    if leaving then
+        share = math.min(share, cap)
+        cap = share
+    end
+    return share
+end
+
+local function show(a, instant)
+    a.model.Parent = folder
+    a.shown = true
+    a.departing = false
+    shownCount += 1
+    if not instant and eyeDistance(a) < POSE_RANGE then
+        glitch(a, true)
+    end
+    if anthemOn then
+        a.lag = rng:NextNumber(-0.03, 0.1)
+        a.hopH = rng:NextNumber(0.7, 1.8)
+        a.rate = rng:NextNumber(1.2, 2.8)
+        a.amp = rng:NextNumber(0.6, 1.25)
+        setRole(a, chooseRole(a))
+        return
+    end
+    -- some come in already busy
+    local roll = rng:NextNumber()
+    if roll < 0.1 then
+        startWalk(a)
+    elseif roll < 0.2 then
+        express(a, pick({ "cheer", "clap" }), rng:NextNumber(2, 4))
+    elseif roll < 0.28 then
+        talk(a)
+    end
+end
+
+vanish = function(a)
+    if not a.shown then
+        return
+    end
+    a.departing = false
+    stopWalk(a)
+    a.shown = false
+    a.talking = nil
+    turning[a] = nil
+    setPose(a, "idle")
+    if a.model.Parent and eyeDistance(a) < POSE_RANGE then
+        glitch(a, false)
+    else
+        a.model.Parent = nil
+    end
+end
+
+-- Off along the row toward `goal` (a position on its axis), flickering out on the way
+local function walkOut(a, goal)
+    if a.to - a.from < 6 or hopping[a] then
+        vanish(a)
+        return
+    end
+    local here = a.axis == 1 and a.pos.X or a.pos.Z
+    goal = math.clamp(goal or ((math.abs(here - a.from) < math.abs(here - a.to)) and a.from or a.to), a.from, a.to)
+    if a.walking then
+        walkers[a] = nil
+        walkerCount -= 1
+        a.walking = false
+    end
+    walkers[a] = { goal = goal, speed = rng:NextNumber(WALK_SPEED[1], WALK_SPEED[2]), leaveBy = os.clock() + rng:NextNumber(3, 9) }
+    walkerCount += 1
+    a.walking = true
+    if a.near then
+        local w = track(a, "walk")
+        if w then
+            w:Play(0.25)
+        end
+    end
+    setPose(a, "walk")
+    setExpression(a, "happy")
+end
+
+-- Two neighbours agree on plans for after, then walk off together
+local function leaveTogether(a, b)
+    local turns = CrowdChatter.leaving(rng)
+    local seconds = 1 + #turns * 2.6
+    for _, x in ipairs({ a, b }) do
+        x.departing = true
+        x.talking = os.clock() + seconds
+        turnTo(x, yawTo(x.pos, (x == a and b or a).pos))
+        setPose(x, "talk", seconds)
+        setExpression(x, "happy")
+    end
+    task.spawn(function()
+        task.wait(rng:NextNumber(0.3, 0.8))
+        for _, t in ipairs(turns) do
+            if not (a.shown and b.shown) then
+                break
+            end
+            local speaker, listener = t.who == 1 and a or b, t.who == 1 and b or a
+            setExpression(speaker, "talk")
+            setExpression(listener, "happy")
+            bubble(speaker, t.text)
+            task.wait(rng:NextNumber(1.8, 3.2))
+            setExpression(speaker, "happy")
+        end
+        -- the same way out, the first leading
+        local here = a.axis == 1 and a.pos.X or a.pos.Z
+        local towardTo = math.abs(here - a.to) < math.abs(here - a.from)
+        for i, x in ipairs({ a, b }) do
+            if x.shown and x.departing then
+                x.talking = nil
+                task.delay((i - 1) * rng:NextNumber(0.3, 0.8), function()
+                    if x.shown and x.departing then
+                        walkOut(x, towardTo and x.to or x.from)
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+-- One fan heads home: walks off, flickers out where they are, or leaves with the neighbour
+local function depart(a)
+    a.departing = true
+    shownCount -= 1
+    local idle = lastPhaseForChat == "IDLE" or lastPhaseForChat == nil
+    local b = a.neighbor
+    local roll = rng:NextNumber()
+    if not idle and not anthemOn and roll < 0.3 and b and b.shown and not b.departing and not a.talking and not b.talking
+        and not a.walking and not b.walking then
+        b.departing = true
+        shownCount -= 1
+        leaveTogether(a, b)
+    elseif roll < (idle and 0.5 or 0.7) and not anthemOn then
+        if a.talking then
+            a.talking = nil
+        end
+        walkOut(a)
+    else
+        vanish(a)
+    end
+end
+
+local function updateAttendance(now, dt)
+    local n = #avatars
+    if n == 0 then
+        return
+    end
+    -- leavers walking too long flicker out where they are
+    local late = nil
+    for a, w in pairs(walkers) do
+        if w.leaveBy and now > w.leaveBy then
+            late = late or {}
+            table.insert(late, a)
+        end
+    end
+    for _, a in ipairs(late or {}) do
+        stopWalk(a)
+    end
+    local want = math.floor(attendance(now) * n + 0.5)
+    local gap = want - shownCount
+    if gap > 0 then
+        if instantFill then
+            arriveBudget = math.min(gap, 150) -- (a frame's worth)
+        else
+            arriveBudget = math.min(arriveBudget + math.max(4, gap * ARRIVE_RATE) * dt, gap)
+        end
+        local tries = 0
+        while arriveBudget >= 1 and tries < 400 do
+            tries += 1
+            local a = avatars[rng:NextInteger(1, n)]
+            if not a.shown then
+                show(a, instantFill)
+                arriveBudget -= 1
+            end
+        end
+        if instantFill and want - shownCount <= 0 then
+            instantFill = false
+        end
+    elseif gap < 0 then
+        instantFill = false
+        local idle = lastPhaseForChat == "IDLE" or lastPhaseForChat == nil
+        local rate = idle and math.max(30, -gap * 0.6) or math.max(1.5, -gap * 0.08)
+        leaveBudget = math.min(leaveBudget + rate * dt, -gap)
+        local tries = 0
+        while leaveBudget >= 1 and tries < 200 do
+            tries += 1
+            local a = avatars[rng:NextInteger(1, n)]
+            if a.shown and not a.departing then
+                depart(a)
+                leaveBudget -= 1
+            end
+        end
+    else
+        arriveBudget, leaveBudget = 0, 0
+        instantFill = false
+    end
+    if shownCount <= 0 and want == 0 then
+        present = false
+    end
+end
+
+-- (the old names: the stands now fill and empty by attendance)
+local function arrive(instant)
+    present = true
+    if instant then
+        instantFill = true
+    end
+end
+
+local function leave()
+    -- (attendance empties the stands at IDLE)
+end
+
 local lastPhase = nil
 local function onPhase(phase)
     lastPhaseForChat = phase
+    phaseStarted = os.clock()
+    if phase == "IDLE" or ATTENDANCE[phase] and ATTENDANCE[phase] < 1 and phase ~= "POST_GAME" then
+        cap = 1 -- (a new arena day)
+    end
     setAnthem(phase == "STADIUM_ANTHEM")
     if Workspace:GetAttribute("CrowdAlwaysOn") == true then
         arrive(true)
@@ -1031,6 +1218,7 @@ if stateRemote then
             local joined = lastPhase == nil
             lastPhase = phase
             if joined and phase ~= "IDLE" then
+                phaseStarted = os.clock()
                 arrive(true) -- (joined mid-match: already seated)
             else
                 onPhase(phase)
@@ -1107,6 +1295,7 @@ RunService.RenderStepped:Connect(function(dt)
     if #avatars == 0 then
         return
     end
+    updateAttendance(now, dt)
 
     -- reactions whose small random delay is up
     if #pending > 0 then

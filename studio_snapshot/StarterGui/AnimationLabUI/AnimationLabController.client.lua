@@ -463,7 +463,7 @@ end
 togglePill.MouseButton1Click:Connect(toggleMenuVisibility)
 
 UserInputService.InputBegan:Connect(function(input, gpe)
-	if input.KeyCode == Enum.KeyCode.M then
+	if input.KeyCode == Enum.KeyCode.M and (shared.IsAdmin and shared.IsAdmin()) then
 		if not UserInputService:GetFocusedTextBox() then
 			toggleMenuVisibility()
 		end

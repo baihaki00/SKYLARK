@@ -550,6 +550,8 @@ end)
 UserInputService.InputBegan:Connect(function(input, gp)
 	if gp or UserInputService:GetFocusedTextBox() then return end
 	if (input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E) and (shared.PlayerControlledQuin or _G.PlayerControlledQuin) then return end
+	-- (a Roblox player gets the HUD only at a preparation room terminal: SkylarkRoles)
+	if not (shared.IsAdmin and shared.IsAdmin()) and shared.SpectateFilter == nil then return end
 	if input.KeyCode == Enum.KeyCode.Q then
 		cycleSpectatedQuin(-1)
 	elseif input.KeyCode == Enum.KeyCode.E then

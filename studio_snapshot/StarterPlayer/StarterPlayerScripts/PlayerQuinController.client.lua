@@ -71,6 +71,14 @@ local toggleBtn = nil
 local stroke = nil
 local toggleQuinControl = nil -- forward declaration
 
+-- Admin or Roblox Player (SkylarkRoles): the server keeps the role
+local function setRole(role)
+	local remote = ReplicatedStorage:FindFirstChild("SkylarkRole")
+	if remote then
+		remote:FireServer(role)
+	end
+end
+
 local function updateButtonDisplay(isPiloting)
 	if not toggleBtn then return end
 	if isPiloting then
@@ -136,6 +144,7 @@ local function ensureButtonHierarchy()
 		end)
 
 		toggleBtn.MouseButton1Click:Connect(function()
+			setRole("Admin")
 			if toggleQuinControl then
 				toggleQuinControl()
 			end
@@ -162,6 +171,7 @@ local function ensureButtonHierarchy()
 			if activeQuin and toggleQuinControl then
 				toggleQuinControl(false)
 			end
+			setRole("Player")
 			if shared.SetSpectatorMode then
 				shared.SetSpectatorMode("DEFAULT")
 			end
@@ -169,9 +179,16 @@ local function ensureButtonHierarchy()
 		playerBtn.Parent = playAsQuinGui
 	end
 	updateButtonDisplay(activeQuin ~= nil)
+	-- (the role buttons only for those who may be Admin: SkylarkRoles)
+	playAsQuinGui.Enabled = player:GetAttribute("SkylarkCanAdmin") == true
 end
 
 ensureButtonHierarchy()
+player:GetAttributeChangedSignal("SkylarkCanAdmin"):Connect(function()
+	if playAsQuinGui then
+		playAsQuinGui.Enabled = player:GetAttribute("SkylarkCanAdmin") == true
+	end
+end)
 player.CharacterAdded:Connect(function()
 	task.defer(ensureButtonHierarchy)
 end)
@@ -562,7 +579,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	if UserInputService:GetFocusedTextBox() then return end
 
 	-- Hotkey P toggles Quin mode (not while piloting a match Quin: PilotClient)
-	if input.KeyCode == Enum.KeyCode.P and not gp and not shared.PilotedQuin then
+	if input.KeyCode == Enum.KeyCode.P and not gp and not shared.PilotedQuin and (shared.IsAdmin and shared.IsAdmin()) then
 		toggleQuinControl()
 		return
 	end

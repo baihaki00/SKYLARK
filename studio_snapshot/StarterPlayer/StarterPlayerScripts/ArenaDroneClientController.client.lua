@@ -396,6 +396,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
     
     -- Only active if player is NOT possessing a Quin
     if shared.PlayerControlledQuin then return end
+    if not (shared.IsAdmin and shared.IsAdmin()) then return end -- (admins only: SkylarkRoles)
     
     if input.KeyCode == Enum.KeyCode.V then
         cycleDrone()

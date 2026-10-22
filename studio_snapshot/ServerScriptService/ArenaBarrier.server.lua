@@ -76,29 +76,42 @@ wall("North", Vector3.new(midX, midY, maxZ + THICKNESS / 2), Vector3.new(spanX, 
 wall("South", Vector3.new(midX, midY, minZ - THICKNESS / 2), Vector3.new(spanX, BARRIER_HEIGHT, THICKNESS))
 wall("Roof", Vector3.new(midX, top + BARRIER_HEIGHT + THICKNESS / 2, midZ), Vector3.new(spanX + THICKNESS * 2, THICKNESS, spanZ + THICKNESS * 2))
 
--- Every player's own avatar is a spectator (a Play As Admin costume Quin is not)
-local function tag(character)
+-- Every player's own avatar is a spectator (a Play As Admin costume Quin is not, nor an Admin:
+-- SkylarkRoles; switching role re-tags the body)
+local function groupFor(player)
+    return player:GetAttribute("SkylarkRole") == "Admin" and "Default" or GROUP_PEOPLE
+end
+
+local function tag(player, character)
     if character:GetAttribute("IsCostume") == true or character:GetAttribute("QuinId") then
         return
     end
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
-            part.CollisionGroup = GROUP_PEOPLE
+            part.CollisionGroup = groupFor(player)
         end
     end
-    character.DescendantAdded:Connect(function(part)
-        if part:IsA("BasePart") then
-            part.CollisionGroup = GROUP_PEOPLE
-        end
-    end)
+    if not character:GetAttribute("BarrierTagged") then
+        character:SetAttribute("BarrierTagged", true)
+        character.DescendantAdded:Connect(function(part)
+            if part:IsA("BasePart") then
+                part.CollisionGroup = groupFor(player)
+            end
+        end)
+    end
 end
 
 local function onPlayer(player)
     player.CharacterAdded:Connect(function(character)
-        task.defer(tag, character)
+        task.defer(tag, player, character)
+    end)
+    player:GetAttributeChangedSignal("SkylarkRole"):Connect(function()
+        if player.Character then
+            tag(player, player.Character)
+        end
     end)
     if player.Character then
-        tag(player.Character)
+        tag(player, player.Character)
     end
 end
 Players.PlayerAdded:Connect(onPlayer)

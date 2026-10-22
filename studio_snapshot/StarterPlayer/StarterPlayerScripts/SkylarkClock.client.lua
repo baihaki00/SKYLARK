@@ -604,8 +604,19 @@ if isOwner then
         debugPanel.Visible = not debugPanel.Visible
     end)
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if not gameProcessed and input.KeyCode == Enum.KeyCode.F7 then
+        if not gameProcessed and input.KeyCode == Enum.KeyCode.F7 and (shared.IsAdmin and shared.IsAdmin()) then
             debugPanel.Visible = not debugPanel.Visible
+        end
+    end)
+    -- (the TIME panel is an admin tool: SkylarkRoles)
+    task.spawn(function()
+        while timeButton.Parent do
+            local admin = (shared.IsAdmin and shared.IsAdmin())
+            timeButton.Visible = admin
+            if not admin then
+                debugPanel.Visible = false
+            end
+            task.wait(0.5)
         end
     end)
 end

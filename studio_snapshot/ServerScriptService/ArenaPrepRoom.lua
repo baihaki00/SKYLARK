@@ -506,7 +506,7 @@ task.spawn(function()
             -- intruders: walked back out to the hallway
             for _, p in ipairs(Players:GetPlayers()) do
                 local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-                if root and not state.allowed[p.UserId] and inside(room, root.Position) then
+                if root and not state.allowed[p.UserId] and p:GetAttribute("SkylarkRole") ~= "Admin" and inside(room, root.Position) then
                     teleportPlayer(p, CFrame.new(room.doorHall + Vector3.new(0, 4, 0)))
                     notice(p, "That room is " .. state.ownerName .. "'s. Knock on the door to ask.")
                 end

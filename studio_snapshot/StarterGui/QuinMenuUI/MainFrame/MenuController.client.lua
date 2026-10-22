@@ -259,6 +259,7 @@ makeScenarioBtn("BtnPoseViewerFemale", 408, "POSE VIEWER: WALK (live FEMALE)", C
 -- ============================================================
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
+	if not (shared.IsAdmin and shared.IsAdmin()) then return end -- (admins only: SkylarkRoles)
 	if (input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E) and (shared.PlayerControlledQuin or _G.PlayerControlledQuin) then return end
 	if input.KeyCode == Enum.KeyCode.Q then
 		cycleQuin(-1)

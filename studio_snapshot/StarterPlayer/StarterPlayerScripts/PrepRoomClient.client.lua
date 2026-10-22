@@ -68,6 +68,9 @@ for _, d in ipairs(Workspace:GetDescendants()) do
 end
 
 local function mayEnter(model)
+    if player:GetAttribute("SkylarkRole") == "Admin" then
+        return true -- (admins go through any door: SkylarkRoles)
+    end
     local allowed = model:GetAttribute("PrepAllowed")
     return type(allowed) == "string" and allowed:find("," .. player.UserId .. ",", 1, true) ~= nil
 end

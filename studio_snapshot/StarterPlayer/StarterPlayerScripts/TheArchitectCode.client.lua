@@ -227,6 +227,8 @@ end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed or UserInputService:GetFocusedTextBox() then return end
 
+	if not (shared.IsAdmin and shared.IsAdmin()) and not flyEnabled then return end -- (admins only: SkylarkRoles)
+
 	-- 🪽 Fly Toggle (F)
 	if input.KeyCode == Enum.KeyCode.F then
 		if flyEnabled then

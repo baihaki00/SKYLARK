@@ -208,7 +208,7 @@ end)
 closeBtn.MouseButton1Click:Connect(function() gui.Enabled = false end)
 
 UserInputService.InputBegan:Connect(function(input, gp)
-	if input.KeyCode == Enum.KeyCode.F3 and not UserInputService:GetFocusedTextBox() then
+	if input.KeyCode == Enum.KeyCode.F3 and not UserInputService:GetFocusedTextBox() and (shared.IsAdmin and shared.IsAdmin()) then
 		gui.Enabled = not gui.Enabled
 		if gui.Enabled then refresh() end
 	end
