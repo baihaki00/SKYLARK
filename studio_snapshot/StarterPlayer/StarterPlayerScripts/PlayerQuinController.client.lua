@@ -62,7 +62,8 @@ local function setDefaultControlsEnabled(enabled)
 end
 
 -- ============================================================
--- 1. HUD BUTTON: [ ▶ Play As Quin ] / [ ⏹ Exit Quin Mode ]
+-- 1. HUD BUTTONS: [ ▶ Play As Admin ] / [ ⏹ Exit Quin Mode ] (P: the admin Quin, formerly Play
+-- As Quin), and [ Play As Roblox Player ]: out of any Quin or free camera, walking the avatar
 -- ============================================================
 local playerGui = player:WaitForChild("PlayerGui")
 local playAsQuinGui = nil
@@ -77,7 +78,7 @@ local function updateButtonDisplay(isPiloting)
 		toggleBtn.TextColor3 = Color3.fromRGB(255, 180, 60)
 		if stroke then stroke.Color = Color3.fromRGB(255, 140, 40) end
 	else
-		toggleBtn.Text = "▶ Play As Quin [P]"
+		toggleBtn.Text = "▶ Play As Admin [P]"
 		toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
 		if stroke then stroke.Color = Color3.fromRGB(0, 200, 255) end
 	end
@@ -111,7 +112,7 @@ local function ensureButtonHierarchy()
 		toggleBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
 		toggleBtn.Font = Enum.Font.GothamBold
 		toggleBtn.TextSize = 12
-		toggleBtn.Text = (activeQuin ~= nil) and "⏹ Exit Quin Mode [P]" or "▶ Play As Quin [P]"
+		toggleBtn.Text = (activeQuin ~= nil) and "⏹ Exit Quin Mode [P]" or "▶ Play As Admin [P]"
 
 		local corner = Instance.new("UICorner")
 		corner.CornerRadius = UDim.new(0, 18)
@@ -141,6 +142,31 @@ local function ensureButtonHierarchy()
 		end)
 
 		toggleBtn.Parent = playAsQuinGui
+	end
+	if not playAsQuinGui:FindFirstChild("PlayAsPlayerBtn") then
+		local playerBtn = toggleBtn:Clone()
+		for _, c in ipairs(playerBtn:GetChildren()) do
+			if not c:IsA("UICorner") and not c:IsA("UIStroke") then
+				c:Destroy()
+			end
+		end
+		playerBtn.Name = "PlayAsPlayerBtn"
+		playerBtn.Text = "Play As Roblox Player"
+		playerBtn.TextColor3 = Color3.fromRGB(240, 245, 255)
+		playerBtn.Position = UDim2.new(1, -20, 1, -246) -- (above Drone Cameras)
+		local playerStroke = playerBtn:FindFirstChildOfClass("UIStroke")
+		if playerStroke then
+			playerStroke.Color = Color3.fromRGB(0, 230, 120)
+		end
+		playerBtn.MouseButton1Click:Connect(function()
+			if activeQuin and toggleQuinControl then
+				toggleQuinControl(false)
+			end
+			if shared.SetSpectatorMode then
+				shared.SetSpectatorMode("DEFAULT")
+			end
+		end)
+		playerBtn.Parent = playAsQuinGui
 	end
 	updateButtonDisplay(activeQuin ~= nil)
 end
@@ -580,4 +606,4 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("[PlayerQuinController] Initialized in Spectator Mode. Press 'P' or click 'Play As Quin' to possess a fighter.")
+print("[PlayerQuinController] Ready. 'P' / Play As Admin possesses a fighter; Play As Roblox Player walks the avatar.")

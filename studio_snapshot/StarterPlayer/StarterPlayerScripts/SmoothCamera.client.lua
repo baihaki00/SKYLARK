@@ -214,6 +214,18 @@ local function unlockMouse()
 	UserInputService.MouseIconEnabled = true
 end
 
+-- Other scripts walk the avatar again (PlayerQuinController's Play As Roblox Player)
+shared.SetSpectatorMode = function(mode)
+	if mode == "DEFAULT" then
+		cameraMode = "DEFAULT"
+		shared.SpectatorState.Mode = cameraMode
+		shared.SpectatedQuin = nil
+		_G.SpectatedQuin = nil
+		workspace:SetAttribute("SpectatedQuin", "")
+		unlockMouse()
+	end
+end
+
 -- === AVATAR WHILE NOT WALKING (pass 24) ===
 -- Outside DEFAULT the avatar is parked: hidden for this player and its controls off, so WASD flies
 -- the camera instead of also walking the body. While a Quin is possessed PlayerQuinController owns
@@ -521,10 +533,14 @@ end)
 
 -- === RENDER STEP LOOP ===
 RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera.Value + 1, function(dt)
-	local isOverride = (workspace:GetAttribute("CameraOverrideActive") == true) or (shared.CameraOverrideCFrame ~= nil)
+	-- (shared.TerminalCameraCFrame: a preparation room terminal's view, PrepRoomClient; its own key,
+	-- as the drone cameras clear CameraOverrideCFrame every frame they are not flying)
+	local isOverride = (workspace:GetAttribute("CameraOverrideActive") == true) or (shared.CameraOverrideCFrame ~= nil) or (shared.TerminalCameraCFrame ~= nil)
 	if isOverride then
 		Camera.CameraType = Enum.CameraType.Scriptable
-		if shared.CameraOverrideCFrame then
+		if shared.TerminalCameraCFrame then
+			Camera.CFrame = shared.TerminalCameraCFrame
+		elseif shared.CameraOverrideCFrame then
 			Camera.CFrame = shared.CameraOverrideCFrame
 		else
 			local posX = workspace:GetAttribute("CamPosX") or 0

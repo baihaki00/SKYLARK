@@ -25,6 +25,7 @@ local ArenaGenerator = require(ServerScriptService:WaitForChild("ArenaGenerator"
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 local ArenaRegistration = require(ServerScriptService:WaitForChild("ArenaRegistration"))
 local ArenaPrepRoom = require(ServerScriptService:WaitForChild("ArenaPrepRoom"))
+local ArenaNpcOwners = require(ServerScriptService:WaitForChild("ArenaNpcOwners"))
 local VfxModule = require(ReplicatedStorage.QuinCore.Modules.VfxModule)
 local SocialRespect = require(ReplicatedStorage.QuinCore.Modules.SocialRespect)
 local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
@@ -60,8 +61,9 @@ local matchDais = nil
 local matchDaisUpAt = 0 -- (os.clock() when the dais has finished rising)
 
 -- Players' own Quins in this round (ArenaRegistration.pickRound, at the preparation room):
--- { player, quin, team, model }; they wait on their owner's pad (ArenaPrepRoom), spawnFighters
--- moves them into the arena, the arena's Quins fill the other seats
+-- { player | npc, quin, team, model }; NPC owners (ArenaNpcOwners) take some of the seats players
+-- left; the Quins wait in their owner's room (ArenaPrepRoom), spawnFighters moves them into the
+-- arena, the arena's own Quins fill the other seats
 local roundEntrants = {}
 
 local matchStats = {
@@ -280,8 +282,9 @@ local function spawnSeat(gender, position, team)
     end
     local q = QuinSpawner.spawn(entry and entry.quin or gender, position, team)
     if q and entry then
-        q:SetAttribute("OwnerUserId", entry.player.UserId)
-        q:SetAttribute("OwnerName", entry.player.Name)
+        q:SetAttribute("OwnerUserId", entry.player and entry.player.UserId or nil)
+        q:SetAttribute("OwnerName", entry.player and entry.player.DisplayName or entry.npc.name)
+        q:SetAttribute("OwnerNpc", entry.npc ~= nil or nil)
     end
     return q
 end
@@ -555,8 +558,11 @@ local function runMatchLifecycle()
     -- PHASE 3: PREPARATION ROOM. Fighters calibrating in the backrooms: none on the field.
     QuinSpawner.cleanAll()
     Workspace:SetAttribute("MatchStarted", false)
-    roundEntrants = ArenaRegistration.pickRound(mode, math.max(1, tonumber(activeConfig.TeamSize) or 4))
-    ArenaPrepRoom.open(roundEntrants) -- (their owners join them on their pads)
+    local roundTeamSize = math.max(1, tonumber(activeConfig.TeamSize) or 4)
+    roundEntrants = ArenaRegistration.pickRound(mode, roundTeamSize)
+    roundEntrants = ArenaNpcOwners.fillRound(roundEntrants, mode, roundTeamSize,
+        (mode == "TeamBattle" and roundTeamSize >= 16) and 2 or 1, math.floor(#ArenaPrepRoom.rooms() / 2))
+    ArenaPrepRoom.open(roundEntrants) -- (their owners join them in their rooms)
     local prepTime = duration("PreparationRoom")
     epoch = beginPhase("PREPARATION_ROOM", prepTime, "PREPARATION ROOM", string.format("FIGHTERS CALIBRATING IN BACKROOMS • %d SECONDS", prepTime))
     if toggle("Announcer") then
