@@ -2,7 +2,15 @@
 
 How the owner's own Quin bodies get into the game. The live Blender files and scripts are in `D:\SKYLARK\QUINBASEMESH\` (scripts in `scripts\`). This folder is the backup copy.
 
-The male body went live on 2026-10-21 (`QuinMale_v3`). The female body follows the same path, on `QUINBASEMESH\Female\` and the X Bot skeleton.
+- **Male:** live as `QuinMale_v4` (v3 on 2026-10-21; v4, the neck fix, on 2026-10-22).
+- **Female:** `QuinFemale_v1` (2026-10-22) is the male v4 rig reshaped by the owner. It uses the same ybot skeleton, so every animation plays on it.
+
+## Versions
+- **Exports are numbered per gender:** `QUIN_DESIGN\export\Male\QuinMale_vN.fbx` and `QUIN_DESIGN\export\Female\QuinFemale_vN.fbx`. Each folder has a `versions.txt` saying which .blend each version came from.
+- **Exporting:** drag the rigged .blend onto `export_quin.bat`, which calls `export_versioned.py`. A name containing "Female" exports as female; anything else as male. N is one past the highest existing version.
+- **Importing:** import keeping the version name (Workspace `QuinFemale_v1`, …).
+- **Going live:** `build_quin_template.lua` with `IMPORT` = that name and `TEMPLATE` = `QuinFemale` / `QuinMale`. The template's `BodyVersion` attribute records which version is live.
+- **Rollback:** every previous template is in `ServerStorage.QuinBodyBackups`.
 
 ## The path
 
@@ -13,7 +21,7 @@ The male body went live on 2026-10-21 (`QuinMale_v3`). The female body follows t
 | 3. Rig | Claude (`build_rig.py`, or `join_body.py` for one mesh) | The body gets Automatic Weights; the plates copy weights from the body; each plate keeps only its own bones; tip bones emptied; limit 4 bones per vertex. |
 | 4. Check | Claude (`find_stretch.py`, `find_spike.py`, `view34.py`, `closeups_pose.py`) | Play Standard Run on the rig, rank the pieces that stretch, find bad weights, render. |
 | 5. Fix | Claude (`fix_weights.py`, `fix_shoulders_fingers.py` + `thumb_tips.py`) | Stray weights; collarbones back to the ybot's rest angle; tip bones weighted, so Roblox keeps all 52. |
-| 6. Export | owner, one click | Drag the rigged .blend onto **`export_quin.bat`**. It writes `QUIN_DESIGN\export\<name>.fbx` (rest pose, split by material, regions split if any mesh passes 20k triangles). |
+| 6. Export | owner, one click | Drag the rigged .blend onto **`export_quin.bat`**. It writes the next version, `QUIN_DESIGN\export\<Gender>\Quin<Gender>_vN.fbx`: rest pose; every mesh split and joined by material; regions split if any mesh passes 20k triangles. |
 | 7. Import | owner | Studio → 3D Importer → the FBX. Settings: Rig Type **Custom**, Rest Pose **Imported Rig**. It comes in at about 8 studs. Wait until it has a `RootPart` holding the bones. |
 | 8. Template | Claude (`scripts/build_quin_template.lua`, Studio Edit) | Run with `IMPORT` (the Workspace model) and `TEMPLATE` (`QuinMale` / `QuinFemale`). It backs up the old template to `ServerStorage.QuinBodyBackups`, keeps the rig shell (HRP, Humanoid, Sounds, RootJoint), drops the import's Hips exactly on the old Hips, moves the skeleton into the shell (renamed `Alpha_Surface`), welds the other zones, and applies the zone colours and `KeepBodyColors`. |
 | 9. Verify | Claude | Bone and clip comparison against the backup, a live spawn, and the 16v16 flow probe. |

@@ -18,10 +18,18 @@ if arm.animation_data: arm.animation_data.action = None
 arm.data.pose_position = 'REST'
 for pb in arm.pose.bones:
     pb.location = (0, 0, 0); pb.rotation_quaternion = (1, 0, 0, 0); pb.rotation_euler = (0, 0, 0); pb.scale = (1, 1, 1)
-body = next(o for o in bpy.data.objects if o.type == 'MESH' and o.parent is arm)
-# zones by material
-activate(body); bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.mesh.separate(type='MATERIAL'); bpy.ops.object.mode_set(mode='OBJECT')
+# zones by material: every mesh on the armature (one joined body or already split ones) is
+# separated by material, then pieces with the same material are joined into one zone mesh
+for body in [o for o in bpy.data.objects if o.type == 'MESH' and o.parent is arm]:
+    if len(body.data.materials) > 1:
+        activate(body); bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.separate(type='MATERIAL'); bpy.ops.object.mode_set(mode='OBJECT')
+by_mat = {}
+for o in [o for o in bpy.data.objects if o.type == 'MESH' and o.parent is arm]:
+    by_mat.setdefault(o.data.materials[0].name if o.data.materials else "", []).append(o)
+for mat, objs in by_mat.items():
+    if len(objs) > 1:
+        activate(objs[0], *objs[1:]); bpy.ops.object.join()
 zones = [o for o in bpy.data.objects if o.type == 'MESH' and o.parent is arm]
 def region(ob, part):
     """the body region a plate belongs to, by the bones that own it"""
