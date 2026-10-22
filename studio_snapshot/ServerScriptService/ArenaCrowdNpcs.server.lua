@@ -103,6 +103,26 @@ local function buildTemplates()
                     d:Destroy()
                 end
             end
+            -- Classic Motor6D joints: Roblox's avatars now join their limbs with AnimationConstraints,
+            -- physics constraints that wake the solver for every limb whenever the body moves (a
+            -- crowd jumping took a 16v16 to 12 fps). Motor6Ds keep each avatar one rigid anchored body.
+            for _, joint in ipairs(model:GetDescendants()) do
+                if joint:IsA("AnimationConstraint") and joint.Attachment0 and joint.Attachment1 then
+                    local motor = Instance.new("Motor6D")
+                    motor.Name = joint.Name
+                    motor.Part0 = joint.Attachment0.Parent
+                    motor.Part1 = joint.Attachment1.Parent
+                    motor.C0 = joint.Attachment0.CFrame
+                    motor.C1 = joint.Attachment1.CFrame
+                    motor.Parent = joint.Parent
+                    joint:Destroy()
+                end
+            end
+            for _, d in ipairs(model:GetDescendants()) do
+                if d:IsA("Constraint") or d:IsA("NoCollisionConstraint") or d:IsA("WrapTarget") or d:IsA("WrapLayer") then
+                    d:Destroy()
+                end
+            end
             local hum = model:FindFirstChildOfClass("Humanoid")
             if hum then
                 hum:Destroy()

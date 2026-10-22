@@ -6,8 +6,12 @@
 --   * only the avatars nearest the camera animate (ANIMATE_MAX within ANIMATE_RANGE, re-chosen
 --     twice a second, switched a few a frame); the rest stand still, which at that distance reads
 --     the same;
---   * every hop in flight moves in one batched call a frame (Workspace:BulkMoveTo), with at most
---     HOP_MAX hopping at once and none beyond HOP_RANGE;
+--   * a hop lifts the body through its Root joint's Transform, the property animations write. The
+--     server's looks are joined with Motor6Ds (not Roblox's physics AnimationConstraints), so each
+--     avatar is one rigid anchored body and a hop wakes no physics:
+--     moving an avatar's root part dragged its 15 jointed parts through the engine's move path, and
+--     40 hopping avatars took a 16v16 from 78 to 14 fps; at most HOP_MAX hop at once, none beyond
+--     HOP_RANGE (Workspace attribute CrowdHopMode = "move" brings the old way back, to compare);
 --   * a reaction starts at most RESPOND_PER_FRAME avatars a frame, so it ripples instead of spiking;
 --   * reactions reach the avatars of the sections that made them: cheers and roars -> cheering,
 --     waving, jumping (big moments: jumping again and again, dancing); groans and disappointment
@@ -19,8 +23,8 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- (live tuning: Workspace attributes CrowdAnimateMax / CrowdHopMax / CrowdReactScale override these)
-local ANIMATE_MAX = 120 -- avatars animated at once (the nearest)
-local ANIMATE_RANGE = 240 -- studs from the camera
+local ANIMATE_MAX = 60 -- avatars animated at once (the nearest; each costs ~0.03 ms a frame)
+local ANIMATE_RANGE = 200 -- studs from the camera
 local HOP_MAX = 200 -- avatars in the air at once
 local HOP_RANGE = 450 -- studs: further away a hop is not worth drawing
 local RESPOND_PER_FRAME = 60 -- avatars starting a reaction in one frame (a roar ripples, no spike)
@@ -111,6 +115,7 @@ local function build()
                 section = entry[5],
                 animator = controller and controller:FindFirstChildOfClass("Animator"),
                 tracks = {},
+                rootJoint = model:FindFirstChild("LowerTorso") and model.LowerTorso:FindFirstChild("Root"),
                 near = false,
                 busyUntil = 0,
             })
@@ -188,7 +193,28 @@ local function stopEmote(a)
     a.emote = nil
 end
 
+-- The lift for a hop: a function setting the body's height above its stand
+local function lifter(a)
+    local joint = a.rootJoint
+    if not joint or not (joint:IsA("AnimationConstraint") or joint:IsA("Motor6D")) then
+        return nil
+    end
+    local mode = Workspace:GetAttribute("CrowdHopMode")
+    if mode == "attach" and joint:IsA("AnimationConstraint") and joint.Attachment0 then
+        local attach, base = joint.Attachment0, joint.Attachment0.Position
+        return function(lift)
+            attach.Position = base + Vector3.new(0, lift, 0)
+        end
+    end
+    return function(lift)
+        joint.Transform = CFrame.new(0, lift, 0)
+    end
+end
+
 local function hop(a, times, height)
+    if a.lift == nil then
+        a.lift = lifter(a) or false
+    end
     if hopping[a] or hopCount >= tuned("CrowdHopMax", HOP_MAX) then
         return
     end
@@ -307,22 +333,28 @@ RunService.RenderStepped:Connect(function()
         setNear(change.a, change.near)
     end
 
-    -- hops
+    -- hops: through the Root joint (or, CrowdHopMode "move", the old batched part move)
     if hopCount > 0 then
+        local byJoint = Workspace:GetAttribute("CrowdHopMode") ~= "move"
         table.clear(parts)
         table.clear(cframes)
         for a, h in pairs(hopping) do
             local elapsed = now - h.start
             local n = math.floor(elapsed / HOP_TIME)
-            if n >= h.times or not a.root.Parent then
+            local lift = 0
+            local done = n >= h.times or not a.root.Parent
+            if done then
                 hopping[a] = nil
                 hopCount -= 1
-                table.insert(parts, a.root)
-                table.insert(cframes, a.home)
             else
                 local u = (elapsed - n * HOP_TIME) / HOP_TIME
+                lift = h.height * math.sin(math.pi * u)
+            end
+            if byJoint and a.lift then
+                a.lift(lift)
+            else
                 table.insert(parts, a.root)
-                table.insert(cframes, a.home + Vector3.new(0, h.height * math.sin(math.pi * u), 0))
+                table.insert(cframes, a.home + Vector3.new(0, lift, 0))
             end
         end
         if #parts > 0 then
