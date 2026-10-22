@@ -13,16 +13,18 @@
 --   middle (within POSE_RANGE): poses written straight to the joints a few avatars a frame (arms
 --     up, clapping, pointing, hands on the head, slumping, walking legs, talking nods);
 --   far: still, which at that distance reads the same.
+-- Nobody stares at one point: fans look about (turning left and right, to a neighbour), walkers
+-- keep their distance (they wait, or turn back, rather than walk through someone), and
+-- neighbours hold real conversations (CrowdChatter: one speaks, the other answers a moment later,
+-- back and forth; pre-game, live and post-game lines; bubbles near the camera).
 -- Every hop raises the arms. Hops and poses go through the joints' Transform (what animations
 -- write); the looks are rigid Motor6D bodies, so none of it wakes physics.
 -- Reactions: cheers and roars -> cheering, clapping, jumping (big moments: jumping again and again,
 -- dancing); groans and disappointment -> booing (pointing, slumping); gasps -> hands on the head.
--- Together, in time: the anthem is loud and pumping (owner), and the stands move to it, but like
--- people, not a drill: the beat is the music's kick (40-80 Hz, ArenaBassPulse: shared.ArenaBass),
--- two "ultras" areas go hardest, the energy builds over the first bars, and each fan does their
--- own thing on it (hopping on every beat or every other, pumping a fist, clapping, nodding,
--- swaying, or still chatting and walking about), a little late or early, at their own height,
--- switching every few bars. A hop is a hop: up and down in a third of a second, then the floor.
+-- The anthem is loud and pumping (owner): almost the whole stadium goes off, each fan at their own
+-- random pace (hopping, punching the air, waving, clapping, screaming with arms up), switching
+-- every few bars; the music's kick (40-80 Hz, ArenaBassPulse: shared.ArenaBass) only adds a
+-- light bounce and nod on top (owner: the on-beat stuff subtle, everything else random).
 -- Mexican waves round the stands (the server starts them, so every player sees the same), and
 -- chants (the chanted team's sections pump their fists).
 -- Live knobs (Workspace attributes): CrowdAnimateMax, CrowdHopMax, CrowdReactScale,
@@ -41,10 +43,12 @@ local POSE_RANGE = 380 -- beyond this the crowd stands still
 local POSE_UPDATES_PER_FRAME = 160 -- posed avatars re-posed per frame
 local POSE_UPDATES_ANTHEM = 360 -- (during the anthem every avatar sways: more a frame)
 local ANTHEM_FALLBACK_BEAT = 60 / 128 -- seconds per beat when the music cannot be heard
-local HOP_TIME_ANTHEM = 0.32 -- seconds a hop is off the floor
-local ULTRAS = 2 -- areas of the stands that go hardest in the anthem
+local HOP_SHARE = 0.55 -- of a hopper's own rhythm spent off the floor
+local BEAT_ACCENT = 0.2 -- the kick's bounce and nod (owner: subtle; 1 = the old full strength)
+local ULTRAS = 2 -- areas of the stands that hop the most in the anthem
 local ULTRAS_WIDTH = 55 -- degrees round the arena
-local ANTHEM_BUILD = 20 -- seconds for the stands to get going
+local ANTHEM_BUILD = 8 -- seconds for the stands to get going
+local LIVELY_SHARE = 0.03 -- of the crowd starting something new every half second in the fight
 local CHANT_BEAT = 0.5 -- seconds per fist pump
 local WAVE_WIDTH = 9 -- degrees of the stands up at once
 local HOP_MAX = 250 -- avatars in the air at once
@@ -54,6 +58,10 @@ local WALKER_SHARE = 0.06 -- of the crowd walking at any time
 local WALK_SPEED = { 3.5, 6 } -- studs/s
 local TALK_SHARE = 0.05 -- of the crowd chatting at any time
 local BUBBLE_RANGE = 90
+local LOOK_SHARE = 0.05 -- of the crowd turning to look somewhere new every half second
+local LOOK_SPREAD = 55 -- degrees either side of the arena they may look
+local TURN_TIME = 0.6 -- seconds to turn
+local PERSONAL_SPACE = 2.2 -- studs a walker keeps from anyone in their way
 local RESPOND_PER_FRAME = 60
 local NEAR_CHANGES_PER_FRAME = 12
 local ARRIVE_TIME = 8 -- seconds for the stands to fill
@@ -68,11 +76,7 @@ local IDS = {
 }
 local LOOPED = { idle = true, walk = true, dance1 = true, dance2 = true, dance3 = true }
 
-local LINES = {
-    "LET'S GO!", "Did you see that?!", "No way...", "Get up, get up!", "That was clean",
-    "Ooooh!", "He's done for", "Finish it!", "Who's that one?", "This round is wild",
-    "Ref!!", "I told you", "Again! Again!", "So close", "MVP right there", "Look at the left side",
-}
+local CrowdChatter = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CrowdChatter"))
 
 local net = ReplicatedStorage:WaitForChild("ArenaNetwork")
 local remote = net:WaitForChild("CrowdNpcs", 60)
@@ -100,12 +104,31 @@ folder.Parent = Workspace
 local avatars = {}
 local hopping, hopCount = {}, 0
 local walkers, walkerCount = {}, 0
+local turning = {} -- avatar -> { from, to, start } (yaw in radians)
+local grid = {} -- "x:z" cell (4 studs) -> avatars standing there (walkers keep it current)
+
+local function cellOf(pos)
+    return math.floor(pos.X / 4) .. ":" .. math.floor(pos.Z / 4)
+end
+
+local function yawTo(from, to)
+    local d = to - from
+    return math.atan2(-d.X, -d.Z)
+end
+
+-- Turn to face a yaw (radians) over TURN_TIME
+local function turnTo(a, yaw)
+    local current = a.yaw or yawTo(a.pos, ARENA_CENTER)
+    local diff = (yaw - current + math.pi) % (2 * math.pi) - math.pi
+    turning[a] = { from = current, to = current + diff, start = os.clock() }
+end
 local posing = {} -- avatars holding a moving pose
 local posingCount = 0
 local pending = {}
 local nearQueue = {}
 local buildToken = 0
 local present = false -- the crowd is in the stands
+local lastPhaseForChat = nil -- (the arena phase, for what the crowd talks about)
 local anthemOn = false -- the stadium anthem: everyone sways together
 local wave = nil -- a Mexican wave going round: { start, angle, speed, id }
 local arriveNow = false -- (a rebuild while the stands were full: fill them again next frame)
@@ -297,49 +320,61 @@ end
 -- that ignore `phase` (anthem, pump) move in unison across the stadium
 local POSES = {
     anthem = function(_, p, a)
-        local role = a.role
-        -- this fan's own moment: the beat plus their lag, on the beats they go on
-        local tb = (os.clock() - beat.last) - (a.lag or 0)
+        local now = os.clock()
+        local rate = a.rate or 2
+        local cycle = (now * rate + p) % 1 -- this fan's own rhythm
+        local wobble = math.sin((now * rate + p) * math.pi * 2)
+        -- the beat: a light accent for everyone (subtle)
+        local tb = (now - beat.last) - (a.lag or 0)
         if tb < 0 then
             tb += beat.interval
         end
-        local onBeat = a.every ~= 2 or beat.count % 2 == 0
-        local k = math.exp(-tb * 9) -- a snap on the beat, settling after
+        local k = math.exp(-tb * 9) * BEAT_ACCENT
+        local accent = CFrame.new(0, 0.6 * k, 0)
+        local role = a.role
+        local amp = a.amp or 1
         if role == "hop" then
-            local x = tb / HOP_TIME_ANTHEM
-            local lift = (onBeat and x < 1) and 4 * x * (1 - x) * (a.hopH or 1.3) or 0 -- (a real arc: up, down, floor)
+            -- hops on their own rhythm, a real arc each time
+            local x = cycle / HOP_SHARE
+            local lift = x < 1 and 4 * x * (1 - x) * (a.hopH or 1.3) or 0
             return {
-                Root = CFrame.new(0, lift, 0),
-                LS = CFrame.Angles(rad(150 + 15 * k), 0, rad(-12 - 10 * k)), RS = CFrame.Angles(rad(150 + 15 * k), 0, rad(12 + 10 * k)),
+                Root = CFrame.new(0, lift, 0) * accent,
+                LS = CFrame.Angles(rad(150 + 12 * wobble), 0, rad(-14)), RS = CFrame.Angles(rad(150 - 12 * wobble), 0, rad(14)),
                 LE = CFrame.Angles(rad(20), 0, 0), RE = CFrame.Angles(rad(20), 0, 0),
-                Neck = CFrame.Angles(rad(10 + 8 * k), 0, 0),
+                Neck = CFrame.Angles(rad(12), 0, 0),
             }
         elseif role == "pump" then
-            local punch = onBeat and math.clamp(1 - math.abs(tb - 0.08) / 0.25, 0, 1) or 0
+            local punch = math.max(0, math.sin(cycle * math.pi * 2)) ^ 0.6
             return {
-                RS = CFrame.Angles(rad(110 + 60 * punch * (a.amp or 1)), 0, rad(8)), RE = CFrame.Angles(rad(80 - 70 * punch), 0, 0),
-                LS = CFrame.Angles(rad(30), 0, rad(-8)), LE = CFrame.Angles(rad(70), 0, 0),
-                Neck = CFrame.Angles(rad(6 - 14 * k * (a.amp or 1)), 0, 0),
+                Root = accent,
+                RS = CFrame.Angles(rad(110 + 60 * punch * amp), 0, rad(8)), RE = CFrame.Angles(rad(80 - 70 * punch), 0, 0),
+                LS = CFrame.Angles(rad(35), 0, rad(-8)), LE = CFrame.Angles(rad(70), 0, 0),
+                Neck = CFrame.Angles(rad(8 - 18 * punch * amp - 10 * k), 0, 0),
             }
         elseif role == "clap" then
-            local c = k
+            local c = math.abs(math.sin(cycle * math.pi))
             return {
-                LS = CFrame.Angles(rad(75), rad(-30 + 22 * c), 0), RS = CFrame.Angles(rad(75), rad(30 - 22 * c), 0),
+                Root = accent,
+                LS = CFrame.Angles(rad(75), rad(-30 + 24 * c), 0), RS = CFrame.Angles(rad(75), rad(30 - 24 * c), 0),
                 LE = CFrame.Angles(rad(45), 0, 0), RE = CFrame.Angles(rad(45), 0, 0),
-                Neck = CFrame.Angles(rad(-6 * k), 0, 0),
+                Neck = CFrame.Angles(rad(-8 * k), 0, 0),
             }
-        elseif role == "nod" then
+        elseif role == "scream" then
+            -- both arms up, shaking, leaning in
             return {
-                Neck = CFrame.Angles(rad(-16 * k * (a.amp or 1)), 0, 0), Waist = CFrame.Angles(rad(-4 * k), 0, 0),
-                Root = CFrame.new(0, -0.12 * k, 0),
+                Root = accent,
+                LS = CFrame.Angles(rad(160 + 8 * wobble), 0, rad(-20 + 10 * wobble)), RS = CFrame.Angles(rad(160 - 8 * wobble), 0, rad(20 + 10 * wobble)),
+                LE = CFrame.Angles(rad(25), 0, 0), RE = CFrame.Angles(rad(25), 0, 0),
+                Waist = CFrame.Angles(rad(-6), 0, 0), Neck = CFrame.Angles(rad(18), 0, 0),
             }
         end
-        -- sway: arms up, side to side over two beats
-        local sway = math.sin(math.pi * (beat.count + math.clamp(tb / beat.interval, 0, 1)))
+        -- wave: arms up, swinging side to side at their own pace
+        local sway = math.sin((now * rate * 0.5 + p) * math.pi * 2) * amp
         return {
-            Waist = CFrame.Angles(0, 0, rad(8 * sway * (a.amp or 1))),
-            LS = CFrame.Angles(rad(150), 0, rad(-10 + 22 * sway)), RS = CFrame.Angles(rad(150), 0, rad(10 + 22 * sway)),
-            Neck = CFrame.Angles(rad(10), 0, rad(-6 * sway)),
+            Root = accent,
+            Waist = CFrame.Angles(0, 0, rad(9 * sway)),
+            LS = CFrame.Angles(rad(150), 0, rad(-10 + 26 * sway)), RS = CFrame.Angles(rad(150), 0, rad(10 + 26 * sway)),
+            Neck = CFrame.Angles(rad(10 - 6 * k), 0, rad(-7 * sway)),
         }
     end,
     pump = function(t)
@@ -572,30 +607,59 @@ local function stopWalk(a)
     walkerCount -= 1
     a.walking = false
     a.home = facing(a.pos, ARENA_CENTER)
+    turnTo(a, yawTo(a.pos, ARENA_CENTER) + math.rad(rng:NextNumber(-25, 25)))
     if a.near and a.tracks.walk then
         a.tracks.walk:Stop(0.25)
     end
     setPose(a, "idle")
 end
 
-local lastBubble = 0
+local function chatPhase()
+    if lastPhaseForChat == "IN_GAME" then
+        return "live"
+    elseif lastPhaseForChat == "WINNER_DETERMINATION" or lastPhaseForChat == "POST_GAME" then
+        return "post"
+    end
+    return "pre"
+end
+
+local function bubble(a, text)
+    if a.head and eyeDistance(a) < BUBBLE_RANGE then
+        pcall(function()
+            TextChatService:DisplayBubble(a.head, text)
+        end)
+    end
+end
+
+-- Two neighbours talk: they turn to each other, one says something, the other answers a moment
+-- later, sometimes back and forth; the speaker's mouth moves, the listener nods along
 local function talk(a)
     local b = a and a.neighbor
     if not b or not a.shown or not b.shown or a.walking or b.walking or a.talking or b.talking then
         return
     end
-    local seconds = rng:NextNumber(4, 9)
+    local turns = CrowdChatter.conversation(chatPhase(), rng)
+    local seconds = 1.5 + #turns * 2.6
     for _, x in ipairs({ a, b }) do
         x.talking = os.clock() + seconds
-        x.root.CFrame = facing(x.pos, (x == a and b or a).pos)
-        express(x, "talk", seconds)
+        turnTo(x, yawTo(x.pos, (x == a and b or a).pos))
+        setPose(x, "talk", seconds)
+        setExpression(x, "happy")
     end
-    if os.clock() - lastBubble > 1.2 and eyeDistance(a) < BUBBLE_RANGE and a.head then
-        lastBubble = os.clock()
-        pcall(function()
-            TextChatService:DisplayBubble(a.head, pick(LINES))
-        end)
-    end
+    task.spawn(function()
+        task.wait(rng:NextNumber(0.3, 0.9))
+        for _, t in ipairs(turns) do
+            if not (a.shown and b.shown) then
+                return
+            end
+            local speaker, listener = t.who == 1 and a or b, t.who == 1 and b or a
+            setExpression(speaker, "talk")
+            setExpression(listener, rng:NextNumber() < 0.3 and "cheer" or "happy")
+            bubble(speaker, t.text)
+            task.wait(rng:NextNumber(1.8, 3.2)) -- (the other takes it in, then answers)
+            setExpression(speaker, "happy")
+        end
+    end)
 end
 
 -- ============================================================================
@@ -668,7 +732,7 @@ local function build()
     table.sort(looks, function(x, y)
         return (tonumber(x.Name:match("%d+")) or 0) < (tonumber(y.Name:match("%d+")) or 0)
     end)
-    local grid = {}
+    grid = {}
     for i, entry in ipairs(layout or {}) do
         local look = looks[entry[4]] or looks[1]
         if look then
@@ -704,9 +768,13 @@ local function build()
                 busyUntil = 0,
             }
             table.insert(avatars, a)
-            local key = math.floor(pos.X / 4) .. ":" .. math.floor(pos.Z / 4)
+            local key = cellOf(pos)
             grid[key] = grid[key] or {}
             table.insert(grid[key], a)
+            a.cell = key
+            -- (not all facing one point: each a little off, their own way)
+            a.yaw = yawTo(pos, ARENA_CENTER) + math.rad(rng:NextNumber(-25, 25))
+            model:PivotTo(CFrame.new(pos) * CFrame.Angles(0, a.yaw, 0))
         end
         if i % 80 == 0 then
             RunService.Heartbeat:Wait()
@@ -868,11 +936,11 @@ local function heatAt(angle)
 end
 
 local function chooseRole(a)
-    local energy = math.clamp((os.clock() - anthemStart) / ANTHEM_BUILD, 0.3, 1)
+    local energy = math.clamp((os.clock() - anthemStart) / ANTHEM_BUILD, 0.6, 1)
     local h = heatAt(a.angle)
     local weights = {
-        { "hop", (0.6 * h + 0.04) * energy }, { "pump", 0.16 * energy }, { "clap", 0.14 },
-        { "nod", 0.16 }, { "sway", 0.1 * energy }, { "calm", 0.3 * (1 - h) + 0.06 },
+        { "hop", (0.18 + 0.25 * h) * energy }, { "pump", 0.2 * energy }, { "wave", 0.24 }, { "clap", 0.12 },
+        { "scream", 0.14 * energy }, { "calm", 0.05 },
     }
     local total = 0
     for _, w in ipairs(weights) do
@@ -901,7 +969,7 @@ local function setRole(a, role)
     else
         stopWalk(a)
         setPose(a, "anthem")
-        setExpression(a, (role == "hop" or role == "pump") and "cheer" or "happy")
+        setExpression(a, role == "clap" and "happy" or "cheer")
     end
     a.faceUntil = nil
 end
@@ -926,8 +994,8 @@ local function setAnthem(on)
                     a.emote = nil
                 end
                 a.lag = rng:NextNumber(-0.03, 0.1)
-                a.hopH = rng:NextNumber(0.9, 1.9)
-                a.every = rng:NextNumber() < 0.35 and 2 or 1
+                a.hopH = rng:NextNumber(0.7, 1.8)
+                a.rate = rng:NextNumber(1.2, 2.8) -- (their own pace: cycles a second)
                 a.amp = rng:NextNumber(0.6, 1.25)
                 setRole(a, chooseRole(a))
             else
@@ -944,6 +1012,7 @@ end
 
 local lastPhase = nil
 local function onPhase(phase)
+    lastPhaseForChat = phase
     setAnthem(phase == "STADIUM_ANTHEM")
     if Workspace:GetAttribute("CrowdAlwaysOn") == true then
         arrive(true)
@@ -957,6 +1026,7 @@ end
 if stateRemote then
     stateRemote.OnClientEvent:Connect(function(snap)
         local phase = type(snap) == "table" and snap.Phase or nil
+        lastPhaseForChat = phase
         if phase ~= lastPhase then
             local joined = lastPhase == nil
             lastPhase = phase
@@ -1061,6 +1131,19 @@ RunService.RenderStepped:Connect(function(dt)
         setNear(change.a, change.near)
     end
 
+    -- turning (looking about, to a neighbour, back to the arena)
+    for a, t in pairs(turning) do
+        local u = math.clamp((now - t.start) / TURN_TIME, 0, 1)
+        u = u * u * (3 - 2 * u)
+        a.yaw = t.from + (t.to - t.from) * u
+        if not a.walking then
+            a.root.CFrame = CFrame.new(a.pos) * CFrame.Angles(0, a.yaw, 0)
+        end
+        if u >= 1 then
+            turning[a] = nil
+        end
+    end
+
     -- the Mexican wave: the stands rise as it passes
     if wave and present then
         local elapsed = syncTime() - wave.start
@@ -1110,11 +1193,47 @@ RunService.RenderStepped:Connect(function(dt)
             local arrived = math.abs(w.goal - here) <= math.abs(step) + 0.01
             local value = arrived and w.goal or here + step
             local dir = a.axis == 1 and Vector3.new(math.sign(step), 0, 0) or Vector3.new(0, 0, math.sign(step))
-            a.pos = a.axis == 1 and Vector3.new(value, a.pos.Y, a.pos.Z) or Vector3.new(a.pos.X, a.pos.Y, value)
-            table.insert(walkParts, a.root)
-            table.insert(walkFrames, (arrived or dir.Magnitude < 0.5) and facing(a.pos, ARENA_CENTER) or CFrame.lookAt(a.pos, a.pos + dir))
-            if arrived then
-                table.insert(done, a)
+            local nextPos = a.axis == 1 and Vector3.new(value, a.pos.Y, a.pos.Z) or Vector3.new(a.pos.X, a.pos.Y, value)
+            -- someone in the way: wait a moment, then turn back rather than walk through them
+            local blocked = false
+            local cx, cz = math.floor(nextPos.X / 4), math.floor(nextPos.Z / 4)
+            for dx = -1, 1 do
+                for dz = -1, 1 do
+                    for _, other in ipairs(grid[(cx + dx) .. ":" .. (cz + dz)] or {}) do
+                        if other ~= a and other.shown and math.abs(other.pos.Y - a.pos.Y) < 2 then
+                            local ahead = (other.pos - a.pos):Dot(dir)
+                            if ahead > 0 and (other.pos - nextPos).Magnitude < PERSONAL_SPACE then
+                                blocked = true
+                            end
+                        end
+                    end
+                end
+            end
+            if blocked then
+                w.waited = (w.waited or 0) + dt
+                if w.waited > rng:NextNumber(0.8, 1.6) then
+                    table.insert(done, a) -- (gives up: stops here)
+                end
+            else
+                w.waited = 0
+                a.pos = nextPos
+                local key = cellOf(a.pos)
+                if key ~= a.cell then
+                    local list = grid[a.cell]
+                    local i = list and table.find(list, a)
+                    if i then
+                        table.remove(list, i)
+                    end
+                    grid[key] = grid[key] or {}
+                    table.insert(grid[key], a)
+                    a.cell = key
+                end
+                a.yaw = math.atan2(-dir.X, -dir.Z)
+                table.insert(walkParts, a.root)
+                table.insert(walkFrames, CFrame.new(a.pos) * CFrame.Angles(0, a.yaw, 0))
+                if arrived then
+                    table.insert(done, a)
+                end
             end
         end
         if #walkParts > 0 then
@@ -1181,11 +1300,39 @@ RunService.RenderStepped:Connect(function(dt)
                 talk(a)
             end
         end
+        -- looking about: a few fans turn to look somewhere new (along the stands, at a neighbour,
+        -- back to the fight)
+        for _ = 1, math.max(1, math.floor(n * LOOK_SHARE)) do
+            local a = avatars[rng:NextInteger(1, n)]
+            if a.shown and not a.walking and not a.talking and not turning[a] then
+                local toArena = yawTo(a.pos, ARENA_CENTER)
+                if a.neighbor and rng:NextNumber() < 0.2 then
+                    turnTo(a, yawTo(a.pos, a.neighbor.pos))
+                else
+                    turnTo(a, toArena + math.rad(rng:NextNumber(-LOOK_SPREAD, LOOK_SPREAD)))
+                end
+            end
+        end
+        -- never just standing and staring: in the fight a slice of the crowd keeps starting
+        -- something (cheering, clapping, pointing, a hop), each for its own few seconds
+        if not anthemOn and Workspace:GetAttribute("CrowdPhase") == "IN_GAME" then
+            for _ = 1, math.max(1, math.floor(n * LIVELY_SHARE)) do
+                local a = avatars[rng:NextInteger(1, n)]
+                if a.shown and not a.walking and not a.talking and now >= a.busyUntil then
+                    local seconds = rng:NextNumber(1.5, 5)
+                    a.busyUntil = now + seconds
+                    express(a, pick({ "cheer", "cheer", "clap", "clap", "point", "pump" }), seconds)
+                    if rng:NextNumber() < 0.15 then
+                        hop(a, rng:NextInteger(1, 2), rng:NextNumber(1, 1.8))
+                    end
+                end
+            end
+        end
         for _, a in ipairs(avatars) do
             if a.talking and now > a.talking then
                 a.talking = nil
                 if not a.walking then
-                    a.root.CFrame = facing(a.pos, ARENA_CENTER)
+                    turnTo(a, yawTo(a.pos, ARENA_CENTER) + math.rad(rng:NextNumber(-20, 20)))
                 end
             end
             if a.faceUntil and now > a.faceUntil then
