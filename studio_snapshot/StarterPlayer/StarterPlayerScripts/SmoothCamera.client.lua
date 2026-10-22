@@ -140,8 +140,13 @@ end
 
 -- The game opens as an ordinary Roblox player walking the avatar (owner, 2026-10-23: walk up to
 -- the Arena Terminals); B flies the free camera (Fly Spectator, pass 24), B again walks, R flies.
-local cameraMode = "DEFAULT"
-shared.SpectatorState = { Mode = "DEFAULT" }
+-- AVATAR (owner, 2026-10-23): the avatar gets the Play As Admin camera (the orbit, the wheel into
+-- first person), starting in first person; in first person the body faces where the view looks.
+-- ("DEFAULT", Roblox's own camera, is still here for any script that asks for it.)
+local cameraMode = "AVATAR"
+shared.SpectatorState = { Mode = "AVATAR" }
+local avatarEnterPending = true -- (first person and the view behind the body when AVATAR begins)
+local avatarModel = nil -- the body AVATAR last entered
 local playerSpawnObj = findSpawnLocation()
 local cameraPos = playerSpawnObj and (playerSpawnObj.Position + Vector3.new(0, 15, 30)) or Vector3.new(161, 159, -722.5)
 local yaw = 0
@@ -177,6 +182,16 @@ local function menuOpen()
 	if arenaWindow and arenaWindow:IsA("GuiObject") and arenaWindow.Visible then return true end
 	local tuning = playerGui:FindFirstChild("TuningPanel") -- (TuningPanel, Studio: F3)
 	if tuning and tuning.Enabled then return true end
+	-- the Skylark clock's windows, the Arena Terminal popup, a preparation room terminal
+	local clock = playerGui:FindFirstChild("SkylarkClockUI")
+	if clock then
+		for _, name in ipairs({ "TerminalPopup", "ScheduleBoard", "TimeDebug" }) do
+			local w = clock:FindFirstChild(name)
+			if w and w.Visible then return true end
+		end
+	end
+	local terminal = playerGui:FindFirstChild("PrepTerminalUI")
+	if terminal and terminal.Enabled then return true end
 	return false
 end
 
@@ -216,8 +231,9 @@ end
 
 -- Other scripts walk the avatar again (PlayerQuinController's Play As Roblox Player)
 shared.SetSpectatorMode = function(mode)
-	if mode == "DEFAULT" then
-		cameraMode = "DEFAULT"
+	if mode == "DEFAULT" or mode == "AVATAR" then
+		cameraMode = "AVATAR"
+		avatarEnterPending = true
 		shared.SpectatorState.Mode = cameraMode
 		shared.SpectatedQuin = nil
 		_G.SpectatedQuin = nil
@@ -436,6 +452,15 @@ local function getActiveSpectatedQuin()
 			return hrp, specQuin
 		end
 	end
+	-- AVATAR: the player's own body
+	if cameraMode == "AVATAR" then
+		local character = player.Character
+		local hum = character and character:FindFirstChildOfClass("Humanoid")
+		local hrp = character and character:FindFirstChild("HumanoidRootPart")
+		if hum and hrp and hum.Health > 0 and character:GetAttribute("IsCostume") ~= true then
+			return hrp, character
+		end
+	end
 	return nil, nil
 end
 
@@ -446,7 +471,8 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	-- Hotkey B toggles the free camera from any state (F flies the body: TheArchitectCode)
 	if input.KeyCode == Enum.KeyCode.B and not gp then
 		if cameraMode == "FREEFLY" then
-			cameraMode = "DEFAULT"
+			cameraMode = "AVATAR"
+			avatarEnterPending = true
 			shared.SpectatorState.Mode = cameraMode
 			unlockMouse()
 			print("[SmoothCamera] Freefly disabled -> Returned to default player avatar.")
@@ -513,13 +539,13 @@ UserInputService.InputChanged:Connect(function(input, gp)
 	if gp then return end
 	if cameraMode == "DEFAULT" then return end
 	if input.UserInputType == Enum.UserInputType.MouseWheel then
-		if cameraMode == "QUIN_SPECTATE" then
+		if cameraMode == "QUIN_SPECTATE" or cameraMode == "AVATAR" then
 			local zoomingIn = input.Position.Z > 0
 			if firstPerson then
 				if not zoomingIn then
 					leaveFirstPerson()
 				end
-			elseif zoomingIn and targetDistance <= minZoom + 0.01 and isPossessing() then
+			elseif zoomingIn and targetDistance <= minZoom + 0.01 and (isPossessing() or cameraMode == "AVATAR") then
 				firstPerson = true
 				fpEye = nil
 			else
@@ -560,11 +586,32 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 	-- Check if a Quin is selected from the HUD or player possessed
 	local targetHRP, quinModel = getActiveSpectatedQuin()
 
-	-- First person only on the Quin this player is playing
-	if firstPerson and (not quinModel or quinModel ~= (shared.PlayerControlledQuin or _G.PlayerControlledQuin)) then
+	-- First person only on the Quin this player is playing, or on the avatar
+	local onAvatar = cameraMode == "AVATAR" and quinModel ~= nil and quinModel == player.Character
+	if firstPerson and (not quinModel or (quinModel ~= (shared.PlayerControlledQuin or _G.PlayerControlledQuin) and not onAvatar)) then
 		leaveFirstPerson()
 	end
-	applyAvatarState(cameraMode == "DEFAULT" and not targetHRP)
+	applyAvatarState(onAvatar or (cameraMode == "AVATAR" and not targetHRP) or (cameraMode == "DEFAULT" and not targetHRP))
+	if onAvatar and not firstPerson then
+		local hum = quinModel:FindFirstChildOfClass("Humanoid")
+		if hum and not hum.AutoRotate then hum.AutoRotate = true end -- (orbit: the body turns to its walk)
+	end
+	if onAvatar and quinModel ~= avatarModel then
+		avatarModel = quinModel -- (a new body, also the one that replaces the first at the start)
+		avatarEnterPending = true
+	end
+	if onAvatar and avatarEnterPending then
+		-- AVATAR begins (or the body respawned): first person, the view the way the body faces
+		avatarEnterPending = false
+		firstPerson = true
+		fpEye = nil
+		targetDistance = 12
+		pitch = -8
+		local look = targetHRP.CFrame.LookVector
+		yaw = math.deg(math.atan2(-look.X, -look.Z))
+		smoothYaw = yaw
+		smoothPitch = pitch
+	end
 	local nowClock = os.clock()
 	if cameraMode ~= "DEFAULT" and not isPossessing() then
 		if nowClock - lastFocusSend > 0.5 then
@@ -576,7 +623,7 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		focusSent = false
 		sendStreamFocus(nil)
 	end
-	if targetHRP then
+	if targetHRP and not onAvatar then
 		if cameraMode ~= "QUIN_SPECTATE" then
 			cameraMode = "QUIN_SPECTATE"
 			shared.SpectatorState.Mode = cameraMode
@@ -626,6 +673,11 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			currentCamFov = currentCamFov + (baseFOV - currentCamFov) * (1 - math.exp(-8.0 * dt))
 			Camera.FieldOfView = currentCamFov
 		end
+		return
+	end
+
+	if cameraMode == "AVATAR" and not targetHRP then
+		avatarEnterPending = true -- (dead or respawning: the view holds; first person again on the new body)
 		return
 	end
 
@@ -721,7 +773,7 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 		-- === FIRST PERSON (possessed Quin, zoomed all the way in) ===
 		-- Eyes at the head bone, a little forward; the view turns with the mouse, not with the
 		-- head's animation (head bob and snaps would be sickening)
-		local head = quinModel:FindFirstChild("mixamorig:Head", true)
+		local head = quinModel:FindFirstChild("mixamorig:Head", true) or quinModel:FindFirstChild("Head")
 		-- the same smooth turning as the orbit camera (it turned 1:1 with the mouse)
 		local rotAlpha = 1 - math.exp(-orbitSmoothness * dt)
 		-- (straight at the mouse's yaw, not the shortest way round: a fast flick put the mouse more
@@ -748,6 +800,12 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 			Camera.FieldOfView = currentCamFov
 		end
 		hideBody(quinModel)
+		if quinModel == player.Character then
+			-- the avatar in first person faces where the view looks
+			local hum = quinModel:FindFirstChildOfClass("Humanoid")
+			if hum then hum.AutoRotate = false end
+			targetHRP.CFrame = CFrame.new(targetHRP.Position) * CFrame.Angles(0, math.rad(smoothYaw), 0)
+		end
 		Camera.CFrame = CFrame.new(fpEye) * rotCF
 		cameraPos = fpEye
 

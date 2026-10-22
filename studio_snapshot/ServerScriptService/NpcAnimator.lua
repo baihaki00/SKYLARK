@@ -29,7 +29,8 @@ local IDS = {
     dance3 = { "507777268" },
 }
 local LOOPED = { idle = true, walk = true, run = true, fall = true, sit = true, dance1 = true, dance2 = true, dance3 = true }
-local RUN_SPEED = 13 -- studs/s above which an NPC runs
+local RUN_SPEED = 17 -- studs/s above which an NPC runs...
+local WALK_SPEED_BACK = 14 -- ...and below which a running NPC walks again (no flicker between them)
 
 local animations = {} -- id -> Animation (shared)
 local rigs = {} -- model -> { animator, humanoid, root, tracks = {}, base, emote, emoteUntil, moving }
@@ -172,10 +173,10 @@ RunService.Heartbeat:Connect(function()
                 end
             elseif state == Enum.HumanoidStateType.Freefall then
                 setBase(rig, "fall")
-            elseif speed > RUN_SPEED then
+            elseif speed > RUN_SPEED or (rig.base == "run" and speed > WALK_SPEED_BACK) then
                 setBase(rig, "run", speed / 16)
             elseif speed > 0.8 then
-                setBase(rig, "walk", speed / 10)
+                setBase(rig, "walk", speed / 9)
             else
                 setBase(rig, "idle")
             end

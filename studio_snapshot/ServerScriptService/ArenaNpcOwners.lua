@@ -25,7 +25,7 @@ local NpcAnimator = require(script.Parent:WaitForChild("NpcAnimator"))
 local NpcOwners = {}
 
 local NPC_SHARE = 1 -- of the empty seats (Workspace attribute ArenaNpcShare overrides)
-local WALK_SPEED = { 10, 14 }
+local WALK_SPEED = { 8, 11 } -- (a stroll: the walk animation, never the run)
 
 local NAMES = {
     "NovaRider", "Kestrel_88", "IronVow", "PixelMonk", "Saffron", "BlueTalon", "Moth_and_Ember",

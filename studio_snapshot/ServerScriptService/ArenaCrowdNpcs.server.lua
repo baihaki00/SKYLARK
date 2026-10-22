@@ -1,15 +1,23 @@
 --// ArenaCrowdNpcs.server.lua
--- The NPC crowd on the stands (the ArenaOne parts named "CrowdArea"), the server's half. The
--- avatars themselves live only on each player's machine (StarterPlayerScripts.ArenaCrowdClient):
+-- The NPC crowd on the stands (the ArenaOne parts named "CrowdArea": the bench rows), the server's
+-- half. The avatars live only on each player's machine (StarterPlayerScripts.ArenaCrowdClient):
 -- the server builds the looks once (ReplicatedStorage.CrowdNpcTemplates), lays out the stands
--- (where each avatar stands, which look, which crowd section) and passes on what the procedural
--- crowd (ArenaCrowdManager) does, so a crowd of thousands costs the server next to nothing.
+-- (where each avatar stands, which look, which crowd section, which bench row) and passes on what
+-- the procedural crowd (ArenaCrowdManager) does, so a crowd of thousands costs the server nothing.
+--
+-- Looks: real Roblox avatars (random public users' outfits: clothes, hair, hats), so the stands are
+-- not rows of the same default figure; bare default avatars are skipped, and plain coloured ones
+-- stand in if the avatar service cannot be reached. Every look is rebuilt with classic joints:
+-- Roblox's avatars join limbs and accessories with physics constraints (AnimationConstraint,
+-- RigidConstraint) that wake the solver for every limb whenever a body moves; Motor6Ds and Welds
+-- keep each avatar one rigid anchored body. Layered clothing needs those constraints and is left off.
 --
 --   Remote ArenaNetwork.CrowdNpcs (server -> clients):
 --     "layout", version                      -- the stands changed: ask for the layout again
 --     "react", team, category, major, teams  -- a crowd reaction (teams: each section's team)
 --     "mood", excitement, teams              -- once a second while the fight is on
---   RemoteFunction ArenaNetwork.CrowdNpcLayout -> version, { {x, y, z, look, section}, ... }
+--   RemoteFunction ArenaNetwork.CrowdNpcLayout -> version, { {x, y, z, look, section, axis, from, to}, ... }
+--     (axis 1 = the bench row runs along X, 3 = along Z; from/to = the row's ends on that axis)
 --
 -- Stress test: Workspace attributes CrowdNpcCount (default 1000; up to every spot on the stands)
 -- and CrowdNpcs (false: none). Changing either relays the stands out.
@@ -23,7 +31,10 @@ local Crowd = require(ServerScriptService:WaitForChild("ArenaCrowdManager"))
 
 local DEFAULT_COUNT = 1000
 local SPACING = 3.4 -- studs between avatars on the stands
-local VARIANTS = 16 -- looks
+local LOOKS = 40 -- different avatars
+local LOOK_WORKERS = 8 -- avatar lookups at once
+local LOOK_ATTEMPTS = 700 -- random users tried at most (most are undressed or gone)
+local USER_ID_RANGE = { 20000000, 4000000000 }
 
 local SKIN = {
     Color3.fromRGB(255, 220, 190), Color3.fromRGB(234, 184, 146), Color3.fromRGB(198, 134, 94),
@@ -33,17 +44,10 @@ local CLOTH = {
     Color3.fromRGB(30, 34, 46), Color3.fromRGB(180, 40, 50), Color3.fromRGB(40, 90, 170),
     Color3.fromRGB(230, 230, 235), Color3.fromRGB(60, 130, 80), Color3.fromRGB(240, 180, 40),
     Color3.fromRGB(110, 60, 150), Color3.fromRGB(90, 90, 95), Color3.fromRGB(200, 120, 60),
-    Color3.fromRGB(0, 170, 255), Color3.fromRGB(255, 80, 80),
-}
-local LIMB_ZONE = {
-    Head = "skin", LeftUpperArm = "skin", LeftLowerArm = "skin", LeftHand = "skin",
-    RightUpperArm = "skin", RightLowerArm = "skin", RightHand = "skin",
-    UpperTorso = "torso", LowerTorso = "torso",
-    LeftUpperLeg = "legs", LeftLowerLeg = "legs", LeftFoot = "legs",
-    RightUpperLeg = "legs", RightLowerLeg = "legs", RightFoot = "legs",
 }
 
 local rng = Random.new()
+local templates = {}
 local layout = {}
 local version = 0
 
@@ -62,10 +66,119 @@ local function pick(list)
 end
 
 -- ============================================================================
--- LOOKS: R15 avatars without a Humanoid (an AnimationController animates them), colours baked
+-- LOOKS
 -- ============================================================================
 
-local templates = {}
+-- Classic joints, no physics: AnimationConstraint -> Motor6D, RigidConstraint -> Weld
+local function rebuildJoints(model)
+    for _, accessory in ipairs(model:GetChildren()) do
+        if accessory:IsA("Accessory") and accessory:FindFirstChildWhichIsA("WrapLayer", true) then
+            accessory:Destroy() -- (layered clothing)
+        end
+    end
+    for _, joint in ipairs(model:GetDescendants()) do
+        local a0 = (joint:IsA("AnimationConstraint") or joint:IsA("RigidConstraint")) and joint.Attachment0
+        local a1 = a0 and joint.Attachment1
+        if a0 and a1 and a0.Parent and a1.Parent then
+            local j = Instance.new(joint:IsA("AnimationConstraint") and "Motor6D" or "Weld")
+            j.Name = joint.Name
+            j.Part0 = a0.Parent
+            j.Part1 = a1.Parent
+            j.C0 = a0.CFrame
+            j.C1 = a1.CFrame
+            j.Parent = joint.Parent
+        end
+    end
+    for _, d in ipairs(model:GetDescendants()) do
+        if d:IsA("Constraint") or d:IsA("NoCollisionConstraint") or d:IsA("WrapTarget") or d:IsA("WrapLayer")
+            or d:IsA("FaceControls") then
+            d:Destroy()
+        end
+    end
+end
+
+local function finishLook(model, index)
+    model.Name = "CrowdLook" .. index
+    local root = model:FindFirstChild("HumanoidRootPart")
+    local cf, size = model:GetBoundingBox()
+    -- (the floor under the feet: the legs' bottom, not a hat's brim)
+    local lowest = math.huge
+    for _, name in ipairs({ "LeftFoot", "RightFoot" }) do
+        local foot = model:FindFirstChild(name)
+        if foot then
+            lowest = math.min(lowest, foot.Position.Y - foot.Size.Y / 2)
+        end
+    end
+    if lowest == math.huge then
+        lowest = cf.Y - size.Y / 2
+    end
+    model:SetAttribute("RootAboveFloor", root.Position.Y - lowest)
+    rebuildJoints(model)
+    for _, d in ipairs(model:GetDescendants()) do
+        if d:IsA("BasePart") then
+            d.CanCollide = false
+            d.CanTouch = false
+            d.CanQuery = false
+            d.CastShadow = false
+            d.Massless = true
+            d.Anchored = d == root
+        elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("HumanoidDescription") then
+            d:Destroy()
+        end
+    end
+    local hum = model:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum:Destroy()
+    end
+    local controller = Instance.new("AnimationController")
+    Instance.new("Animator").Parent = controller
+    controller.Parent = model
+    model.PrimaryPart = root
+    return model
+end
+
+local function plainLook(index)
+    local desc = Instance.new("HumanoidDescription")
+    local skin = pick(SKIN)
+    desc.HeadColor, desc.LeftArmColor, desc.RightArmColor = skin, skin, skin
+    desc.TorsoColor = pick(CLOTH)
+    local legs = pick(CLOTH)
+    desc.LeftLegColor, desc.RightLegColor = legs, legs
+    local ok, model = pcall(function()
+        return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
+    end)
+    return ok and model and finishLook(model, index) or nil
+end
+
+-- A random user's avatar, if it wears a classic shirt (or t-shirt) and pants
+local function userLook(index)
+    local userId = rng:NextInteger(USER_ID_RANGE[1], USER_ID_RANGE[2])
+    local ok, desc = pcall(function()
+        return Players:GetHumanoidDescriptionFromUserId(userId)
+    end)
+    if not ok or not desc then
+        return nil
+    end
+    local dressed = desc.HatAccessory ~= "" or desc.HairAccessory ~= "" or desc.Shirt ~= 0 or desc.GraphicTShirt ~= 0
+    if not dressed then
+        return nil
+    end
+    local built, model = pcall(function()
+        return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
+    end)
+    if not built or not model then
+        return nil
+    end
+    finishLook(model, index)
+    -- (layered clothing is left off: an avatar dressed only in it would stand there bare)
+    if not (model:FindFirstChildOfClass("Shirt") or model:FindFirstChildOfClass("ShirtGraphic"))
+        or not model:FindFirstChildOfClass("Pants") then
+        model:Destroy()
+        return nil
+    end
+    return model
+end
+
 local function buildTemplates()
     local store = ReplicatedStorage:FindFirstChild("CrowdNpcTemplates")
     if store then
@@ -73,80 +186,44 @@ local function buildTemplates()
     end
     store = Instance.new("Folder")
     store.Name = "CrowdNpcTemplates"
-    for i = 1, VARIANTS do
-        local colors = { skin = pick(SKIN), torso = pick(CLOTH), legs = pick(CLOTH) }
-        local desc = Instance.new("HumanoidDescription")
-        desc.HeadColor, desc.LeftArmColor, desc.RightArmColor = colors.skin, colors.skin, colors.skin
-        desc.TorsoColor = colors.torso
-        desc.LeftLegColor, desc.RightLegColor = colors.legs, colors.legs
-        local ok, model = pcall(function()
-            return Players:CreateHumanoidModelFromDescription(desc, Enum.HumanoidRigType.R15)
+    local started = os.clock()
+    local attempts, active = 0, 0
+    for _ = 1, LOOK_WORKERS do
+        active += 1
+        task.spawn(function()
+            while #templates < LOOKS and attempts < LOOK_ATTEMPTS do
+                attempts += 1
+                local look = userLook(#templates + 1)
+                if look and #templates < LOOKS then
+                    table.insert(templates, look)
+                    look.Name = "CrowdLook" .. #templates
+                    look.Parent = store
+                elseif look then
+                    look:Destroy()
+                end
+            end
+            active -= 1
         end)
-        if ok and model then
-            model.Name = "CrowdLook" .. i
-            local root = model:FindFirstChild("HumanoidRootPart")
-            local cf, size = model:GetBoundingBox()
-            model:SetAttribute("RootAboveFloor", root.Position.Y - (cf.Y - size.Y / 2))
-            for _, d in ipairs(model:GetDescendants()) do
-                if d:IsA("BasePart") then
-                    local zone = LIMB_ZONE[d.Name]
-                    if zone then
-                        d.Color = colors[zone]
-                    end
-                    d.CanCollide = false
-                    d.CanTouch = false
-                    d.CanQuery = false
-                    d.CastShadow = false
-                    d.Massless = true
-                    d.Anchored = d == root
-                elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("BodyColors") or d:IsA("HumanoidDescription") then
-                    d:Destroy()
-                end
-            end
-            -- Classic Motor6D joints: Roblox's avatars now join their limbs with AnimationConstraints,
-            -- physics constraints that wake the solver for every limb whenever the body moves (a
-            -- crowd jumping took a 16v16 to 12 fps). Motor6Ds keep each avatar one rigid anchored body.
-            for _, joint in ipairs(model:GetDescendants()) do
-                if joint:IsA("AnimationConstraint") and joint.Attachment0 and joint.Attachment1 then
-                    local motor = Instance.new("Motor6D")
-                    motor.Name = joint.Name
-                    motor.Part0 = joint.Attachment0.Parent
-                    motor.Part1 = joint.Attachment1.Parent
-                    motor.C0 = joint.Attachment0.CFrame
-                    motor.C1 = joint.Attachment1.CFrame
-                    motor.Parent = joint.Parent
-                    joint:Destroy()
-                end
-            end
-            for _, d in ipairs(model:GetDescendants()) do
-                if d:IsA("Constraint") or d:IsA("NoCollisionConstraint") or d:IsA("WrapTarget") or d:IsA("WrapLayer") then
-                    d:Destroy()
-                end
-            end
-            local hum = model:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum:Destroy()
-            end
-            local controller = Instance.new("AnimationController")
-            Instance.new("Animator").Parent = controller
-            controller.Parent = model
-            model.PrimaryPart = root
-            model.Parent = store
-            table.insert(templates, model)
-        else
-            warn("[ArenaCrowdNpcs] Could not build a crowd look: " .. tostring(model))
+    end
+    while active > 0 do
+        task.wait(0.2)
+    end
+    local real = #templates
+    while #templates < 8 do -- (the avatar service unreachable: plain looks)
+        local look = plainLook(#templates + 1)
+        if not look then
+            break
         end
+        table.insert(templates, look)
+        look.Parent = store
     end
     store.Parent = ReplicatedStorage
+    print(string.format("[ArenaCrowdNpcs] %d crowd looks (%d real avatars from %d tries) in %.1f s", #templates, real, attempts, os.clock() - started))
 end
 
 -- ============================================================================
 -- THE STANDS
 -- ============================================================================
-
-local function sectionsNow()
-    return Crowd.getSections()
-end
 
 local function nearestSection(x, z, sections)
     local best, bestD = 1, math.huge
@@ -170,12 +247,15 @@ local function relayout()
                 local cf, s = part.CFrame, part.Size
                 local ext = (cf.RightVector * s.X):Abs() + (cf.UpVector * s.Y):Abs() + (cf.LookVector * s.Z):Abs()
                 local top = part.Position.Y + ext.Y / 2
-                local nx, nz = math.floor((ext.X - 2) / SPACING), math.floor((ext.Z - 2) / SPACING)
+                local axis = ext.X >= ext.Z and 1 or 3 -- (the row runs along its long side)
+                local from = (axis == 1 and part.Position.X - ext.X / 2 or part.Position.Z - ext.Z / 2) + 1.5
+                local to = (axis == 1 and part.Position.X + ext.X / 2 or part.Position.Z + ext.Z / 2) - 1.5
+                local nx, nz = math.max(1, math.floor((ext.X - 1) / SPACING)), math.max(1, math.floor((ext.Z - 1) / SPACING))
                 for ix = 0, nx - 1 do
                     for iz = 0, nz - 1 do
-                        local x = part.Position.X - ext.X / 2 + 1 + (ix + 0.5) * SPACING + rng:NextNumber(-0.6, 0.6)
-                        local z = part.Position.Z - ext.Z / 2 + 1 + (iz + 0.5) * SPACING + rng:NextNumber(-0.6, 0.6)
-                        table.insert(spots, Vector3.new(x, top, z))
+                        local x = part.Position.X - ext.X / 2 + (ix + 0.5) * (ext.X / nx) + rng:NextNumber(-0.5, 0.5)
+                        local z = part.Position.Z - ext.Z / 2 + (iz + 0.5) * (ext.Z / nz) + rng:NextNumber(-0.5, 0.5)
+                        table.insert(spots, { Vector3.new(x, top, z), axis, from, to })
                     end
                 end
             end
@@ -185,14 +265,15 @@ local function relayout()
             spots[i], spots[j] = spots[j], spots[i]
         end
         local count = math.min(tonumber(Workspace:GetAttribute("CrowdNpcCount")) or DEFAULT_COUNT, #spots)
-        local sections = sectionsNow()
+        local sections = Crowd.getSections()
         for i = 1, count do
-            local p = spots[i]
+            local p, axis, from, to = spots[i][1], spots[i][2], spots[i][3], spots[i][4]
             local look = rng:NextInteger(1, #templates)
             local y = p.Y + templates[look]:GetAttribute("RootAboveFloor")
             table.insert(layout, {
                 math.floor(p.X * 10) / 10, math.floor(y * 100) / 100, math.floor(p.Z * 10) / 10,
                 look, #sections > 0 and nearestSection(p.X, p.Z, sections) or 0,
+                axis, math.floor(from * 10) / 10, math.floor(to * 10) / 10,
             })
         end
         print(string.format("[ArenaCrowdNpcs] Stands laid out: %d crowd avatars (of %d spots), drawn on each player's machine", count, #spots))
@@ -211,7 +292,7 @@ end
 
 local function sectionTeams()
     local teams = {}
-    for i, s in ipairs(sectionsNow()) do
+    for i, s in ipairs(Crowd.getSections()) do
         teams[i] = s.team
     end
     return teams
@@ -235,11 +316,12 @@ end)
 Workspace:GetAttributeChangedSignal("CrowdNpcCount"):Connect(relayout)
 Workspace:GetAttributeChangedSignal("CrowdNpcs"):Connect(relayout)
 
--- (an earlier version stood the avatars on the server)
 local old = Workspace:FindFirstChild("ArenaCrowdNpcs")
 if old then
-    old:Destroy()
+    old:Destroy() -- (an earlier version stood the avatars on the server)
 end
 
-buildTemplates()
-relayout()
+task.spawn(function()
+    buildTemplates()
+    relayout()
+end)
