@@ -44,6 +44,7 @@ How the owner's own Quin bodies get into the game. The live Blender files and sc
   - `vertex_group_smooth` needs Weight Paint mode.
 - **The skeleton:** moving joints along a limb is safe. A fitted collarbone start turned its rest angle by 32°, and kicks then differed by up to 16°, so restore it (step 5).
 - **Templates must be scale-1 models with LevelOfDetail Disabled.** The build keeps the old template's settings.
+- **"Shell missing in game":** a freshly uploaded mesh can show in Edit (Studio's local cache) but fail to load in Play (`ContentProvider:GetAssetFetchStatus` = Failure on the client) while it is being processed or moderated. Check Creator Hub → Development Items → Meshes. To test, clone the MeshPart into Workspace on a Play client and read the fetch status (PreloadAsync on raw mesh ids always says Failure).
 
 ## Rollback
 The previous body is in `ServerStorage.QuinBodyBackups.<TEMPLATE>_<date>`. Move it back into `ReplicatedStorage.QuinType` under the template's name.
