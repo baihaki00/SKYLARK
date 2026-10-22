@@ -27,6 +27,7 @@ local Debris = game:GetService("Debris")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local QuinInstance = require(QuinCore:WaitForChild("Modules"):WaitForChild("QuinInstance"))
 local NpcAnimator = require(script.Parent:WaitForChild("NpcAnimator"))
+local AvatarTidy = require(script.Parent:WaitForChild("AvatarTidy"))
 
 local NpcOwners = {}
 
@@ -65,6 +66,25 @@ local nameIndex = rng:NextInteger(1, #NAMES)
 local function pick(list)
     return list[rng:NextInteger(1, #list)]
 end
+
+-- The server keeps every NPC's body. Sitting welds it to the anchored seat; standing up gives the
+-- body back to automatic ownership and Roblox hands it to the nearest player, whose machine then
+-- walks it into the doors it keeps closed for that player (and plays it badly). Re-claimed often.
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        for _, m in ipairs(folder:GetChildren()) do
+            local root = m:FindFirstChild("HumanoidRootPart")
+            if root and not root.Anchored then
+                pcall(function()
+                    if root:GetNetworkOwner() ~= nil then
+                        root:SetNetworkOwner(nil)
+                    end
+                end)
+            end
+        end
+    end
+end)
 
 local function enabled()
     return Workspace:GetAttribute("ArenaNpcOwners") ~= false
@@ -153,6 +173,7 @@ local function makeAvatar(npc, cf)
         return nil
     end
     model.Name = npc.name
+    AvatarTidy.blockHands(model)
     local hum = model:FindFirstChildOfClass("Humanoid")
     hum.DisplayName = npc.name
     hum.WalkSpeed = rng:NextNumber(WALK_SPEED[1], WALK_SPEED[2])
@@ -211,8 +232,9 @@ local function standUp(npc)
     end
 end
 
--- Straight there; false if it stalls (something in the way) or times out
-local function moveStraight(npc, point, timeout, exiting)
+-- Straight there; false if it stalls (something in the way) or times out. `passBy`: an on-the-way
+-- point, done as soon as it is near (the walk flows on into the next one, no stop and restart)
+local function moveStraight(npc, point, timeout, exiting, passBy)
     local hum = humanoid(npc)
     if not hum or hum.Health <= 0 then
         return false
@@ -227,13 +249,13 @@ local function moveStraight(npc, point, timeout, exiting)
     while canMove(npc, exiting) and not reached and os.clock() - start < (timeout or 7) do
         local root = rootOf(npc)
         if root then
-            if (Vector3.new(root.Position.X, point.Y, root.Position.Z) - point).Magnitude < 1.5 then
+            if (Vector3.new(root.Position.X, point.Y, root.Position.Z) - point).Magnitude < (passBy and 3 or 1.5) then
                 reached = true
                 break
             end
             if lastPos and (root.Position - lastPos).Magnitude < 0.15 then
                 stalledSince = stalledSince or os.clock()
-                if os.clock() - stalledSince > 1.2 then
+                if os.clock() - stalledSince > 0.8 then
                     break
                 end
             else
@@ -241,7 +263,7 @@ local function moveStraight(npc, point, timeout, exiting)
             end
             lastPos = root.Position
         end
-        task.wait(0.2)
+        task.wait(0.05)
     end
     conn:Disconnect()
     return reached
@@ -258,7 +280,7 @@ local function walkTo(npc, point, timeout, exiting)
     if (root.Position - point).Magnitude < 5 then
         return moveStraight(npc, point, timeout or 4, exiting)
     end
-    local path = PathfindingService:CreatePath({ AgentRadius = 1.5, AgentHeight = 5, AgentCanJump = false, WaypointSpacing = 3 })
+    local path = PathfindingService:CreatePath({ AgentRadius = 1.5, AgentHeight = 5, AgentCanJump = false, AgentCanClimb = false, WaypointSpacing = 4 })
     local ok = pcall(function()
         path:ComputeAsync(root.Position, point)
     end)
@@ -268,7 +290,7 @@ local function walkTo(npc, point, timeout, exiting)
             if not canMove(npc, exiting) then
                 return false
             end
-            if not moveStraight(npc, waypoints[i].Position, 4, exiting) then
+            if not moveStraight(npc, waypoints[i].Position, 4, exiting, i < #waypoints) then
                 break
             end
         end

@@ -17,6 +17,9 @@
 -- write); the looks are rigid Motor6D bodies, so none of it wakes physics.
 -- Reactions: cheers and roars -> cheering, clapping, jumping (big moments: jumping again and again,
 -- dancing); groans and disappointment -> booing (pointing, slumping); gasps -> hands on the head.
+-- Together, in time (server time, so every player sees the same): the anthem (the whole stadium
+-- sways side to side, arms up, singing), Mexican waves round the stands (the server starts them),
+-- and chants (the chanted team's sections pump their fists on the beat).
 -- Live knobs (Workspace attributes): CrowdAnimateMax, CrowdHopMax, CrowdReactScale,
 -- CrowdAlwaysOn (true: the crowd stays between matches too).
 
@@ -31,6 +34,10 @@ local FACE_MAX = 40 -- expressive faces (the nearest)
 local FACE_RANGE = 70
 local POSE_RANGE = 380 -- beyond this the crowd stands still
 local POSE_UPDATES_PER_FRAME = 160 -- posed avatars re-posed per frame
+local POSE_UPDATES_ANTHEM = 360 -- (during the anthem every avatar sways: more a frame)
+local ANTHEM_PERIOD = 2.6 -- seconds per sway, left and right
+local CHANT_BEAT = 0.5 -- seconds per fist pump
+local WAVE_WIDTH = 9 -- degrees of the stands up at once
 local HOP_MAX = 250 -- avatars in the air at once
 local HOP_RANGE = 450
 local HOP_TIME = 0.42 -- seconds per hop
@@ -85,10 +92,13 @@ local avatars = {}
 local hopping, hopCount = {}, 0
 local walkers, walkerCount = {}, 0
 local posing = {} -- avatars holding a moving pose
+local posingCount = 0
 local pending = {}
 local nearQueue = {}
 local buildToken = 0
 local present = false -- the crowd is in the stands
+local anthemOn = false -- the stadium anthem: everyone sways together
+local wave = nil -- a Mexican wave going round: { start, angle, speed, id }
 local arriveNow = false -- (a rebuild while the stands were full: fill them again next frame)
 local glowCount = 0
 
@@ -211,8 +221,30 @@ end
 
 local rad = math.rad
 
--- pose -> function(t, phase) returning { joint key = CFrame }
+local function syncTime()
+    return Workspace:GetServerTimeNow() -- (the same moment on every player's machine)
+end
+
+-- pose -> function(t, phase) returning { joint key = CFrame }; t is server time, so the poses
+-- that ignore `phase` (anthem, pump) move in unison across the stadium
 local POSES = {
+    anthem = function(t)
+        local sway = math.sin(t * math.pi * 2 / ANTHEM_PERIOD)
+        return {
+            Waist = CFrame.Angles(0, 0, rad(7 * sway)),
+            LS = CFrame.Angles(rad(150), 0, rad(-12 + 16 * sway)), RS = CFrame.Angles(rad(150), 0, rad(12 + 16 * sway)),
+            LE = CFrame.Angles(rad(20), 0, 0), RE = CFrame.Angles(rad(20), 0, 0),
+            Neck = CFrame.Angles(rad(12), 0, rad(-5 * sway)),
+        }
+    end,
+    pump = function(t)
+        local beat = (t / CHANT_BEAT) % 1
+        local lift = math.sin(math.pi * math.min(1, beat * 1.6))
+        return {
+            RS = CFrame.Angles(rad(120 + 50 * lift), 0, rad(8)), RE = CFrame.Angles(rad(70 - 60 * lift), 0, 0),
+            Neck = CFrame.Angles(rad(6 + 6 * lift), 0, 0),
+        }
+    end,
     cheer = function(t, p)
         local sway = math.sin(t * 7 + p) * 18
         return { LS = CFrame.Angles(rad(165), 0, rad(-sway)), RS = CFrame.Angles(rad(165), 0, rad(sway)) }
@@ -262,12 +294,12 @@ local function clearJoints(a)
     end
 end
 
-local function applyPose(a, now)
+local function applyPose(a)
     local fn = POSES[a.pose]
     if not fn then
         return
     end
-    local set = fn(now, a.phase)
+    local set = fn(syncTime(), a.phase)
     for _, k in ipairs(JOINT_KEYS) do
         local j = a.joints[k]
         if j then
@@ -284,14 +316,20 @@ local function setPose(a, name, seconds)
     end
     a.pose = name
     if name == "idle" then
-        posing[a] = nil
-        if not a.near then
+        if posing[a] then
+            posing[a] = nil
+            posingCount -= 1
+        end
+        if not a.emote then
             clearJoints(a)
         end
     elseif a.shown then
-        posing[a] = true
-        if not a.near then
-            applyPose(a, os.clock())
+        if not posing[a] then
+            posing[a] = true
+            posingCount += 1
+        end
+        if not a.emote then
+            applyPose(a)
         end
     end
 end
@@ -332,7 +370,7 @@ local function setNear(a, near)
         end
         a.emote = nil
         if a.pose ~= "idle" then
-            applyPose(a, os.clock())
+            applyPose(a)
         end
     end
 end
@@ -501,6 +539,7 @@ end
 
 local function clear()
     avatars, hopping, hopCount, walkers, walkerCount, posing, pending = {}, {}, 0, {}, 0, {}, {}
+    posingCount = 0
     table.clear(nearQueue)
     folder:ClearAllChildren()
 end
@@ -549,6 +588,7 @@ local function build()
                     Waist = joint(model, "UpperTorso", "Waist"), Neck = joint(model, "Head", "Neck"),
                 },
                 phase = rng:NextNumber(0, 6.28),
+                angle = math.deg(math.atan2(pos.Z - ARENA_CENTER.Z, pos.X - ARENA_CENTER.X)) % 360,
                 tracks = {},
                 near = false,
                 shown = false,
@@ -707,8 +747,34 @@ local function leave()
     end)
 end
 
+local function setAnthem(on)
+    if anthemOn == on then
+        return
+    end
+    anthemOn = on
+    for _, a in ipairs(avatars) do
+        if a.shown then
+            if on then
+                stopWalk(a)
+                if a.emote and a.tracks[a.emote] then
+                    a.tracks[a.emote]:Stop(0.3)
+                    a.emote = nil
+                end
+                setPose(a, "anthem")
+                setExpression(a, "talk") -- (singing)
+                a.faceUntil = nil
+            else
+                setPose(a, "idle")
+                setExpression(a, "happy")
+                a.faceUntil = os.clock() + 3
+            end
+        end
+    end
+end
+
 local lastPhase = nil
 local function onPhase(phase)
+    setAnthem(phase == "STADIUM_ANTHEM")
     if Workspace:GetAttribute("CrowdAlwaysOn") == true then
         arrive(true)
     elseif phase == "IDLE" then
@@ -748,24 +814,36 @@ remote.OnClientEvent:Connect(function(kind, a1, a2, a3, a4)
         if type(category) ~= "string" then
             return
         end
-        local chance = (major and 0.85 or (isPositive(category) and 0.35 or 0.25)) * tuned("CrowdReactScale", 1)
+        local chance = (category:find("Celebration") and 1 or major and 0.95 or (isPositive(category) and 0.5 or 0.35)) * tuned("CrowdReactScale", 1)
         local now = os.clock()
         for _, a in ipairs(avatars) do
             if (team == nil or teams[a.section] == team) and rng:NextNumber() < chance then
                 table.insert(pending, { at = now + rng:NextNumber(0, major and 0.5 or 0.8), avatar = a, category = category, major = major })
             end
         end
-    elseif kind == "mood" and present then
-        local excitement, teams = a1 or {}, a2 or {}
-        for _ = 1, math.max(1, math.floor(#avatars * 0.04)) do
+    elseif kind == "wave" and present then
+        wave = { start = a1, angle = a2, speed = a3, id = (wave and wave.id or 0) + 1 }
+    elseif kind == "mood" and present and not anthemOn then
+        local excitement, teams, chant = a1 or {}, a2 or {}, a3
+        if chant then
+            -- the chanted team's sections pump their fists together, on the beat
+            for _, a in ipairs(avatars) do
+                if a.shown and not a.walking and teams[a.section] == chant and rng:NextNumber() < 0.35 then
+                    setPose(a, "pump", 1.3)
+                    setExpression(a, "cheer")
+                    a.faceUntil = os.clock() + 1.3
+                end
+            end
+        end
+        for _ = 1, math.max(1, math.floor(#avatars * 0.07)) do
             local a = avatars[rng:NextInteger(1, math.max(1, #avatars))]
             if a and os.clock() >= a.busyUntil and not a.walking then
                 local level = excitement[teams[a.section] or "Neutral"] or excitement.Neutral or 0.2
-                if rng:NextNumber() < 0.3 + level then
+                if rng:NextNumber() < 0.4 + level then
                     a.busyUntil = os.clock() + 2.5
-                    express(a, pick({ "cheer", "clap", "point" }), 2)
-                    if level > 0.6 and rng:NextNumber() < 0.5 then
-                        hop(a, 1, 1.6)
+                    express(a, pick({ "cheer", "cheer", "clap", "point" }), 2)
+                    if level > 0.45 and rng:NextNumber() < 0.55 then
+                        hop(a, level > 0.75 and 2 or 1, 1.8)
                     end
                 end
             end
@@ -813,6 +891,28 @@ RunService.RenderStepped:Connect(function(dt)
         setNear(change.a, change.near)
     end
 
+    -- the Mexican wave: the stands rise as it passes
+    if wave and present then
+        local elapsed = syncTime() - wave.start
+        if elapsed > 360 / wave.speed + 1 then
+            wave = nil
+        elseif elapsed >= 0 then
+            local at = (wave.angle + elapsed * wave.speed) % 360
+            for _, a in ipairs(avatars) do
+                if a.shown and a.waveId ~= wave.id then
+                    local d = (a.angle - at + 540) % 360 - 180
+                    if d > -WAVE_WIDTH and d <= 0 then
+                        a.waveId = wave.id
+                        if not a.walking then
+                            express(a, "cheer", 1.1)
+                            hop(a, 1, 2.2)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- hops: the Root joint lifts the body
     if hopCount > 0 then
         for a, h in pairs(hopping) do
@@ -855,22 +955,27 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- poses: the middle distance, a slice a frame
-    local budget = POSE_UPDATES_PER_FRAME
+    -- poses, a slice a frame: an avatar posed less than its turn ago is passed over, so every
+    -- posed avatar gets its turn (about budget / count of them a frame)
+    local budget = anthemOn and POSE_UPDATES_ANTHEM or POSE_UPDATES_PER_FRAME
+    local range = anthemOn and math.huge or POSE_RANGE
+    local turn = math.max(0, (posingCount / budget) * dt * 0.9)
     for a in pairs(posing) do
         if budget <= 0 then
             break
         end
         if a.poseUntil and now > a.poseUntil then
-            setPose(a, a.walking and "walk" or "idle")
-        elseif not a.near and eyeDistance(a) < POSE_RANGE then
-            applyPose(a, now)
+            setPose(a, anthemOn and "anthem" or (a.walking and "walk" or "idle"))
+        elseif not a.emote and (a.posedAt or 0) <= now - turn and eyeDistance(a) < range then
+            a.posedAt = now
+            applyPose(a)
             budget -= 1
         end
     end
 
-    -- the life of the stands: walks, chats; faces calm down, talkers turn back
-    if now - lastLife > 0.5 and present then
+    -- the life of the stands: walks, chats; faces calm down, talkers turn back (not in the anthem:
+    -- then everyone is singing together)
+    if now - lastLife > 0.5 and present and not anthemOn then
         lastLife = now
         local n = #avatars
         for _ = 1, 3 do

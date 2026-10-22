@@ -404,7 +404,7 @@ function PrepRoom.open(entrants)
             ArenaNpcOwners.addFriends(room, PrepRoom, friendKnock, function()
                 local list = {}
                 for other in pairs(active) do
-                    if other ~= room and other.side == room.side and math.abs(other.floorY - room.floorY) < 5 then
+                    if other ~= room and other.side == room.side then -- (either floor: the stairs join them)
                         table.insert(list, other)
                     end
                 end
@@ -418,7 +418,7 @@ function PrepRoom.open(entrants)
                     -- other NPC owners' rooms on the same side and floor, to visit
                     local list = {}
                     for other, s in pairs(active) do
-                        if other ~= room and s.isNpc and other.side == room.side and math.abs(other.floorY - room.floorY) < 5 then
+                        if other ~= room and s.isNpc and other.side == room.side then -- (either floor: the stairs)
                             table.insert(list, other)
                         end
                     end

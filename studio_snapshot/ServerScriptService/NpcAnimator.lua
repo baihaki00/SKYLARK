@@ -176,9 +176,14 @@ RunService.Heartbeat:Connect(function()
             elseif speed > RUN_SPEED or (rig.base == "run" and speed > WALK_SPEED_BACK) then
                 setBase(rig, "run", speed / 16)
             elseif speed > 0.8 then
+                rig.stillSince = nil
                 setBase(rig, "walk", speed / 9)
             else
-                setBase(rig, "idle")
+                -- (idle only after a real stop: a turn at a waypoint must not restart the walk)
+                rig.stillSince = rig.stillSince or os.clock()
+                if rig.base == "sit" or os.clock() - rig.stillSince > 0.35 or rig.base ~= "walk" and rig.base ~= "run" then
+                    setBase(rig, "idle")
+                end
             end
             if rig.emote and speed > 0.8 then
                 NpcAnimator.stopEmote(model)

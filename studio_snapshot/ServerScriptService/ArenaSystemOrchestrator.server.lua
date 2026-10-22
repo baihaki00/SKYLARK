@@ -582,9 +582,9 @@ local function runMatchLifecycle()
         ArenaAria.stopAll()
     end
 
-    -- PHASE 4: TELEPORTING QUINS. Pre-game music fades, fighters materialize at their stations.
+    -- PHASE 4: TELEPORTING QUINS. Fighters materialize at their stations (the pre-game music plays on).
     epoch = beginPhase("TELEPORTING_QUINS", duration("TeleportingQuins"), "DEPLOYMENT TELEPORT", "MATERIALIZING FIGHTERS AT COMBAT STATIONS")
-    ArenaAudio.stopPregameMusic(1.5)
+    -- (the pre-game music plays on through the teleport: owner, it is not cut here; the anthem takes over)
     ArenaScreen.displayAnnouncement("TELEPORTING QUINS TO DESIGNATED AREAS", 3.0, "ARENA DISPATCH", Color3.fromRGB(0, 220, 255))
     if toggle("Announcer") then
         ArenaAria.speak("ARIA_TeleportingQuinsToDesignatedAreas")
@@ -606,6 +606,7 @@ local function runMatchLifecycle()
     ArenaScreen.displayAnnouncement("STADIUM ANTHEM // CEREMONIAL TRADITION", 4.0, "CEREMONY", Color3.fromRGB(212, 175, 55))
     print(string.format("[ArenaSystemOrchestrator] Anthem %s: %.2fs, starts at T+%.2fs of a %.0fs window", anthemPrefix, anthemLength, startDelay, phaseDuration))
     if waitPhase(epoch, os.clock() + startDelay) and toggle("ProceduralMusic") then
+        ArenaAudio.stopPregameMusic(2.0) -- (handing over: the pre-game music fades as the anthem begins)
         ArenaAudio.playAnthem(anthemPrefix, 1.0)
     end
     if not waitPhase(epoch) then
@@ -646,6 +647,7 @@ local function runMatchLifecycle()
         q:SetAttribute("ForceState", nil)
     end
     ArenaScreen.displayAnnouncement("ENGAGEMENT COMMENCED // TOURNAMENT PROTOCOL LIVE", 4.0, "SYSTEM", Color3.fromRGB(0, 210, 255))
+    ArenaAudio.stopPregameMusic(1.5) -- (if the anthem was skipped, the pre-game music is still on)
     if toggle("ProceduralMusic") then
         ArenaAudio.playInGameMusic(activeConfig.SelectedInTrack, 1.0, 1.5)
     end
