@@ -17,10 +17,12 @@
 -- write); the looks are rigid Motor6D bodies, so none of it wakes physics.
 -- Reactions: cheers and roars -> cheering, clapping, jumping (big moments: jumping again and again,
 -- dancing); groans and disappointment -> booing (pointing, slumping); gasps -> hands on the head.
--- Together, in time: the anthem is a rave (owner: it is loud and pumping, not a quiet national
--- anthem): the beat is read from the anthem's drum stem as it plays (its loudness, here on this
--- machine), and on every beat the stadium goes off: jumpers jump, pumpers punch the air and
--- headbang, wavers swing their arms side to side, headbangers whip their heads, faces screaming.
+-- Together, in time: the anthem is loud and pumping (owner), and the stands move to it, but like
+-- people, not a drill: the beat is the music's kick (40-80 Hz, ArenaBassPulse: shared.ArenaBass),
+-- two "ultras" areas go hardest, the energy builds over the first bars, and each fan does their
+-- own thing on it (hopping on every beat or every other, pumping a fist, clapping, nodding,
+-- swaying, or still chatting and walking about), a little late or early, at their own height,
+-- switching every few bars. A hop is a hop: up and down in a third of a second, then the floor.
 -- Mexican waves round the stands (the server starts them, so every player sees the same), and
 -- chants (the chanted team's sections pump their fists).
 -- Live knobs (Workspace attributes): CrowdAnimateMax, CrowdHopMax, CrowdReactScale,
@@ -38,7 +40,11 @@ local FACE_RANGE = 70
 local POSE_RANGE = 380 -- beyond this the crowd stands still
 local POSE_UPDATES_PER_FRAME = 160 -- posed avatars re-posed per frame
 local POSE_UPDATES_ANTHEM = 360 -- (during the anthem every avatar sways: more a frame)
-local ANTHEM_FALLBACK_BEAT = 60 / 128 -- seconds per beat when no drum stem is found
+local ANTHEM_FALLBACK_BEAT = 60 / 128 -- seconds per beat when the music cannot be heard
+local HOP_TIME_ANTHEM = 0.32 -- seconds a hop is off the floor
+local ULTRAS = 2 -- areas of the stands that go hardest in the anthem
+local ULTRAS_WIDTH = 55 -- degrees round the arena
+local ANTHEM_BUILD = 20 -- seconds for the stands to get going
 local CHANT_BEAT = 0.5 -- seconds per fist pump
 local WAVE_WIDTH = 9 -- degrees of the stands up at once
 local HOP_MAX = 250 -- avatars in the air at once
@@ -239,6 +245,17 @@ local function findDrum()
 end
 
 local function updateBeat(now)
+    -- the kick heard by ArenaBassPulse (40-80 Hz), when it hears the music
+    local heard = shared.ArenaBass
+    if heard and heard.live then
+        if heard.beatAt > beat.last then
+            beat.last = heard.beatAt
+            beat.interval = heard.interval
+            beat.count += 1
+        end
+        beat.u = math.clamp((now - beat.last) / math.max(0.2, beat.interval), 0, 1)
+        return
+    end
     local drum = beat.drum
     if not (drum and drum.Parent and drum.IsPlaying) then
         beat.drum = nil
@@ -279,40 +296,50 @@ end
 -- pose -> function(t, phase) returning { joint key = CFrame }; t is server time, so the poses
 -- that ignore `phase` (anthem, pump) move in unison across the stadium
 local POSES = {
-    anthem = function(_, p)
-        local u = beat.u
-        local hit = 1 - u -- strongest right on the beat
-        local bounce = math.sin(math.pi * u) -- up between beats, down on them
-        local kind = math.floor(p / 6.29 * 4) + 1
-        if kind == 1 then -- jumpers: off the ground every beat, arms up
+    anthem = function(_, p, a)
+        local role = a.role
+        -- this fan's own moment: the beat plus their lag, on the beats they go on
+        local tb = (os.clock() - beat.last) - (a.lag or 0)
+        if tb < 0 then
+            tb += beat.interval
+        end
+        local onBeat = a.every ~= 2 or beat.count % 2 == 0
+        local k = math.exp(-tb * 9) -- a snap on the beat, settling after
+        if role == "hop" then
+            local x = tb / HOP_TIME_ANTHEM
+            local lift = (onBeat and x < 1) and 4 * x * (1 - x) * (a.hopH or 1.3) or 0 -- (a real arc: up, down, floor)
             return {
-                Root = CFrame.new(0, 2.6 * bounce, 0),
-                LS = CFrame.Angles(rad(165), 0, rad(-25 * bounce)), RS = CFrame.Angles(rad(165), 0, rad(25 * bounce)),
-                LE = CFrame.Angles(rad(15), 0, 0), RE = CFrame.Angles(rad(15), 0, 0),
-                Neck = CFrame.Angles(rad(18), 0, 0),
+                Root = CFrame.new(0, lift, 0),
+                LS = CFrame.Angles(rad(150 + 15 * k), 0, rad(-12 - 10 * k)), RS = CFrame.Angles(rad(150 + 15 * k), 0, rad(12 + 10 * k)),
+                LE = CFrame.Angles(rad(20), 0, 0), RE = CFrame.Angles(rad(20), 0, 0),
+                Neck = CFrame.Angles(rad(10 + 8 * k), 0, 0),
             }
-        elseif kind == 2 then -- fist pumpers: punching the air, headbanging
+        elseif role == "pump" then
+            local punch = onBeat and math.clamp(1 - math.abs(tb - 0.08) / 0.25, 0, 1) or 0
             return {
-                Root = CFrame.new(0, 0.9 * bounce, 0),
-                RS = CFrame.Angles(rad(105 + 65 * hit), 0, rad(8)), RE = CFrame.Angles(rad(85 - 75 * hit), 0, 0),
-                LS = CFrame.Angles(rad(45), 0, rad(-10)), LE = CFrame.Angles(rad(95), 0, 0),
-                Neck = CFrame.Angles(rad(12 - 32 * hit), 0, 0), Waist = CFrame.Angles(rad(-12 * hit), 0, 0),
+                RS = CFrame.Angles(rad(110 + 60 * punch * (a.amp or 1)), 0, rad(8)), RE = CFrame.Angles(rad(80 - 70 * punch), 0, 0),
+                LS = CFrame.Angles(rad(30), 0, rad(-8)), LE = CFrame.Angles(rad(70), 0, 0),
+                Neck = CFrame.Angles(rad(6 - 14 * k * (a.amp or 1)), 0, 0),
             }
-        elseif kind == 3 then -- wavers: arms up, swinging side to side every two beats
-            local sway = math.sin(math.pi * (beat.count + u))
+        elseif role == "clap" then
+            local c = k
             return {
-                Root = CFrame.new(0, 1.1 * bounce, 0),
-                Waist = CFrame.Angles(0, 0, rad(12 * sway)),
-                LS = CFrame.Angles(rad(158), 0, rad(-10 + 28 * sway)), RS = CFrame.Angles(rad(158), 0, rad(10 + 28 * sway)),
-                Neck = CFrame.Angles(rad(14), 0, rad(-9 * sway)),
+                LS = CFrame.Angles(rad(75), rad(-30 + 22 * c), 0), RS = CFrame.Angles(rad(75), rad(30 - 22 * c), 0),
+                LE = CFrame.Angles(rad(45), 0, 0), RE = CFrame.Angles(rad(45), 0, 0),
+                Neck = CFrame.Angles(rad(-6 * k), 0, 0),
+            }
+        elseif role == "nod" then
+            return {
+                Neck = CFrame.Angles(rad(-16 * k * (a.amp or 1)), 0, 0), Waist = CFrame.Angles(rad(-4 * k), 0, 0),
+                Root = CFrame.new(0, -0.12 * k, 0),
             }
         end
-        -- headbangers: both fists up, heads whipping on the beat
+        -- sway: arms up, side to side over two beats
+        local sway = math.sin(math.pi * (beat.count + math.clamp(tb / beat.interval, 0, 1)))
         return {
-            Root = CFrame.new(0, 0.7 * bounce, 0),
-            LS = CFrame.Angles(rad(100 + 55 * hit), 0, rad(-6)), RS = CFrame.Angles(rad(100 + 55 * hit), 0, rad(6)),
-            LE = CFrame.Angles(rad(60), 0, 0), RE = CFrame.Angles(rad(60), 0, 0),
-            Neck = CFrame.Angles(rad(18 - 45 * hit), 0, 0), Waist = CFrame.Angles(rad(-18 * hit), 0, 0),
+            Waist = CFrame.Angles(0, 0, rad(8 * sway * (a.amp or 1))),
+            LS = CFrame.Angles(rad(150), 0, rad(-10 + 22 * sway)), RS = CFrame.Angles(rad(150), 0, rad(10 + 22 * sway)),
+            Neck = CFrame.Angles(rad(10), 0, rad(-6 * sway)),
         }
     end,
     pump = function(t)
@@ -377,7 +404,7 @@ local function applyPose(a)
     if not fn then
         return
     end
-    local set = fn(syncTime(), a.phase)
+    local set = fn(syncTime(), a.phase, a)
     for _, k in ipairs(JOINT_KEYS) do
         local j = a.joints[k]
         if j then
@@ -828,22 +855,81 @@ local function leave()
     end)
 end
 
+-- The anthem: what each fan does, by how hot their part of the stands is and how far in it is
+local anthemStart, ultras = 0, {}
+
+local function heatAt(angle)
+    local h = 0.22
+    for _, centre in ipairs(ultras) do
+        local d = math.abs((angle - centre + 540) % 360 - 180)
+        h = math.max(h, 1 - d / ULTRAS_WIDTH)
+    end
+    return h
+end
+
+local function chooseRole(a)
+    local energy = math.clamp((os.clock() - anthemStart) / ANTHEM_BUILD, 0.3, 1)
+    local h = heatAt(a.angle)
+    local weights = {
+        { "hop", (0.6 * h + 0.04) * energy }, { "pump", 0.16 * energy }, { "clap", 0.14 },
+        { "nod", 0.16 }, { "sway", 0.1 * energy }, { "calm", 0.3 * (1 - h) + 0.06 },
+    }
+    local total = 0
+    for _, w in ipairs(weights) do
+        total += w[2]
+    end
+    local roll = rng:NextNumber(0, total)
+    for _, w in ipairs(weights) do
+        roll -= w[2]
+        if roll <= 0 then
+            return w[1]
+        end
+    end
+    return "calm"
+end
+
+local function setRole(a, role)
+    a.role = role
+    a.rerollAt = beat.count + rng:NextInteger(4, 12)
+    if role == "calm" then
+        -- chatting, walking about, just watching (the life of the stands carries on)
+        setPose(a, "idle")
+        if a.rootJoint and not hopping[a] then
+            a.rootJoint.Transform = CFrame.identity
+        end
+        setExpression(a, rng:NextNumber() < 0.5 and "happy" or "neutral")
+    else
+        stopWalk(a)
+        setPose(a, "anthem")
+        setExpression(a, (role == "hop" or role == "pump") and "cheer" or "happy")
+    end
+    a.faceUntil = nil
+end
+
 local function setAnthem(on)
     if anthemOn == on then
         return
     end
     anthemOn = on
+    if on then
+        anthemStart = os.clock()
+        ultras = {}
+        for _ = 1, ULTRAS do
+            table.insert(ultras, rng:NextNumber(0, 360))
+        end
+    end
     for _, a in ipairs(avatars) do
         if a.shown then
             if on then
-                stopWalk(a)
                 if a.emote and a.tracks[a.emote] then
                     a.tracks[a.emote]:Stop(0.3)
                     a.emote = nil
                 end
-                setPose(a, "anthem")
-                setExpression(a, "cheer") -- (screaming along)
-                a.faceUntil = nil
+                a.lag = rng:NextNumber(-0.03, 0.1)
+                a.hopH = rng:NextNumber(0.9, 1.9)
+                a.every = rng:NextNumber() < 0.35 and 2 or 1
+                a.amp = rng:NextNumber(0.6, 1.25)
+                setRole(a, chooseRole(a))
             else
                 setPose(a, "idle")
                 if a.rootJoint and not hopping[a] then
@@ -1045,14 +1131,24 @@ RunService.RenderStepped:Connect(function(dt)
     local range = anthemOn and math.huge or POSE_RANGE
     local turn = math.max(0, (posingCount / budget) * dt * 0.9)
     if anthemOn then
+        local before = beat.count
         updateBeat(now)
+        if beat.count ~= before then
+            -- a new beat: a few fans change what they are doing
+            for _ = 1, math.max(1, math.floor(#avatars / 40)) do
+                local a = avatars[rng:NextInteger(1, #avatars)]
+                if a.shown and a.rerollAt and beat.count >= a.rerollAt and not a.talking then
+                    setRole(a, chooseRole(a))
+                end
+            end
+        end
     end
     for a in pairs(posing) do
         if budget <= 0 then
             break
         end
         if a.poseUntil and now > a.poseUntil then
-            setPose(a, anthemOn and "anthem" or (a.walking and "walk" or "idle"))
+            setPose(a, (anthemOn and a.role and a.role ~= "calm") and "anthem" or (a.walking and "walk" or "idle"))
         elseif anthemOn and a.near and not a.emote then
             applyPose(a) -- (the nearest, every frame: the jumps and headbangs read crisp up close)
         elseif not a.emote and (a.posedAt or 0) <= now - turn and eyeDistance(a) < range then
@@ -1064,19 +1160,26 @@ RunService.RenderStepped:Connect(function(dt)
 
     -- the life of the stands: walks, chats; faces calm down, talkers turn back (not in the anthem:
     -- then everyone is singing together)
-    if now - lastLife > 0.5 and present and not anthemOn then
+    if now - lastLife > 0.5 and present then
         lastLife = now
         local n = #avatars
+        -- (in the anthem only the calm ones walk and chat: the rest are moving to the music)
+        local function free(a)
+            return not anthemOn or a.role == "calm"
+        end
         for _ = 1, 3 do
-            if walkerCount < math.floor(n * WALKER_SHARE) then
+            if walkerCount < math.floor(n * WALKER_SHARE * (anthemOn and 0.5 or 1)) then
                 local a = avatars[rng:NextInteger(1, n)]
-                if now >= a.busyUntil and not a.talking then
+                if now >= a.busyUntil and not a.talking and free(a) then
                     startWalk(a)
                 end
             end
         end
         for _ = 1, math.max(1, math.floor(n * TALK_SHARE / 12)) do
-            talk(avatars[rng:NextInteger(1, n)])
+            local a = avatars[rng:NextInteger(1, n)]
+            if free(a) and (not a.neighbor or free(a.neighbor)) then
+                talk(a)
+            end
         end
         for _, a in ipairs(avatars) do
             if a.talking and now > a.talking then
