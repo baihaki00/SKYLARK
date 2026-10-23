@@ -181,43 +181,12 @@ function PersonalitySystem.applyEventToConfidence(quinModel, eventType, magnitud
 end
 
 -- ============================================================
--- Phase 10: Quirkies & Behavioral Identity Evolution
+-- Combat events: grudges, and what happened this match
 -- ============================================================
+-- (Temperament + habits, owner 2026-10-23: no Quirky labels. A Quin's behaviour comes from its
+-- habits, the dimensions above. The counts kept here are what the habits will drift from after
+-- the match: Match_Kills, Match_SurroundsSurvived, Match_KnockedDown.)
 
--- Evaluates and assigns an initial Quirky based on personality vectors
-function PersonalitySystem.assignInitialQuirky(quinModel, typeName, personality)
-	if not quinModel then return "Balanced" end
-	personality = personality or {}
-
-	local aggression = personality.Aggression or (quinModel:GetAttribute("Pers_Aggression") or 0.6)
-	local dashPref = personality.DashPreference or (quinModel:GetAttribute("Pers_DashPreference") or 0.6)
-	local awareness = personality.Awareness or (quinModel:GetAttribute("Pers_Awareness") or 0.6)
-	local mobility = personality.MobilityPreference or (quinModel:GetAttribute("Pers_MobilityPreference") or 0.6)
-	local confidence = personality.Confidence or (quinModel:GetAttribute("Pers_Confidence") or 0.6)
-	local retreatTendency = personality.RetreatTendency or (quinModel:GetAttribute("Pers_RetreatTendency") or 0.3)
-	local riskTolerance = personality.RiskTolerance or (quinModel:GetAttribute("Pers_RiskTolerance") or 0.5)
-
-	local quirky = "Balanced"
-
-	if aggression >= 0.80 and dashPref >= 0.75 then
-		quirky = "Charger"
-	elseif awareness >= 0.80 and mobility >= 0.75 then
-		quirky = "Observer"
-	elseif confidence >= 0.80 and riskTolerance >= 0.75 then
-		quirky = "Showoff"
-	elseif confidence <= 0.40 or retreatTendency >= 0.55 then
-		quirky = "Low-Confidence"
-	elseif confidence >= 0.85 and retreatTendency <= 0.20 then
-		quirky = "Overconfident"
-	elseif mobility >= 0.80 and riskTolerance >= 0.70 then
-		quirky = "WallTapper"
-	end
-
-	quinModel:SetAttribute("Quirky", quirky)
-	return quirky
-end
-
--- Tracks combat outcomes to dynamically evolve Quirkies and grudges
 function PersonalitySystem.recordCombatOutcome(quinModel, eventType, context)
 	if not quinModel or not quinModel.Parent then return end
 	context = context or {}
@@ -229,35 +198,25 @@ function PersonalitySystem.recordCombatOutcome(quinModel, eventType, context)
 			local grudgeCount = (quinModel:GetAttribute("GrudgeHits_" .. attackerName) or 0) + 1
 			quinModel:SetAttribute("GrudgeHits_" .. attackerName, grudgeCount)
 			if grudgeCount >= 2 then
-				quinModel:SetAttribute("Quirky", "Revengeful")
 				quinModel:SetAttribute("GrudgeTarget", attackerName)
 			end
 		end
 
 	elseif eventType == "Kill" then
-		local streak = (quinModel:GetAttribute("CombatKillStreak") or 0) + 1
-		quinModel:SetAttribute("CombatKillStreak", streak)
-		local currentQuirky = quinModel:GetAttribute("Quirky") or "Balanced"
-		if streak >= 2 and currentQuirky ~= "Revengeful" then
-			quinModel:SetAttribute("Quirky", "Showoff")
-		end
-		-- Clear grudge if we killed our grudge target
+		quinModel:SetAttribute("CombatKillStreak", (quinModel:GetAttribute("CombatKillStreak") or 0) + 1)
+		quinModel:SetAttribute("Match_Kills", (quinModel:GetAttribute("Match_Kills") or 0) + 1)
+		-- (the grudge is settled)
 		local grudge = quinModel:GetAttribute("GrudgeTarget")
 		if grudge and context.TargetName == grudge then
 			quinModel:SetAttribute("GrudgeTarget", nil)
-			quinModel:SetAttribute("Quirky", "Balanced")
 		end
 
 	elseif eventType == "SurroundSurvived" then
-		-- Escaped a 1v3+ surround with low HP -> develops Observer caution
-		quinModel:SetAttribute("Quirky", "Observer")
+		quinModel:SetAttribute("Match_SurroundsSurvived", (quinModel:GetAttribute("Match_SurroundsSurvived") or 0) + 1)
 
 	elseif eventType == "KnockedDown" then
-		local currentQuirky = quinModel:GetAttribute("Quirky") or "Balanced"
-		if currentQuirky == "Showoff" or currentQuirky == "Overconfident" then
-			-- Humbled: lose arrogant quirky
-			quinModel:SetAttribute("Quirky", "Balanced")
-		end
+		quinModel:SetAttribute("CombatKillStreak", 0)
+		quinModel:SetAttribute("Match_KnockedDown", (quinModel:GetAttribute("Match_KnockedDown") or 0) + 1)
 	end
 end
 

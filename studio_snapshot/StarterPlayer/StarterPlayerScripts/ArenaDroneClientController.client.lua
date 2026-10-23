@@ -396,7 +396,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
     
     -- Only active if player is NOT possessing a Quin
     if shared.PlayerControlledQuin then return end
-    if not (shared.IsAdmin and shared.IsAdmin()) then return end -- (admins only: SkylarkRoles)
+    if not ((shared.IsAdmin and shared.IsAdmin()) or shared.VipAccess == true) then return end -- (admins; players in a VIP box: SkylarkSpectate)
     
     if input.KeyCode == Enum.KeyCode.V then
         cycleDrone()
@@ -502,3 +502,13 @@ workspace:GetAttributeChangedSignal("SelectedDrone"):Connect(function()
 end)
 
 print("[ArenaDroneClientController] Initialized with V cycle hotkey and broadcast telemetry HUD.")
+
+-- A Roblox player's drones are a VIP box privilege (SkylarkSpectate): they end with the box
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if activeDrone ~= nil and not ((shared.IsAdmin and shared.IsAdmin()) or shared.VipAccess == true) then
+            setDroneMode(nil)
+        end
+    end
+end)

@@ -224,7 +224,8 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	if dist >= minFarmDist and (superMeter < 100 or energyRatio < 0.8) then
 		auraFarmBase = 30
 		if confidence > 0.65 then auraFarmBase = auraFarmBase + 25 end
-		if quirky == "Showoff" then auraFarmBase = auraFarmBase + 40 end
+		-- (a bold, risk-loving Quin shows off: habits, not a label)
+		auraFarmBase = auraFarmBase + 40 * math.clamp((confidence + riskTolerance - 1.3) / 0.4, 0, 1)
 		because("ChargeAura", "Uncontested: charging elemental aura")
 	end
 	scores["AuraFarm"] = auraFarmBase * (1 + (confidence - 0.5) * 1.1)
@@ -237,35 +238,42 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		because("PunishShowoff", "Target aura farming: close distance to humble showoff")
 	end
 
-	-- Phase 10: Quirky Modulation
-	local quirky = quinModel:GetAttribute("Quirky") or "Balanced"
-	if quirky == "Charger" then
-		scores["Attack"] = (scores["Attack"] or 0) + 25
-		scores["Dash"] = (scores["Dash"] or 0) + 20
-		scores["Guard"] = (scores["Guard"] or 0) * 0.6
-		scores["Reposition"] = (scores["Reposition"] or 0) * 0.6
-		because("QuirkCharger", "Quirky: Charger")
-	elseif quirky == "Observer" then
-		scores["Reposition"] = (scores["Reposition"] or 0) + 35
-		scores["Guard"] = (scores["Guard"] or 0) + 20
-		scores["Attack"] = (scores["Attack"] or 0) * 0.8
-		because("QuirkObserver", "Quirky: Observer")
-	elseif quirky == "Overconfident" then
-		scores["Retreat"] = (scores["Retreat"] or 0) * 0.4
-		scores["Attack"] = (scores["Attack"] or 0) * 1.3
-		because("QuirkOverconfident", "Quirky: Overconfident")
-	elseif quirky == "Low-Confidence" then
-		if hpRatio < 0.50 then
-			scores["Retreat"] = (scores["Retreat"] or 0) * 1.5
-		end
-		because("QuirkLowConfidence", "Quirky: Low-Confidence")
-	elseif quirky == "Revengeful" then
-		local grudgeTarget = quinModel:GetAttribute("GrudgeTarget")
-		if grudgeTarget and tacticalContext and tacticalContext.BestTarget and tacticalContext.BestTarget.Name == grudgeTarget then
-			scores["Attack"] = (scores["Attack"] or 0) + 40
-			scores["Pursue"] = (scores["Pursue"] or 0) + 30
-			because("QuirkRevenge", "Quirky: Revengeful")
-		end
+	-- Habit leanings (temperament + habits: the old Quirky labels are gone). Each is a smooth
+	-- function of the habits, so a Quin drifts into and out of them as its habits change.
+	local awarenessHabit = quinModel:GetAttribute("Pers_Awareness") or 0.6
+	local charge = math.clamp((aggression - 0.7) / 0.25, 0, 1) * math.clamp((dashPreference - 0.6) / 0.3, 0, 1)
+	if charge > 0 then
+		scores["Attack"] = (scores["Attack"] or 0) + 25 * charge
+		scores["Dash"] = (scores["Dash"] or 0) + 20 * charge
+		scores["Guard"] = (scores["Guard"] or 0) * (1 - 0.4 * charge)
+		scores["Reposition"] = (scores["Reposition"] or 0) * (1 - 0.4 * charge)
+		if charge > 0.5 then because("HabitCharge", "Habit: charges in") end
+	end
+	local watchful = math.clamp((awarenessHabit - 0.7) / 0.25, 0, 1) * math.clamp((mobilityPreference - 0.6) / 0.3, 0, 1)
+	if watchful > 0 then
+		scores["Reposition"] = (scores["Reposition"] or 0) + 35 * watchful
+		scores["Guard"] = (scores["Guard"] or 0) + 20 * watchful
+		scores["Attack"] = (scores["Attack"] or 0) * (1 - 0.2 * watchful)
+		if watchful > 0.5 then because("HabitWatch", "Habit: watches first") end
+	end
+	local bold = math.clamp((confidence - 0.75) / 0.2, 0, 1) * math.clamp((0.3 - retreatTendency) / 0.2, 0, 1)
+	if bold > 0 then
+		scores["Retreat"] = (scores["Retreat"] or 0) * (1 - 0.6 * bold)
+		scores["Attack"] = (scores["Attack"] or 0) * (1 + 0.3 * bold)
+		if bold > 0.5 then because("HabitBold", "Habit: never backs down") end
+	end
+	local timid = math.max(math.clamp((0.45 - confidence) / 0.2, 0, 1), math.clamp((retreatTendency - 0.5) / 0.2, 0, 1))
+	if timid > 0 and hpRatio < 0.50 then
+		scores["Retreat"] = (scores["Retreat"] or 0) * (1 + 0.5 * timid)
+		if timid > 0.5 then because("HabitTimid", "Habit: shaken when hurt") end
+	end
+	-- a grudge (PersonalitySystem: hit hard twice by the same Quin), held as hard as it persists
+	local grudgeTarget = quinModel:GetAttribute("GrudgeTarget")
+	if grudgeTarget and tacticalContext and tacticalContext.BestTarget and tacticalContext.BestTarget.Name == grudgeTarget then
+		local hold = 0.4 + 0.6 * targetPersistence
+		scores["Attack"] = (scores["Attack"] or 0) + 40 * hold
+		scores["Pursue"] = (scores["Pursue"] or 0) + 30 * hold
+		because("HabitGrudge", "Grudge: that one hit me")
 	end
 
 	-- Social pressure (SocialTension / SocialRespect): a lull that has dragged on makes a Quin

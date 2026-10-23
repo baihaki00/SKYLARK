@@ -722,7 +722,7 @@ RunService.Heartbeat:Connect(function()
 		local decision = model:GetAttribute("RecommendedAction") or "—"
 		local targetReason = model:GetAttribute("TargetReason") or ""
 		local teamRole = model:GetAttribute("TeamRole") or "Solo"
-		local quirky = model:GetAttribute("Quirky") or "Balanced"
+		local temperament = model:GetAttribute("Temperament") or "—"
 		local curSpecial = model:GetAttribute("CurrentSpecial")
 
 		-- 1. Authoritative Animation Information
@@ -830,7 +830,7 @@ RunService.Heartbeat:Connect(function()
 			"%s  <font color='%s'><b>[%s • %s]</b></font>\n" ..
 			"%s\n" ..
 			"State: <font color='#FFAA50'><b>%s</b></font>%s%s%s%s | Tact: <font color='#00E5FF'><b>%s</b></font> | Conf: %.2f\n" ..
-			"Role: <font color='#FFD700'><b>%s</b></font> | Quirky: <font color='#E080FF'><b>%s</b></font>\n" ..
+			"Role: <font color='#FFD700'><b>%s</b></font> | Temperament: <font color='#E080FF'><b>%s</b></font>\n" ..
 			"Alt: %.1f | Dist: %.1f | Spd: %.1f | Vy: %.1f | Dash: %s\n" ..
 			"<font color='#FFB000'>Aware: %.2f</font> | <font color='#00FFAA'>Zone: %s</font> | <font color='#FF8080'>Pace: %.0f</font>\n" ..
 			"<font color='#FFC0FF'><b>Decision:</b> <font color='#FFFFFF'>%s</font></font>%s <font color='#99AABB'>%s</font>\n" ..
@@ -839,7 +839,7 @@ RunService.Heartbeat:Connect(function()
 			nameHeader, hexColor, qType, qElem,
 			historyLine,
 			state, stanceTag, specialTag, travTag, chaseTag, tactical, conf,
-			teamRole, quirky,
+			teamRole, temperament,
 			alt, dist, speed, vy, tostring(dashArmed),
 			awareness, threatZone, pacingVel,
 			decision, retreatTag, targetReason,

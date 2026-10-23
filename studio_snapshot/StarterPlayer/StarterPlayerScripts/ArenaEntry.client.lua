@@ -2,9 +2,11 @@
 -- Entering the arena's events (ArenaRegistration on the server):
 --   * the entry bar under the Skylark clock: closed / open at the terminals / entered and your
 --     place in the queue / your Quins fight this round;
---   * the registration popup, opened at an Arena Terminal (its ProximityPrompt): pick your Quins
---     (up to the event's limit: 2 in the 16v16 battles), Register, change them or Withdraw.
---     It closes when you walk away from the terminal.
+--   * the Arena Terminal (its ProximityPrompt) opens on two choices: SPECTATE (left: pick a side
+--     and a seat, Normal 100 SC or VIP 300 SC: SkylarkSpectate) and REGISTER QUIN (pick your Quins,
+--     up to the event's limit: 2 in the 16v16 battles; Register, change them or Withdraw).
+--     It closes when you walk away from the terminal;
+--   * your Skylark Coin (SC) under the entry bar.
 -- Everything shown comes from attributes the server keeps (Workspace ArenaReg*, Player Arena*).
 
 local Players = game:GetService("Players")
@@ -18,6 +20,7 @@ local player = Players.LocalPlayer
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
 local entryRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("ArenaEntry", 30)
+local spectateRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("Spectate", 30)
 
 local gui = player:WaitForChild("PlayerGui"):WaitForChild("SkylarkClockUI", 30)
 if not gui or not entryRemote then
@@ -113,6 +116,38 @@ corner(bar, 8)
 local barStroke = stroke(bar)
 local barLabel = label(bar, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -24, 1, 0), Font = Enum.Font.GothamBold, TextSize = 12, Text = "" })
 
+local coinPill = new("Frame", {
+    Name = "CoinPill",
+    Parent = gui,
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -16, 0, 160),
+    Size = UDim2.fromOffset(130, 26),
+    BackgroundColor3 = C_BG,
+    BackgroundTransparency = 0.12,
+})
+corner(coinPill, 8)
+stroke(coinPill)
+local coinLabel = label(coinPill, { Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 1, 0), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_AMBER, TextXAlignment = Enum.TextXAlignment.Right, Text = "SC ..." })
+
+local function formatSC(n)
+    local text = tostring(math.floor(n or 0))
+    while true do
+        local replaced, count = text:gsub("^(-?%d+)(%d%d%d)", "%1,%2")
+        text = replaced
+        if count == 0 then
+            break
+        end
+    end
+    return text
+end
+
+local function refreshCoins()
+    local sc = player:GetAttribute("SC")
+    coinLabel.Text = sc and ("SC  " .. formatSC(sc)) or "SC ..."
+end
+player:GetAttributeChangedSignal("SC"):Connect(refreshCoins)
+refreshCoins()
+
 -- ============================================================================
 -- REGISTRATION POPUP (an Arena Terminal)
 -- ============================================================================
@@ -139,6 +174,8 @@ local windowLabel = label(popup, { Position = UDim2.fromOffset(16, 36), Size = U
 local whenLabel = label(popup, { Position = UDim2.fromOffset(16, 54), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
 local pickLabel = label(popup, { Position = UDim2.fromOffset(16, 74), Size = UDim2.fromOffset(PW - 32, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED, Text = "" })
 
+local registerBack = new("TextButton", { Parent = popup, Text = "<", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(PW - 72, 10), Size = UDim2.fromOffset(26, 26) })
+corner(registerBack, 6)
 local actionButton = new("TextButton", { Parent = popup, Text = "REGISTER", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_BG, BackgroundColor3 = C_AMBER, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 8), Size = UDim2.fromOffset(PW - 32, 34) })
 corner(actionButton, 7)
 local withdrawButton = new("TextButton", { Parent = popup, Text = "WITHDRAW", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_RED, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 48), Size = UDim2.fromOffset(PW - 32, 24), Visible = false })
@@ -251,9 +288,163 @@ local function openPopup(terminal)
     refreshQuinButtons()
 end
 
+-- ============================================================================
+-- THE TERMINAL'S FIRST SCREEN: SPECTATE | REGISTER QUIN
+-- ============================================================================
+
+local function panel(name, height, color)
+    local f = new("Frame", {
+        Name = name,
+        Parent = gui,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(PW, height),
+        BackgroundColor3 = C_BG,
+        BackgroundTransparency = 0.04,
+        Visible = false,
+    })
+    corner(f, 12)
+    stroke(f, color or C_AMBER)
+    return f
+end
+
+local function button(parent, text, x, y, w, h, color, textColor, name)
+    local b = new("TextButton", {
+        Name = name or "Button", Parent = parent, Text = text, Font = Enum.Font.GothamBold, TextSize = 12, TextWrapped = true,
+        TextColor3 = textColor or C_TEXT, BackgroundColor3 = color or C_CARD,
+        Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(w, h),
+    })
+    corner(b, 8)
+    return b
+end
+
+local chooser = panel("TerminalChooser", 190)
+label(chooser, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 60, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "ARENA TERMINAL" })
+local chooserClose = button(chooser, "X", PW - 38, 10, 26, 26, nil, nil, "CloseBtn")
+local chooserEvent = label(chooser, { Position = UDim2.fromOffset(16, 36), Size = UDim2.fromOffset(PW - 32, 16), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
+local half = (PW - 32 - 10) / 2
+local spectateChoice = button(chooser, "SPECTATE\n\nWatch from the stands\nor a VIP box", 16, 60, half, 112, C_CARD, C_TEXT, "SpectateChoice")
+stroke(spectateChoice, C_GREEN)
+local registerChoice = button(chooser, "REGISTER QUIN\n\nEnter your Quins\nfor this event", 16 + half + 10, 60, half, 112, C_CARD, C_TEXT, "RegisterChoice")
+stroke(registerChoice, C_AMBER)
+
+-- ============================================================================
+-- SPECTATE: a side and a seat
+-- ============================================================================
+
+local PRICES = { Normal = 100, VIP = 300 }
+local spectate = panel("SpectatePanel", 330, C_GREEN)
+label(spectate, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 100, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_GREEN, Text = "SPECTATE" })
+local spectateBack = button(spectate, "<", PW - 72, 10, 26, 26, nil, nil, "BackBtn")
+local spectateClose = button(spectate, "X", PW - 38, 10, 26, 26, nil, nil, "CloseBtn")
+local balanceLabel = label(spectate, { Position = UDim2.fromOffset(16, 36), Size = UDim2.fromOffset(PW - 32, 16), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_AMBER, Text = "" })
+label(spectate, { Position = UDim2.fromOffset(16, 60), Size = UDim2.fromOffset(PW - 32, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED, Text = "SIDE" })
+local alphaButton = button(spectate, "ALPHA SIDE", 16, 78, half, 34, nil, nil, "AlphaBtn")
+local betaButton = button(spectate, "BETA SIDE", 16 + half + 10, 78, half, 34, nil, nil, "BetaBtn")
+label(spectate, { Position = UDim2.fromOffset(16, 122), Size = UDim2.fromOffset(PW - 32, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED, Text = "SEAT" })
+local normalButton = button(spectate, "NORMAL SEAT\n100 SC\nthe side's stands", 16, 140, half, 62, nil, nil, "NormalBtn")
+local vipButton = button(spectate, "VIP SEAT\n300 SC\nVIP box: drone + free cameras", 16 + half + 10, 140, half, 62, nil, nil, "VipBtn")
+local buyButton = button(spectate, "BUY SEAT", 16, 214, PW - 32, 36, C_GREEN, C_BG, "BuyBtn")
+local spectateStatus = label(spectate, { Position = UDim2.fromOffset(16, 258), Size = UDim2.fromOffset(PW - 32, 28), TextSize = 11, TextWrapped = true, TextTruncate = Enum.TextTruncate.None, Text = "" })
+label(spectate, {
+    Position = UDim2.fromOffset(16, 290), Size = UDim2.fromOffset(PW - 32, 30), TextSize = 10, TextColor3 = C_MUTED,
+    TextWrapped = true, TextTruncate = Enum.TextTruncate.None, TextYAlignment = Enum.TextYAlignment.Top,
+    Text = "A seat lasts the round. Come back any time to return to it for free; Normal to VIP pays the difference.",
+})
+
+local pickSide, pickSeat = nil, nil
+local function refreshSpectate()
+    local mySide, mySeat = player:GetAttribute("SpectateSide"), player:GetAttribute("SpectateSeat")
+    balanceLabel.Text = "YOUR SC: " .. formatSC(player:GetAttribute("SC") or 0)
+        .. (mySeat and string.format("   •   TICKET: %s, %s", mySeat, mySide == "TeamAlpha" and "Alpha" or "Beta") or "")
+    for _, pair in ipairs({ { alphaButton, "TeamAlpha" }, { betaButton, "TeamBeta" } }) do
+        local on = pickSide == pair[2]
+        pair[1].BackgroundColor3 = on and C_CARD_SEL or C_CARD
+        pair[1].TextColor3 = on and C_GREEN or C_TEXT
+    end
+    for _, pair in ipairs({ { normalButton, "Normal" }, { vipButton, "VIP" } }) do
+        local on = pickSeat == pair[2]
+        pair[1].BackgroundColor3 = on and C_CARD_SEL or C_CARD
+        pair[1].TextColor3 = on and C_GREEN or C_TEXT
+    end
+    local price = pickSeat and PRICES[pickSeat] or 0
+    if pickSide and pickSeat and mySide == pickSide and mySeat then
+        if mySeat == pickSeat or mySeat == "VIP" then
+            price = 0
+        else
+            price = PRICES.VIP - PRICES.Normal
+        end
+    end
+    local ready = pickSide ~= nil and pickSeat ~= nil
+    buyButton.Text = not ready and "PICK A SIDE AND A SEAT" or (price == 0 and "GO TO MY SEAT" or string.format("BUY SEAT  •  %d SC", price))
+    buyButton.BackgroundColor3 = ready and C_GREEN or C_CARD
+    buyButton.TextColor3 = ready and C_BG or C_MUTED
+end
+
+alphaButton.MouseButton1Click:Connect(function() pickSide = "TeamAlpha" refreshSpectate() end)
+betaButton.MouseButton1Click:Connect(function() pickSide = "TeamBeta" refreshSpectate() end)
+normalButton.MouseButton1Click:Connect(function() pickSeat = "Normal" refreshSpectate() end)
+vipButton.MouseButton1Click:Connect(function() pickSeat = "VIP" refreshSpectate() end)
+
 local function closePopup()
     popup.Visible = false
+    chooser.Visible = false
+    spectate.Visible = false
     openTerminal = nil
+end
+
+buyButton.MouseButton1Click:Connect(function()
+    if not (pickSide and pickSeat) or not spectateRemote then
+        return
+    end
+    spectateStatus.Text = "..."
+    spectateStatus.TextColor3 = C_MUTED
+    local ok, result, message = pcall(function()
+        return spectateRemote:InvokeServer("buy", pickSide, pickSeat)
+    end)
+    if ok and result then
+        closePopup()
+        notify("Enjoy the fight", message or "")
+    else
+        spectateStatus.Text = ok and (message or "Could not buy a seat") or "Could not reach the arena"
+        spectateStatus.TextColor3 = C_RED
+    end
+end)
+
+local function showChooser(terminal)
+    openTerminal = terminal
+    popup.Visible = false
+    spectate.Visible = false
+    chooser.Visible = true
+    local window = Workspace:GetAttribute("ArenaRegWindow")
+    local phase = Workspace:GetAttribute("ArenaPhase")
+    chooserEvent.Text = (window and string.upper(window) or "NO EVENT OPEN")
+        .. ((phase and phase ~= "IDLE") and "   •   MATCH ON" or "")
+end
+
+spectateChoice.MouseButton1Click:Connect(function()
+    chooser.Visible = false
+    spectate.Visible = true
+    spectateStatus.Text = ""
+    pickSide = player:GetAttribute("SpectateSide") or pickSide
+    pickSeat = player:GetAttribute("SpectateSeat") or pickSeat
+    refreshSpectate()
+end)
+spectateBack.MouseButton1Click:Connect(function()
+    showChooser(openTerminal)
+end)
+spectateClose.MouseButton1Click:Connect(function()
+    closePopup()
+end)
+chooserClose.MouseButton1Click:Connect(function()
+    closePopup()
+end)
+for _, attr in ipairs({ "SC", "SpectateSide", "SpectateSeat" }) do
+    player:GetAttributeChangedSignal(attr):Connect(function()
+        if spectate.Visible then
+            refreshSpectate()
+        end
+    end)
 end
 
 actionButton.MouseButton1Click:Connect(function()
@@ -275,16 +466,23 @@ withdrawButton.MouseButton1Click:Connect(function()
 end)
 
 closeButton.MouseButton1Click:Connect(closePopup)
+registerBack.MouseButton1Click:Connect(function()
+    showChooser(openTerminal)
+end)
 
 ProximityPromptService.PromptTriggered:Connect(function(prompt)
     if prompt.Name == "ArenaTerminalPrompt" then
-        openPopup(prompt.Parent)
+        showChooser(prompt.Parent)
     end
+end)
+registerChoice.MouseButton1Click:Connect(function()
+    chooser.Visible = false
+    openPopup(openTerminal)
 end)
 
 bar.MouseButton1Click:Connect(function()
     if not popup.Visible then
-        notify("Arena Terminal", "Walk up to an Arena Terminal by the arena entrance to register your Quins.")
+        notify("Arena Terminal", "Walk up to an Arena Terminal by the arena entrance to register your Quins or buy a seat.")
     end
 end)
 
@@ -328,13 +526,15 @@ local function update()
         barStroke.Color = C_STROKE
     end
 
-    if popup.Visible then
+    if chooser.Visible or spectate.Visible or popup.Visible then
         -- walked away from the terminal: close
         local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
         if openTerminal and root and (openTerminal.Position - root.Position).Magnitude > WALK_AWAY then
             closePopup()
             return
         end
+    end
+    if popup.Visible then
         windowLabel.Text = window and string.upper(window) or "NO EVENT OPEN"
         if open and kind == "Live" and closesAt then
             whenLabel.Text = string.format("Live now  •  entry closes in %s  •  %d entered", untilText(closesAt), entrants)

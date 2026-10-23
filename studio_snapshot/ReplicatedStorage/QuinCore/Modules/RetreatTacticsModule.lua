@@ -77,7 +77,9 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 	local confidence = fighter:GetAttribute("CurrentConfidence") or (fighter:GetAttribute("Pers_Confidence") or 0.6)
 	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
 	local protectiveness = fighter:GetAttribute("Pers_Protectiveness") or 0.5
-	local quirky = fighter:GetAttribute("Quirky") or "Balanced"
+	local awareness = fighter:GetAttribute("Pers_Awareness") or 0.6
+	local riskTolerance = fighter:GetAttribute("Pers_RiskTolerance") or 0.5
+	local dashPreference = fighter:GetAttribute("Pers_DashPreference") or 0.6
 	local ownerId = fighter:GetAttribute("OwnerId") or "SERVER"
 
 	-- Threat centroid (flat XZ)
@@ -260,11 +262,7 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 			end
 			if best then
 				local score = 45 + (mobility * 20) + (1.0 - confidence) * 15
-				if quirky == "Ghost" or quirky == "Evasive" or quirky == "Ambusher" then
-					score += 35
-				elseif quirky == "Opportunist" or quirky == "Survivor" then
-					score += 20
-				end
+				score += (1 - riskTolerance) * 20 + awareness * 15 -- (the careful and watchful hide)
 				table.insert(options, { objective = "BREAK_LOS", position = best, score = score })
 			end
 		end
@@ -290,11 +288,7 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 			end
 			if best then
 				local score = 25 + (math.min(best.rise, 20) * 1.8) + (mobility * 25)
-				if quirky == "HighGround" or quirky == "Observer" or quirky == "Watcher" then
-					score += 40
-				elseif quirky == "Parkourist" or quirky == "Nuke" then
-					score += 30
-				end
+				score += awareness * 25 -- (the watchful like a view)
 				local humanoid = fighter:FindFirstChildOfClass("Humanoid")
 				if humanoid and humanoid.Health / humanoid.MaxHealth < 0.30 then
 					score += 25 -- high ground is a lifesaver when nearly down
@@ -338,15 +332,7 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 				end
 				local score = math.min(group * 18, 45) + math.clamp(1.0 - (nearestFarDist / 220), 0.15, 1.0) * 35 + (protectiveness * 20)
 				if hasSameOwnerAlly then score += 35 end
-				if quirky == "Follower" or quirky == "Wingman" then
-					score += 30
-				elseif quirky == "Bodyguard" or quirky == "Guardian" or quirky == "Safekeeper" then
-					score += 25
-				elseif quirky == "PackLeader" then
-					score += 15
-				elseif quirky == "LoneWolf" or quirky == "Egoist" then
-					score -= 30 -- prefers to get away alone
-				end
+				score += (protectiveness - 0.4) * 50 -- (the protective run to friends; the aloof get away alone)
 				if enemyCount == 1 and group >= 2 then
 					score += 20 -- the pursuer runs into three
 				end
@@ -358,7 +344,7 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 		do
 			local score = (openGroundResult.score or 0.5) * 45
 			if openGroundResult.isCornered then score -= 40 end
-			if quirky == "SpeedDemon" or quirky == "Momentum" then score += 20 end
+			score += dashPreference * 15 -- (the quick just run)
 			table.insert(options, { objective = "OPEN_GROUND", position = myPos + openGroundResult.direction * escapeDistance, score = score })
 		end
 

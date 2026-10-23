@@ -351,7 +351,6 @@ function QuinInstance.attachToModel(instance, model)
 			model:SetAttribute("Pers_" .. dim, val)
 		end
 		model:SetAttribute("CurrentConfidence", instance.Personality.Confidence or 0.5)
-		PersonalitySystem.assignInitialQuirky(model, instance.Type, instance.Personality)
 	end
 
 	-- Titles and Battles summaries

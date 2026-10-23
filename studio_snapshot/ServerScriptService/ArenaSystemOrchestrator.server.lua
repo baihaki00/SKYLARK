@@ -210,6 +210,11 @@ local function beginPhase(name, seconds, title, subtitle)
     currentPhase = name
     phaseDuration = seconds
     phaseEndTime = os.clock() + seconds
+    -- (for the services that sell seats and pay out: the phase, and which round this is)
+    if name == "ARENA_OPEN" then
+        Workspace:SetAttribute("ArenaRound", (Workspace:GetAttribute("ArenaRound") or 0) + 1)
+    end
+    Workspace:SetAttribute("ArenaPhase", name)
     print(string.format("[ArenaSystemOrchestrator] Entering Phase: %s (%.0fs)", name, seconds))
     ArenaScreen.setSequence(name, title, subtitle, seconds)
     ArenaCrowd.setPhase(name)
@@ -792,6 +797,7 @@ function Orchestrator.stopMatch()
     currentPhase = "IDLE"
     phaseEndTime = 0
     phaseDuration = 0
+    Workspace:SetAttribute("ArenaPhase", "IDLE")
 
     Workspace:SetAttribute("MatchStarted", false)
     Workspace:SetAttribute("ArenaHologramsActive", false)

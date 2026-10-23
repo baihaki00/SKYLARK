@@ -22,6 +22,7 @@
 -- client -> server "knockReply", userId, allow.
 
 local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -374,6 +375,8 @@ function PrepRoom.open(entrants)
                 isNpc = isNpc,
                 team = team,
                 models = {},
+                quins = {}, -- { quin instance, team, pad position }: brought home if they lose
+                home = {}, -- the defeated Quins standing back in the room
                 allowed = {},
             }
             if not isNpc then
@@ -398,6 +401,7 @@ function PrepRoom.open(entrants)
                     e.model = q
                     e.standOffset = q:GetPivot().Position.Y - top
                     table.insert(state.models, q)
+                    table.insert(state.quins, { quin = e.quin, team = e.team, pos = pos })
                 end
             end
             -- the owner's friends: in already, or knocking later; they roam the hallway and other rooms
@@ -466,6 +470,11 @@ local function releaseRoom(room, sendHome)
     active[room] = nil
     publish(room, nil)
     room.door.DoorPrompt.Enabled = false
+    for _, q in ipairs(state.home or {}) do
+        if q.Parent then
+            q:Destroy()
+        end
+    end
     ArenaNpcOwners.removeFriends(room, sendHome ~= false)
     if state.isNpc then
         ArenaNpcOwners.leave(state.owner, sendHome ~= false)
@@ -487,7 +496,34 @@ function PrepRoom.close(sendHome)
 end
 
 -- ============================================================================
--- WATCH: intruders out, owners whose Quins are all down back into the game
+-- WATCH: intruders out; an owner's Quins all down come home to the room
+
+-- Out of the fight for good: the owner's Quins back on their room's pad, standing as losers
+-- (owner: not thrown out at the gate). Not fighters any more: no Quin / AI_Fighter tags, so no
+-- team counts them and no Quin targets them.
+local function bringHome(room, state)
+    for _, entry in ipairs(state.quins) do
+        local q = QuinSpawner.spawn(entry.quin, entry.pos, "Defeated", nil, entry.pos + room.toArena * 20)
+        if q then
+            q:SetAttribute("IsInert", true)
+            q:SetAttribute("ForceState", "Idle")
+            q:SetAttribute("CurrentState", "Idle")
+            q:SetAttribute("Defeated", true)
+            q:SetAttribute("InPrepRoom", true)
+            q:SetAttribute("OwnerName", state.ownerName)
+            CollectionService:RemoveTag(q, "AI_Fighter")
+            CollectionService:RemoveTag(q, "Quin")
+            task.delay(1, function()
+                -- (in case its own scripts tagged it again as they started)
+                if q.Parent then
+                    CollectionService:RemoveTag(q, "AI_Fighter")
+                    CollectionService:RemoveTag(q, "Quin")
+                end
+            end)
+            table.insert(state.home, q)
+        end
+    end
+end
 -- ============================================================================
 
 local function quinDown(model)
@@ -522,11 +558,11 @@ task.spawn(function()
                 if allDown then
                     state.releasing = true
                     if not state.isNpc then
-                        notice(state.owner, "Your Quins are down. Back to Argonia in a moment...")
+                        notice(state.owner, "Your Quins are down. They'll be back in your room in a moment.")
                     end
                     task.delay(RELEASE_DELAY, function()
                         if active[room] == state then
-                            releaseRoom(room, true)
+                            bringHome(room, state)
                         end
                     end)
                 end
@@ -551,5 +587,6 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 PrepRoom.rooms = allRooms
+PrepRoom.sideOf = sideOf
 
 return PrepRoom

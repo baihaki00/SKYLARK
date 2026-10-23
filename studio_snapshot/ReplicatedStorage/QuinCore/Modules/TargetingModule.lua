@@ -207,7 +207,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				teamRoleScore = teamRoleScore + 40 -- Lone wolf hunting isolated prey
 			end
 
-			-- 9. Quirky: Revengeful Grudge Targeting (Phase 10)
+			-- 9. Grudge targeting (PersonalitySystem: hit hard twice by the same Quin)
 			local grudgeScore = 0
 			local grudgeTarget = quinModel:GetAttribute("GrudgeTarget")
 			if grudgeTarget and grudgeTarget == model.Name then

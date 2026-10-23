@@ -185,7 +185,7 @@ local function menuOpen()
 	-- the Skylark clock's windows, the Arena Terminal popup, a preparation room terminal
 	local clock = playerGui:FindFirstChild("SkylarkClockUI")
 	if clock then
-		for _, name in ipairs({ "TerminalPopup", "ScheduleBoard", "TimeDebug" }) do
+		for _, name in ipairs({ "TerminalPopup", "TerminalChooser", "SpectatePanel", "ScheduleBoard", "TimeDebug" }) do
 			local w = clock:FindFirstChild(name)
 			if w and w.Visible then return true end
 		end
@@ -472,7 +472,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	if UserInputService:GetFocusedTextBox() then return end
 
 	-- Hotkey B toggles the free camera from any state (F flies the body: TheArchitectCode)
-	if input.KeyCode == Enum.KeyCode.B and not gp and (shared.IsAdmin and shared.IsAdmin()) then
+	if input.KeyCode == Enum.KeyCode.B and not gp and ((shared.IsAdmin and shared.IsAdmin()) or shared.VipAccess == true) then -- (admins; players in a VIP box: SkylarkSpectate)
 		if cameraMode == "FREEFLY" then
 			cameraMode = "AVATAR"
 			avatarEnterPending = true
@@ -497,7 +497,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 
 	-- Hotkey R: back to the free camera (Fly Spectator) from anything
-	if input.KeyCode == Enum.KeyCode.R and not gp and (shared.IsAdmin and shared.IsAdmin()) then
+	if input.KeyCode == Enum.KeyCode.R and not gp and ((shared.IsAdmin and shared.IsAdmin()) or shared.VipAccess == true) then
 		if cameraMode ~= "FREEFLY" then
 			cameraMode = "FREEFLY"
 			shared.SpectatorState.Mode = cameraMode
@@ -993,5 +993,18 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 
 		Camera.CFrame = CFrame.lookAt(camPos, suspendedTargetPos) * CFrame.Angles(0, 0, gyroRoll)
 		cameraPos = camPos -- keep synced if switched to freefly
+	end
+end)
+
+-- A Roblox player's free camera is a VIP box privilege (SkylarkSpectate): it ends with the box
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		if cameraMode == "FREEFLY" and not ((shared.IsAdmin and shared.IsAdmin()) or shared.VipAccess == true) then
+			cameraMode = "AVATAR"
+			avatarEnterPending = true
+			shared.SpectatorState.Mode = cameraMode
+			unlockMouse()
+		end
 	end
 end)

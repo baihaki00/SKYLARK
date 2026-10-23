@@ -1022,9 +1022,11 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Slide-under: low-overhead gap ahead -> athletic SlideState
 	local slideGap = SpatialModule.detectLowOverheadGap(rootPart, 18)
 	local energy = fighter:GetAttribute("Energy") or 100
-	local quirky = fighter:GetAttribute("Quirky") or "Balanced"
+	local aggressionHabit = fighter:GetAttribute("Pers_Aggression") or 0.6
+	local dashHabit = fighter:GetAttribute("Pers_DashPreference") or 0.6
+	local charge = math.clamp((aggressionHabit - 0.7) / 0.25, 0, 1) * math.clamp((dashHabit - 0.6) / 0.3, 0, 1)
 	local lastSlide = fighter:GetAttribute("LastSlideTime") or 0
-	local slideCooldown = (quirky == "Charger") and 5.0 or (CombatConfig.SlideCooldown or 8.0)
+	local slideCooldown = (CombatConfig.SlideCooldown or 8.0) - 3.0 * charge -- (a charger slides more)
 	local canSlide = (now - lastSlide) >= slideCooldown and energy >= (CombatConfig.SlideMinEnergy or 12)
 		and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 
@@ -1055,7 +1057,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		if not data.slideDecided then
 			data.slideDecided = true
 			local mobilityPref = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
-			local slideChance = (quirky == "Charger") and 0.6 or math.clamp(0.10 + 0.5 * mobilityPref, 0.10, 0.45)
+			local slideChance = math.max(math.clamp(0.10 + 0.5 * mobilityPref, 0.10, 0.45), 0.6 * charge)
 			if workspace:GetAttribute("SlideTackleAlways") and game:GetService("RunService"):IsStudio() then slideChance = 1 end -- (test switch)
 			data.slideWanted = math.random() < slideChance
 		end
@@ -1074,7 +1076,10 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Dynamic Wall-Running (Phase 6 Parkour): angled vertical wall traversal
 	local lastWallRun = fighter:GetAttribute("LastWallRunTime") or 0
-	local wallRunCooldown = (quirky == "WallTapper") and 2.5 or (CombatConfig.WallRunCooldown or 5.0)
+	local mobilityHabit = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+	local riskHabit = fighter:GetAttribute("Pers_RiskTolerance") or 0.5
+	local wallLover = math.clamp((mobilityHabit - 0.7) / 0.2, 0, 1) * math.clamp((riskHabit - 0.6) / 0.2, 0, 1)
+	local wallRunCooldown = (CombatConfig.WallRunCooldown or 5.0) - 2.5 * wallLover
 	-- (a target that takes to a wall is followed onto it: no waiting out the cooldown)
 	local followingOntoWall = targetState == "WallRun"
 	local canWallRun = ((now - lastWallRun) >= wallRunCooldown or followingOntoWall) and energy >= (CombatConfig.WallRunMinEnergy or 15)
@@ -1375,7 +1380,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Emergent Multi-Chaser Formations (Tandem vs Dispersion based on bonds & quirks)
 	local myOwner = fighter:GetAttribute("OwnerId") or "SERVER"
-	local quirky = fighter:GetAttribute("Quirky") or "Balanced"
+	local protectHabit = fighter:GetAttribute("Pers_Protectiveness") or 0.4
 	local sameTargetTeammates = {}
 	for _, q in ipairs(CollectionService:GetTagged("Quin")) do
 		if q ~= fighter and q.Parent and q:FindFirstChild("HumanoidRootPart") then
@@ -1388,7 +1393,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	if #sameTargetTeammates > 0 and hasLoS then
 		local isTandemPair = false
 		for _, mate in ipairs(sameTargetTeammates) do
-			if (mate:GetAttribute("OwnerId") == myOwner and myOwner ~= "SERVER") or (quirky == "Follower" or quirky == "Wingman") then
+			if (mate:GetAttribute("OwnerId") == myOwner and myOwner ~= "SERVER") or protectHabit >= 0.7 then -- (the protective pair up)
 				isTandemPair = true
 				break
 			end

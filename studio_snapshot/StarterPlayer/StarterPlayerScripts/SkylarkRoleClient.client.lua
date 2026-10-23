@@ -17,6 +17,7 @@ local ADMIN_SCREENS = {
     ArenaDroneUI = true, MasterDebugUI = true, TuningPanel = true,
 }
 local TERMINAL_SCREENS = { QuinDebugGui = true } -- (also at a preparation room terminal)
+local VIP_SCREENS = { ArenaDroneUI = true } -- (also inside a VIP box after using its terminal: SkylarkSpectate)
 
 shared.IsAdmin = function()
     return player:GetAttribute("SkylarkRole") == "Admin"
@@ -29,14 +30,14 @@ local function reconcile()
     local atTerminal = shared.SpectateFilter ~= nil
     for _, gui in ipairs(playerGui:GetChildren()) do
         if gui:IsA("ScreenGui") and (ADMIN_SCREENS[gui.Name] or TERMINAL_SCREENS[gui.Name]) then
-            local allowed = admin or (TERMINAL_SCREENS[gui.Name] and atTerminal)
+            local allowed = admin or (TERMINAL_SCREENS[gui.Name] and atTerminal) or (VIP_SCREENS[gui.Name] and shared.VipAccess == true)
             if not allowed then
                 if hidden[gui] == nil then
                     hidden[gui] = gui.Enabled
                 end
                 gui.Enabled = false
             elseif hidden[gui] ~= nil then
-                gui.Enabled = hidden[gui] or TERMINAL_SCREENS[gui.Name] ~= nil
+                gui.Enabled = hidden[gui] or TERMINAL_SCREENS[gui.Name] ~= nil or VIP_SCREENS[gui.Name] ~= nil
                 hidden[gui] = nil
             end
         end
