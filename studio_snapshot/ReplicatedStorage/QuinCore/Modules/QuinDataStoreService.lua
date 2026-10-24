@@ -22,6 +22,16 @@ local QuinDataStoreService = {
 -- In-memory cache of player rosters on the server: [UserId] = rosterTable
 local sessionCache = {}
 local dirtyRosters = {} -- [UserId] = true
+-- Rosters that must never be saved: the load failed (a starter roster saved over it would wipe
+-- the player's real Quins), or this server doesn't hold the player's save (SkylarkSession)
+local unsaveable = {} -- [UserId] = true
+
+-- The session lock (server only): a player's roster loads once this server holds their save
+local Session = RunService:IsServer() and require(game:GetService("ServerScriptService"):WaitForChild("SkylarkSession")) or nil
+
+local function onlinePlayer(userId)
+	return Players:GetPlayerByUserId(tonumber(userId) or 0)
+end
 
 -- Safely get DataStore with pcall (in Studio, API access might be disabled)
 local quinDataStore = nil
@@ -93,6 +103,16 @@ function QuinDataStoreService.loadRoster(userId)
 	if sessionCache[userId] then
 		return sessionCache[userId]
 	end
+	local player = onlinePlayer(userId)
+	if Session and player then
+		Session.waitFor(player) -- (another server may still be saving this player)
+		if sessionCache[userId] then
+			return sessionCache[userId]
+		end
+		if not Session.maySave(player) then
+			unsaveable[userId] = true
+		end
+	end
 
 	local rawData = nil
 	if dataStoreAvailable and quinDataStore then
@@ -103,7 +123,8 @@ function QuinDataStoreService.loadRoster(userId)
 			rawData = result
 			print(string.format("[QuinDataStoreService] Loaded roster from DataStore for %s", userId))
 		elseif not ok then
-			warn(string.format("[QuinDataStoreService] Failed to load DataStore for %s: %s", userId, tostring(result)))
+			unsaveable[userId] = true -- (a starter roster this session only: never over the real one)
+			warn(string.format("[QuinDataStoreService] Failed to load DataStore for %s: %s (this session isn't saved)", userId, tostring(result)))
 		end
 	end
 
@@ -147,6 +168,10 @@ function QuinDataStoreService.saveRoster(userId, force)
 	local roster = sessionCache[userId]
 	if not roster then return false, "No roster in cache" end
 	if not force and not dirtyRosters[userId] then return true, "Not dirty" end
+	local player = onlinePlayer(userId)
+	if unsaveable[userId] or (Session and player and not Session.maySave(player)) then
+		return false, "Not saved: this server doesn't hold the save"
+	end
 
 	roster.LastSaved = os.time()
 
@@ -361,10 +386,16 @@ Players.PlayerAdded:Connect(function(player)
 	QuinDataStoreService.loadRoster(player.UserId)
 end)
 
-Players.PlayerRemoving:Connect(function(player)
-	QuinDataStoreService.saveRoster(player.UserId, true)
-	sessionCache[tostring(player.UserId)] = nil
-end)
+-- leaving / shutdown: SkylarkSession runs this, then lets the lock go
+if Session then
+	Session.addSaver(function(player)
+		local userId = tostring(player.UserId)
+		QuinDataStoreService.saveRoster(userId, true)
+		if not player.Parent then
+			sessionCache[userId], dirtyRosters[userId], unsaveable[userId] = nil, nil, nil
+		end
+	end)
+end
 
 -- Auto-save dirty rosters every 5 minutes
 task.spawn(function()
@@ -380,7 +411,9 @@ end)
 game:BindToClose(function()
 	print("[QuinDataStoreService] Server closing. Flushing all active rosters...")
 	for userId in pairs(sessionCache) do
-		QuinDataStoreService.saveRoster(userId, true)
+		if not onlinePlayer(userId) then -- (players' rosters: SkylarkSession saves them before letting go)
+			QuinDataStoreService.saveRoster(userId, true)
+		end
 	end
 end)
 

@@ -11,10 +11,12 @@
 -- with START_BALANCE), saved when it changes (at most every SAVE_EVERY seconds), on leaving and on
 -- shutdown. If the DataStore can't be reached (Studio without API access) the balance lives in
 -- memory for the session and is never saved, so a failed load can't overwrite real money.
--- (A session lock, for one account in two servers at once, comes with the full player save.)
+-- It loads only once this server holds the player's save (SkylarkSession: the session lock), and
+-- saves only while it does; the last save on leaving runs before the lock is let go.
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
+local Session = require(script.Parent:WaitForChild("SkylarkSession"))
 
 local Wallet = {}
 
@@ -39,6 +41,7 @@ local function publish(player)
 end
 
 local function load(player)
+    Session.waitFor(player) -- (another server may still be saving this player)
     local value = nil
     local ok = false
     if store then
@@ -49,8 +52,10 @@ local function load(player)
     if not player.Parent then
         return
     end
-    if ok then
+    if ok and Session.maySave(player) then
         saveable[player.UserId] = true
+    elseif ok then
+        warn(string.format("[SkylarkWallet] %s's save isn't held by this server: SC this session only", player.Name))
     else
         warn(string.format("[SkylarkWallet] No DataStore for %s: SC this session only, not saved", player.Name))
     end
@@ -63,7 +68,7 @@ end
 
 local function save(player)
     local id = player.UserId
-    if not (saveable[id] and dirty[id] and store) then
+    if not (saveable[id] and dirty[id] and store and Session.maySave(player)) then
         return
     end
     local amount = balances[id]
@@ -119,14 +124,11 @@ for _, player in ipairs(Players:GetPlayers()) do
     task.spawn(load, player)
 end
 
-Players.PlayerRemoving:Connect(function(player)
+-- leaving / shutdown: SkylarkSession runs this, then lets the lock go
+Session.addSaver(function(player)
     save(player)
-    balances[player.UserId], saveable[player.UserId], dirty[player.UserId] = nil, nil, nil
-end)
-
-game:BindToClose(function()
-    for _, player in ipairs(Players:GetPlayers()) do
-        save(player)
+    if not player.Parent then
+        balances[player.UserId], saveable[player.UserId], dirty[player.UserId] = nil, nil, nil
     end
 end)
 
