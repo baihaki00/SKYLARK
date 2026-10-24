@@ -19,7 +19,8 @@
 -- Rooms publish (attributes on the PrepRoom model): PrepOwner (name), PrepOwnerUserId (players),
 -- PrepTeam, PrepAllowed (",id,id," of the players who may enter).
 -- Remote ArenaNetwork.PrepRoom: server -> client "knock", name, userId | "notice", text;
--- client -> server "knockReply", userId, allow.
+-- client -> server "knockReply", userId, allow | "plan", quin model name, { Stance, Target, Role }
+-- (QuinPlans; answered with "plan", ok, text).
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -29,6 +30,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 local ArenaNpcOwners = require(ServerScriptService:WaitForChild("ArenaNpcOwners"))
+local QuinPlans = require(ServerScriptService:WaitForChild("QuinPlans"))
 
 local PrepRoom = {}
 
@@ -260,7 +262,30 @@ local function friendKnock(room, name, callback, stranger)
     end)
 end
 
+-- The owner's plan for one of their Quins in their room (only while the room is open)
+local function setPlan(player, modelName, plan)
+    local room = roomOfOwner(player)
+    local state = room and active[room]
+    if not state then
+        return false, "Plans are set in your preparation room."
+    end
+    if not QuinPlans.open() then
+        return false, "Plans are locked: the round has started."
+    end
+    for _, m in ipairs(state.models) do
+        if m.Name == modelName and state.quinOf[m] then
+            return QuinPlans.apply(m, state.quinOf[m], plan)
+        end
+    end
+    return false, "That isn't one of your Quins."
+end
+
 remote.OnServerEvent:Connect(function(player, action, requesterId, allow)
+    if action == "plan" then
+        local ok, msg = setPlan(player, requesterId, allow)
+        remote:FireClient(player, "plan", ok, msg)
+        return
+    end
     if action ~= "knockReply" then
         return
     end
@@ -377,6 +402,7 @@ function PrepRoom.open(entrants)
                 models = {},
                 quins = {}, -- { quin instance, team, pad position }: brought home if they lose
                 home = {}, -- the defeated Quins standing back in the room
+                quinOf = {}, -- [model] = its saved Quin (QuinPlans)
                 allowed = {},
             }
             if not isNpc then
@@ -398,6 +424,12 @@ function PrepRoom.open(entrants)
                     q:SetAttribute("OwnerUserId", (not isNpc) and owner.UserId or nil)
                     q:SetAttribute("OwnerNpc", isNpc or nil)
                     q:SetAttribute("InPrepRoom", true)
+                    state.quinOf[q] = e.quin
+                    q:SetAttribute("Bond", e.quin.Bond or 0) -- (the plan card shows it)
+                    local lastPlan = (not isNpc) and QuinPlans.lastFor(e.quin)
+                    if lastPlan then -- (last round's plan, until the owner changes it)
+                        QuinPlans.apply(q, e.quin, lastPlan)
+                    end
                     e.model = q
                     e.standOffset = q:GetPivot().Position.Y - top
                     table.insert(state.models, q)

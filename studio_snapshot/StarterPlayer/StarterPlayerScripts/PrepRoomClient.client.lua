@@ -10,6 +10,8 @@
 --       QUIN 1 / QUIN 2: your OWN Quins only, followed in 3rd person (the Spectator HUD's view:
 --       right mouse orbits, wheel distance) or through their eyes (POV); the VIEW button switches;
 --       the live event stats (time, both teams, your Quins). Backspace or X leaves it.
+--       PLAN: each of your Quins' plan for the round (stance, target, role: QuinPlans on the
+--       server), only while the room is open; how much it follows shows on its card.
 --     While a terminal is in use the Spectator HUD and the spectate camera are limited to your own
 --     Quins too (shared.SpectateFilter, read by QuinDebugHUD and SmoothCamera).
 
@@ -184,7 +186,7 @@ local viewLabel = label(gui, { AnchorPoint = Vector2.new(0.5, 0), Position = UDi
 local hintLabel = label(gui, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0.88, -6), Size = UDim2.fromOffset(700, 14), TextXAlignment = Enum.TextXAlignment.Center, TextSize = 11, TextColor3 = C_MUTED, Text = "" })
 
 -- Mode buttons (top)
-local bar = new("Frame", { Name = "ModeBar", Parent = gui, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), Size = UDim2.fromOffset(640, 34), BackgroundTransparency = 1 })
+local bar = new("Frame", { Name = "ModeBar", Parent = gui, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), Size = UDim2.fromOffset(740, 34), BackgroundTransparency = 1 })
 new("UIListLayout", { Parent = bar, FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 8) })
 local function barButton(name, text, width)
     local b = new("TextButton", { Name = name, Parent = bar, Text = text, Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_BG, BackgroundTransparency = 0.1, Size = UDim2.fromOffset(width, 34) })
@@ -195,6 +197,7 @@ end
 local binoButton = barButton("BinoButton", "BINOCULARS", 120)
 local quinButtons = { barButton("Quin1Button", "MY QUIN 1", 110), barButton("Quin2Button", "MY QUIN 2", 110) }
 local viewButton = barButton("ViewButton", "VIEW: 3RD PERSON", 150)
+local planButton = barButton("PlanButton", "PLAN", 90)
 local exitButton = barButton("ExitButton", "X", 40)
 
 -- Stats (right)
@@ -433,7 +436,110 @@ local function hpText(hum)
     return string.format("%d / %d", math.max(0, math.floor(hum.Health)), math.floor(hum.MaxHealth))
 end
 
+-- PLAN (left): one card per Quin; the choices are the model's Plan attributes (the server sets them)
+local PLAN_ROWS = {
+    { key = "Stance", attr = "PlanStance", options = { "Aggressive", "Balanced", "Defensive" }, default = "Balanced" },
+    { key = "Target", attr = "PlanTarget", options = { "Own pick", "Weakest", "Strongest", "Defend" }, default = "Own pick" },
+    { key = "Role", attr = "PlanRole", options = { "Free", "Striker", "Guard", "Hunter" }, default = "Free" },
+}
+local planPanel = new("Frame", { Name = "PlanPanel", Parent = gui, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 24, 0.5, 0), Size = UDim2.fromOffset(372, 470), BackgroundColor3 = C_BG, BackgroundTransparency = 0.08, Visible = false })
+corner(planPanel, 10)
+new("UIStroke", { Parent = planPanel, Color = C_AMBER, Thickness = 1, Transparency = 0.4 })
+label(planPanel, { Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(344, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "PLAN FOR THIS ROUND" })
+local planSub = label(planPanel, { Name = "PlanSub", Position = UDim2.fromOffset(14, 30), Size = UDim2.fromOffset(344, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
+local planStatus = label(planPanel, { Name = "PlanStatus", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 14, 1, -10), Size = UDim2.fromOffset(344, 30), TextSize = 11, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = C_GREEN, Text = "" })
+local planCards = {}
+for i = 1, 2 do
+    local card = new("Frame", { Name = "PlanCard" .. i, Parent = planPanel, Position = UDim2.fromOffset(10, 52 + (i - 1) * 182), Size = UDim2.fromOffset(352, 174), BackgroundColor3 = C_CARD, BorderSizePixel = 0 })
+    corner(card, 8)
+    local c = { card = card, buttons = {} }
+    c.title = label(card, { Position = UDim2.fromOffset(10, 6), Size = UDim2.fromOffset(332, 16), Font = Enum.Font.GothamBold, TextSize = 12, Text = "" })
+    c.follow = label(card, { Position = UDim2.fromOffset(10, 22), Size = UDim2.fromOffset(332, 14), TextSize = 11, TextColor3 = C_MUTED, TextTruncate = Enum.TextTruncate.AtEnd, Text = "" })
+    for r, row in ipairs(PLAN_ROWS) do
+        local y = 42 + (r - 1) * 42
+        label(card, { Position = UDim2.fromOffset(10, y), Size = UDim2.fromOffset(100, 12), Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = C_MUTED, Text = string.upper(row.key) })
+        c.buttons[row.key] = {}
+        local w = math.floor((332 - (#row.options - 1) * 4) / #row.options)
+        for o, option in ipairs(row.options) do
+            local b = new("TextButton", { Name = "Plan" .. i .. row.key .. option:gsub(" ", ""), Parent = card, Text = option, Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_TEXT, BackgroundColor3 = C_BG, Position = UDim2.fromOffset(10 + (o - 1) * (w + 4), y + 14), Size = UDim2.fromOffset(w, 24) })
+            corner(b, 6)
+            c.buttons[row.key][option] = b
+        end
+    end
+    planCards[i] = c
+end
+
+local function planOpen()
+    return Workspace:GetAttribute("ArenaPhase") == "PREPARATION_ROOM"
+end
+
+local function refreshPlan()
+    planButton.TextColor3 = planPanel.Visible and C_AMBER or C_TEXT
+    if not planPanel.Visible then
+        return
+    end
+    local open = planOpen()
+    planSub.Text = open and string.format("Set before the Quins deploy  •  locks in %ds", latest.TimeRemaining or 0)
+        or "Locked: plans are set while your room is open."
+    local mine = myQuins()
+    for i, c in ipairs(planCards) do
+        local q = mine[i]
+        c.card.Visible = q ~= nil
+        if q then
+            local bond = q:GetAttribute("Bond") or 0
+            c.title.Text = string.format("%s  •  %s  •  Bond %d", q.Name, tostring(q:GetAttribute("Temperament") or "?"), bond)
+            local follow = q:GetAttribute("PlanFollow")
+            local clash = q:GetAttribute("PlanClash")
+            c.follow.Text = clash and string.format("Against its nature (%s): follows %d%%, hesitates", clash, math.floor((follow or 0) * 100 + 0.5))
+                or follow and string.format("Follows about %d%% of the plan", math.floor(follow * 100 + 0.5))
+                or string.format("No plan: fights its own way  •  would follow %d%%", math.floor((0.4 + 0.6 * math.clamp(bond / 100, 0, 1)) * 100 + 0.5))
+            c.follow.TextColor3 = clash and C_AMBER or C_MUTED
+            for _, row in ipairs(PLAN_ROWS) do
+                local picked = q:GetAttribute(row.attr) or row.default
+                for option, b in pairs(c.buttons[row.key]) do
+                    local on = option == picked
+                    b.BackgroundColor3 = on and C_AMBER or C_BG
+                    b.TextColor3 = on and C_BG or (open and C_TEXT or C_MUTED)
+                end
+            end
+        end
+    end
+end
+
+for i, c in ipairs(planCards) do
+    for _, row in ipairs(PLAN_ROWS) do
+        for option, b in pairs(c.buttons[row.key]) do
+            b.MouseButton1Click:Connect(function()
+                local q = myQuins()[i]
+                if not q or not planOpen() or not remote then
+                    return
+                end
+                local plan = {}
+                for _, other in ipairs(PLAN_ROWS) do
+                    plan[other.key] = q:GetAttribute(other.attr) or other.default
+                end
+                plan[row.key] = option
+                remote:FireServer("plan", q.Name, plan)
+            end)
+        end
+    end
+end
+planButton.MouseButton1Click:Connect(function()
+    planPanel.Visible = not planPanel.Visible
+    planStatus.Text = ""
+    refreshPlan()
+end)
+if remote then
+    remote.OnClientEvent:Connect(function(kind, ok, text)
+        if kind == "plan" then
+            planStatus.Text = tostring(text or "")
+            planStatus.TextColor3 = ok and C_GREEN or C_RED
+        end
+    end)
+end
+
 local function updateStats()
+    refreshPlan()
     statTitle.Text = string.upper(Workspace:GetAttribute("ArenaSlot") or "ARENA ONE")
     statPhase.Text = string.format("%s  •  %ds", tostring(latest.Phase or "IDLE"):gsub("_", " "), latest.TimeRemaining or 0)
     for team, row in pairs(teamRows) do

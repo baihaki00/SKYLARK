@@ -241,7 +241,36 @@ function TargetingModule.selectTarget(quinModel, localState)
 			-- enemy going for the leader it trusts, a Quin it holds off (respect custom)
 			local socialScore = SocialSystem.targetScore(quinModel, model)
 
-			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + socialScore
+			-- 14. The owner's plan (QuinPlans): who to go for and the Quin's job, as far as it follows
+			local planScore = 0
+			local planFollow = quinModel:GetAttribute("PlanFollow")
+			if planFollow then
+				local planTarget = quinModel:GetAttribute("PlanTarget")
+				local planRole = quinModel:GetAttribute("PlanRole")
+				local onAlly = false -- (this enemy is going for one of my team)
+				local theirTarget = model:GetAttribute("CurrentTarget")
+				if theirTarget and theirTarget ~= "" and theirTarget ~= quinModel.Name then
+					local ally = (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(theirTarget)
+					onAlly = ally ~= nil and ally:GetAttribute("Team") == quinModel:GetAttribute("Team")
+				end
+				if planTarget == "Weakest" then
+					planScore += (1 - targetHp) * 60
+				elseif planTarget == "Strongest" then
+					planScore += targetHp * 30 + math.min(model:GetAttribute("BattlesWins") or 0, 10) * 3
+				elseif planTarget == "Defend" and onAlly then
+					planScore += 60
+				end
+				if planRole == "Guard" and onAlly then
+					planScore += 35
+				elseif planRole == "Hunter" and isIsolated then
+					planScore += 40
+				elseif planRole == "Striker" then
+					planScore += 30 * math.exp(-dist / 25)
+				end
+				planScore *= planFollow
+			end
+
+			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + socialScore + planScore
 
 			if model.Name == heldName then
 				heldCandidate, heldUtility = model, utility
@@ -252,6 +281,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 
 				-- Build explainable debug reason
 				local reasons = {}
+				if planScore > 15 then table.insert(reasons, "Owner's plan") end
 				if socialScore > 20 then table.insert(reasons, "Leader's signal / guarding the leader") end
 				if tauntScore > 0 then table.insert(reasons, "Humble the showoff (aura farming)") end
 				if rivalryScore > 0 then table.insert(reasons, "Historical Rivalry") end

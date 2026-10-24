@@ -800,9 +800,21 @@ local function runMatchLifecycle()
         end
     end
     for _, q in ipairs(getTournamentFighters()) do
-        q:SetAttribute("IsInert", false)
-        q:SetAttribute("InCombat", true)
-        q:SetAttribute("ForceState", nil)
+        local wait = q:GetAttribute("PlanHesitation") -- (a plan against its nature: a moment's doubt first)
+        local function release()
+            if q.Parent then
+                q:SetAttribute("PlanHesitating", nil)
+                q:SetAttribute("IsInert", false)
+                q:SetAttribute("InCombat", true)
+                q:SetAttribute("ForceState", nil)
+            end
+        end
+        if wait then
+            q:SetAttribute("PlanHesitating", true)
+            task.delay(wait, release)
+        else
+            release()
+        end
     end
     ArenaScreen.displayAnnouncement("ENGAGEMENT COMMENCED // TOURNAMENT PROTOCOL LIVE", 4.0, "SYSTEM", Color3.fromRGB(0, 210, 255))
     ArenaAudio.stopPregameMusic(1.5) -- (if the anthem was skipped, the pre-game music is still on)
