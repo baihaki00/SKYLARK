@@ -329,4 +329,16 @@ How plans work:
 - Reading: at Bond 0 a plan is nearly invisible. Open question for the owner: bigger leans, or let Bond carry it (test at Bond 100 for the ceiling).
 - NPQ fill finding: every NPQ is created fresh (no record, Bond 0, full condition), so all score 60 strength, and Standard Quins have equal combat stats. "Stronger NPQs to the weaker side" has nothing to deal yet; it needs veteran NPQs or the six stats.
 
-Still to do: NPQ fill to the weaker side, a 16v16 all-Aggressive vs all-Defensive measurement, and the hesitation animation (look up at the owner, nod).
+**Bond 100 ceiling test (two more matches, sides swapped, follow 0.92-1.0).** Again 1-1; Beta won both.
+- The styles now clearly differ. Aggressive chases 21-22% of the time (vs 17-18%) and retreats 5-6% (vs 9-10%).
+- Defensive holds high ground 8-12% (vs 6-7%) and lands 68% of strikes (vs 64-65%).
+- Reading: a plan is a trade-off, not a winning button, and Bond is what makes it show. Owner chose to keep plans light and let Bond carry them (2026-10-24).
+
+**Veteran arena Quins, balanced fill, NPC plans (7058962).**
+- Each NPQ rolls a tier. Rookie 50%: 0-6 battles, Bond 0-15. Regular 35%: 10-40 battles, Bond 20-50. Veteran 15%: 40-120 battles, win rate 0.5-0.7, Bond 55-90.
+- In team battles NPQs are dealt strongest first, each to the side weaker once full (its sum plus empty seats at the pool average). Over 2000 simulated rounds the sides end within about 1 strength point (out of about 1000).
+- Workspace ArenaSideStrength shows the result.
+- NPC owners set plans from each Quin's habits (QuinPlans.npcPick), so plans are no players-only edge.
+- Remaining: the hesitation animation (look up at the owner, nod).
+
+Step 4 done except the hesitation animation (look up at the owner, nod).
