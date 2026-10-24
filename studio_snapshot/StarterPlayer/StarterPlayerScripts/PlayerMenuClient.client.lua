@@ -1,11 +1,14 @@
 --// PlayerMenuClient.client.lua
--- The player menu (G, or the MENU button under the SC pill): what you own and what's coming, shown
--- only. Actions stay at their stations (Workshop, Trainer, Arena Terminal).
+-- The player menu (G, the MENU button on the top bar, or click the clock): what you own and what's
+-- coming, shown only. Actions stay at their stations (Workshop, Trainer, an arena's terminal).
 --   MY QUINS   a card per slot, left to right: the Quin itself standing in its idle (QuinPreview:
 --              drag to turn it), tag, temperament, gender, title, W/L and streak, condition, Bond,
 --              status (Ready / In repair / Training / Entered / Fighting now), the habits revealed
 --              (QuinCare "list"); empty and locked slots greyed. Cards update in place.
---   SCHEDULE   today's arena day (ArenaSchedule) in SST, with your entry or prebook marked.
+--   SCHEDULE   a section per arena (SkylarkArenas): what it runs now and next, your entry there
+--              (shared.ArenaEntryStatus from ArenaEntry), its day strip, today and tomorrow in SST
+--              with your entry or prebook marked, and the week's events. The HUD clock shows only
+--              the time: everything about arenas is here.
 --   WALLET     SC and the last changes this session (SkylarkWallet, remote ArenaNetwork.WalletLog).
 --   LAST MATCH this session's last results (MatchResultsClient shares them), and the full card.
 
@@ -18,7 +21,7 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
-local ArenaSchedule = require(QuinCore:WaitForChild("ArenaSchedule"))
+local SkylarkArenas = require(QuinCore:WaitForChild("SkylarkArenas"))
 local QuinPreview = require(QuinCore:WaitForChild("QuinPreview"))
 local net = ReplicatedStorage:WaitForChild("ArenaNetwork")
 local careRemote = net:WaitForChild("QuinCare", 30)
@@ -36,6 +39,8 @@ local C_GREEN = Color3.fromRGB(0, 230, 120)
 local C_RED = Color3.fromRGB(255, 60, 80)
 local C_TEXT = Color3.fromRGB(240, 245, 255)
 local C_MUTED = Color3.fromRGB(130, 145, 170)
+local C_CARD_SEL = Color3.fromRGB(28, 36, 52)
+local KIND_COLORS = { Event = C_AMBER, Open = C_CYAN, Closing = Color3.fromRGB(180, 140, 255), Rest = Color3.fromRGB(90, 100, 125) }
 
 local function new(className, props)
     local inst = Instance.new(className)
@@ -105,7 +110,7 @@ label(window, { Position = UDim2.fromOffset(18, 14), Size = UDim2.fromOffset(300
 local headerRight = label(window, { Position = UDim2.fromOffset(W - 330, 16), Size = UDim2.fromOffset(270, 18), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_AMBER, TextXAlignment = Enum.TextXAlignment.Right, Text = "" })
 local closeButton = new("TextButton", { Name = "MenuClose", Parent = window, Text = "X", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(W - 44, 12), Size = UDim2.fromOffset(28, 28) })
 corner(closeButton, 6)
-label(window, { Position = UDim2.fromOffset(18, H - 26), Size = UDim2.fromOffset(W - 36, 16), TextSize = 11, TextColor3 = C_MUTED, Text = "G opens and closes this menu  •  repair at the Workshop, train at the Trainer, enter at an Arena Terminal" })
+label(window, { Position = UDim2.fromOffset(18, H - 26), Size = UDim2.fromOffset(W - 36, 16), TextSize = 11, TextColor3 = C_MUTED, Text = "G opens and closes this menu  •  repair at the Workshop, train at the Trainer, enter at an arena's terminals" })
 
 local TABS = { "MY QUINS", "SCHEDULE", "WALLET", "LAST MATCH" }
 local tabButtons = {}
@@ -349,31 +354,77 @@ end
 -- SCHEDULE
 -- ============================================================================
 
-local function drawSchedule()
-    local now = SkylarkTime.now()
-    local info = SkylarkTime.info(now)
-    local entryWindow = player:GetAttribute("ArenaEntered") and Workspace:GetAttribute("ArenaRegWindow")
-    local prebookEvent = player:GetAttribute("ArenaPrebooked") and Workspace:GetAttribute("ArenaPrebookEvent")
-    line(string.format("%s  •  %s day %d  •  SST %s", info.WeekdayName or "", info.Season or "", info.SeasonDay or 0, SkylarkTime.formatHours(info.Hours)),
-        { Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_MUTED })
+-- How long until Skylark time `t`: real time at the clock's speed; Skylark hours while paused
+local function untilText(t)
+    local real = SkylarkTime.realSecondsUntil(t)
+    if real then
+        return duration(real)
+    end
+    return SkylarkTime.formatDuration((t - SkylarkTime.now()) / SkylarkTime.HOUR * 3600) .. " SST"
+end
+
+local function drawArena(arena, now, info)
+    local schedule = arena.Schedule
+    local debugOn = SkylarkTime.isDebug()
+    local slot = schedule.slotAt(now)
+    local nextEvent = schedule.nextEvent(now)
+
+    -- what it runs now and next, your entry, the day strip
+    local head = card(112, C_AMBER)
+    label(head, { Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(400, 22), Font = Enum.Font.GothamBlack, TextSize = 17, TextColor3 = C_AMBER, Text = string.upper(arena.Name) })
+    local status = arena.Live and shared.ArenaEntryStatus
+    if status and status.Arena == arena.Id and status.Text ~= "" then
+        label(head, { Position = UDim2.fromOffset(W - 470, 10), Size = UDim2.fromOffset(420, 22), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = status.Color or C_TEXT,
+            TextXAlignment = Enum.TextXAlignment.Right, Text = status.Text })
+    elseif not arena.Live then
+        label(head, { Position = UDim2.fromOffset(W - 470, 10), Size = UDim2.fromOffset(420, 22), TextSize = 12, TextColor3 = C_MUTED, TextXAlignment = Enum.TextXAlignment.Right, Text = "Not on this server" })
+    end
+    local left = untilText(slot.EndsAt)
+    local nowText
+    if slot.Kind == "Event" then
+        nowText = string.format("LIVE  %s%s  •  %s left", string.upper(slot.Name), slot.Tagline and ("  •  " .. slot.Tagline) or "", left)
+    elseif slot.Kind == "Rest" then
+        nowText = string.format("REST  •  no events, open for training and spectating  •  %s left", left)
+    else
+        nowText = string.format("%s%s  •  %s left", string.upper(slot.Name), slot.Tagline and ("  •  " .. slot.Tagline) or "", left)
+    end
+    label(head, { Position = UDim2.fromOffset(16, 36), Size = UDim2.fromOffset(W - 80, 20), Font = Enum.Font.GothamBold, TextSize = 14,
+        TextColor3 = slot.Kind == "Rest" and C_MUTED or KIND_COLORS[slot.Kind], Text = nowText })
+    label(head, { Position = UDim2.fromOffset(16, 58), Size = UDim2.fromOffset(W - 80, 16), TextSize = 12, TextColor3 = C_MUTED,
+        Text = nextEvent and string.format("Next event: %s in %s", nextEvent.Name, untilText(nextEvent.StartsAt)) or "" })
+    local stripW = W - 36 - 8 - 32
+    local strip = new("Frame", { Parent = head, Position = UDim2.fromOffset(16, 84), Size = UDim2.fromOffset(stripW, 10), BackgroundColor3 = C_BG, BorderSizePixel = 0 })
+    corner(strip, 3)
+    for _, entry in ipairs(schedule.DAILY) do
+        new("Frame", { Parent = strip, Position = UDim2.new(entry.From / 24, 1, 0, 1), Size = UDim2.new((entry.To - entry.From) / 24, -2, 1, -2),
+            BackgroundColor3 = KIND_COLORS[entry.Kind], BackgroundTransparency = 0.35, BorderSizePixel = 0 })
+    end
+    new("Frame", { Parent = strip, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(info.Hours / 24, 0, 0.5, 0), Size = UDim2.fromOffset(2, 16), BackgroundColor3 = C_TEXT, BorderSizePixel = 0, ZIndex = 2 })
+    for h = 0, 24, 6 do
+        label(head, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(16 + stripW * h / 24, 96), Size = UDim2.fromOffset(30, 12), TextSize = 10, TextColor3 = C_MUTED,
+            TextXAlignment = Enum.TextXAlignment.Center, Text = string.format("%02d", h) })
+    end
+
+    -- today and tomorrow
+    local entered = status and status.Arena == arena.Id
+    local entryWindow = entered and player:GetAttribute("ArenaEntered") and Workspace:GetAttribute("ArenaRegWindow")
+    local prebookEvent = entered and player:GetAttribute("ArenaPrebooked") and Workspace:GetAttribute("ArenaPrebookEvent")
     local function drawDay(day, title)
         line(title, { Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_CYAN, height = 20 })
-        for _, slot in ipairs(ArenaSchedule.day(day)) do
-            if slot.EndsAt > now then
-                local live = now >= slot.StartsAt
-                local isEvent = slot.Kind == "Event"
-                local mine = isEvent and (slot.Name == entryWindow and live or slot.Name == prebookEvent and not live)
+        for _, daySlot in ipairs(schedule.day(day)) do
+            if daySlot.EndsAt > now then
+                local live = now >= daySlot.StartsAt
+                local isEvent = daySlot.Kind == "Event"
+                local mine = isEvent and (daySlot.Name == entryWindow and live or daySlot.Name == prebookEvent and not live)
                 local f = card(44, live and C_AMBER or (mine and C_GREEN or nil))
+                new("Frame", { Parent = f, Size = UDim2.new(0, 3, 1, 0), BorderSizePixel = 0, BackgroundColor3 = KIND_COLORS[daySlot.Kind] })
                 label(f, { Position = UDim2.fromOffset(14, 0), Size = UDim2.fromOffset(110, 44), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = live and C_AMBER or C_TEXT,
-                    Text = string.format("%s-%s", SkylarkTime.formatHours(slot.From), SkylarkTime.formatHours(slot.To)) })
-                label(f, { Position = UDim2.fromOffset(130, 5), Size = UDim2.fromOffset(300, 18), Font = isEvent and Enum.Font.GothamBold or Enum.Font.Gotham, TextSize = 13,
-                    TextColor3 = isEvent and C_TEXT or C_MUTED, Text = slot.Name .. (slot.Tagline and ("  •  " .. slot.Tagline) or "") })
-                local when = live and string.format("LIVE  •  ends in %s", duration(SkylarkTime.realSecondsUntil(slot.EndsAt) or 0))
-                    or string.format("starts in %s", duration(SkylarkTime.realSecondsUntil(slot.StartsAt) or 0))
-                if SkylarkTime.rate() <= 0 then
-                    when = live and "LIVE  •  clock paused" or "clock paused"
-                end
-                label(f, { Position = UDim2.fromOffset(130, 23), Size = UDim2.fromOffset(300, 16), TextSize = 11, TextColor3 = C_MUTED, Text = when })
+                    Text = string.format("%s-%s", SkylarkTime.formatHours(daySlot.From), SkylarkTime.formatHours(daySlot.To)) })
+                label(f, { Position = UDim2.fromOffset(130, 5), Size = UDim2.fromOffset(420, 18), Font = isEvent and Enum.Font.GothamBold or Enum.Font.Gotham, TextSize = 13,
+                    TextColor3 = isEvent and C_TEXT or C_MUTED, Text = daySlot.Name .. (daySlot.Tagline and ("  •  " .. daySlot.Tagline) or "") })
+                local yourTime = debugOn and "" or ("  •  " .. DateTime.fromUnixTimestamp(math.floor(daySlot.StartsAt)):FormatLocalTime("HH:mm", "en-us") .. " your time")
+                local when = live and string.format("LIVE  •  ends in %s", untilText(daySlot.EndsAt)) or string.format("starts in %s%s", untilText(daySlot.StartsAt), yourTime)
+                label(f, { Position = UDim2.fromOffset(130, 23), Size = UDim2.fromOffset(420, 16), TextSize = 11, TextColor3 = C_MUTED, Text = when })
                 if mine then
                     label(f, { Position = UDim2.fromOffset(W - 240, 0), Size = UDim2.fromOffset(190, 44), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_GREEN,
                         TextXAlignment = Enum.TextXAlignment.Right, Text = live and "YOU'RE ENTERED" or "PREBOOKED" })
@@ -383,6 +434,50 @@ local function drawSchedule()
     end
     drawDay(info.Day, "TODAY")
     drawDay(info.Day + 1, "TOMORROW")
+
+    -- the week's events
+    local events = {}
+    for index, entry in ipairs(schedule.DAILY) do
+        if entry.Kind == "Event" then
+            table.insert(events, { index = index, entry = entry })
+        end
+    end
+    if #events == 0 then
+        return
+    end
+    line("THIS WEEK", { Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_CYAN, height = 20 })
+    local LABEL_W, ROW = 100, 40
+    local week = card(28 + #events * ROW + 8)
+    local colW = math.floor((W - 36 - 8 - 28 - LABEL_W) / 7)
+    for d = 1, 7 do
+        label(week, { Position = UDim2.fromOffset(14 + LABEL_W + (d - 1) * colW, 6), Size = UDim2.fromOffset(colW - 4, 18), Font = Enum.Font.GothamBold, TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Center, TextColor3 = d == info.Weekday and C_AMBER or C_MUTED, Text = SkylarkTime.WEEKDAYS[d] })
+    end
+    local slotNow = schedule.slotAt(now)
+    for r, e in ipairs(events) do
+        local y = 28 + (r - 1) * ROW
+        label(week, { Position = UDim2.fromOffset(14, y), Size = UDim2.fromOffset(LABEL_W - 8, ROW - 4), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED,
+            Text = string.format("%s-%s", SkylarkTime.formatHours(e.entry.From), SkylarkTime.formatHours(e.entry.To)) })
+        for d = 1, 7 do
+            local isNow = d == info.Weekday and slotNow.Index == e.index
+            local cell = new("TextLabel", { Parent = week, Position = UDim2.fromOffset(14 + LABEL_W + (d - 1) * colW, y), Size = UDim2.fromOffset(colW - 4, ROW - 4),
+                BackgroundColor3 = isNow and Color3.fromRGB(70, 55, 20) or (d == info.Weekday and C_CARD_SEL or C_BG), BorderSizePixel = 0, Font = Enum.Font.Gotham, TextSize = 11,
+                TextWrapped = true, TextColor3 = isNow and C_AMBER or C_TEXT, Text = schedule.EVENTS[e.entry.Slot][d].Name })
+            corner(cell, 4)
+        end
+    end
+end
+
+local function drawSchedule()
+    local now = SkylarkTime.now()
+    local info = SkylarkTime.info(now)
+    local paused = SkylarkTime.isDebug() and SkylarkTime.rate() <= 0
+    line(string.format("%s  •  %s day %d, Year %d  •  SST %s%s", info.WeekdayName or "", info.Season or "", info.SeasonDay or 0, info.Year or 1,
+        SkylarkTime.formatHours(info.Hours), paused and "  •  clock paused (debug)" or ""), { Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_MUTED })
+    for _, arena in ipairs(SkylarkArenas.list()) do
+        drawArena(arena, now, info)
+    end
+    line("1 Skylark day = 8 real hours  •  events run rounds all window long  •  Rest stops events, not the arena", { TextSize = 11, TextColor3 = C_MUTED })
 end
 
 -- ============================================================================
@@ -495,8 +590,27 @@ local function refresh()
     redraw()
 end
 
+-- The scroll wheel belongs to the menu while it's open: Roblox's own camera is held at its distance
+-- (SmoothCamera's camera ignores the wheel under any menu itself)
+local heldZoom = nil -- { min, max } to give back
+local function holdZoom(hold)
+    if hold and not heldZoom then
+        local camera = Workspace.CurrentCamera
+        local distance = camera and (camera.CFrame.Position - camera.Focus.Position).Magnitude or player.CameraMaxZoomDistance
+        heldZoom = { player.CameraMinZoomDistance, player.CameraMaxZoomDistance }
+        distance = math.clamp(distance, heldZoom[1], heldZoom[2])
+        player.CameraMaxZoomDistance = distance
+        player.CameraMinZoomDistance = distance
+    elseif not hold and heldZoom then
+        player.CameraMinZoomDistance = heldZoom[1]
+        player.CameraMaxZoomDistance = heldZoom[2]
+        heldZoom = nil
+    end
+end
+
 local function setOpen(open)
     gui.Enabled = open
+    holdZoom(open)
     if open then
         content.CanvasPosition = Vector2.zero
         task.spawn(refresh)
@@ -523,16 +637,30 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
--- the MENU button under the SC pill (SkylarkClockUI, ArenaEntry)
+-- other scripts open it on a tab (the clock opens SCHEDULE)
+shared.OpenPlayerMenu = function(tab)
+    if tab and DRAW[tab] then
+        current = tab
+    end
+    setOpen(true)
+end
+
+-- the MENU button on the top bar (SkylarkClockUI.TopBar, LayoutOrder 1). Its dot: you're entered,
+-- prebooked or fighting somewhere (shared.ArenaEntryStatus.Active): the details are in SCHEDULE.
+local menuDot = nil
 task.spawn(function()
     local clock = playerGui:WaitForChild("SkylarkClockUI", 30)
-    if not clock then
+    local bar = clock and clock:WaitForChild("TopBar", 30)
+    if not bar then
         return
     end
-    local b = new("TextButton", { Name = "MenuButton", Parent = clock, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -150, 0, 160), Size = UDim2.fromOffset(100, 26),
-        Text = "MENU  (G)", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_AMBER, BackgroundColor3 = C_BG, BackgroundTransparency = 0.12 })
-    corner(b, 8)
+    local b = new("TextButton", { Name = "MenuButton", Parent = bar, LayoutOrder = 1, Size = UDim2.fromOffset(110, 44),
+        Text = "MENU  (G)", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_AMBER, BackgroundColor3 = C_BG, BackgroundTransparency = 0.12 })
+    corner(b, 22)
     new("UIStroke", { Parent = b, Color = C_STROKE, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+    menuDot = new("Frame", { Name = "Dot", Parent = b, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(10, 10),
+        BackgroundColor3 = C_GREEN, BorderSizePixel = 0, Visible = false })
+    corner(menuDot, 5)
     b.MouseButton1Click:Connect(function()
         setOpen(not gui.Enabled)
     end)
@@ -543,6 +671,11 @@ task.spawn(function()
     local n = 0
     while true do
         task.wait(1)
+        if menuDot then
+            local st = shared.ArenaEntryStatus
+            menuDot.Visible = st ~= nil and st.Active == true
+            menuDot.BackgroundColor3 = st and st.Color or C_GREEN
+        end
         if gui.Enabled then
             n += 1
             if n % 5 == 0 then

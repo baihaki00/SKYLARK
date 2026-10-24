@@ -1,12 +1,14 @@
 --// ArenaEntry.client.lua
--- Entering the arena's events (ArenaRegistration on the server):
---   * the entry bar under the Skylark clock: closed / open at the terminals / entered and your
---     place in the queue / your Quins fight this round;
---   * the Arena Terminal (its ProximityPrompt) opens on two choices: SPECTATE (left: pick a side
+-- Entering an arena's events (ArenaRegistration on the server). Everything is named for the arena
+-- (SkylarkArenas.current(): today Argonia Arena), never "the arena": Skylark will have more.
+--   * your entry state: closed / open at the arena's terminals / entered and your place in the
+--     queue / your Quins fight this round. Shared as shared.ArenaEntryStatus { Arena, Text, Color,
+--     Active } for the player menu's SCHEDULE (and the MENU button's dot); no HUD bar of its own;
+--   * the arena's terminal (its ProximityPrompt) opens on two choices: SPECTATE (left: pick a side
 --     and a seat, Normal 100 SC or VIP 300 SC: SkylarkSpectate) and REGISTER QUIN (pick your Quins,
 --     up to the event's limit: 2 in the 16v16 battles; Register, change them or Withdraw).
 --     It closes when you walk away from the terminal;
---   * your Skylark Coin (SC) under the entry bar;
+--   * your Skylark Coin (SC): a pill on the Skylark clock's top bar (TopBar, LayoutOrder 2);
 --   * QUICK MATCH (a debug button: shown with F8, any role): a 16v16 round now with your Quins
 --     (ArenaRegistration "quick": Studio or admins).
 -- Everything shown comes from attributes the server keeps (Workspace ArenaReg*, Player Arena*).
@@ -21,6 +23,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
+local ARENA = require(QuinCore:WaitForChild("SkylarkArenas")).current()
 local entryRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("ArenaEntry", 30)
 local spectateRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("Spectate", 30)
 
@@ -99,37 +102,25 @@ local function enteredSlots()
 end
 
 -- ============================================================================
--- ENTRY BAR (under the clock)
+-- ENTRY STATE (shown in the player menu) AND THE SC PILL (top bar)
 -- ============================================================================
 
-local W = 256
-local bar = new("TextButton", {
-    Name = "EntryBar",
-    Parent = gui,
-    Text = "",
-    AutoButtonColor = true,
-    AnchorPoint = Vector2.new(1, 0),
-    Position = UDim2.new(1, -16, 0, 122),
-    Size = UDim2.fromOffset(W, 32),
-    BackgroundColor3 = C_BG,
-    BackgroundTransparency = 0.12,
-})
-corner(bar, 8)
-local barStroke = stroke(bar)
-local barLabel = label(bar, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -24, 1, 0), Font = Enum.Font.GothamBold, TextSize = 12, Text = "" })
+local function entryState(text, color, active)
+    shared.ArenaEntryStatus = { Arena = ARENA.Id, Text = text, Color = color, Active = active }
+end
+entryState("", C_MUTED, false)
 
 local coinPill = new("Frame", {
     Name = "CoinPill",
-    Parent = gui,
-    AnchorPoint = Vector2.new(1, 0),
-    Position = UDim2.new(1, -16, 0, 160),
-    Size = UDim2.fromOffset(130, 26),
+    Parent = gui:WaitForChild("TopBar"),
+    LayoutOrder = 2,
+    Size = UDim2.fromOffset(130, 44),
     BackgroundColor3 = C_BG,
     BackgroundTransparency = 0.12,
 })
-corner(coinPill, 8)
+corner(coinPill, 22)
 stroke(coinPill)
-local coinLabel = label(coinPill, { Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 1, 0), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_AMBER, TextXAlignment = Enum.TextXAlignment.Right, Text = "SC ..." })
+local coinLabel = label(coinPill, { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -28, 1, 0), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_AMBER, TextXAlignment = Enum.TextXAlignment.Center, Text = "SC ..." })
 
 local function formatSC(n)
     local text = tostring(math.floor(n or 0))
@@ -151,7 +142,7 @@ player:GetAttributeChangedSignal("SC"):Connect(refreshCoins)
 refreshCoins()
 
 -- ============================================================================
--- REGISTRATION POPUP (an Arena Terminal)
+-- REGISTRATION POPUP (the arena's terminal)
 -- ============================================================================
 
 local PW, PH = 340, 340
@@ -169,7 +160,7 @@ local popup = new("Frame", {
 corner(popup, 12)
 stroke(popup, C_AMBER)
 
-label(popup, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 60, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "ARENA TERMINAL" })
+label(popup, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 60, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = string.upper(ARENA.Name) .. " TERMINAL" })
 local closeButton = new("TextButton", { Parent = popup, Text = "X", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(PW - 38, 10), Size = UDim2.fromOffset(26, 26) })
 corner(closeButton, 6)
 local windowLabel = label(popup, { Position = UDim2.fromOffset(16, 36), Size = UDim2.fromOffset(PW - 32, 18), Font = Enum.Font.GothamBold, TextSize = 13, Text = "" })
@@ -322,7 +313,7 @@ local function button(parent, text, x, y, w, h, color, textColor, name)
 end
 
 local chooser = panel("TerminalChooser", 190)
-label(chooser, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 60, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "ARENA TERMINAL" })
+label(chooser, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 60, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = string.upper(ARENA.Name) .. " TERMINAL" })
 local chooserClose = button(chooser, "X", PW - 38, 10, 26, 26, nil, nil, "CloseBtn")
 local chooserEvent = label(chooser, { Position = UDim2.fromOffset(16, 36), Size = UDim2.fromOffset(PW - 32, 16), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
 local half = (PW - 32 - 10) / 2
@@ -421,7 +412,7 @@ buyButton.MouseButton1Click:Connect(function()
         closePopup()
         notify("Enjoy the fight", message or "")
     else
-        spectateStatus.Text = ok and (message or "Could not buy a seat") or "Could not reach the arena"
+        spectateStatus.Text = ok and (message or "Could not buy a seat") or "Could not reach " .. ARENA.Name
         spectateStatus.TextColor3 = C_RED
     end
 end)
@@ -479,7 +470,7 @@ actionButton.MouseButton1Click:Connect(function()
     if ok then
         setStatus(message, result and C_GREEN or C_RED)
     else
-        setStatus("Could not reach the arena", C_RED)
+        setStatus("Could not reach " .. ARENA.Name, C_RED)
     end
 end)
 
@@ -487,7 +478,7 @@ withdrawButton.MouseButton1Click:Connect(function()
     local ok, _, message = pcall(function()
         return entryRemote:InvokeServer("withdraw")
     end)
-    setStatus(ok and message or "Could not reach the arena", ok and C_TEXT or C_RED)
+    setStatus(ok and message or "Could not reach " .. ARENA.Name, ok and C_TEXT or C_RED)
 end)
 
 closeButton.MouseButton1Click:Connect(closePopup)
@@ -516,14 +507,8 @@ quickButton.MouseButton1Click:Connect(function()
         closePopup()
         notify("Quick match", message or "")
     else
-        quickStatus.Text = ok and (message or "Could not start") or "Could not reach the arena"
+        quickStatus.Text = ok and (message or "Could not start") or "Could not reach " .. ARENA.Name
         quickStatus.TextColor3 = C_RED
-    end
-end)
-
-bar.MouseButton1Click:Connect(function()
-    if not popup.Visible then
-        notify("Arena Terminal", "Walk up to an Arena Terminal by the arena entrance to register your Quins or buy a seat.")
     end
 end)
 
@@ -545,31 +530,19 @@ local function update()
     local _, mine = enteredSlots()
 
     if inRound then
-        barLabel.Text = #mine > 1 and "YOUR QUINS FIGHT THIS ROUND" or "YOUR QUIN FIGHTS THIS ROUND"
-        barLabel.TextColor3 = C_AMBER
-        barStroke.Color = C_AMBER
+        entryState(#mine > 1 and "YOUR QUINS FIGHT THIS ROUND" or "YOUR QUIN FIGHTS THIS ROUND", C_AMBER, true)
     elseif entered and player:GetAttribute("ArenaPrebooked") then
         local side = player:GetAttribute("ArenaPrebookSide") == "TeamAlpha" and "ALPHA" or "BETA"
-        barLabel.Text = string.format("PREBOOKED (%d)  •  %s  •  seated first", #mine, side)
-        barLabel.TextColor3 = C_GREEN
-        barStroke.Color = C_GREEN
+        entryState(string.format("PREBOOKED (%d)  •  %s  •  seated first", #mine, side), C_GREEN, true)
     elseif entered then
-        barLabel.Text = satOut > 0 and string.format("ENTERED  •  #%d  •  first next round", pos or 0)
-            or string.format("ENTERED (%d)  •  #%d of %d in queue", #mine, pos or 0, entrants)
-        barLabel.TextColor3 = C_GREEN
-        barStroke.Color = C_GREEN
+        entryState(satOut > 0 and string.format("ENTERED  •  #%d  •  first next round", pos or 0)
+            or string.format("ENTERED (%d)  •  #%d of %d in queue", #mine, pos or 0, entrants), C_GREEN, true)
     elseif open then
-        barLabel.Text = "ENTRY OPEN  •  go to an Arena Terminal" -- (the clock above names the event)
-        barLabel.TextColor3 = C_AMBER
-        barStroke.Color = C_STROKE
+        entryState(string.format("ENTRY OPEN  •  register at an %s terminal", ARENA.Name), C_AMBER, false)
     elseif window then
-        barLabel.Text = "ENTRY CLOSED FOR THIS EVENT"
-        barLabel.TextColor3 = C_MUTED
-        barStroke.Color = C_STROKE
+        entryState("ENTRY CLOSED FOR THIS EVENT", C_MUTED, false)
     else
-        barLabel.Text = "ENTRY CLOSED  •  opens 20m before events"
-        barLabel.TextColor3 = C_MUTED
-        barStroke.Color = C_STROKE
+        entryState("ENTRY CLOSED  •  opens 20m before events", C_MUTED, false)
     end
 
     if chooser.Visible or spectate.Visible or popup.Visible then

@@ -2,8 +2,10 @@
 -- The Skylark clock on each client:
 --   * day cycle lighting: Lighting follows the Skylark hour (dawn, day, dusk, night) and the season
 --     tints the picture. Switch: Workspace attribute SkylarkDayCycle (off: the place's own lighting).
---   * the clock widget (top right): SST time, period, weekday/season, the slot now and the next
---     event, a 24-hour strip of the day's slots. Click it for the schedule board (today + the week).
+--   * the top bar (right side, on the Roblox buttons' line): [TIME (admin)] [MENU] [SC] [clock].
+--     The clock is the time only (SST time and period); what the arenas are doing (the slot now,
+--     the next event, the day strip, the week, entry) is in the player menu's SCHEDULE, per arena:
+--     click the clock to open it. ArenaEntry adds the SC pill, PlayerMenuClient the MENU button.
 --   * TIME debug panel (Studio / the place's creator; the TIME button or F7): leave real time,
 --     scrub the hour, jump days and seasons, pause or speed the clock, back to real time, and the
 --     Day Cycle / Auto Events switches. Commands go to SkylarkScheduleService, so every client and
@@ -15,6 +17,7 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
+local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
@@ -181,15 +184,6 @@ local function updateLighting(info)
     cycleWasOn = on
 end
 
--- How long until Skylark time `t`: real time at the clock's speed; Skylark hours while paused
-local function untilText(t)
-    local real = SkylarkTime.realSecondsUntil(t)
-    if real then
-        return SkylarkTime.formatDuration(real)
-    end
-    return SkylarkTime.formatDuration((t - SkylarkTime.now()) / SkylarkTime.HOUR * 3600) .. " SST"
-end
-
 -- ============================================================================
 -- UI HELPERS
 -- ============================================================================
@@ -250,47 +244,44 @@ local gui = new("ScreenGui", {
 })
 
 -- ============================================================================
--- CLOCK WIDGET
+-- TOP BAR
 -- ============================================================================
+-- Level with the Roblox menu buttons (GuiService.TopbarInset), right-aligned. Children are laid
+-- out by LayoutOrder: TIME 0, MENU 1, SC 2, clock 3 (the clock sits at the far right).
 
-local WIDGET_W = 256
+gui.ScreenInsets = Enum.ScreenInsets.None -- (placed against the topbar inset by hand)
+
+local BAR_H = 44
+local topBar = new("Frame", { Name = "TopBar", Parent = gui, AnchorPoint = Vector2.new(1, 0), Size = UDim2.fromOffset(640, BAR_H), BackgroundTransparency = 1 })
+new("UIListLayout", {
+    Parent = topBar,
+    FillDirection = Enum.FillDirection.Horizontal,
+    HorizontalAlignment = Enum.HorizontalAlignment.Right,
+    VerticalAlignment = Enum.VerticalAlignment.Center,
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0, 8),
+})
+
+local WIDGET_W = 214
 local widget = new("TextButton", {
     Name = "Clock",
-    Parent = gui,
+    Parent = topBar,
+    LayoutOrder = 3,
     Text = "",
-    AutoButtonColor = false,
-    AnchorPoint = Vector2.new(1, 0),
-    Position = UDim2.new(1, -16, 0, 12),
-    Size = UDim2.fromOffset(WIDGET_W, 104),
+    AutoButtonColor = true,
+    Size = UDim2.fromOffset(WIDGET_W, BAR_H),
     BackgroundColor3 = C_BG,
     BackgroundTransparency = 0.12,
 })
-corner(widget, 10)
+corner(widget, BAR_H // 2)
 stroke(widget)
 
-local timeLabel = label(widget, { Position = UDim2.fromOffset(14, 8), Size = UDim2.fromOffset(84, 32), Font = Enum.Font.GothamBold, TextSize = 28, Text = "--:--" })
-local periodLabel = label(widget, { Position = UDim2.fromOffset(102, 10), Size = UDim2.fromOffset(100, 14), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_AMBER, Text = "SST" })
-local dateLabel = label(widget, { Position = UDim2.fromOffset(102, 26), Size = UDim2.fromOffset(WIDGET_W - 116, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
-local slotLabel = label(widget, { Position = UDim2.fromOffset(14, 45), Size = UDim2.fromOffset(WIDGET_W - 28, 16), Font = Enum.Font.GothamBold, TextSize = 13, Text = "" })
-local nextLabel = label(widget, { Position = UDim2.fromOffset(14, 63), Size = UDim2.fromOffset(WIDGET_W - 28, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
-
-local dayBar = new("Frame", { Parent = widget, Position = UDim2.fromOffset(14, 85), Size = UDim2.fromOffset(WIDGET_W - 28, 8), BackgroundColor3 = C_CARD, BorderSizePixel = 0 })
-corner(dayBar, 3)
-for _, entry in ipairs(ArenaSchedule.DAILY) do
-    new("Frame", {
-        Parent = dayBar,
-        Position = UDim2.new(entry.From / 24, 1, 0, 1),
-        Size = UDim2.new((entry.To - entry.From) / 24, -2, 1, -2),
-        BackgroundColor3 = KIND_COLORS[entry.Kind],
-        BackgroundTransparency = 0.35,
-        BorderSizePixel = 0,
-    })
-end
-local nowTick = new("Frame", { Parent = dayBar, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.fromOffset(2, 14), BackgroundColor3 = C_TEXT, BorderSizePixel = 0, ZIndex = 2 })
+local timeLabel = label(widget, { Position = UDim2.fromOffset(18, 0), Size = UDim2.fromOffset(70, BAR_H), Font = Enum.Font.GothamBold, TextSize = 22, Text = "--:--" })
+local periodLabel = label(widget, { Position = UDim2.fromOffset(92, 0), Size = UDim2.fromOffset(WIDGET_W - 104, BAR_H), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_AMBER, Text = "SST" })
 
 local debugBadge = label(widget, {
-    AnchorPoint = Vector2.new(1, 0.5),
-    Position = UDim2.new(1, -10, 0, 0),
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -10, 1, 4), -- (under the clock)
     Size = UDim2.fromOffset(0, 18),
     AutomaticSize = Enum.AutomaticSize.X,
     Font = Enum.Font.GothamBold,
@@ -307,145 +298,34 @@ debugBadge.BackgroundColor3 = C_AMBER
 corner(debugBadge, 5)
 new("UIPadding", { Parent = debugBadge, PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) })
 
--- ============================================================================
--- SCHEDULE BOARD
--- ============================================================================
-
-local BOARD_W, BOARD_H = 620, 450
-local board = new("Frame", {
-    Name = "ScheduleBoard",
-    Parent = gui,
-    AnchorPoint = Vector2.new(0.5, 0.5),
-    Position = UDim2.fromScale(0.5, 0.5),
-    Size = UDim2.fromOffset(BOARD_W, BOARD_H),
-    BackgroundColor3 = C_BG,
-    BackgroundTransparency = 0.04,
-    Visible = false,
-})
-corner(board, 12)
-stroke(board)
-
-local boardTitle = label(board, { Position = UDim2.fromOffset(18, 12), Size = UDim2.fromOffset(BOARD_W - 80, 20), Font = Enum.Font.GothamBold, TextSize = 16, Text = "ARGONIA ARENA" })
-local boardSub = label(board, { Position = UDim2.fromOffset(18, 32), Size = UDim2.fromOffset(BOARD_W - 80, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
-button(board, "X", BOARD_W - 40, 12, 26, 26, function()
-    board.Visible = false
-end)
-
-local ROW_Y, ROW_H = 54, 26
-local dayRows = {}
-for i in ipairs(ArenaSchedule.DAILY) do
-    local y = ROW_Y + (i - 1) * ROW_H
-    local bg = new("Frame", { Parent = board, Position = UDim2.fromOffset(14, y), Size = UDim2.fromOffset(BOARD_W - 28, ROW_H - 3), BackgroundColor3 = C_CARD, BorderSizePixel = 0 })
-    corner(bg, 5)
-    local bar = new("Frame", { Parent = bg, Size = UDim2.new(0, 3, 1, 0), BorderSizePixel = 0 })
-    dayRows[i] = {
-        bg = bg,
-        bar = bar,
-        time = label(bg, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0, 96, 1, 0), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_MUTED }),
-        name = label(bg, { Position = UDim2.fromOffset(110, 0), Size = UDim2.new(0, 200, 1, 0), Font = Enum.Font.GothamBold, TextSize = 12 }),
-        tagline = label(bg, { Position = UDim2.fromOffset(314, 0), Size = UDim2.new(0, 150, 1, 0), TextSize = 11, TextColor3 = C_MUTED }),
-        when = label(bg, { Position = UDim2.new(1, -150, 0, 0), Size = UDim2.new(0, 140, 1, 0), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right }),
-    }
-end
-
-local WEEK_Y = ROW_Y + #ArenaSchedule.DAILY * ROW_H + 12
-label(board, { Position = UDim2.fromOffset(18, WEEK_Y), Size = UDim2.fromOffset(200, 14), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_MUTED, Text = "THIS WEEK" })
-local GRID_X, GRID_LABEL_W = 14, 70
-local COL_W = math.floor((BOARD_W - 28 - GRID_LABEL_W) / 7)
-local weekHeaders, weekCells = {}, {}
-for d = 1, 7 do
-    weekHeaders[d] = label(board, {
-        Position = UDim2.fromOffset(GRID_X + GRID_LABEL_W + (d - 1) * COL_W, WEEK_Y + 18),
-        Size = UDim2.fromOffset(COL_W - 4, 16),
-        Font = Enum.Font.GothamBold,
-        TextSize = 11,
-        TextXAlignment = Enum.TextXAlignment.Center,
-        Text = SkylarkTime.WEEKDAYS[d],
-    })
-end
-local eventEntries = {}
-for index, entry in ipairs(ArenaSchedule.DAILY) do
-    if entry.Kind == "Event" then
-        table.insert(eventEntries, { index = index, entry = entry })
-    end
-end
-for r, e in ipairs(eventEntries) do
-    local y = WEEK_Y + 38 + (r - 1) * 40
-    label(board, { Position = UDim2.fromOffset(GRID_X + 4, y), Size = UDim2.fromOffset(GRID_LABEL_W - 8, 36), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED, Text = string.format("%02d-%02d", e.entry.From, e.entry.To) })
-    weekCells[r] = {}
-    for d = 1, 7 do
-        local cell = new("TextLabel", {
-            Parent = board,
-            Position = UDim2.fromOffset(GRID_X + GRID_LABEL_W + (d - 1) * COL_W, y),
-            Size = UDim2.fromOffset(COL_W - 4, 36),
-            BackgroundColor3 = C_CARD,
-            BorderSizePixel = 0,
-            Font = Enum.Font.Gotham,
-            TextSize = 10,
-            TextWrapped = true,
-            TextColor3 = C_TEXT,
-            Text = ArenaSchedule.EVENTS[e.entry.Slot][d].Name,
-        })
-        corner(cell, 4)
-        weekCells[r][d] = cell
-    end
-end
-label(board, {
-    Position = UDim2.fromOffset(18, BOARD_H - 24),
-    Size = UDim2.fromOffset(BOARD_W - 36, 14),
-    TextSize = 10,
-    TextColor3 = C_MUTED,
-    Text = "1 Skylark day = 8 real hours  •  pinned to UTC  •  events run rounds all window long  •  Rest stops events, not the arena",
-})
-
-local function updateBoard(info)
-    local slotNow = ArenaSchedule.slotAt(info.Time)
-    local debugOn = SkylarkTime.isDebug()
-    boardTitle.Text = string.format("ARGONIA ARENA  •  %s", string.upper(info.WeekdayName))
-    boardSub.Text = string.format("%s day %d, Year %d  •  SST %s  •  %s", info.Season, info.SeasonDay, info.Year,
-        SkylarkTime.formatHours(info.Hours), debugOn and "debug time" or "your local times on the right")
-    for i, slot in ipairs(ArenaSchedule.day(info.Day)) do
-        local row = dayRows[i]
-        local isNow = slot.Key == slotNow.Key
-        local color = KIND_COLORS[slot.Kind]
-        row.bg.BackgroundColor3 = isNow and C_CARD_SEL or C_CARD
-        row.bar.BackgroundColor3 = color
-        row.time.Text = string.format("%02d:00-%02d:00", slot.From, slot.To % 24)
-        row.name.Text = slot.Name
-        row.name.TextColor3 = slot.Kind == "Event" and C_AMBER or C_TEXT
-        row.tagline.Text = slot.Tagline or ""
-        local local_ = debugOn and "" or DateTime.fromUnixTimestamp(math.floor(slot.StartsAt)):FormatLocalTime("HH:mm", "en-us") .. " local  "
-        if isNow then
-            row.when.Text = local_ .. "NOW, " .. untilText(slot.EndsAt) .. " left"
-            row.when.TextColor3 = C_GREEN
-        elseif slot.EndsAt <= info.Time then
-            row.when.Text = local_ .. "done"
-            row.when.TextColor3 = C_MUTED
-        else
-            row.when.Text = local_ .. "in " .. untilText(slot.StartsAt)
-            row.when.TextColor3 = C_TEXT
-        end
-    end
-    for d = 1, 7 do
-        weekHeaders[d].TextColor3 = d == info.Weekday and C_AMBER or C_MUTED
-        for r, e in ipairs(eventEntries) do
-            local isNow = d == info.Weekday and slotNow.Index == e.index
-            local cell = weekCells[r][d]
-            cell.BackgroundColor3 = isNow and Color3.fromRGB(70, 55, 20) or (d == info.Weekday and C_CARD_SEL or C_CARD)
-            cell.TextColor3 = isNow and C_AMBER or C_TEXT
-        end
-    end
-end
-
 widget.MouseButton1Click:Connect(function()
-    board.Visible = not board.Visible
+    if shared.OpenPlayerMenu then -- (PlayerMenuClient)
+        shared.OpenPlayerMenu("SCHEDULE")
+    end
 end)
+
+local debugPanel = nil
+local barRight, barY = 12, 12
+local function placeTopBar()
+    local inset = GuiService.TopbarInset
+    local view = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+    barY = inset.Height > 0 and math.floor(inset.Min.Y + (inset.Height - BAR_H) / 2) or 12
+    barRight = math.max(12, math.floor(view.X - inset.Max.X))
+    topBar.Position = UDim2.new(1, -barRight, 0, barY)
+    if debugPanel then
+        debugPanel.Position = UDim2.new(1, -barRight, 0, barY + BAR_H + 30)
+    end
+end
+placeTopBar()
+GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(placeTopBar)
+if Workspace.CurrentCamera then
+    Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(placeTopBar)
+end
 
 -- ============================================================================
 -- TIME DEBUG PANEL (owner)
 -- ============================================================================
 
-local debugPanel = nil
 local refreshDebug = function() end
 
 local function send(action, value)
@@ -460,7 +340,7 @@ if isOwner then
         Name = "TimeDebug",
         Parent = gui,
         AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.new(1, -16, 0, 162), -- (under the clock and ArenaEntry's entry bar)
+        Position = UDim2.new(1, -16, 0, 90), -- (under the top bar: placeTopBar)
         Size = UDim2.fromOffset(PANEL_W, 300),
         BackgroundColor3 = C_BG,
         BackgroundTransparency = 0.06,
@@ -588,17 +468,18 @@ if isOwner then
     end
 
     local timeButton = new("TextButton", {
-        Parent = widget,
+        Name = "TimeButton",
+        Parent = topBar,
+        LayoutOrder = 0,
         Text = "TIME",
         Font = Enum.Font.GothamBold,
-        TextSize = 10,
+        TextSize = 11,
         TextColor3 = C_AMBER,
-        BackgroundColor3 = C_CARD,
-        Position = UDim2.fromOffset(WIDGET_W - 50, 9),
-        Size = UDim2.fromOffset(38, 18),
-        ZIndex = 2,
+        BackgroundColor3 = C_BG,
+        BackgroundTransparency = 0.12,
+        Size = UDim2.fromOffset(60, BAR_H),
     })
-    corner(timeButton, 5)
+    corner(timeButton, BAR_H // 2)
     stroke(timeButton, C_AMBER)
     timeButton.MouseButton1Click:Connect(function()
         debugPanel.Visible = not debugPanel.Visible
@@ -608,6 +489,7 @@ if isOwner then
             debugPanel.Visible = not debugPanel.Visible
         end
     end)
+    placeTopBar()
     -- (the TIME panel is an admin tool: SkylarkRoles)
     task.spawn(function()
         while timeButton.Parent do
@@ -626,24 +508,8 @@ end
 -- ============================================================================
 
 local function updateWidget(info)
-    local slot = ArenaSchedule.slotAt(info.Time)
-    local nextEvent = ArenaSchedule.nextEvent(info.Time)
     timeLabel.Text = SkylarkTime.formatHours(info.Hours)
     periodLabel.Text = "SST • " .. string.upper(info.Period)
-    dateLabel.Text = string.format("%s • %s %d • Y%d", SkylarkTime.WEEKDAYS[info.Weekday], info.Season, info.SeasonDay, info.Year)
-    local left = untilText(slot.EndsAt):gsub(" SST", "") -- (the badge says the clock is paused)
-    if slot.Kind == "Event" then
-        slotLabel.Text = string.format("LIVE  %s  •  %s left", string.upper(slot.Name), left)
-    elseif slot.Kind == "Rest" then
-        slotLabel.Text = string.format("REST  •  arena open  •  %s left", left)
-    else
-        slotLabel.Text = string.format("%s  •  %s", string.upper(slot.Name), left)
-    end
-    slotLabel.TextColor3 = KIND_COLORS[slot.Kind] == KIND_COLORS.Rest and C_MUTED or KIND_COLORS[slot.Kind]
-    if nextEvent then
-        nextLabel.Text = string.format("Next: %s in %s", nextEvent.Name, untilText(nextEvent.StartsAt))
-    end
-    nowTick.Position = UDim2.new(info.Hours / 24, 0, 0.5, 0)
     local debugOn = SkylarkTime.isDebug()
     debugBadge.Visible = debugOn
     if debugOn then
@@ -664,9 +530,6 @@ RunService.RenderStepped:Connect(function()
     if now - lastText >= 0.2 then
         lastText = now
         updateWidget(info)
-        if board.Visible then
-            updateBoard(info)
-        end
         if debugPanel and debugPanel.Visible then
             refreshDebug(info)
         end

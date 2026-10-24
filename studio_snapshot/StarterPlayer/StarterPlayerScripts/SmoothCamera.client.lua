@@ -547,10 +547,11 @@ end)
 
 -- (no hold-to-look: nothing to release on InputEnded)
 
--- Scroll wheel
+-- Scroll wheel (not while a menu is open: the wheel belongs to the menu then)
 UserInputService.InputChanged:Connect(function(input, gp)
 	if gp then return end
 	if cameraMode == "DEFAULT" then return end
+	if input.UserInputType == Enum.UserInputType.MouseWheel and menuOpen() then return end
 	if input.UserInputType == Enum.UserInputType.MouseWheel then
 		if cameraMode == "QUIN_SPECTATE" or cameraMode == "AVATAR" then
 			local zoomingIn = input.Position.Z > 0
