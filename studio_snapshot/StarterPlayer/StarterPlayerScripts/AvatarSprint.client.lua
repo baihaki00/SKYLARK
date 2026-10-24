@@ -1,5 +1,5 @@
 --// AvatarSprint.client.lua
--- Hold Shift to sprint on your own avatar (the Roblox player walking the world, not a piloted Quin:
+-- Hold Shift to sprint (60, walk 16) on your own avatar (the Roblox player walking the world, not a piloted Quin:
 -- PlayerQuinController / PilotClient run their own sprint).
 -- The sprint only owns WalkSpeed between the walk and sprint speeds: anything that sets it outside
 -- (a prep room terminal stopping you at 0, an arena freezing players) wins, and the sprint waits
@@ -15,7 +15,7 @@ local StarterPlayer = game:GetService("StarterPlayer")
 local player = Players.LocalPlayer
 
 local WALK = StarterPlayer.CharacterWalkSpeed -- (16)
-local SPRINT = 26
+local SPRINT = 60 -- (owner: fast for now, while testing the world)
 local RAMP = 8 -- how fast the speed eases in and out (per second, exponential)
 
 local function shiftHeld()

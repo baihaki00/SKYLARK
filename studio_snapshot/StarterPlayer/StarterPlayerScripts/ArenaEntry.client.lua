@@ -9,7 +9,8 @@
 --     up to the event's limit: 2 in the 16v16 battles; Register, change them or Withdraw).
 --     It closes when you walk away from the terminal;
 --   * your Skylark Coin (SC): a pill on the Skylark clock's top bar (TopBar, LayoutOrder 2);
---   * QUICK MATCH (a debug button: shown with F8, any role): a 16v16 round now with your Quins
+--   * QUICK MATCH (a debug button: shown with F8 in any role, and always in the Roblox Player role
+--     for testers): a 16v16 round now with your Quins
 --     (ArenaRegistration "quick": Studio or admins).
 -- Everything shown comes from attributes the server keeps (Workspace ArenaReg*, Player Arena*).
 
@@ -325,14 +326,19 @@ local quickButton = button(chooser, "QUICK MATCH  •  debug: a 16v16 round now 
 stroke(quickButton, C_AMBER).Transparency = 0.5
 quickButton.TextSize = 11
 local quickStatus = label(chooser, { Position = UDim2.fromOffset(16, 216), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, Text = "" })
+-- Shown with F8 (debug buttons), and always to a tester in the Roblox Player role (Play As Roblox
+-- Player in Studio, or an admin playing as a player): that's where quick matches get run from.
 local function refreshQuick()
-    local on = player:GetAttribute("ShowDebugButtons") == true
+    local tester = RunService:IsStudio() or player:GetAttribute("SkylarkCanAdmin") == true
+    local on = player:GetAttribute("ShowDebugButtons") == true or (tester and player:GetAttribute("SkylarkRole") == "Player")
     quickButton.Visible = on
     quickStatus.Visible = on
     chooser.Size = UDim2.fromOffset(PW, on and 240 or 190)
 end
 refreshQuick()
-player:GetAttributeChangedSignal("ShowDebugButtons"):Connect(refreshQuick)
+for _, attr in ipairs({ "ShowDebugButtons", "SkylarkRole", "SkylarkCanAdmin" }) do
+    player:GetAttributeChangedSignal(attr):Connect(refreshQuick)
+end
 
 -- ============================================================================
 -- SPECTATE: a side and a seat
