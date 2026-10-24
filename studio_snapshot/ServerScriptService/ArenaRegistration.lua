@@ -478,6 +478,9 @@ local function register(player, slots)
     if not nearTerminal(player) then
         return false, "Register at an Arena Terminal."
     end
+    if player:GetAttribute("SpectateSeat") then -- (spectate the event or take part, not both)
+        return false, "You hold a seat this round. Register when it ends."
+    end
     local existing = entries[player.UserId]
     if existing and existing.prebook then
         return false, "You're prebooked for " .. windowSlot.Name .. ". Change it at an Arena Prebook Terminal."

@@ -417,6 +417,13 @@ local function showChooser(terminal)
     popup.Visible = false
     spectate.Visible = false
     chooser.Visible = true
+    -- spectate the event or take part in it, not both
+    local inEvent = player:GetAttribute("ArenaEntered") == true
+    local watching = player:GetAttribute("SpectateSeat") ~= nil
+    spectateChoice.Text = inEvent and "SPECTATE\n\nNot while your Quins\nare in this event" or "SPECTATE\n\nWatch from the stands\nor a VIP box"
+    spectateChoice.TextColor3 = inEvent and C_MUTED or C_TEXT
+    registerChoice.Text = watching and "REGISTER QUIN\n\nNot while you hold\na seat this round" or "REGISTER QUIN\n\nEnter your Quins\nfor this event"
+    registerChoice.TextColor3 = watching and C_MUTED or C_TEXT
     local window = Workspace:GetAttribute("ArenaRegWindow")
     local phase = Workspace:GetAttribute("ArenaPhase")
     chooserEvent.Text = (window and string.upper(window) or "NO EVENT OPEN")
@@ -424,6 +431,9 @@ local function showChooser(terminal)
 end
 
 spectateChoice.MouseButton1Click:Connect(function()
+    if player:GetAttribute("ArenaEntered") == true then
+        return
+    end
     chooser.Visible = false
     spectate.Visible = true
     spectateStatus.Text = ""
@@ -508,6 +518,11 @@ local function update()
         barLabel.Text = #mine > 1 and "YOUR QUINS FIGHT THIS ROUND" or "YOUR QUIN FIGHTS THIS ROUND"
         barLabel.TextColor3 = C_AMBER
         barStroke.Color = C_AMBER
+    elseif entered and player:GetAttribute("ArenaPrebooked") then
+        local side = player:GetAttribute("ArenaPrebookSide") == "TeamAlpha" and "ALPHA" or "BETA"
+        barLabel.Text = string.format("PREBOOKED (%d)  •  %s  •  seated first", #mine, side)
+        barLabel.TextColor3 = C_GREEN
+        barStroke.Color = C_GREEN
     elseif entered then
         barLabel.Text = satOut > 0 and string.format("ENTERED  •  #%d  •  first next round", pos or 0)
             or string.format("ENTERED (%d)  •  #%d of %d in queue", #mine, pos or 0, entrants)

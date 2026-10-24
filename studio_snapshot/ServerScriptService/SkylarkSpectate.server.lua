@@ -207,6 +207,9 @@ local function buy(player, side, seat)
     if not nearTerminal(player) then
         return false, "Use an Arena Terminal"
     end
+    if player:GetAttribute("ArenaEntered") == true then -- (spectate the event or take part, not both)
+        return false, "Your Quins are in this event. Watch them from your prep room."
+    end
     local round = Workspace:GetAttribute("ArenaRound") or 0
     local old = tickets[player.UserId]
     if old and old.round ~= round then
