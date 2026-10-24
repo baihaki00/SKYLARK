@@ -100,6 +100,9 @@ function NpcDialog.open(model, options)
         local view = Workspace.CurrentCamera
         local point, onScreen = view:WorldToViewportPoint(self.head.Position + Vector3.new(0, 1.4, 0))
         local size = view.ViewportSize
+        if not onScreen then -- (they're behind you or off the edge: the bubble waits on the left)
+            point = Vector3.new(BUBBLE_W / 2 + 40, size.Y * 0.4, 0)
+        end
         local x = math.clamp(point.X, BUBBLE_W / 2 + 16, math.max(BUBBLE_W / 2 + 16, size.X * 0.5 - BUBBLE_W / 2))
         local y = math.clamp(point.Y, bubble.AbsoluteSize.Y + 24, size.Y - 20)
         bubble.Position = UDim2.fromOffset(x, y)
