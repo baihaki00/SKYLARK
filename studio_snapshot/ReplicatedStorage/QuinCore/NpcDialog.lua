@@ -26,7 +26,7 @@ local player = Players.LocalPlayer
 local NpcDialog = {}
 NpcDialog.__index = NpcDialog
 
-local MENU_X = 0.72 -- (scale) the centre of the menu side
+local MENU_X = 0.66 -- (scale) the centre of the menu side
 local DISTANCE = 6.5 -- studs in front of the NPC the camera sits
 local EASE = 0.5 -- seconds the camera takes to get there
 local BUBBLE_W = 380
