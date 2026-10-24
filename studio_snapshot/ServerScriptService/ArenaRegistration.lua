@@ -36,9 +36,12 @@
 -- ArenaRoundSeats; each Player ArenaEntered / ArenaEntrySlots ("1,3") / ArenaQueuePos /
 -- ArenaSatOut / ArenaInRound / ArenaPrebooked / ArenaPrebookSide.
 -- Remote: ArenaNetwork.ArenaEntry (RemoteFunction) "roster" | "register", {slots} | "withdraw" |
--- "prebook", { slots = {..}, side = "TeamAlpha" | "TeamBeta" } | "cancel" | "board".
+-- "prebook", { slots = {..}, side = "TeamAlpha" | "TeamBeta" } | "cancel" | "board" |
+-- "quick" (DEBUG, Studio or admins: QUICK MATCH on the terminal, F8 shows it. Moves the clock
+-- into the next 16v16 Team Battles window if it isn't in one, enters your Quins and starts a round now).
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -670,6 +673,64 @@ if not entryRemote then
     entryRemote.Parent = ArenaNetwork
 end
 
+-- QUICK MATCH (debug): a 16v16 round now, with your Quins in it, from any role
+local function isTeamBattle(slot)
+    local m = slot and slot.Match
+    return m ~= nil and m.Mode == "TeamBattle" and m.TeamSize == 16
+end
+
+local function quickMatch(player, slots)
+    if not (RunService:IsStudio() or player:GetAttribute("SkylarkCanAdmin") == true) then
+        return false, "Quick match is a debug tool."
+    end
+    local orch, schedule = shared.ArenaOrchestrator, shared.SkylarkSchedule
+    if not orch or not schedule then
+        return false, "The arena isn't ready."
+    end
+    if orch.getPhase() ~= "IDLE" then
+        return false, "A match is on. Wait for it to end."
+    end
+    if not nearTerminal(player) then
+        return false, "Use an Arena Terminal."
+    end
+    local slot = ArenaSchedule.slotAt(SkylarkTime.now())
+    if not isTeamBattle(slot) then -- (into the next Team Battles window, a minute after it opens)
+        for _ = 1, 32 do
+            slot = ArenaSchedule.nextSlot(slot)
+            if isTeamBattle(slot) then
+                break
+            end
+        end
+        if not isTeamBattle(slot) then
+            return false, "No Team Battles on the schedule."
+        end
+        schedule.command("set", slot.StartsAt + 60)
+    end
+    refreshWindow()
+    local existing = entries[player.UserId]
+    if not (existing and existing.prebook) then
+        if type(slots) ~= "table" or #slots == 0 then
+            slots = existing and existing.slots or {}
+            if #slots == 0 then
+                for _, q in ipairs(rosterSummary(player)) do
+                    table.insert(slots, q.Slot)
+                end
+            end
+        end
+        local ok, msg = register(player, slots)
+        if not ok then
+            return false, msg
+        end
+    end
+    local settings = ArenaSchedule.matchFor(slot, 1)
+    local started = orch.startMatch(settings, player)
+    if not started then
+        return false, "The match didn't start."
+    end
+    print(string.format("[ArenaRegistration] Quick match (debug) for %s: %s", player.Name, slot.Name))
+    return true, "Quick match: " .. slot.Name .. ". Off to your preparation room."
+end
+
 entryRemote.OnServerInvoke = function(player, action, value)
     if action == "roster" then
         return rosterSummary(player)
@@ -681,6 +742,8 @@ entryRemote.OnServerInvoke = function(player, action, value)
         return prebook(player, value)
     elseif action == "board" then
         return boardView()
+    elseif action == "quick" then
+        return quickMatch(player, value)
     end
     return false, "Unknown request"
 end

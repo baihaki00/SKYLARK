@@ -6,7 +6,9 @@
 --     and a seat, Normal 100 SC or VIP 300 SC: SkylarkSpectate) and REGISTER QUIN (pick your Quins,
 --     up to the event's limit: 2 in the 16v16 battles; Register, change them or Withdraw).
 --     It closes when you walk away from the terminal;
---   * your Skylark Coin (SC) under the entry bar.
+--   * your Skylark Coin (SC) under the entry bar;
+--   * QUICK MATCH (a debug button: shown with F8, any role): a 16v16 round now with your Quins
+--     (ArenaRegistration "quick": Studio or admins).
 -- Everything shown comes from attributes the server keeps (Workspace ArenaReg*, Player Arena*).
 
 local Players = game:GetService("Players")
@@ -328,6 +330,18 @@ local spectateChoice = button(chooser, "SPECTATE\n\nWatch from the stands\nor a 
 stroke(spectateChoice, C_GREEN)
 local registerChoice = button(chooser, "REGISTER QUIN\n\nEnter your Quins\nfor this event", 16 + half + 10, 60, half, 112, C_CARD, C_TEXT, "RegisterChoice")
 stroke(registerChoice, C_AMBER)
+local quickButton = button(chooser, "QUICK MATCH  •  debug: a 16v16 round now with your Quins", 16, 182, PW - 32, 30, C_CARD, C_AMBER, "QuickMatchBtn")
+stroke(quickButton, C_AMBER).Transparency = 0.5
+quickButton.TextSize = 11
+local quickStatus = label(chooser, { Position = UDim2.fromOffset(16, 216), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, Text = "" })
+local function refreshQuick()
+    local on = player:GetAttribute("ShowDebugButtons") == true
+    quickButton.Visible = on
+    quickStatus.Visible = on
+    chooser.Size = UDim2.fromOffset(PW, on and 240 or 190)
+end
+refreshQuick()
+player:GetAttributeChangedSignal("ShowDebugButtons"):Connect(refreshQuick)
 
 -- ============================================================================
 -- SPECTATE: a side and a seat
@@ -489,6 +503,22 @@ end)
 registerChoice.MouseButton1Click:Connect(function()
     chooser.Visible = false
     openPopup(openTerminal)
+end)
+quickButton.MouseButton1Click:Connect(function()
+    quickStatus.Text = "..."
+    quickStatus.TextColor3 = C_MUTED
+    local _, already = enteredSlots()
+    local ok, result, message = pcall(function()
+        return entryRemote:InvokeServer("quick", already)
+    end)
+    if ok and result then
+        quickStatus.Text = ""
+        closePopup()
+        notify("Quick match", message or "")
+    else
+        quickStatus.Text = ok and (message or "Could not start") or "Could not reach the arena"
+        quickStatus.TextColor3 = C_RED
+    end
 end)
 
 bar.MouseButton1Click:Connect(function()
