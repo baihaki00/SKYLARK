@@ -285,7 +285,9 @@ The terminal roster, the glass board and the results card show condition.
 Tested in Play: the three dialogs, repair charge and guards (not near, already full, busy),
 a Long session (Aggression 58 -> 60 at Bond 0, Awareness -1 by its link, -5% condition, Bond +3),
 appraisal bands, and a 4v4 (knocked-out winner 100% -> 60%, standing winner 100% -> 84%).
-Not yet seen in Play: a worn Quin's lower max health in a match, and the busy skip at seating.
+Then (owner pressed F5): a 60% Quin fought at 900/900 health with energy held at 90 (regen ticks
+reach ~91.7 for a moment before the cap snaps back), and a Quin in the Workshop sat the round out
+with no entry charged (1 of 8 seats, one 100 SC entry).
 Studio test hook: workspace attribute `QuinCareDev` = `cond <slot> <value>` | `finish <slot>` |
 `dump` (reply in `QuinCareDevResult`). MCP code runs in its own VM: requiring QuinCare there
 makes a second copy that takes over the remote, so drive tests through the hook or the client.

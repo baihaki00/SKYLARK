@@ -3,7 +3,7 @@
 -- the server and runs on Skylark time (SkylarkTime.now; a Skylark hour is 20 real minutes):
 --   * Condition 0..100, saved on the Quin. A match takes it down by the damage taken (a full
 --     beating -25, knocked out -15 more). A worn Quin fights worn: its max health and its energy
---     are capped at 75% + 25% x condition (applyToModel, and the energy loop below).
+--     are capped at 75% + 25% x condition (applyToModel).
 --   * Rest (free): +REST_PER_HOUR a Skylark hour while it is not busy, also while its owner is
 --     offline (worked out from ConditionAt when it is next looked at).
 --   * Workshop repair (SC): REPAIR_PER_POINT a point, back to 100 after REPAIR_HOURS.
@@ -20,7 +20,6 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
-local CollectionService = game:GetService("CollectionService")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
@@ -149,6 +148,18 @@ function Care.applyToModel(quin, model)
     if hum and f < 1 then
         hum.MaxHealth = math.floor(hum.MaxHealth * f)
         hum.Health = hum.MaxHealth
+    end
+    -- (energy is read from CombatConfig.MaxEnergy all over the combat code: a worn Quin's cap is held here)
+    if f < 1 then
+        local cap = 100 * f
+        local function hold()
+            local e = model:GetAttribute("Energy")
+            if e and e > cap then
+                model:SetAttribute("Energy", cap)
+            end
+        end
+        model:GetAttributeChangedSignal("Energy"):Connect(hold)
+        hold()
     end
 end
 
@@ -471,7 +482,7 @@ if game:GetService("RunService"):IsStudio() then
 end
 
 -- ============================================================================
--- LOOPS: finished work, and worn Quins' energy
+-- LOOP: finished work
 -- ============================================================================
 
 local function notice(player, text)
@@ -493,23 +504,6 @@ task.spawn(function()
                     if line then
                         notice(player, line)
                     end
-                end
-            end
-        end
-    end
-end)
-
--- (energy is read from CombatConfig.MaxEnergy all over the combat code: a worn Quin's cap is held here)
-task.spawn(function()
-    while true do
-        task.wait(0.2)
-        for _, q in ipairs(CollectionService:GetTagged("Quin")) do
-            local f = q:GetAttribute("ConditionFactor")
-            if f and f < 1 then
-                local cap = 100 * f
-                local e = q:GetAttribute("Energy")
-                if e and e > cap then
-                    q:SetAttribute("Energy", cap)
                 end
             end
         end
