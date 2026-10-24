@@ -26,7 +26,7 @@ local player = Players.LocalPlayer
 local NpcDialog = {}
 NpcDialog.__index = NpcDialog
 
-local MENU_X = 0.66 -- (scale) the centre of the menu side
+local MENU_EDGE = 24 -- (px) the menus sit against the right edge of the screen, this far in
 local DISTANCE = 6.5 -- studs in front of the NPC the camera sits
 local EASE = 0.5 -- seconds the camera takes to get there
 local BUBBLE_W = 380
@@ -131,7 +131,7 @@ function NpcDialog.open(model, options)
     self.bubble, self.text = bubble, text
 
     -- the menu side: the choices (placed menus go there too)
-    local choices = new("Frame", { Name = "Choices", Parent = gui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(MENU_X, 0.5), Size = UDim2.fromOffset(340, 10), BackgroundTransparency = 1, Visible = false })
+    local choices = new("Frame", { Name = "Choices", Parent = gui, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -MENU_EDGE, 0.5, 0), Size = UDim2.fromOffset(340, 10), BackgroundTransparency = 1, Visible = false })
     new("UIListLayout", { Parent = choices, Padding = UDim.new(0, 10), HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder })
     self.choices = choices
 
@@ -242,8 +242,8 @@ function NpcDialog:place(frame)
         return
     end
     self.placed[frame] = { anchor = frame.AnchorPoint, position = frame.Position }
-    frame.AnchorPoint = Vector2.new(0.5, 0.5)
-    frame.Position = UDim2.fromScale(MENU_X, 0.5)
+    frame.AnchorPoint = Vector2.new(1, 0.5)
+    frame.Position = UDim2.new(1, -MENU_EDGE, 0.5, 0)
 end
 
 function NpcDialog:close()
