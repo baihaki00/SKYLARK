@@ -30,6 +30,7 @@ local VfxModule = require(ReplicatedStorage.QuinCore.Modules.VfxModule)
 local SocialRespect = require(ReplicatedStorage.QuinCore.Modules.SocialRespect)
 local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
 local QuinDataStoreService = require(ReplicatedStorage.QuinCore.Modules.QuinDataStoreService)
+local Payouts = require(ServerScriptService:WaitForChild("SkylarkPayouts"))
 local Players = game:GetService("Players")
 
 local Orchestrator = {}
@@ -483,27 +484,16 @@ local function decideWinner(mode)
         string.format("Time Limit (Health %.0f%% vs %.0f%%)", math.max(alphaPct, betaPct) * 100, math.min(alphaPct, betaPct) * 100)
 end
 
--- Players' own Quins: what each did this match (read while it is on the field: a fallen Quin's
--- body goes home), then at the end its record and its habits (Temperament: the match reshapes
--- them a little, up and down)
--- (every fighter is counted: the habit steps judge a Quin against the match's average)
-local matchCounts = {} -- [QuinId] = { Kills, KnockedDown, SurroundsSurvived, name }
+-- What every fighter did this match, counted while it is on the field (a fallen Quin's body goes
+-- home): its habit counts (Temperament: each Quin is judged against the match's average) and its
+-- performance score (SkylarkPayouts; shown live as the MatchScore attribute). At the winner the
+-- players' own Quins get their record, their habit steps and their pay; a round stopped before
+-- that gives the entry back.
+local matchCounts = {} -- [QuinId] = { Kills, KnockedDown, SurroundsSurvived, name, team, dmg, taken, lifetime, alive }
+local matchStartedAt = nil
 
-local function snapshotOwned()
-    for _, q in ipairs(getTournamentFighters()) do
-        local id = q:GetAttribute("QuinId")
-        if id then
-            local c = matchCounts[id] or { Kills = 0, KnockedDown = 0, SurroundsSurvived = 0, name = q.Name }
-            c.Kills = math.max(c.Kills, q:GetAttribute("Match_Kills") or 0)
-            c.KnockedDown = math.max(c.KnockedDown, q:GetAttribute("Match_KnockedDown") or 0)
-            c.SurroundsSurvived = math.max(c.SurroundsSurvived, q:GetAttribute("Match_SurroundsSurvived") or 0)
-            matchCounts[id] = c
-        end
-    end
-end
-
-local function recordOwned(winnerName, winnerTeam)
-    local average, n = { Kills = 0, KnockedDown = 0, SurroundsSurvived = 0 }, 0
+local function matchAverages()
+    local average, n = { Kills = 0, KnockedDown = 0, SurroundsSurvived = 0, dmg = 0 }, 0
     for _, c in pairs(matchCounts) do
         n += 1
         for key in pairs(average) do
@@ -513,10 +503,62 @@ local function recordOwned(winnerName, winnerTeam)
     for key in pairs(average) do
         average[key] = n > 0 and average[key] / n or 0
     end
+    return average
+end
+
+local function snapshotOwned()
+    local now = os.clock()
+    local length = matchStartedAt and (now - matchStartedAt) or 0
+    for _, q in ipairs(getTournamentFighters()) do
+        local id = q:GetAttribute("QuinId")
+        local hum = q:FindFirstChildOfClass("Humanoid")
+        if id and hum then
+            local c = matchCounts[id] or { Kills = 0, KnockedDown = 0, SurroundsSurvived = 0, name = q.Name,
+                dmg = 0, taken = 0, lifetime = 0, alive = true, team = q:GetAttribute("Team") }
+            c.Kills = math.max(c.Kills, q:GetAttribute("Match_Kills") or 0)
+            c.KnockedDown = math.max(c.KnockedDown, q:GetAttribute("Match_KnockedDown") or 0)
+            c.SurroundsSurvived = math.max(c.SurroundsSurvived, q:GetAttribute("Match_SurroundsSurvived") or 0)
+            c.dmg = math.max(c.dmg, q:GetAttribute("MatchDamageDealt") or 0)
+            c.taken = math.max(c.taken, hum.MaxHealth - math.max(0, hum.Health))
+            if c.alive then
+                c.lifetime = length
+                c.alive = hum.Health > 0
+            end
+            matchCounts[id] = c
+        end
+    end
+    -- the live score (the Result part is added only at the end)
+    local average = matchAverages()
+    for _, q in ipairs(getTournamentFighters()) do
+        local c = matchCounts[q:GetAttribute("QuinId") or ""]
+        if c then
+            local score = Payouts.score({ dmg = c.dmg, taken = c.taken, kills = c.Kills, lifetime = c.lifetime },
+                { avgDmg = average.dmg, length = math.max(1, length) }, false)
+            q:SetAttribute("MatchScore", score)
+        end
+    end
+end
+
+local matchResultRemote = (function()
+    local net = ReplicatedStorage:WaitForChild("ArenaNetwork")
+    local r = net:FindFirstChild("MatchResult")
+    if not r then
+        r = Instance.new("RemoteEvent")
+        r.Name = "MatchResult"
+        r.Parent = net
+    end
+    return r
+end)()
+
+local function recordOwned(winnerName, winnerTeam, reason)
+    local average = matchAverages()
+    local length = matchStartedAt and (os.clock() - matchStartedAt) or 1
+    local results = {} -- [player] = { quins = {...}, fee, earned }
     for _, e in ipairs(roundEntrants) do
         local id = e.player and e.quin and e.quin.QuinId
         local c = id and matchCounts[id]
-        if c then
+        if c and not e.settled then
+            e.settled = true
             local outcome
             if winnerTeam == "Draw" then
                 outcome = "Draw"
@@ -525,18 +567,64 @@ local function recordOwned(winnerName, winnerTeam)
             else
                 outcome = (e.team == winnerTeam) and "Win" or "Loss"
             end
+            local won = outcome == "Win"
             local ok, applied = QuinDataStoreService.recordMatchOutcome(id, outcome, { kills = c.Kills, counts = c, average = average })
+            local moved = {}
             if ok then
-                local moved = {}
                 for habit, step in pairs(applied or {}) do
                     table.insert(moved, string.format("%s %+.1f", habit, step * 100))
                 end
-                print(string.format("[Orchestrator] %s's Quin %s: %s, habits %s", e.player.Name, id, outcome,
-                    #moved > 0 and table.concat(moved, ", ") or "unchanged"))
             end
+            -- score and pay
+            local score, parts = Payouts.score({ dmg = c.dmg, taken = c.taken, kills = c.Kills, lifetime = c.lifetime },
+                { avgDmg = average.dmg, length = length }, won)
+            local pay, lines = Payouts.payout(score, won, c.alive)
+            Payouts.grant(e.player, pay, string.format("Quin #%s %s, score %d", id:sub(3, 6), outcome, score))
+            print(string.format("[Orchestrator] %s's Quin %s: %s, score %d, paid %d SC (entry %d), habits %s", e.player.Name, id,
+                outcome, score, pay, e.paid or 0, #moved > 0 and table.concat(moved, ", ") or "unchanged"))
+            local r = results[e.player] or { quins = {}, fee = 0, earned = 0 }
+            results[e.player] = r
+            r.fee += e.paid or 0
+            r.earned += pay
+            table.insert(r.quins, {
+                Tag = id:sub(3, 6),
+                Temperament = e.quin.Temperament,
+                Outcome = outcome,
+                Survived = c.alive,
+                Score = score,
+                Parts = parts,
+                Pay = pay,
+                Lines = lines,
+                Damage = math.floor(c.dmg),
+                KOs = c.Kills,
+            })
+        end
+    end
+    for player, r in pairs(results) do
+        if player.Parent then
+            matchResultRemote:FireClient(player, {
+                Winner = winnerName,
+                Reason = reason,
+                Quins = r.quins,
+                Fee = r.fee,
+                Earned = r.earned,
+                Net = r.earned - r.fee,
+                Balance = Payouts.balance(player),
+                Parts = Payouts.PARTS,
+            })
         end
     end
     matchCounts = {}
+end
+
+-- A round stopped before its winner: the seated Quins' entry comes back
+local function refundUnsettled()
+    for _, e in ipairs(roundEntrants) do
+        if e.player and (e.paid or 0) > 0 and not e.settled then
+            e.settled = true
+            Payouts.refund(e.player, e.paid, "Round stopped: entry back")
+        end
+    end
 end
 
 -- ============================================================================
@@ -693,6 +781,7 @@ local function runMatchLifecycle()
     instantLeadIn = false -- (an instant match is an ordinary match from here on)
     Workspace:SetAttribute("MatchStarted", true)
     epoch = beginPhase("IN_GAME", duration("GameTime"), "COMBAT ENGAGEMENT", "SECTOR ALPHA VS SECTOR BETA")
+    matchStartedAt = os.clock()
     -- (the Quins know how long they have: SocialTension)
     -- (Solo has no time limit: no end for the Quins to feel coming either)
     local timed = mode ~= "PlayerSolo"
@@ -734,7 +823,7 @@ local function runMatchLifecycle()
     -- PHASE 8: WINNER DETERMINATION / VICTORY CEREMONY
     snapshotOwned()
     local winnerName, winnerTeam, reason = decideWinner(mode)
-    recordOwned(winnerName, winnerTeam)
+    recordOwned(winnerName, winnerTeam, reason)
     matchStats.Winner, matchStats.WinnerTeam, matchStats.EndReason = winnerName, winnerTeam, reason
     Workspace:SetAttribute("MatchStarted", false)
     Workspace:SetAttribute("MatchEndsAt", nil)
@@ -886,7 +975,9 @@ function Orchestrator.stopMatch()
     ArenaFireworks.stopAll()
     ArenaDroneManager.resetDrones()
     QuinSpawner.cleanAll()
+    refundUnsettled()
     roundEntrants = {}
+    matchStartedAt = nil
     ArenaRegistration.roundOver()
     ArenaPrepRoom.close()
     replicateState()

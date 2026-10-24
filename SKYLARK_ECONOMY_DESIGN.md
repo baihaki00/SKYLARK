@@ -237,3 +237,26 @@ Progress buys **depth, reliability and value**, never raw damage.
 - **Market:**
   - A shaped Quin keeps its habits when it's sold, so a famous owner's craft becomes value.
   - The new owner sees the last appraisal (with its date). Habits keep drifting, so knowledge goes stale and has to be renewed by watching or appraising.
+
+## Step 2 built (2026-10-24): entry, score, payouts, results
+
+The owner's rule: taking part costs something, and an early double loss should come out at about −100 SC. Audience 16–30, so they can handle a loss, as long as the result screen shows exactly why. The start balance stays at 2,500.
+
+- **Entry: 100 SC per Quin**, charged when the Quin is seated for a round, not at registration: you pay only for rounds your Quins fight. A Quin you can't pay for sits that round out (with a notice). A round stopped before its winner refunds the entry.
+- **Performance score 0–1000** (SkylarkPayouts), counted live (the Quin's MatchScore attribute):
+  - Damage 350: twice the match's average or more scores it all.
+  - KOs 200: 3 or more scores it all.
+  - Survival 200: share of the match still standing.
+  - Efficiency 150: dealt / (dealt + taken).
+  - Result 100: its side won.
+- **Pay per Quin:** 30 for taking part + score × 0.2 + 150 for a win + 50 if still standing at the end.
+- **Results:** a results card for each owner when the winner is decided (each Quin's score part by part, pay, entry, net, balance), plus the STATS board on the owner's prep room glass: live health and score during the fight, results after. HIDE / STATS toggles it.
+
+| 2 Quins, entry 200 | Back | Net |
+|---|---|---|
+| Both knocked out early (tested: scores 64 and 119) | ~95 | **~−105** |
+| Average loss (~465 each) | ~246 | ~+46 |
+| Average win (~565 each, one still standing) | ~636 | ~+436 |
+| Strong win (tested: 660 and 586, both standing) | 709 | +509 |
+
+An average loss is slightly positive *before* step 3's drains (repairs after damage, maintenance, training). With those, an average loss should come out slightly negative and an average win clearly positive. Re-check this at step 5.

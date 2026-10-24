@@ -13,6 +13,9 @@
 --     registered first. Every player in that order gets their first Quin seated before anyone
 --     gets a second. Seated: back to 0. Not seated: +1, so you are first next time.
 --   * Empty seats are filled by the arena's own Quins (NPQs), so a round never waits for players.
+--   * Entry fee: SkylarkPayouts.ENTRY_FEE per Quin, paid when it is seated for a round (not when
+--     you register): a Quin you can't pay for sits that round out. The orchestrator pays out at
+--     the winner and refunds a round stopped before it.
 --
 -- The Arena System Orchestrator calls pickRound when the preparation room opens (the Quins and
 -- their owners go to the pads: ArenaPrepRoom) and roundOver when the match ends.
@@ -32,6 +35,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
 local ArenaSchedule = require(QuinCore:WaitForChild("ArenaSchedule"))
 local QuinRosterService = require(ServerScriptService:WaitForChild("QuinRosterService"))
+local Payouts = require(ServerScriptService:WaitForChild("SkylarkPayouts"))
 
 local Registration = {}
 
@@ -180,6 +184,10 @@ end
 -- ROUNDS (called by the Arena System Orchestrator)
 -- ============================================================================
 
+local function ArenaNetworkFolder()
+    return ReplicatedStorage:FindFirstChild("ArenaNetwork") or ReplicatedStorage
+end
+
 local function seatsFor(mode, teamSize)
     if mode == "FFA" then
         return math.max(2, teamSize)
@@ -226,10 +234,21 @@ function Registration.pickRound(mode, teamSize)
             if teamCount[team] >= perTeam then
                 return false
             end
+        end
+        local tag = quin.QuinId and quin.QuinId:sub(3, 6) or "?"
+        local paid, why = Payouts.chargeEntry(e.player, tag)
+        if not paid then
+            local notice = ArenaNetworkFolder():FindFirstChild("PrepRoom")
+            if notice then
+                notice:FireClient(e.player, "notice", string.format("Quin #%s sits this round out: %s", tag, tostring(why)))
+            end
+            return false
+        end
+        if team then
             sideOf[e] = team
             teamCount[team] += 1
         end
-        table.insert(entrants, { player = e.player, quin = quin, team = team })
+        table.insert(entrants, { player = e.player, quin = quin, team = team, paid = Payouts.ENTRY_FEE })
         return true
     end
 
@@ -313,6 +332,9 @@ local function register(player, slots)
     if #chosen == 0 then
         return false, "Pick one of your Quins."
     end
+    if (Payouts.balance(player) or 0) < Payouts.ENTRY_FEE then
+        return false, string.format("Entry is %d SC per Quin each round. You have %d SC.", Payouts.ENTRY_FEE, Payouts.balance(player) or 0)
+    end
     local existing = entries[player.UserId]
     if existing then
         existing.slots = chosen -- (changing your Quins keeps your place in the queue)
@@ -320,7 +342,8 @@ local function register(player, slots)
         entries[player.UserId] = { player = player, slots = chosen, registeredAt = os.clock(), satOut = 0 }
     end
     publish()
-    return true, string.format("Entered %s with %d Quin%s", windowSlot.Name, #chosen, #chosen > 1 and "s" or "")
+    return true, string.format("Entered %s with %d Quin%s. Entry %d SC per Quin, paid each round they fight.",
+        windowSlot.Name, #chosen, #chosen > 1 and "s" or "", Payouts.ENTRY_FEE)
 end
 
 local function withdraw(player)
