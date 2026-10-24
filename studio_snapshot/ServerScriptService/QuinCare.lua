@@ -199,6 +199,17 @@ local function revealedByFights(quin)
     return shown
 end
 
+-- The habits anyone can see (fights reveal them; an appraisal stays its owner's): { Name, Band }
+function Care.knownHabits(quin)
+    local list = {}
+    for _, habit in ipairs(PersonalitySystem.DIMENSIONS) do
+        if revealedByFights(quin)[habit] then
+            table.insert(list, { Habit = habit, Name = Care.HABIT_NAMES[habit] or habit, Band = band(quin.Personality[habit] or 0.5) })
+        end
+    end
+    return list
+end
+
 local function habitView(quin)
     local fromFights = revealedByFights(quin)
     local appraisal = quin.Appraisal

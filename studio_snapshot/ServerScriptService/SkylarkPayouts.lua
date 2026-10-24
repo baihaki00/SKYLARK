@@ -70,9 +70,10 @@ function Payouts.payout(score, won, survived)
     return pay, lines
 end
 
--- The entry fee for one seated Quin. Returns true, or false + message when the owner can't pay.
-function Payouts.chargeEntry(player, quinTag)
-    local ok, result = Wallet.spend(player, Payouts.ENTRY_FEE, "Entry Quin #" .. tostring(quinTag))
+-- The entry fee for one seated Quin (amount: a prebook's price; default ENTRY_FEE). Returns true,
+-- or false + message when the owner can't pay.
+function Payouts.chargeEntry(player, quinTag, amount, label)
+    local ok, result = Wallet.spend(player, amount or Payouts.ENTRY_FEE, (label or "Entry") .. " Quin #" .. tostring(quinTag))
     if not ok then
         return false, result
     end

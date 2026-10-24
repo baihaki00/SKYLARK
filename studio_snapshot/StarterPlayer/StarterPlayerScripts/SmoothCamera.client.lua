@@ -196,6 +196,8 @@ local function menuOpen()
 	if results and results.Enabled then return true end
 	local care = playerGui:FindFirstChild("QuinCareUI") -- (the Workshop / Trainer / Specialist dialog: QuinCareClient)
 	if care and care.Enabled then return true end
+	local prebook = playerGui:FindFirstChild("PrebookUI") -- (the Arena Board dialog: ArenaBoardClient)
+	if prebook and prebook.Enabled then return true end
 	return false
 end
 
