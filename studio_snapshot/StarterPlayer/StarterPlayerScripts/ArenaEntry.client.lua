@@ -88,11 +88,7 @@ local function notify(title, text)
 end
 
 local function untilText(t)
-    local real = SkylarkTime.realSecondsUntil(t)
-    if real then
-        return SkylarkTime.formatDuration(real)
-    end
-    return SkylarkTime.formatDuration((t - SkylarkTime.now()) / SkylarkTime.HOUR * 3600) .. " SST"
+    return ArenaTiming.untilText(t)
 end
 
 local function enteredSlots()
@@ -151,8 +147,8 @@ refreshCoins()
 -- REGISTRATION POPUP (the arena's terminal)
 -- ============================================================================
 
-local PW, PH = 340, 340
-local QUIN_Y, QUIN_H = 92, 34
+local PW, PH = 440, 432
+local QUIN_Y, QUIN_H = 100, 40
 local popup = new("Frame", {
     Name = "TerminalPopup",
     Parent = gui,
@@ -166,24 +162,25 @@ local popup = new("Frame", {
 corner(popup, 12)
 stroke(popup, C_AMBER)
 
-label(popup, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 60, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = string.upper(ARENA.Name) .. " TERMINAL" })
+label(popup, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 90, 20), Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = C_AMBER, Text = string.upper(ARENA.Name) .. " TERMINAL" })
 local closeButton = new("TextButton", { Parent = popup, Text = "X", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(PW - 38, 10), Size = UDim2.fromOffset(26, 26) })
 corner(closeButton, 6)
-local windowLabel = label(popup, { Position = UDim2.fromOffset(16, 36), Size = UDim2.fromOffset(PW - 32, 18), Font = Enum.Font.GothamBold, TextSize = 13, Text = "" })
-local whenLabel = label(popup, { Position = UDim2.fromOffset(16, 54), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
-local pickLabel = label(popup, { Position = UDim2.fromOffset(16, 74), Size = UDim2.fromOffset(PW - 32, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED, Text = "" })
+local windowLabel = label(popup, { Position = UDim2.fromOffset(16, 40), Size = UDim2.fromOffset(PW - 32, 20), Font = Enum.Font.GothamBold, TextSize = 15, Text = "" })
+local whenLabel = label(popup, { Position = UDim2.fromOffset(16, 62), Size = UDim2.fromOffset(PW - 32, 16), TextSize = 12, TextColor3 = C_MUTED, Text = "" })
+local pickLabel = label(popup, { Position = UDim2.fromOffset(16, 82), Size = UDim2.fromOffset(PW - 32, 14), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_MUTED, Text = "" })
 
 local registerBack = new("TextButton", { Parent = popup, Text = "<", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(PW - 72, 10), Size = UDim2.fromOffset(26, 26) })
 corner(registerBack, 6)
-local actionButton = new("TextButton", { Parent = popup, Text = "REGISTER", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_BG, BackgroundColor3 = C_AMBER, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 8), Size = UDim2.fromOffset(PW - 32, 34) })
+local actionButton = new("TextButton", { Name = "ActionBtn", Parent = popup, Text = "REGISTER", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_BG, BackgroundColor3 = C_AMBER, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 8), Size = UDim2.fromOffset(PW - 32, 38) })
 corner(actionButton, 7)
-local withdrawButton = new("TextButton", { Parent = popup, Text = "WITHDRAW", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_RED, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 48), Size = UDim2.fromOffset(PW - 32, 24), Visible = false })
+local withdrawButton = new("TextButton", { Name = "WithdrawBtn", Parent = popup, Text = "WITHDRAW", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_RED, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 52), Size = UDim2.fromOffset(PW - 32, 28), Visible = false })
 corner(withdrawButton, 6)
-local statusLabel = label(popup, { Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 76), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, Text = "" })
+local statusLabel = label(popup, { Name = "Status", Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 86), Size = UDim2.fromOffset(PW - 32, 32), TextSize = 12,
+    TextWrapped = true, TextTruncate = Enum.TextTruncate.None, TextYAlignment = Enum.TextYAlignment.Top, Text = "" })
 label(popup, {
-    Position = UDim2.fromOffset(16, PH - 38),
-    Size = UDim2.fromOffset(PW - 32, 30),
-    TextSize = 10,
+    Position = UDim2.fromOffset(16, PH - 40),
+    Size = UDim2.fromOffset(PW - 32, 32),
+    TextSize = 11,
     TextColor3 = C_MUTED,
     TextWrapped = true,
     TextTruncate = Enum.TextTruncate.None,
@@ -240,7 +237,7 @@ for slot = 1, 4 do
         Parent = popup,
         Text = "",
         Font = Enum.Font.Gotham,
-        TextSize = 12,
+        TextSize = 13,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextColor3 = C_TEXT,
         BackgroundColor3 = C_CARD,
@@ -250,6 +247,9 @@ for slot = 1, 4 do
     })
     corner(b, 6)
     b.MouseButton1Click:Connect(function()
+        if Workspace:GetAttribute("ArenaRegOpen") ~= true then
+            return
+        end
         if selected[slot] then
             selected[slot] = nil
         else
@@ -310,7 +310,7 @@ end
 
 local function button(parent, text, x, y, w, h, color, textColor, name)
     local b = new("TextButton", {
-        Name = name or "Button", Parent = parent, Text = text, Font = Enum.Font.GothamBold, TextSize = 12, TextWrapped = true,
+        Name = name or "Button", Parent = parent, Text = text, Font = Enum.Font.GothamBold, TextSize = 13, TextWrapped = true,
         TextColor3 = textColor or C_TEXT, BackgroundColor3 = color or C_CARD,
         Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(w, h),
     })
@@ -319,18 +319,18 @@ local function button(parent, text, x, y, w, h, color, textColor, name)
 end
 
 local chooser = panel("TerminalChooser", 190)
-label(chooser, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 60, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = string.upper(ARENA.Name) .. " TERMINAL" })
+label(chooser, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(PW - 60, 20), Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = C_AMBER, Text = string.upper(ARENA.Name) .. " TERMINAL" })
 local chooserClose = button(chooser, "X", PW - 38, 10, 26, 26, nil, nil, "CloseBtn")
-local chooserEvent = label(chooser, { Position = UDim2.fromOffset(16, 36), Size = UDim2.fromOffset(PW - 32, 16), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
+local chooserEvent = label(chooser, { Position = UDim2.fromOffset(16, 40), Size = UDim2.fromOffset(PW - 32, 16), TextSize = 12, TextColor3 = C_MUTED, Text = "" })
 local half = (PW - 32 - 10) / 2
-local spectateChoice = button(chooser, "SPECTATE\n\nWatch from the stands\nor a VIP box", 16, 60, half, 112, C_CARD, C_TEXT, "SpectateChoice")
+local spectateChoice = button(chooser, "SPECTATE\n\nWatch from the stands\nor a VIP box", 16, 66, half, 140, C_CARD, C_TEXT, "SpectateChoice")
 stroke(spectateChoice, C_GREEN)
-local registerChoice = button(chooser, "REGISTER QUIN\n\nEnter your Quins\nfor this event", 16 + half + 10, 60, half, 112, C_CARD, C_TEXT, "RegisterChoice")
+local registerChoice = button(chooser, "REGISTER QUIN\n\nEnter your Quins\nfor this event", 16 + half + 10, 66, half, 140, C_CARD, C_TEXT, "RegisterChoice")
 stroke(registerChoice, C_AMBER)
-local quickButton = button(chooser, "ARENA MENU  [DEBUG]", 16, 182, PW - 32, 30, C_CARD, C_AMBER, "ArenaMenuBtn")
+local quickButton = button(chooser, "ARENA MENU  [DEBUG]", 16, 218, PW - 32, 32, C_CARD, C_AMBER, "ArenaMenuBtn")
 stroke(quickButton, C_AMBER).Transparency = 0.5
 quickButton.TextSize = 11
-local quickStatus = label(chooser, { Position = UDim2.fromOffset(16, 216), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, Text = "" })
+local quickStatus = label(chooser, { Position = UDim2.fromOffset(16, 254), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, Text = "" })
 -- Shown with F8 (debug buttons), and always to a tester in the Roblox Player role (Play As Roblox
 -- Player in Studio, or an admin playing as a player): that's where quick matches get run from.
 local function refreshQuick()
@@ -338,7 +338,7 @@ local function refreshQuick()
     local on = player:GetAttribute("ShowDebugButtons") == true or (tester and player:GetAttribute("SkylarkRole") == "Player")
     quickButton.Visible = on
     quickStatus.Visible = on
-    chooser.Size = UDim2.fromOffset(PW, on and 240 or 190)
+    chooser.Size = UDim2.fromOffset(PW, on and 278 or 224)
 end
 refreshQuick()
 for _, attr in ipairs({ "ShowDebugButtons", "SkylarkRole", "SkylarkCanAdmin" }) do
@@ -442,19 +442,32 @@ local function setChoice(b, strokeColor, title, open, text)
     end
 end
 
+-- Spectate: a round is running, and your Quins aren't in this event.
+-- Register: the walk-in desk takes entries (the server's ArenaRegOpen and the clock agree), and you
+-- hold no seat. Entered at the desk: open to change your entry while the desk is open, and to
+-- withdraw after it closes. Prebooked: changed at a prebook terminal only, so greyed here.
 local function refreshChooser()
     local state = ArenaTiming.describe(SCHEDULE, Workspace:GetAttribute("ArenaPhase"))
     -- spectate the event or take part in it, not both
     local inEvent = player:GetAttribute("ArenaEntered") == true
+    local prebooked = inEvent and player:GetAttribute("ArenaPrebooked") == true
     local watching = player:GetAttribute("SpectateSeat") ~= nil
     local walkInOpen = state.walkIn.open and Workspace:GetAttribute("ArenaRegOpen") == true
     choiceOpen.spectate = state.spectate.open and not inEvent
-    choiceOpen.register = (walkInOpen and not watching) or inEvent -- (entered: change or withdraw)
+    choiceOpen.register = not prebooked and (inEvent or (walkInOpen and not watching))
     setChoice(spectateChoice, C_GREEN, "SPECTATE", choiceOpen.spectate,
         inEvent and "Not while your Quins\nare in this event" or (state.spectate.open and "Watch from the stands\nor a VIP box" or state.spectate.reason))
-    setChoice(registerChoice, C_AMBER, "REGISTER QUIN", choiceOpen.register,
-        inEvent and "Your entry: change\nor withdraw" or (watching and walkInOpen and "Not while you hold\na seat this round")
-            or (walkInOpen and "Enter your Quins\nfor this event" or state.walkIn.reason or "Closed"))
+    local text
+    if prebooked then
+        text = "Prebooked. Change it at\n" .. ARENA.Name .. "\nprebook terminal"
+    elseif inEvent then
+        text = walkInOpen and "Change your Quins\nor withdraw" or "Entry is closed.\nYou can still withdraw"
+    elseif watching and walkInOpen then
+        text = "Not while you hold\na seat this round"
+    else
+        text = walkInOpen and "Enter your Quins\nfor this event" or (state.walkIn.reason or "Closed")
+    end
+    setChoice(registerChoice, C_AMBER, inEvent and "YOUR ENTRY" or "REGISTER QUIN", choiceOpen.register, text)
     local event = state.walkIn.event
     local phase = Workspace:GetAttribute("ArenaPhase")
     local head = event and string.upper(event.Name) or "NO EVENT"
@@ -508,6 +521,9 @@ for _, attr in ipairs({ "SC", "SpectateSide", "SpectateSeat" }) do
 end
 
 actionButton.MouseButton1Click:Connect(function()
+    if Workspace:GetAttribute("ArenaRegOpen") ~= true then
+        return
+    end
     local ok, result, message = pcall(function()
         return entryRemote:InvokeServer("register", selectedList())
     end)
@@ -607,9 +623,10 @@ local function update()
         end
         local limit = perPlayer()
         pickLabel.Text = limit > 1 and string.format("PICK UP TO %d QUINS (THEY FIGHT TOGETHER)", limit) or "PICK YOUR QUIN"
-        actionButton.Text = entered and "UPDATE MY ENTRY" or "REGISTER"
+        actionButton.Text = not open and "ENTRY CLOSED" or (entered and "UPDATE MY ENTRY" or "REGISTER")
         actionButton.BackgroundColor3 = open and C_AMBER or C_CARD
         actionButton.TextColor3 = open and C_BG or C_MUTED
+        actionButton.AutoButtonColor = open
         withdrawButton.Visible = entered
     end
 end

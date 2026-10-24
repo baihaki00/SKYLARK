@@ -425,6 +425,9 @@ for i, item in ipairs(CLOCK_ITEMS) do
             if ok and result then
                 setStatus(message or "Quick match", C_GREEN)
                 gui.Enabled = false
+                if mounted and shared.ClosePlayerMenu then
+                    shared.ClosePlayerMenu()
+                end
             else
                 setStatus(ok and (message or "Could not start") or "Could not reach " .. ARENA.Name, C_RED)
             end
@@ -497,15 +500,53 @@ closeButton.MouseButton1Click:Connect(function()
     gui.Enabled = false
 end)
 
+-- Lent to the player menu's DEBUG tab: the window moves into the tab (full size, it scrolls there)
+-- and comes back to its own screen before the tab redraws
+local mounted = false
+shared.MountArenaBlockMenu = function(holder)
+    gui.Enabled = false
+    mounted = true
+    window.AnchorPoint = Vector2.zero
+    window.Position = UDim2.fromOffset(0, 0)
+    fitScale.Scale = 1
+    closeButton.Visible = false
+    window.Parent = holder
+    setStatus("")
+    draw()
+end
+shared.UnmountArenaBlockMenu = function()
+    if not mounted then
+        return
+    end
+    mounted = false
+    window.Parent = gui
+    window.AnchorPoint = Vector2.new(0.5, 0.5)
+    window.Position = UDim2.fromScale(0.5, 0.5)
+    closeButton.Visible = true
+    fit()
+end
+-- (from the terminal: the menu opens on DEBUG; on its own screen if the menu isn't there)
 shared.OpenArenaBlockMenu = function()
+    if shared.OpenPlayerMenu then
+        shared.OpenPlayerMenu("DEBUG")
+        return
+    end
     gui.Enabled = true
     setStatus("")
     draw()
 end
 
+local function showing()
+    if mounted then
+        local screen = window:FindFirstAncestorWhichIsA("ScreenGui")
+        return screen ~= nil and screen.Enabled
+    end
+    return gui.Enabled
+end
+
 local last = 0
 RunService.Heartbeat:Connect(function()
-    if gui.Enabled and os.clock() - last > 0.25 then
+    if showing() and os.clock() - last > 0.25 then
         last = os.clock()
         draw()
     end

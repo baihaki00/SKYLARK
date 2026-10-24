@@ -13,6 +13,7 @@
 --   LAST MATCH this session's last results (MatchResultsClient shares them), and the full card.
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
@@ -112,21 +113,48 @@ local closeButton = new("TextButton", { Name = "MenuClose", Parent = window, Tex
 corner(closeButton, 6)
 label(window, { Position = UDim2.fromOffset(18, H - 26), Size = UDim2.fromOffset(W - 36, 16), TextSize = 11, TextColor3 = C_MUTED, Text = "G opens and closes this menu  •  repair at the Workshop, train at the Trainer, enter at an arena's terminals" })
 
-local TABS = { "MY QUINS", "SCHEDULE", "WALLET", "LAST MATCH" }
+-- DEBUG: every debug tool in one place (the arena menu, the debug buttons), for testers only:
+-- in Studio, or an admin (SkylarkCanAdmin)
+local TABS = { "MY QUINS", "SCHEDULE", "WALLET", "LAST MATCH", "DEBUG" }
 local tabButtons = {}
 local current = "MY QUINS"
-local tabW = (W - 36 - 3 * 8) / 4
-for i, name in ipairs(TABS) do
-    local b = new("TextButton", { Name = "Tab" .. name:gsub(" ", ""), Parent = window, Text = name, Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(18 + (i - 1) * (tabW + 8), 46), Size = UDim2.fromOffset(tabW, 30) })
+local function tester()
+    return RunService:IsStudio() or player:GetAttribute("SkylarkCanAdmin") == true
+end
+for _, name in ipairs(TABS) do
+    local b = new("TextButton", { Name = "Tab" .. name:gsub(" ", ""), Parent = window, Text = name, Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = name == "DEBUG" and C_AMBER or C_TEXT, BackgroundColor3 = C_CARD, Size = UDim2.fromOffset(100, 30) })
     corner(b, 7)
     tabButtons[name] = b
 end
+local function layoutTabs()
+    local shown = {}
+    for _, name in ipairs(TABS) do
+        local on = name ~= "DEBUG" or tester()
+        tabButtons[name].Visible = on
+        if on then
+            table.insert(shown, name)
+        end
+    end
+    local tabW = (W - 36 - (#shown - 1) * 8) / #shown
+    for i, name in ipairs(shown) do
+        tabButtons[name].Position = UDim2.fromOffset(18 + (i - 1) * (tabW + 8), 46)
+        tabButtons[name].Size = UDim2.fromOffset(tabW, 30)
+    end
+    if current == "DEBUG" and not tester() then
+        current = "MY QUINS"
+    end
+end
+layoutTabs()
+player:GetAttributeChangedSignal("SkylarkCanAdmin"):Connect(layoutTabs)
 
 local content = new("ScrollingFrame", { Name = "Content", Parent = window, Position = UDim2.fromOffset(18, 86), Size = UDim2.fromOffset(W - 36, H - 120), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4, ScrollBarImageColor3 = C_STROKE, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new() })
 new("UIListLayout", { Parent = content, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) })
 
 local order = 0
 local function clear()
+    if shared.UnmountArenaBlockMenu then -- (the arena menu is lent to the DEBUG tab: give it back first)
+        shared.UnmountArenaBlockMenu()
+    end
     for _, c in ipairs(content:GetChildren()) do
         if c:IsA("GuiObject") then
             c:Destroy()
@@ -560,7 +588,32 @@ end
 -- SHOW / HIDE
 -- ============================================================================
 
-local DRAW = { ["MY QUINS"] = drawQuins, SCHEDULE = drawSchedule, WALLET = drawWallet, ["LAST MATCH"] = drawMatch }
+-- DEBUG: the switches, then the arena menu itself (ArenaBlockMenu.client lends its window)
+local function drawDebug()
+    local tools = card(64, C_AMBER)
+    label(tools, { Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(300, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "DEBUG TOOLS" })
+    label(tools, { Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(520, 16), TextSize = 12, TextColor3 = C_MUTED,
+        Text = "Testers only (Studio or admins). Role now: " .. tostring(player:GetAttribute("SkylarkRole") or "?") })
+    local on = player:GetAttribute("ShowDebugButtons") == true
+    local f8 = new("TextButton", { Name = "DebugButtonsToggle", Parent = tools, Position = UDim2.new(1, -276, 0, 14), Size = UDim2.fromOffset(260, 36),
+        Text = "DEBUG BUTTONS (F8):  " .. (on and "ON" or "OFF"), Font = Enum.Font.GothamBold, TextSize = 12,
+        BackgroundColor3 = on and C_AMBER or C_BG, TextColor3 = on and C_BG or C_TEXT })
+    corner(f8, 7)
+    f8.MouseButton1Click:Connect(function()
+        player:SetAttribute("ShowDebugButtons", not on or nil)
+        shared.OpenPlayerMenu("DEBUG") -- (draws the tab again)
+    end)
+    order += 1
+    local holder = new("Frame", { Name = "ArenaMenuHolder", Parent = content, LayoutOrder = order, Size = UDim2.fromOffset(920, 776), BackgroundTransparency = 1 })
+    if shared.MountArenaBlockMenu then
+        shared.MountArenaBlockMenu(holder)
+    else
+        holder.Size = UDim2.new(1, -8, 0, 30)
+        label(holder, { Size = UDim2.fromScale(1, 1), TextSize = 13, TextColor3 = C_RED, Text = "The arena menu isn't loaded" })
+    end
+end
+
+local DRAW = { ["MY QUINS"] = drawQuins, SCHEDULE = drawSchedule, WALLET = drawWallet, ["LAST MATCH"] = drawMatch, DEBUG = drawDebug }
 
 local function redraw()
     if not gui.Enabled then
@@ -639,10 +692,13 @@ end)
 
 -- other scripts open it on a tab (the clock opens SCHEDULE)
 shared.OpenPlayerMenu = function(tab)
-    if tab and DRAW[tab] then
+    if tab and DRAW[tab] and (tab ~= "DEBUG" or tester()) then
         current = tab
     end
     setOpen(true)
+end
+shared.ClosePlayerMenu = function()
+    setOpen(false)
 end
 
 -- the MENU button on the top bar (SkylarkClockUI.TopBar, LayoutOrder 1). Its dot: you're entered,
@@ -676,7 +732,7 @@ task.spawn(function()
             menuDot.Visible = st ~= nil and st.Active == true
             menuDot.BackgroundColor3 = st and st.Color or C_GREEN
         end
-        if gui.Enabled then
+        if gui.Enabled and current ~= "DEBUG" then -- (the arena menu ticks by itself)
             n += 1
             if n % 5 == 0 then
                 refresh()

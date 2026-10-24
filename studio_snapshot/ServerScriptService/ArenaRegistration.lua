@@ -50,6 +50,9 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
 local ArenaSchedule = require(QuinCore:WaitForChild("ArenaSchedule"))
+local ARENA_NAME = require(QuinCore:WaitForChild("SkylarkArenas")).current().Name
+local TERMINAL = "an " .. ARENA_NAME .. " terminal"
+local PREBOOK_TERMINAL = "an " .. ARENA_NAME .. " prebook terminal"
 local Temperament = require(QuinCore.Modules:WaitForChild("Temperament"))
 local QuinRosterService = require(ServerScriptService:WaitForChild("QuinRosterService"))
 local Payouts = require(ServerScriptService:WaitForChild("SkylarkPayouts"))
@@ -288,6 +291,20 @@ local function refreshWindow()
         end
     end
     windowKind = kind
+    -- Before the walk-in desk opens only prebooks can stand (walk-ins left over from a clock set back)
+    if kind == "Booking" then
+        local dropped = false
+        for userId, e in pairs(entries) do
+            if not e.prebook then
+                entries[userId] = nil
+                clearPlayer(e.player)
+                dropped = true
+            end
+        end
+        if dropped then
+            publish()
+        end
+    end
     local walkIn = slot and kind ~= "Booking"
     Workspace:SetAttribute("ArenaRegOpen", entryOpen())
     Workspace:SetAttribute("ArenaRegWindow", walkIn and slot.Name or nil)
@@ -464,21 +481,21 @@ end
 local function register(player, slots, anywhere) -- (anywhere: the debug quick match)
     refreshWindow()
     if not windowKey or windowKind == "Booking" then
-        return false, string.format("The desk opens %d minutes before each event. Prebook early at an Arena Prebook Terminal.",
+        return false, string.format("The desk opens %d minutes before each event. Prebook early at " .. PREBOOK_TERMINAL .. ".",
             math.floor(ArenaTiming.get("WalkInOpensBefore") / 60 + 0.5))
     end
     if not entryOpen() then
         return false, "Entry for " .. windowSlot.Name .. " has closed."
     end
     if not anywhere and not nearTerminal(player) then
-        return false, "Register at an Arena Terminal."
+        return false, "Register at " .. TERMINAL .. "."
     end
     if player:GetAttribute("SpectateSeat") then -- (spectate the event or take part, not both)
         return false, "You hold a seat this round. Register when it ends."
     end
     local existing = entries[player.UserId]
     if existing and existing.prebook then
-        return false, "You're prebooked for " .. windowSlot.Name .. ". Change it at an Arena Prebook Terminal."
+        return false, "You're prebooked for " .. windowSlot.Name .. ". Change it at " .. PREBOOK_TERMINAL .. "."
     end
     local chosen = chooseSlots(player, slots)
     if #chosen == 0 then
@@ -518,11 +535,11 @@ local function prebook(player, request)
     refreshWindow()
     request = type(request) == "table" and request or {}
     if not prebookOpen() then
-        return false, windowKind == "Live" and (windowSlot.Name .. " has started: the boards open again when it ends. Walk in at an Arena Terminal.")
+        return false, windowKind == "Live" and (windowSlot.Name .. " has started: the boards open again when it ends. Walk in at " .. TERMINAL .. ".")
             or "Prebooking is closed."
     end
     if not nearPrebookTerminal(player) then
-        return false, "Prebook at an Arena Prebook Terminal."
+        return false, "Prebook at " .. PREBOOK_TERMINAL .. "."
     end
     local side = request.side
     if side ~= "TeamAlpha" and side ~= "TeamBeta" then

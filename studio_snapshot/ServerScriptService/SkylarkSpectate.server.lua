@@ -202,10 +202,10 @@ local function buy(player, side, seat)
         return false, "Pick a seat"
     end
     if not arenaOn() then
-        return false, "No match on. Seats open when the arena opens."
+        return false, "No round on. Seats open when a round starts."
     end
     if not nearTerminal(player) then
-        return false, "Use an Arena Terminal"
+        return false, "Buy seats at the arena's terminals"
     end
     if player:GetAttribute("ArenaEntered") == true then -- (spectate the event or take part, not both)
         return false, "Your Quins are in this event. Watch them from your prep room."
