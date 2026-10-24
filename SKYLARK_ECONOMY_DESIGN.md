@@ -322,4 +322,11 @@ How plans work:
 - Shown on the prep terminal, in a SCOUTING panel beside PLAN with one owner per block and "Arena Quins xN" plus their temperament mix for NPCs.
 - Shown on the glass, in the OPPONENTS and ARENA panels from the prep room until the fight starts.
 
+**Plan test (2026-10-24, two 16v16 matches, sides swapped, all Quins Bond 0 so follow ~0.4).** Studio hook: `PlanDevCommand` JSON {TeamAlpha=plan, TeamBeta=plan}.
+- Results: 1-1. Alpha won both matches (6-1 at 461 s as Aggressive, 15-1 at 386 s as Defensive), so the stance did not decide either.
+- Behaviour barely moved. Strikes per Quin per minute were 11.1-12.0 either way, hit rate 66-70%. Defensive sides circled a bit more (16-17% vs 12-13%).
+- Retreat time followed whoever was losing, not the stance.
+- Reading: at Bond 0 a plan is nearly invisible. Open question for the owner: bigger leans, or let Bond carry it (test at Bond 100 for the ceiling).
+- NPQ fill finding: every NPQ is created fresh (no record, Bond 0, full condition), so all score 60 strength, and Standard Quins have equal combat stats. "Stronger NPQs to the weaker side" has nothing to deal yet; it needs veteran NPQs or the six stats.
+
 Still to do: NPQ fill to the weaker side, a 16v16 all-Aggressive vs all-Defensive measurement, and the hesitation animation (look up at the owner, nod).
