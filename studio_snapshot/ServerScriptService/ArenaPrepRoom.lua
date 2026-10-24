@@ -658,4 +658,40 @@ end)
 PrepRoom.rooms = allRooms
 PrepRoom.sideOf = sideOf
 
+-- Studio test hook: Workspace attribute PlanDevCommand = JSON { TeamAlpha = plan, TeamBeta = plan }
+-- puts that plan on every Quin of the team (NPC owners' too) while the rooms are open; the reply
+-- is in PlanDevResult ("TeamAlpha 16 Quins, follow 0.52, 3 clash ...")
+if game:GetService("RunService"):IsStudio() then
+    Workspace:GetAttributeChangedSignal("PlanDevCommand"):Connect(function()
+        local raw = Workspace:GetAttribute("PlanDevCommand")
+        if type(raw) ~= "string" or raw == "" then
+            return
+        end
+        Workspace:SetAttribute("PlanDevCommand", nil)
+        local ok, plans = pcall(HttpService.JSONDecode, HttpService, raw)
+        if not ok or type(plans) ~= "table" then
+            Workspace:SetAttribute("PlanDevResult", "bad JSON")
+            return
+        end
+        local out = {}
+        for team, plan in pairs(plans) do
+            local n, follow, clash = 0, 0, 0
+            for _, state in pairs(active) do
+                if state.team == team then
+                    for model, quin in pairs(state.quinOf) do
+                        if model.Parent then
+                            QuinPlans.apply(model, quin, plan)
+                            n += 1
+                            follow += model:GetAttribute("PlanFollow") or 0
+                            clash += model:GetAttribute("PlanClash") and 1 or 0
+                        end
+                    end
+                end
+            end
+            table.insert(out, string.format("%s %d Quins, follow %.2f, %d clash", team, n, follow / math.max(n, 1), clash))
+        end
+        Workspace:SetAttribute("PlanDevResult", table.concat(out, "; "))
+    end)
+end
+
 return PrepRoom
