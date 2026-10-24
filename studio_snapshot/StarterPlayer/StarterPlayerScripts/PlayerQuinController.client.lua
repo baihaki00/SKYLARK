@@ -179,16 +179,18 @@ local function ensureButtonHierarchy()
 		playerBtn.Parent = playAsQuinGui
 	end
 	updateButtonDisplay(activeQuin ~= nil)
-	-- (the role buttons only for those who may be Admin: SkylarkRoles)
-	playAsQuinGui.Enabled = player:GetAttribute("SkylarkCanAdmin") == true
+	-- (the role buttons only for those who may be Admin: SkylarkRoles; debug buttons, shown with F8)
+	playAsQuinGui.Enabled = player:GetAttribute("SkylarkCanAdmin") == true and player:GetAttribute("ShowDebugButtons") == true
 end
 
 ensureButtonHierarchy()
-player:GetAttributeChangedSignal("SkylarkCanAdmin"):Connect(function()
-	if playAsQuinGui then
-		playAsQuinGui.Enabled = player:GetAttribute("SkylarkCanAdmin") == true
-	end
-end)
+for _, attr in ipairs({ "SkylarkCanAdmin", "ShowDebugButtons" }) do
+	player:GetAttributeChangedSignal(attr):Connect(function()
+		if playAsQuinGui then
+			playAsQuinGui.Enabled = player:GetAttribute("SkylarkCanAdmin") == true and player:GetAttribute("ShowDebugButtons") == true
+		end
+	end)
+end
 player.CharacterAdded:Connect(function()
 	task.defer(ensureButtonHierarchy)
 end)

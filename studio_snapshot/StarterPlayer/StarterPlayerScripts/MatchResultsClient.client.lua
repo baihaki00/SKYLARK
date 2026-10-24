@@ -423,8 +423,20 @@ local function updateBoard()
             row.fill.BackgroundColor3 = ratio > 0.35 and C_GREEN or C_AMBER
             local cond = q:GetAttribute("Condition") or 100
             row.condFill.Size = UDim2.fromScale(math.clamp(cond / 100, 0, 1), 1)
-            row.pay.Text = string.format("Condition %d%%  •  live score out of 1000", cond)
-            row.pay.TextColor3 = C_MUTED
+            -- the owner's plan (QuinPlans): set at the prep terminal while the room is open
+            local stance = q:GetAttribute("PlanStance")
+            local planned = q:GetAttribute("PlanFollow") ~= nil
+            if phase == "PREPARATION_ROOM" and not planned then
+                row.pay.Text = "No plan yet  •  set one at the prep terminal"
+                row.pay.TextColor3 = C_AMBER
+            elseif planned then
+                row.pay.Text = string.format("Plan: %s  •  %s  •  %s  •  follows %d%%", stance or "Balanced", q:GetAttribute("PlanTarget") or "Own pick",
+                    q:GetAttribute("PlanRole") or "Free", math.floor((q:GetAttribute("PlanFollow") or 0) * 100 + 0.5))
+                row.pay.TextColor3 = q:GetAttribute("PlanClash") and C_AMBER or C_CYAN
+            else
+                row.pay.Text = string.format("Condition %d%%  •  no plan: its own way", cond)
+                row.pay.TextColor3 = C_MUTED
+            end
         end
     end
     scoreText.Text = string.format("Score %d", total)

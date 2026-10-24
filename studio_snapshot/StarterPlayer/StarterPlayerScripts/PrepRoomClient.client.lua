@@ -6,7 +6,7 @@
 --   * the PrepRoomTerminal: its prompt opens a menu, PLAN or BINOCULARS.
 --       BINOCULARS: a free camera held by hand (a slight shake) that flies only within a box in
 --       front of the room's glass (WASD, Space / C up and down, Shift faster); the mouse looks
---       around freely (hold Alt for the cursor), the wheel zooms smoothly;
+--       around freely (middle mouse or Alt gives the cursor back), the wheel zooms smoothly;
 --       QUIN 1 / QUIN 2: your OWN Quins only, followed in 3rd person (the Spectator HUD's view:
 --       the mouse orbits, wheel distance) or through their eyes (POV); the VIEW button switches;
 --       MARKERS: a small marker over each of your Quins in every view (M toggles it, for recording);
@@ -94,7 +94,7 @@ local function refreshDoors()
         for _, d in ipairs(model:GetChildren()) do
             local tp = d.Name == "PrepRoomTerminal" and d:FindFirstChild("TerminalPrompt")
             if tp then
-                tp.Enabled = may
+                tp.Enabled = may and not shared.PrepTerminalBusy
             end
         end
     end
@@ -490,14 +490,16 @@ local function markerFor(q, index)
         if not root then
             return nil
         end
-        m = new("BillboardGui", { Name = "MyQuinMarker", Adornee = root, AlwaysOnTop = true, LightInfluence = 0, Size = UDim2.fromOffset(64, 40), StudsOffsetWorldSpace = Vector3.new(0, 5.5, 0), MaxDistance = 2000, ResetOnSpawn = false, Parent = player:WaitForChild("PlayerGui") })
-        local tag = new("TextLabel", { Name = "Tag", Parent = m, BackgroundColor3 = C_BG, BackgroundTransparency = 0.15, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0), Size = UDim2.fromOffset(40, 20), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_AMBER, Text = "" })
-        corner(tag, 5)
-        new("UIStroke", { Parent = tag, Color = C_AMBER, Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
-        new("TextLabel", { Name = "Arrow", Parent = m, BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 18), Size = UDim2.fromOffset(24, 20), Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = C_AMBER, Text = "▼" })
+        m = new("BillboardGui", { Name = "MyQuinMarker", Adornee = root, AlwaysOnTop = true, LightInfluence = 0, Size = UDim2.fromOffset(140, 34), StudsOffsetWorldSpace = Vector3.new(0, 4.6, 0), MaxDistance = 2000, ResetOnSpawn = false, Parent = player:WaitForChild("PlayerGui") })
+        local tag = new("TextLabel", { Name = "Tag", Parent = m, AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C_BG, BackgroundTransparency = 0.3, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0), Size = UDim2.fromOffset(0, 20), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, Text = "" })
+        corner(tag, 10)
+        new("UIPadding", { Parent = tag, PaddingLeft = UDim.new(0, 9), PaddingRight = UDim.new(0, 9) })
+        new("UIStroke", { Parent = tag, Color = C_AMBER, Thickness = 1, Transparency = 0.35, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+        local pointer = new("Frame", { Name = "Pointer", Parent = m, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 26), Size = UDim2.fromOffset(7, 7), Rotation = 45, BackgroundColor3 = C_AMBER, BorderSizePixel = 0 })
+        corner(pointer, 1)
         markers[q] = m
     end
-    m.Tag.Text = "Q" .. index
+    m.Tag.Text = "Quin #" .. string.sub(q:GetAttribute("QuinId") or "Q_????", 3, 6)
     return m
 end
 local function updateMarkers()
@@ -542,7 +544,9 @@ UserInputService.InputBegan:Connect(function(input, gp)
         return
     end
     local key = input.KeyCode
-    if key == Enum.KeyCode.Backspace then
+    if input.UserInputType == Enum.UserInputType.MouseButton3 then
+        using.cursor = not using.cursor -- (the cursor back to click, or the mouse looking again)
+    elseif key == Enum.KeyCode.Backspace then
         stopUsing()
     elseif key == Enum.KeyCode.B then
         setMode("bino")
@@ -588,7 +592,7 @@ local PLAN_ROWS = {
 }
 planGui = new("ScreenGui", { Name = "PrepPlanUI", ResetOnSpawn = false, DisplayOrder = 72, IgnoreGuiInset = true, Enabled = false, Parent = player:WaitForChild("PlayerGui") })
 local planTerminal = nil -- (opened from the menu without the binoculars: the terminal it belongs to)
-local planPanel = new("Frame", { Name = "PlanPanel", Parent = planGui, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 24, 0.5, 0), Size = UDim2.fromOffset(372, 470), BackgroundColor3 = C_BG, BackgroundTransparency = 0.08 })
+local planPanel = new("Frame", { Name = "PlanPanel", Parent = planGui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(372, 470), BackgroundColor3 = C_BG, BackgroundTransparency = 0.08 })
 corner(planPanel, 10)
 new("UIStroke", { Parent = planPanel, Color = C_AMBER, Thickness = 1, Transparency = 0.4 })
 label(planPanel, { Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(344, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "PLAN FOR THIS ROUND" })
@@ -635,7 +639,7 @@ local function refreshPlan()
         c.card.Visible = q ~= nil
         if q then
             local bond = q:GetAttribute("Bond") or 0
-            c.title.Text = string.format("%s  •  %s  •  Bond %d", q.Name, tostring(q:GetAttribute("Temperament") or "?"), bond)
+            c.title.Text = string.format("Quin #%s  •  %s  •  Bond %d", string.sub(q:GetAttribute("QuinId") or "Q_????", 3, 6), tostring(q:GetAttribute("Temperament") or "?"), bond)
             local follow = q:GetAttribute("PlanFollow")
             local clash = q:GetAttribute("PlanClash")
             c.follow.Text = clash and string.format("Against its nature (%s): follows %d%%, hesitates", clash, math.floor((follow or 0) * 100 + 0.5))
@@ -789,6 +793,7 @@ end
 local lastStats, lastDoors = 0, 0
 RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Value - 1, function(dt)
     local now = os.clock()
+    shared.PrepTerminalBusy = using ~= nil or planGui.Enabled or menuGui.Enabled
     if now - lastDoors > 0.5 then
         lastDoors = now
         refreshDoors()
@@ -821,7 +826,9 @@ RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Val
         return
     end
     -- the mouse looks around freely; Alt (or the plan panel open) gives the cursor back
-    lookHeld = not planGui.Enabled and not UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) and not UserInputService:IsKeyDown(Enum.KeyCode.RightAlt)
+    local results = player.PlayerGui:FindFirstChild("MatchResultsUI") -- (the results card: it needs the cursor)
+    lookHeld = not using.cursor and not planGui.Enabled and not (results and results.Enabled)
+        and not UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) and not UserInputService:IsKeyDown(Enum.KeyCode.RightAlt)
     if lookHeld then
         local delta = UserInputService:GetMouseDelta()
         local scale = LOOK_SENSITIVITY * (using.sFov / BASE_FOV)
@@ -843,7 +850,7 @@ RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Val
     if using.mode == "bino" then
         cf = binocularCFrame(dt)
         viewLabel.Text = "BINOCULARS"
-        hintLabel.Text = "Mouse looks  •  WASD fly  •  Space / C up, down  •  wheel zoom  •  hold Alt for the cursor  •  1 / 2 your Quins  •  M markers  •  P plan  •  Backspace leaves"
+        hintLabel.Text = "Mouse looks  •  WASD fly  •  Space / C up, down  •  wheel zoom  •  middle mouse for the cursor  •  1 / 2 your Quins  •  M markers  •  P plan  •  Backspace leaves"
     else
         local q = myQuins()[using.mode]
         local root = aliveRoot(q)
@@ -855,11 +862,11 @@ RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Val
         if using.view == "third" then
             hideQuin(nil)
             cf = thirdPersonCFrame(root, dt)
-            hintLabel.Text = "Mouse orbits  •  wheel for distance  •  V view  •  B binoculars  •  hold Alt for the cursor  •  Backspace leaves"
+            hintLabel.Text = "Mouse orbits  •  wheel for distance  •  V view  •  B binoculars  •  middle mouse for the cursor  •  Backspace leaves"
         else
             hideQuin(q)
             cf = povCFrame(q, root, dt)
-            hintLabel.Text = "Mouse looks  •  wheel to zoom  •  V view  •  B binoculars  •  hold Alt for the cursor  •  Backspace leaves"
+            hintLabel.Text = "Mouse looks  •  wheel to zoom  •  V view  •  B binoculars  •  middle mouse for the cursor  •  Backspace leaves"
         end
         viewLabel.Text = string.format("MY QUIN %d  •  %s", using.mode, using.view == "third" and "3RD PERSON" or "POV")
     end

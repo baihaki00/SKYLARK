@@ -12,6 +12,17 @@ local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+-- The debug buttons (Play As Admin / Play As Roblox Player / Spectator HUD) stay hidden; F8 shows
+-- or hides them. Their keys (P, H) work either way. Read through shared.DebugButtons().
+shared.DebugButtons = function()
+    return player:GetAttribute("ShowDebugButtons") == true
+end
+game:GetService("UserInputService").InputBegan:Connect(function(input, gp)
+    if not gp and input.KeyCode == Enum.KeyCode.F8 then
+        player:SetAttribute("ShowDebugButtons", not shared.DebugButtons() or nil)
+    end
+end)
+
 local ADMIN_SCREENS = {
     QuinMenuUI = true, AnimationLabUI = true, ArenaOrchestratorUI = true, JumpDebugUI = true,
     ArenaDroneUI = true, MasterDebugUI = true, TuningPanel = true,

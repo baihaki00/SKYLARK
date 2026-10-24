@@ -155,8 +155,11 @@ togglePill.TextColor3 = Color3.fromRGB(240, 245, 255)
 togglePill.Font = Enum.Font.GothamBold
 togglePill.TextSize = 12
 togglePill.Text = "👁️ Spectator HUD [H]"
-togglePill.Visible = true
+togglePill.Visible = player:GetAttribute("ShowDebugButtons") == true -- (a debug button: F8, SkylarkRoleClient)
 togglePill.Parent = gui
+player:GetAttributeChangedSignal("ShowDebugButtons"):Connect(function()
+	togglePill.Visible = player:GetAttribute("ShowDebugButtons") == true and Workspace:GetAttribute("HideSpectatorHUD") ~= true
+end)
 
 local pillCorner = Instance.new("UICorner")
 pillCorner.CornerRadius = UDim.new(0, 18)
@@ -522,7 +525,7 @@ local function setHudVisibility(visible)
 		togglePill.Visible = false
 	else
 		outerFrame.Visible = visible
-		togglePill.Visible = true
+		togglePill.Visible = player:GetAttribute("ShowDebugButtons") == true
 		togglePill.Text = visible and "👁️ Close Spectator [H]" or "👁️ Spectator HUD [H]"
 	end
 end
@@ -855,7 +858,7 @@ RunService.Heartbeat:Connect(function()
 	else
 		local showHUD = isHudVisible
 		outerFrame.Visible = showHUD
-		togglePill.Visible = true
+		togglePill.Visible = player:GetAttribute("ShowDebugButtons") == true
 		togglePill.Text = showHUD and "👁️ Close Spectator [H]" or "👁️ Spectator HUD [H]"
 
 		if count == 0 and showHUD then
