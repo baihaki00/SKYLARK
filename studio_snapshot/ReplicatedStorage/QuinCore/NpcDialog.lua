@@ -1,9 +1,9 @@
 --// NpcDialog.lua (client only)
--- Talking to an NPC: the camera comes round in front of the NPC, slid to their left and looking
--- straight ahead (the way they face), so they stand in the middle of the left half of the screen,
--- facing front, with what they say in a big speech bubble over their head; the menu (what you can
--- do with them) is on the right half. The NPC never turns. Anyone standing between the camera and
--- the NPC (a queue, passers-by) is hidden on your screen while it's open. Only you see it. The player's own body is hidden and stands
+-- Talking to an NPC: a nearly orthographic camera in front of the NPC (far back, very narrow FOV),
+-- slid aside so they stand in the middle of the left half of the screen, seen flat and front-on
+-- with their desk, what they say in a big speech bubble over their head; the menu (what you can do
+-- with them) is on the right half. The NPC never turns. Whatever stands between the camera and the
+-- NPC's desk (a queue, other terminals, passers-by) is hidden on your screen while it's open. Only you see it. The player's own body is hidden and stands
 -- still while it's open.
 -- One for every NPC you deal with: the Arena Receptionist (ArenaEntry.client), and later the
 -- Trainer, the Quin Specialist and the rest.
@@ -27,9 +27,11 @@ local player = Players.LocalPlayer
 local NpcDialog = {}
 NpcDialog.__index = NpcDialog
 
-local DISTANCE = 24 -- studs in front of the NPC: far back with a long lens, so they and their desk
-local FOV = 22 --     are seen almost straight on even though the camera is slid to the side
-local RISE = 1.6 -- studs the camera sits above their head
+local FOV = 4 -- degrees: far away with a very long lens, nearly orthographic
+local VIEW_H = 11 -- studs of height the view takes in at the NPC
+local PITCH = 6 -- degrees the camera looks down on them (to see the desk's top)
+local CLEAR = 7 -- studs in front of the NPC that stay visible (their desk)
+local FADE = 0.18 -- seconds to black and back when the camera jumps
 local NPC_X = 0.25 -- (scale) where the NPC stands across the screen: the middle of the left half
 local MENU_X = 0.72 -- (scale) the centre of the menu side
 local BUBBLE_W = 380
@@ -100,8 +102,10 @@ function NpcDialog.open(model, options)
     local self = setmetatable({ open = true, model = model, head = head, placed = {}, onClose = options.onClose }, NpcDialog)
     currentDialog = self
 
-    -- the camera: in front of the NPC (the way they face; toward you if they face nowhere), looking
-    -- straight back along it, slid sideways just enough to put them at NPC_X across the screen
+    -- the camera: almost orthographic (Roblox has no orthographic camera: a very narrow FOV from far
+    -- away does it), so the NPC and their desk are seen flat and front-on even though the camera is
+    -- slid sideways to put them at NPC_X across the screen. Everything standing between the camera
+    -- and the NPC's desk is hidden on this screen (not floors, not huge parts).
     local myRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
     local npcRoot = model:FindFirstChild("HumanoidRootPart") or head
     local toMe = flat(npcRoot.CFrame.LookVector)
@@ -113,45 +117,70 @@ function NpcDialog.open(model, options)
     local right = forward:Cross(Vector3.yAxis).Unit
     local viewport = camera.ViewportSize
     local aspect = viewport.Y > 0 and viewport.X / viewport.Y or 16 / 9
-    local across = DISTANCE * (0.5 - NPC_X) * 2 * math.tan(math.rad(FOV / 2)) * aspect
-    local camPos = head.Position + toMe * DISTANCE + right * across + Vector3.new(0, RISE, 0)
-    local goal = CFrame.lookAt(camPos, camPos + forward * 10 - Vector3.new(0, 0.95, 0))
-    -- (the space between the camera and the NPC: people in it are hidden)
-    local mid = (camPos + head.Position) / 2
-    self.between = { cframe = CFrame.lookAt(mid, head.Position), size = Vector3.new(8, 10, (camPos - head.Position).Magnitude - 2) }
-    self.hidden = {}
+    local tanHalf = math.tan(math.rad(FOV / 2))
+    local distance = (VIEW_H / 2) / tanHalf
+    local across = distance * (0.5 - NPC_X) * 2 * tanHalf * aspect
+    local pitch = math.rad(PITCH)
+    local aim = head.Position - Vector3.new(0, 1.2, 0)
+    local camPos = aim + toMe * distance * math.cos(pitch) + Vector3.new(0, distance * math.sin(pitch), 0) + right * across
+    local goal = CFrame.lookAt(camPos, camPos + forward * math.cos(pitch) - Vector3.new(0, math.sin(pitch), 0))
+    local floorY = npcRoot.Position.Y - 3
+    local nearEnd = aim + toMe * CLEAR -- (the desk stays: it's within CLEAR of them)
+    local length = (camPos - nearEnd).Magnitude
+    self.between = { cframe = CFrame.lookAt((camPos + nearEnd) / 2, nearEnd), size = Vector3.new(VIEW_H * aspect + 4, VIEW_H + 4, length) }
+    self.hidden = {} -- [model or part] = true
     self.saved = { type = camera.CameraType, subject = camera.CameraSubject, fov = camera.FieldOfView }
     camera.CameraType = Enum.CameraType.Scriptable
-    -- (held every frame, last of all: other camera scripts can't pull it away)
-    local from, fromFov, t0 = camera.CFrame, camera.FieldOfView, os.clock()
-    self.cameraKey = "NpcDialogCamera_" .. tostring(t0)
     local params = OverlapParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = { model, player.Character }
-    local lastScan = 0
+    local function hideBetween()
+        for _, part in ipairs(Workspace:GetPartBoundsInBox(self.between.cframe, self.between.size, params)) do
+            local who = part:FindFirstAncestorOfClass("Model")
+            if who and who:FindFirstChildOfClass("Humanoid") then
+                self.hidden[who] = true
+            elseif not self.hidden[part] and part.Position.Y + part.Size.Y / 2 > floorY + 0.6
+                and math.max(part.Size.X, part.Size.Y, part.Size.Z) < 80 then
+                self.hidden[part] = true
+            end
+        end
+    end
+    local function applyHidden(value)
+        for thing in pairs(self.hidden) do
+            if thing:IsA("BasePart") then
+                thing.LocalTransparencyModifier = value
+            end
+            for _, d in ipairs(thing:GetDescendants()) do
+                if d:IsA("BasePart") or d:IsA("Decal") then
+                    d.LocalTransparencyModifier = value
+                end
+            end
+        end
+    end
+    self.applyHidden = applyHidden
+    -- (a quick fade to black and back hides the jump; held every frame, last of all, so other camera
+    -- scripts can't pull it away)
+    local gui = new("ScreenGui", { Name = "NpcDialogUI", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5, Parent = player:WaitForChild("PlayerGui") })
+    self.gui = gui
+    local fade = new("Frame", { Name = "Fade", Parent = gui, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1, ZIndex = 10 })
+    local t0 = os.clock()
+    local lastScan = -1
+    self.cameraKey = "NpcDialogCamera_" .. tostring(t0)
     RunService:BindToRenderStep(self.cameraKey, Enum.RenderPriority.Last.Value, function()
+        local t = os.clock() - t0
+        fade.BackgroundTransparency = t < FADE and (1 - t / FADE) or math.clamp((t - FADE) / FADE, 0, 1)
+        if t < FADE then
+            return
+        end
         if os.clock() - lastScan > 0.3 then
             lastScan = os.clock()
-            for _, part in ipairs(Workspace:GetPartBoundsInBox(self.between.cframe, self.between.size, params)) do
-                local who = part:FindFirstAncestorOfClass("Model")
-                if who and not self.hidden[who] and who:FindFirstChildOfClass("Humanoid") then
-                    self.hidden[who] = true
-                end
-            end
+            hideBetween()
         end
-        for who in pairs(self.hidden) do
-            for _, d in ipairs(who:GetDescendants()) do
-                if d:IsA("BasePart") or d:IsA("Decal") then
-                    d.LocalTransparencyModifier = 1
-                end
-            end
-        end
+        applyHidden(1)
         local view = Workspace.CurrentCamera
-        local a = math.clamp((os.clock() - t0) / 0.6, 0, 1)
-        a = 1 - (1 - a) * (1 - a)
         view.CameraType = Enum.CameraType.Scriptable
-        view.CFrame = from:Lerp(goal, a)
-        view.FieldOfView = fromFov + (FOV - fromFov) * a
+        view.CFrame = goal
+        view.FieldOfView = FOV
     end)
     self.controls = controls()
     if self.controls then
@@ -164,8 +193,6 @@ function NpcDialog.open(model, options)
     setBodyHidden(true)
 
     -- the bubble over the NPC's head (follows it on screen, kept on the left half)
-    local gui = new("ScreenGui", { Name = "NpcDialogUI", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5, Parent = player:WaitForChild("PlayerGui") })
-    self.gui = gui
     local bubble = new("Frame", { Name = "Bubble", Parent = gui, AnchorPoint = Vector2.new(0.5, 1), Size = UDim2.fromOffset(BUBBLE_W, 90), BackgroundColor3 = C_BUBBLE, Visible = false, ZIndex = 2 })
     corner(bubble, 22)
     new("UIStroke", { Color = C_INK, Thickness = 2, Parent = bubble })
@@ -306,12 +333,8 @@ function NpcDialog:close()
     if self.cameraKey then
         RunService:UnbindFromRenderStep(self.cameraKey)
     end
-    for who in pairs(self.hidden or {}) do
-        for _, d in ipairs(who:GetDescendants()) do
-            if d:IsA("BasePart") or d:IsA("Decal") then
-                d.LocalTransparencyModifier = 0
-            end
-        end
+    if self.applyHidden then
+        self.applyHidden(0)
     end
     if self.respawn then
         self.respawn:Disconnect()
