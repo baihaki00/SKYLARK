@@ -463,9 +463,9 @@ task.spawn(function()
                     return m.player == p
                 end)
                 if i then
+                    -- (off the platforms, away from your spot: out of the line; stepped aside at the front too)
                     local away = line.spots and not onLine(line, root and root.Position or Vector3.zero)
-                        and (not root or flat(root.Position - slot(line, i)).Magnitude > 8)
-                        and (not root or (root.Position - line.part.Position).Magnitude > PLAYER_AT)
+                        and (not root or flat(root.Position - slot(line, i)).Magnitude > 4)
                     local reach = LEAVE_RANGE + #line.members * SPACING
                     if skip or not root or away or (not line.spots and (root.Position - line.part.Position).Magnitude > reach) then
                         table.remove(line.members, i)

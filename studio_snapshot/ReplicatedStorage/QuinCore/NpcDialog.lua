@@ -1,7 +1,9 @@
 --// NpcDialog.lua (client only)
--- Talking to an NPC, seen from the side: the camera comes round to face the NPC and frames them on
--- the left of the screen, what they say in a big speech bubble over their head, and the menu (what
--- you can do with them) on the right. Only you see it. The player's own body is hidden and stands
+-- Talking to an NPC: the camera comes round in front of the NPC, slid to their left and looking
+-- straight ahead (the way they face), so they stand in the middle of the left half of the screen,
+-- facing front, with what they say in a big speech bubble over their head; the menu (what you can
+-- do with them) is on the right half. The NPC never turns. Anyone standing between the camera and
+-- the NPC (a queue, passers-by) is hidden on your screen while it's open. Only you see it. The player's own body is hidden and stands
 -- still while it's open.
 -- One for every NPC you deal with: the Arena Receptionist (ArenaEntry.client), and later the
 -- Trainer, the Quin Specialist and the rest.
@@ -25,9 +27,10 @@ local player = Players.LocalPlayer
 local NpcDialog = {}
 NpcDialog.__index = NpcDialog
 
-local DISTANCE = 8 -- studs from the NPC's head to the camera
-local ACROSS = 2.65 -- studs right of the NPC the camera aims at, so they stand on the left of the screen
-local FOV = 50
+local DISTANCE = 24 -- studs in front of the NPC: far back with a long lens, so they and their desk
+local FOV = 22 --     are seen almost straight on even though the camera is slid to the side
+local RISE = 1.6 -- studs the camera sits above their head
+local NPC_X = 0.25 -- (scale) where the NPC stands across the screen: the middle of the left half
 local MENU_X = 0.72 -- (scale) the centre of the menu side
 local BUBBLE_W = 380
 local TYPE_SPEED = 55 -- characters a second
@@ -97,9 +100,8 @@ function NpcDialog.open(model, options)
     local self = setmetatable({ open = true, model = model, head = head, placed = {}, onClose = options.onClose }, NpcDialog)
     currentDialog = self
 
-    -- the camera: right in front of the NPC, on their line of sight (the way they face; toward you if
-    -- they face nowhere), so they look straight into it; it turns a little to their left side, so
-    -- they stand on the left of the screen
+    -- the camera: in front of the NPC (the way they face; toward you if they face nowhere), looking
+    -- straight back along it, slid sideways just enough to put them at NPC_X across the screen
     local myRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
     local npcRoot = model:FindFirstChild("HumanoidRootPart") or head
     local toMe = flat(npcRoot.CFrame.LookVector)
@@ -109,14 +111,41 @@ function NpcDialog.open(model, options)
     toMe = toMe.Magnitude > 0.01 and toMe.Unit or Vector3.new(0, 0, 1)
     local forward = -toMe
     local right = forward:Cross(Vector3.yAxis).Unit
-    local camPos = head.Position + toMe * DISTANCE + Vector3.new(0, 0.3, 0)
-    local goal = CFrame.lookAt(camPos, head.Position + right * ACROSS - Vector3.new(0, 0.45, 0))
+    local viewport = camera.ViewportSize
+    local aspect = viewport.Y > 0 and viewport.X / viewport.Y or 16 / 9
+    local across = DISTANCE * (0.5 - NPC_X) * 2 * math.tan(math.rad(FOV / 2)) * aspect
+    local camPos = head.Position + toMe * DISTANCE + right * across + Vector3.new(0, RISE, 0)
+    local goal = CFrame.lookAt(camPos, camPos + forward * 10 - Vector3.new(0, 0.95, 0))
+    -- (the space between the camera and the NPC: people in it are hidden)
+    local mid = (camPos + head.Position) / 2
+    self.between = { cframe = CFrame.lookAt(mid, head.Position), size = Vector3.new(8, 10, (camPos - head.Position).Magnitude - 2) }
+    self.hidden = {}
     self.saved = { type = camera.CameraType, subject = camera.CameraSubject, fov = camera.FieldOfView }
     camera.CameraType = Enum.CameraType.Scriptable
     -- (held every frame, last of all: other camera scripts can't pull it away)
     local from, fromFov, t0 = camera.CFrame, camera.FieldOfView, os.clock()
     self.cameraKey = "NpcDialogCamera_" .. tostring(t0)
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = { model, player.Character }
+    local lastScan = 0
     RunService:BindToRenderStep(self.cameraKey, Enum.RenderPriority.Last.Value, function()
+        if os.clock() - lastScan > 0.3 then
+            lastScan = os.clock()
+            for _, part in ipairs(Workspace:GetPartBoundsInBox(self.between.cframe, self.between.size, params)) do
+                local who = part:FindFirstAncestorOfClass("Model")
+                if who and not self.hidden[who] and who:FindFirstChildOfClass("Humanoid") then
+                    self.hidden[who] = true
+                end
+            end
+        end
+        for who in pairs(self.hidden) do
+            for _, d in ipairs(who:GetDescendants()) do
+                if d:IsA("BasePart") or d:IsA("Decal") then
+                    d.LocalTransparencyModifier = 1
+                end
+            end
+        end
         local view = Workspace.CurrentCamera
         local a = math.clamp((os.clock() - t0) / 0.6, 0, 1)
         a = 1 - (1 - a) * (1 - a)
@@ -276,6 +305,13 @@ function NpcDialog:close()
     end
     if self.cameraKey then
         RunService:UnbindFromRenderStep(self.cameraKey)
+    end
+    for who in pairs(self.hidden or {}) do
+        for _, d in ipairs(who:GetDescendants()) do
+            if d:IsA("BasePart") or d:IsA("Decal") then
+                d.LocalTransparencyModifier = 0
+            end
+        end
     end
     if self.respawn then
         self.respawn:Disconnect()

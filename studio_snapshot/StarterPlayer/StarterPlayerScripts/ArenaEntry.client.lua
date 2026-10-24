@@ -12,6 +12,9 @@
 --     a new owner (none of your Quins has fought yet), and once you're registered they tell you your
 --     Quins and side and ask: off to your prep room now ("goprep"), or later (then: be back inside
 --     the arena's grounds before it starts). A terminal with no receptionist opens the menus alone;
+--   * done at the terminal (the dialog closes) while standing on its front queue platform with
+--     someone waiting behind: you're stepped off to the side of it (left, or right if that's
+--     blocked), so the line moves up. Alone in the line: you stay where you are;
 --   * leaving the arena's grounds while entered (ArenaRegistration: player ArenaOutside /
 --     ArenaLeaveIn): a warning across the top; SHOW ARENA GROUNDS (Menu > DEBUG) draws the circle;
 --   * the terminal opens on two choices: SPECTATE (left: pick a side
@@ -451,7 +454,61 @@ vipButton.MouseButton1Click:Connect(function() pickSeat = "VIP" refreshSpectate(
 
 local dialog = nil -- the receptionist's NpcDialog while open
 
+local function flatGap(a, b)
+    return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
+end
+
+-- Done at a terminal: off its front platform to the side, if anyone waits on the platforms behind
+local function stepAside(terminal)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not (terminal and root) then
+        return
+    end
+    local trigger, best = nil, 14
+    for _, d in ipairs(Workspace:GetDescendants()) do
+        if d.Name == "QueuePlatformTrigger" and d:IsA("BasePart") and flatGap(d.Position, terminal.Position) < best then
+            trigger, best = d, flatGap(d.Position, terminal.Position)
+        end
+    end
+    if not trigger or flatGap(root.Position, trigger.Position) > 3.6 then
+        return -- (not on the front spot)
+    end
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = { character }
+    local waiting, last = false, trigger
+    for _, pad in ipairs(trigger.Parent:GetChildren()) do
+        if pad.Name == "QueuePlatform" and pad:IsA("BasePart") then
+            if (pad.Position - trigger.Position).Magnitude > (last.Position - trigger.Position).Magnitude then
+                last = pad
+            end
+            local top = pad.Position + Vector3.new(0, pad.Size.Y / 2 + 3, 0)
+            for _, part in ipairs(Workspace:GetPartBoundsInBox(CFrame.new(top), Vector3.new(pad.Size.X, 5, pad.Size.Z), params)) do
+                local model = part:FindFirstAncestorOfClass("Model")
+                if model and model:FindFirstChildOfClass("Humanoid") then
+                    waiting = true
+                end
+            end
+        end
+    end
+    if not waiting then
+        return
+    end
+    local dir = Vector3.new(last.Position.X - trigger.Position.X, 0, last.Position.Z - trigger.Position.Z)
+    dir = dir.Magnitude > 0.1 and dir.Unit or Vector3.new(0, 0, -1)
+    local side = Vector3.new(-dir.Z, 0, dir.X)
+    for _, s in ipairs({ side, -side }) do
+        local spot = trigger.Position + s * 5.5 + Vector3.new(0, trigger.Size.Y / 2 + 3, 0)
+        if #Workspace:GetPartBoundsInBox(CFrame.new(spot), Vector3.new(3, 4, 3), params) == 0 then
+            character:PivotTo(CFrame.lookAt(spot, spot + dir))
+            return
+        end
+    end
+end
+
 local function closePopup()
+    local terminal = openTerminal
     popup.Visible = false
     chooser.Visible = false
     spectate.Visible = false
@@ -460,6 +517,7 @@ local function closePopup()
         local d = dialog
         dialog = nil
         d:close()
+        stepAside(terminal)
     end
 end
 
