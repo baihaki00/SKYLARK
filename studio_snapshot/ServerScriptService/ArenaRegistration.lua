@@ -60,6 +60,7 @@ local QuinRosterService = require(ServerScriptService:WaitForChild("QuinRosterSe
 local Payouts = require(ServerScriptService:WaitForChild("SkylarkPayouts"))
 local QuinCare = require(ServerScriptService:WaitForChild("QuinCare"))
 local ArenaTiming = require(QuinCore:WaitForChild("ArenaTiming"))
+local ArenaNpcOwners = require(ServerScriptService:WaitForChild("ArenaNpcOwners"))
 
 local Registration = {}
 
@@ -73,6 +74,20 @@ local windowKey = nil -- the event the entries are for
 local windowSlot = nil
 local windowKind = nil -- "Live" | "Soon" (walk-in desk open) | "Booking" (boards only)
 local boardVersion = 0
+
+-- NPC OWNERS IN THE QUEUE: when an event's boards open, a pool of NPC owners (ArenaNpcOwners.newOwner)
+-- is made for it, each with an arrival time: ~40% prebook (a side by the same strength rule, shown
+-- on the boards), the rest walk in once the desk opens. Arriving, one registers if the event still
+-- has seats for its Quins (players' and NPC owners' Quins counted), else it doesn't get in. They are
+-- real entries: the same owners fill the prep rooms round after round. Players always come first:
+-- they are seated before any NPC owner, and a player registering into a full event bumps the
+-- newest NPC owner (walk-ins before prebooks). Off: Workspace ArenaNpcOwners = false (they leave).
+local npcEntries = {} -- { npc = { name, quins }, prebook, side, registeredAt } in arrival order
+local npcPending = {} -- { npc, at (clock time), prebook } still to arrive
+local NPC_PREBOOK_SHARE = 0.4
+local NPC_SPARE = 4 -- Quins in the pool beyond the seats (the late ones find it full)
+local npcRng = Random.new()
+local buildNpcPool, npcTick, makeRoomForPlayers -- (below)
 
 -- ============================================================================
 -- ARENA TERMINALS (walk-in) AND ARENA BOARDS (prebook)
@@ -254,6 +269,7 @@ local function clearAll()
         clearPlayer(e.player)
     end
     entries = {}
+    npcEntries, npcPending = {}, {}
     publish()
 end
 
@@ -302,6 +318,7 @@ local function refreshWindow()
         windowSlot = slot
         if slot then
             slot.PrebookOpensAt = prebookOpensAt(slot)
+            buildNpcPool(slot)
         end
     end
     windowKind = kind
@@ -312,6 +329,12 @@ local function refreshWindow()
             if not e.prebook then
                 entries[userId] = nil
                 clearPlayer(e.player)
+                dropped = true
+            end
+        end
+        for i = #npcEntries, 1, -1 do
+            if not npcEntries[i].prebook then
+                table.remove(npcEntries, i)
                 dropped = true
             end
         end
@@ -369,7 +392,7 @@ function Registration.pickRound(mode, teamSize)
     local slot = ArenaSchedule.slotAt(SkylarkTime.now())
     local seats = seatsFor(mode, teamSize)
     Workspace:SetAttribute("ArenaRoundSeats", seats)
-    if seats == 0 or not windowKey or slot.Key ~= windowKey or not next(entries) then
+    if seats == 0 or not windowKey or slot.Key ~= windowKey or (not next(entries) and #npcEntries == 0) then
         return {}
     end
     local perTeam = mode == "FFA" and seats or (mode == "1vs1" and 1 or teamSize)
@@ -438,9 +461,65 @@ function Registration.pickRound(mode, teamSize)
             e.satOut += 1
         end
     end
+    local playerQuins = #entrants
+
+    -- then the NPC owners in the queue, after every player: prebooks on their sides, walk-ins
+    -- strongest first, each to the side that will be weaker (its Quins plus its empty seats at ~55)
+    local sum = { TeamAlpha = 0, TeamBeta = 0 }
+    for _, en in ipairs(entrants) do
+        if en.team then
+            sum[en.team] += strength(en.quin)
+        end
+    end
+    local function seatNpc(ne, team)
+        local owner = { name = ne.npc.name, npc = true, team = team } -- (a fresh one each round: the prep room gives it a body)
+        for _, q in ipairs(ne.npc.quins) do
+            if #entrants >= seats or (team and teamCount[team] >= perTeam) then
+                break
+            end
+            table.insert(entrants, { npc = owner, quin = q, team = team })
+            if team then
+                teamCount[team] += 1
+                sum[team] += strength(q)
+            end
+        end
+    end
+    local npcPrebooks, npcWalkIns = {}, {}
+    for _, ne in ipairs(npcEntries) do
+        table.insert(ne.prebook and npcPrebooks or npcWalkIns, ne)
+    end
+    for _, ne in ipairs(npcPrebooks) do
+        seatNpc(ne, mode ~= "FFA" and (ne.side or "TeamAlpha") or nil)
+    end
+    local power = {}
+    for _, ne in ipairs(npcWalkIns) do
+        power[ne] = 0
+        for _, q in ipairs(ne.npc.quins) do
+            power[ne] += strength(q)
+        end
+    end
+    table.sort(npcWalkIns, function(a, b)
+        return power[a] > power[b]
+    end)
+    for _, ne in ipairs(npcWalkIns) do
+        if #entrants >= seats then
+            break
+        end
+        local team = nil
+        if mode ~= "FFA" then
+            local roomA, roomB = perTeam - teamCount.TeamAlpha, perTeam - teamCount.TeamBeta
+            if roomA <= 0 and roomB <= 0 then
+                break
+            end
+            team = roomA <= 0 and "TeamBeta" or (roomB <= 0 and "TeamAlpha"
+                or ((sum.TeamAlpha + roomA * 55 <= sum.TeamBeta + roomB * 55) and "TeamAlpha" or "TeamBeta"))
+        end
+        seatNpc(ne, team)
+    end
+
     publish()
-    print(string.format("[ArenaRegistration] %s: %d of %d seats to players' Quins, %d arena Quins fill the rest",
-        windowSlot and windowSlot.Name or "Round", #entrants, seats, seats - #entrants))
+    print(string.format("[ArenaRegistration] %s: %d of %d seats to players' Quins, %d to NPC owners in the queue, %d left for arena Quins",
+        windowSlot and windowSlot.Name or "Round", playerQuins, seats, #entrants - playerQuins, seats - #entrants))
     return entrants
 end
 
@@ -529,6 +608,7 @@ local function register(player, slots, anywhere, room) -- (anywhere: the debug q
     else
         entries[player.UserId] = { player = player, slots = chosen, registeredAt = os.clock(), satOut = 0, room = room }
     end
+    makeRoomForPlayers()
     publish()
     return true, string.format("Entered %s with %d Quin%s. Entry %d SC per Quin, paid each round they fight.",
         windowSlot.Name, #chosen, #chosen > 1 and "s" or "", Payouts.ENTRY_FEE)
@@ -545,6 +625,14 @@ local function sideStrength(except)
                     sum[e.side] += strength(q)
                     count[e.side] += 1
                 end
+            end
+        end
+    end
+    for _, ne in ipairs(npcEntries) do
+        if ne.prebook and ne.side then
+            for _, q in ipairs(ne.npc.quins) do
+                sum[ne.side] += strength(q)
+                count[ne.side] += 1
             end
         end
     end
@@ -621,6 +709,7 @@ local function prebook(player, request)
         player = player, slots = chosen, registeredAt = os.clock(), satOut = existing and existing.satOut or 0,
         prebook = true, side = side, rate = rate, credit = credit, room = room,
     }
+    makeRoomForPlayers()
     publish()
     return true, string.format("Prebooked %s for %s with %d Quin%s at %d SC a round (%d%% off). Deposit %d SC paid.",
         side == "TeamAlpha" and "Alpha" or "Beta", windowSlot.Name, #chosen, #chosen > 1 and "s" or "", rate,
@@ -664,30 +753,44 @@ local function boardView(player)
     local sides = { TeamAlpha = {}, TeamBeta = {} }
     local sum = { TeamAlpha = 0, TeamBeta = 0 }
     local walkIns = 0
+    local function addQuin(owner, side, q)
+        local record = q.BattleRecord or {}
+        local revealed = {}
+        for _, h in ipairs(QuinCare.knownHabits(q)) do
+            table.insert(revealed, h.Name .. " " .. h.Band)
+        end
+        sum[side] += strength(q)
+        table.insert(owner.Quins, {
+            Tag = q.QuinId:sub(3, 6),
+            Temperament = Temperament.displayName(q.Temperament or ""),
+            Wins = record.Wins or 0,
+            Losses = record.Losses or 0,
+            Condition = band(QuinCare.condition(q), 50, 80, { "Battered", "Worn", "Fresh" }),
+            Bond = band(q.Bond or 0, 30, 70, { "New", "Close", "Bonded" }),
+            Revealed = revealed,
+        })
+    end
     for _, e in ipairs(ordered()) do
         if e.prebook and e.side then
             local owner = { Name = e.player.DisplayName, Quins = {} }
             for _, s in ipairs(e.slots) do
                 local q = QuinRosterService.getQuinInSlot(e.player, s)
                 if q then
-                    local record = q.BattleRecord or {}
-                    local revealed = {}
-                    for _, h in ipairs(QuinCare.knownHabits(q)) do
-                        table.insert(revealed, h.Name .. " " .. h.Band)
-                    end
-                    sum[e.side] += strength(q)
-                    table.insert(owner.Quins, {
-                        Tag = q.QuinId:sub(3, 6),
-                        Temperament = Temperament.displayName(q.Temperament or ""),
-                        Wins = record.Wins or 0,
-                        Losses = record.Losses or 0,
-                        Condition = band(QuinCare.condition(q), 50, 80, { "Battered", "Worn", "Fresh" }),
-                        Bond = band(q.Bond or 0, 30, 70, { "New", "Close", "Bonded" }),
-                        Revealed = revealed,
-                    })
+                    addQuin(owner, e.side, q)
                 end
             end
             table.insert(sides[e.side], owner)
+        else
+            walkIns += 1
+        end
+    end
+    for _, ne in ipairs(npcEntries) do
+        if ne.prebook and ne.side then
+            local owner = { Name = ne.npc.name, Quins = {} }
+            for _, q in ipairs(ne.npc.quins) do
+                addQuin(owner, ne.side, q)
+            end
+            table.insert(sides[ne.side], owner)
         else
             walkIns += 1
         end
@@ -807,9 +910,148 @@ Players.PlayerRemoving:Connect(function(player)
     end
 end)
 
+-- ============================================================================
+-- NPC OWNERS IN THE QUEUE
+-- ============================================================================
+
+local function eventSeats(slot)
+    local m = slot and slot.Match
+    return m and seatsFor(m.Mode, m.TeamSize or 1) or 0
+end
+
+local function quinsIn()
+    local n = 0
+    for _, e in pairs(entries) do
+        n += #e.slots
+    end
+    for _, ne in ipairs(npcEntries) do
+        n += #ne.npc.quins
+    end
+    return n
+end
+
+-- The pool for an event: owners enough for its seats and a few more, each with an arrival time
+-- (fromNow: switched on mid-event, so they arrive over the next minute)
+buildNpcPool = function(slot, fromNow)
+    npcEntries, npcPending = {}, {}
+    local seats = eventSeats(slot)
+    if seats == 0 or not ArenaNpcOwners.enabled() then
+        return
+    end
+    local perPlayer = ArenaSchedule.perPlayer(slot)
+    local m = ArenaTiming.markers(ArenaSchedule, slot)
+    local quins = 0
+    while quins < seats + NPC_SPARE do
+        local npc = ArenaNpcOwners.newOwner(perPlayer)
+        quins += #npc.quins
+        local prebook = npcRng:NextNumber() < NPC_PREBOOK_SHARE
+        local from, to
+        if fromNow then
+            from = SkylarkTime.now()
+            to = from + 60 * math.max(SkylarkTime.rate(), 1)
+        elseif prebook then
+            from, to = m.PrebookOpens, math.max(m.PrebookOpens, slot.StartsAt - 60)
+        else
+            from, to = m.WalkInOpens, slot.StartsAt + 0.15 * (slot.EndsAt - slot.StartsAt)
+        end
+        table.insert(npcPending, { npc = npc, prebook = prebook, at = from + npcRng:NextNumber() * math.max(0, to - from) })
+    end
+    table.sort(npcPending, function(a, b)
+        return a.at < b.at
+    end)
+end
+
+-- A player in: if the event's seats are over-full, the newest NPC owners give up their places
+-- (walk-ins before prebooks)
+makeRoomForPlayers = function()
+    local seats = eventSeats(windowSlot)
+    if seats == 0 then
+        return
+    end
+    for _, wantPrebook in ipairs({ false, true }) do
+        for i = #npcEntries, 1, -1 do
+            if quinsIn() <= seats then
+                return
+            end
+            local ne = npcEntries[i]
+            if (ne.prebook == true) == wantPrebook then
+                table.remove(npcEntries, i)
+                print(string.format("[ArenaRegistration] %s gives up their place to a player", ne.npc.name))
+            end
+        end
+    end
+end
+
+-- The prebooked Quins on a side (players' and NPC owners')
+local function prebookedOn(side)
+    local n = 0
+    for _, e in pairs(entries) do
+        if e.prebook and e.side == side then
+            n += #e.slots
+        end
+    end
+    for _, ne in ipairs(npcEntries) do
+        if ne.prebook and ne.side == side then
+            n += #ne.npc.quins
+        end
+    end
+    return n
+end
+
+npcTick = function()
+    if not ArenaNpcOwners.enabled() then
+        if #npcEntries > 0 or #npcPending > 0 then -- (switched off: they leave)
+            npcEntries, npcPending = {}, {}
+            boardVersion += 1
+            Workspace:SetAttribute("ArenaPrebookVersion", boardVersion)
+        end
+        Workspace:SetAttribute("ArenaNpcQueue", nil)
+        return
+    end
+    if windowSlot and #npcEntries == 0 and #npcPending == 0 then -- (switched on again mid-event)
+        buildNpcPool(windowSlot, true)
+    end
+    local now = SkylarkTime.now()
+    local seats = eventSeats(windowSlot)
+    local perTeam = windowSlot and windowSlot.Match and windowSlot.Match.Mode == "TeamBattle" and (windowSlot.Match.TeamSize or 1) or seats
+    local changed = false
+    while npcPending[1] and npcPending[1].at <= now do
+        local p = table.remove(npcPending, 1)
+        local fits = quinsIn() + #p.npc.quins <= seats
+        if fits and p.prebook and prebookOpen() then
+            -- a side by the board rule: the weaker one, if it has prebook places left
+            local sum = sideStrength(nil)
+            local side = sum.TeamAlpha <= sum.TeamBeta and "TeamAlpha" or "TeamBeta"
+            local other = side == "TeamAlpha" and "TeamBeta" or "TeamAlpha"
+            if prebookedOn(side) + #p.npc.quins > perTeam then
+                side = other
+            end
+            if prebookedOn(side) + #p.npc.quins <= perTeam then
+                table.insert(npcEntries, { npc = p.npc, prebook = true, side = side, registeredAt = now })
+                changed = true
+            end
+        elseif fits and entryOpen() then
+            table.insert(npcEntries, { npc = p.npc, prebook = false, registeredAt = now })
+            changed = true
+        end -- (else: full, or the desk is closed: they don't get in)
+    end
+    if changed then
+        boardVersion += 1
+        Workspace:SetAttribute("ArenaPrebookVersion", boardVersion) -- (the boards redraw)
+    end
+    local prebooked, quins = 0, 0
+    for _, ne in ipairs(npcEntries) do
+        prebooked += ne.prebook and 1 or 0
+        quins += #ne.npc.quins
+    end
+    Workspace:SetAttribute("ArenaNpcQueue", string.format("%d NPC owners entered (%d prebooked), %d Quins  •  %d arriving",
+        #npcEntries, prebooked, quins, #npcPending))
+end
+
 task.spawn(function()
     while true do
         refreshWindow()
+        npcTick()
         task.wait(0.5)
     end
 end)
@@ -820,6 +1062,9 @@ Registration.queue = function()
     local out = {}
     for pos, e in ipairs(ordered()) do
         table.insert(out, { pos = pos, name = e.player.Name, slots = e.slots, satOut = e.satOut, prebook = e.prebook, side = e.side, rate = e.rate })
+    end
+    for _, ne in ipairs(npcEntries) do
+        table.insert(out, { pos = #out + 1, name = ne.npc.name, npc = true, quins = #ne.npc.quins, prebook = ne.prebook, side = ne.side })
     end
     return out
 end

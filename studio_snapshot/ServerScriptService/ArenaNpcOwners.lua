@@ -22,6 +22,9 @@
 --     and how well they follow their owner's plan differ. In team battles they are dealt
 --     strongest first, each to the side that is weaker at that moment (players' Quins counted),
 --     so a side a strong player joined gets the lighter arena Quins.
+--   * The event's queue (ArenaRegistration): NPC owners made with newOwner register through the
+--     terminals like players (prebook or walk in), and pickRound seats them after every player;
+--     fillRound then only fills seats still empty.
 --   * Off: Workspace attribute ArenaNpcOwners = false.
 
 local Players = game:GetService("Players")
@@ -136,6 +139,20 @@ local function arenaQuin(ownerName)
     })
 end
 
+-- An NPC owner for an event's queue: a name and 1 or 2 of the arena's Quins (up to perPlayer)
+function NpcOwners.newOwner(perPlayer)
+    nameIndex = nameIndex % #NAMES + 1
+    local name = NAMES[nameIndex]
+    local quins = {}
+    for _ = 1, ((perPlayer or 1) >= 2 and rng:NextNumber() < 0.5) and 2 or 1 do
+        local quin = arenaQuin(name)
+        quin.OriginalOwnerId = quin.OwnerId
+        table.insert(quins, quin)
+    end
+    return { name = name, quins = quins }
+end
+NpcOwners.enabled = enabled
+
 -- Add NPC owners' Quins to the round's entrants (in place) and return them
 function NpcOwners.fillRound(entrants, mode, teamSize, perPlayer, roomsPerSide)
     if not enabled() or (mode ~= "TeamBattle" and mode ~= "FFA" and mode ~= "1vs1") then
@@ -148,7 +165,7 @@ function NpcOwners.fillRound(entrants, mode, teamSize, perPlayer, roomsPerSide)
     for _, e in ipairs(entrants) do
         if e.team then
             teamCount[e.team] += 1
-            ownersOnTeam[e.team][e.player] = true
+            ownersOnTeam[e.team][e.player or e.npc] = true
         end
     end
     local roomsLeft = {}

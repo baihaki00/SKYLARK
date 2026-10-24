@@ -590,7 +590,7 @@ end
 
 -- DEBUG: the switches, then the arena menu itself (ArenaBlockMenu.client lends its window)
 local function drawDebug()
-    local tools = card(64, C_AMBER)
+    local tools = card(110, C_AMBER)
     label(tools, { Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(300, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "DEBUG TOOLS" })
     label(tools, { Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(520, 16), TextSize = 12, TextColor3 = C_MUTED,
         Text = "Testers only (Studio or admins). Role now: " .. tostring(player:GetAttribute("SkylarkRole") or "?") })
@@ -602,6 +602,25 @@ local function drawDebug()
     f8.MouseButton1Click:Connect(function()
         player:SetAttribute("ShowDebugButtons", not on or nil)
         shared.OpenPlayerMenu("DEBUG") -- (draws the tab again)
+    end)
+    -- NPC owners in the event's queue (ArenaRegistration): the switch and what they're doing
+    local npcOn = Workspace:GetAttribute("ArenaNpcOwners") ~= false
+    label(tools, { Position = UDim2.fromOffset(16, 66), Size = UDim2.fromOffset(700, 16), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT,
+        Text = "NPC OWNERS  •  " .. (npcOn and (Workspace:GetAttribute("ArenaNpcQueue") or "no event") or "off: the arena's own Quins fill empty seats") })
+    label(tools, { Position = UDim2.fromOffset(16, 84), Size = UDim2.fromOffset(700, 16), TextSize = 11, TextColor3 = C_MUTED,
+        Text = "They prebook and walk in like players; players are always seated first and bump the newest NPC owner." })
+    local npcButton = new("TextButton", { Name = "NpcOwnersToggle", Parent = tools, Position = UDim2.new(1, -276, 0, 62), Size = UDim2.fromOffset(260, 36),
+        Text = "NPC OWNERS:  " .. (npcOn and "ON" or "OFF"), Font = Enum.Font.GothamBold, TextSize = 12,
+        BackgroundColor3 = npcOn and C_AMBER or C_BG, TextColor3 = npcOn and C_BG or C_TEXT })
+    corner(npcButton, 7)
+    npcButton.MouseButton1Click:Connect(function()
+        local remote = net:FindFirstChild("ArenaBlockDebug")
+        if remote then
+            pcall(function()
+                remote:InvokeServer("npcowners", not npcOn)
+            end)
+        end
+        shared.OpenPlayerMenu("DEBUG")
     end)
     order += 1
     local holder = new("Frame", { Name = "ArenaMenuHolder", Parent = content, LayoutOrder = order, Size = UDim2.fromOffset(920, 776), BackgroundTransparency = 1 })
