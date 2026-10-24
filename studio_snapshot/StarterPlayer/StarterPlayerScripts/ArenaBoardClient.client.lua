@@ -485,6 +485,9 @@ task.spawn(function()
             or ((state.prebook.reason or "Closed"):gsub(" %(.-%)$", ""):gsub("^Prebook for [^%d]- opens", "Opens"))
         if player:GetAttribute("ArenaPrebooked") then
             action = "Your Prebook"
+        elseif state.prebook.open and Workspace:GetAttribute("ArenaQueueSkip") == false
+            and player:GetAttribute("TerminalQueueKind") == "prebook" and (player:GetAttribute("TerminalQueuePos") or 1) > 1 then
+            action = string.format("In line: %d ahead", player:GetAttribute("TerminalQueuePos") - 1)
         end
         for prompt in pairs(prebookPrompts) do
             if prompt.Parent then

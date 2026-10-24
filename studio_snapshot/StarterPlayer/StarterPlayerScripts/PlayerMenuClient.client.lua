@@ -590,7 +590,7 @@ end
 
 -- DEBUG: the switches, then the arena menu itself (ArenaBlockMenu.client lends its window)
 local function drawDebug()
-    local tools = card(110, C_AMBER)
+    local tools = card(156, C_AMBER)
     label(tools, { Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(300, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "DEBUG TOOLS" })
     label(tools, { Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(520, 16), TextSize = 12, TextColor3 = C_MUTED,
         Text = "Testers only (Studio or admins). Role now: " .. tostring(player:GetAttribute("SkylarkRole") or "?") })
@@ -618,6 +618,26 @@ local function drawDebug()
         if remote then
             pcall(function()
                 remote:InvokeServer("npcowners", not npcOn)
+            end)
+        end
+        shared.OpenPlayerMenu("DEBUG")
+    end)
+    -- the lines at the terminals (ArenaTerminalQueue): who's in them, and do players skip them
+    local skipOn = Workspace:GetAttribute("ArenaQueueSkip") ~= false
+    label(tools, { Position = UDim2.fromOffset(16, 112), Size = UDim2.fromOffset(700, 16), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT,
+        Text = "TERMINAL LINES  •  " .. tostring(Workspace:GetAttribute("ArenaQueueBodies") or "none") })
+    label(tools, { Position = UDim2.fromOffset(16, 130), Size = UDim2.fromOffset(700, 16), TextSize = 11, TextColor3 = C_MUTED,
+        Text = skipOn and "Players skip the line: at a terminal you're served first, the NPC owner at the front waits."
+            or "Players queue: walk up to a terminal to join its line; you can register only at the front." })
+    local skipButton = new("TextButton", { Name = "QueueSkipToggle", Parent = tools, Position = UDim2.new(1, -276, 0, 108), Size = UDim2.fromOffset(260, 36),
+        Text = "PLAYERS SKIP NPC QUEUE:  " .. (skipOn and "ON" or "OFF"), Font = Enum.Font.GothamBold, TextSize = 12,
+        BackgroundColor3 = skipOn and C_AMBER or C_BG, TextColor3 = skipOn and C_BG or C_TEXT })
+    corner(skipButton, 7)
+    skipButton.MouseButton1Click:Connect(function()
+        local remote = net:FindFirstChild("ArenaBlockDebug")
+        if remote then
+            pcall(function()
+                remote:InvokeServer("queueskip", not skipOn)
             end)
         end
         shared.OpenPlayerMenu("DEBUG")

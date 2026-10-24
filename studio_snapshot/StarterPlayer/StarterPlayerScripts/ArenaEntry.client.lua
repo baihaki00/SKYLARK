@@ -491,8 +491,17 @@ local function refreshChooser()
     local prebooked = inEvent and player:GetAttribute("ArenaPrebooked") == true
     local watching = player:GetAttribute("SpectateSeat") ~= nil
     local walkInOpen = state.walkIn.open and Workspace:GetAttribute("ArenaRegOpen") == true
+    -- (players queue like everyone else: the desk is yours only at the front of the line)
+    local ahead = nil
+    if Workspace:GetAttribute("ArenaQueueSkip") == false then
+        local pos = player:GetAttribute("TerminalQueueKind") == "walkin" and player:GetAttribute("TerminalQueuePos")
+        ahead = pos and pos - 1 or -1
+        if ahead == 0 then
+            ahead = nil
+        end
+    end
     choiceOpen.spectate = state.spectate.open and not inEvent
-    choiceOpen.register = not prebooked and (inEvent or (walkInOpen and not watching))
+    choiceOpen.register = not prebooked and not (ahead and walkInOpen and not inEvent) and (inEvent or (walkInOpen and not watching))
     setChoice(spectateChoice, C_GREEN, "SPECTATE", choiceOpen.spectate,
         inEvent and "Not while your Quins\nare in this event" or (state.spectate.open and "Watch from the stands\nor a VIP box" or state.spectate.reason))
     local text
@@ -502,6 +511,8 @@ local function refreshChooser()
         text = walkInOpen and "Change your Quins\nor withdraw" or "Entry is closed.\nYou can still withdraw"
     elseif watching and walkInOpen then
         text = "Not while you hold\na seat this round"
+    elseif ahead and walkInOpen then
+        text = ahead > 0 and string.format("Wait your turn:\n%d ahead in line", ahead) or "Join the line\nat the terminal"
     else
         text = walkInOpen and "Enter your Quins\nfor this event" or (state.walkIn.reason or "Closed")
     end
@@ -692,7 +703,11 @@ local function refreshPrompts()
     local state = ArenaTiming.describe(SCHEDULE, Workspace:GetAttribute("ArenaPhase"))
     local entered = player:GetAttribute("ArenaEntered") == true
     local action
-    if state.walkIn.open or entered then
+    local queuePos = Workspace:GetAttribute("ArenaQueueSkip") == false and player:GetAttribute("TerminalQueueKind") == "walkin"
+        and player:GetAttribute("TerminalQueuePos")
+    if state.walkIn.open and not entered and queuePos and queuePos > 1 then
+        action = string.format("In line: %d ahead", queuePos - 1)
+    elseif state.walkIn.open or entered then
         action = entered and "Your Entry" or "Register Quins"
     elseif state.spectate.open then
         action = "Spectate"

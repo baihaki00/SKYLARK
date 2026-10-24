@@ -1,6 +1,7 @@
 --// OwnerChatter.lua
 -- What Quin owners, their managers and their friends say to each other in the preparation rooms
--- and the hallways (ArenaNpcOwners). Unlike the stands they discuss: a conversation is a thread on
+-- and the hallways (ArenaNpcOwners), and in line at an arena's terminals (ArenaTerminalQueue:
+-- context "queue", and queueLine for one waiting alone). Unlike the stands they discuss: a conversation is a thread on
 -- one topic, 4 to 7 turns, so the answers fit the question. Separate topics before the fight
 -- (pre), during it (live) and after it (post), at the glass (watching their own Quins) and in the
 -- hallway (friends hanging out). Slots: {team} (the speaker's side), {other}, {quin} (a Quin
@@ -99,6 +100,38 @@ local TOPICS = {
                 reply = { "Big match night.", "Nobody wants to sit inside.", "Ha, right?", "Squeeze past, it's fine." },
                 follow = { "I lost {name} somewhere back there.", "Should we find a room to watch from?", "Is it always like this?" },
                 close = { "They'll find us.", "Let's knock on a few doors.", "Every big night.", "Let's just stay here." },
+            },
+        },
+        queue = { -- (in line at a terminal: the same whatever the arena is doing)
+            { -- the line
+                open = { "This line is barely moving.", "How long have you been standing here?", "Is this the walk-in line?", "Why is there always a queue at this one?" },
+                reply = { "Ten minutes, maybe more.", "Just got here myself.", "It moves once the front one's done.", "The other terminal's worse, trust me." },
+                follow = { "Should we try the other terminal?", "What's the hold-up at the front?", "Think we'll get a seat?" },
+                close = { "We'll get there.", "Patience, I guess.", "Worth the wait.", "Almost our turn." },
+            },
+            { -- the side
+                open = { "You going {team} or {other}?", "Which side are you booking?", "Picking a side this time?", "Who are you backing tonight?" },
+                reply = { "{team}. Always {team}.", "Whichever side's lighter.", "Haven't decided yet.", "{other} looked stacked on the board." },
+                follow = { "Did you see who's on {other}?", "You think the sides are even?", "Why that side?" },
+                close = { "Good luck out there.", "See you on the other side then.", "May the better Quins win.", "Fair enough." },
+            },
+            { -- the price
+                open = { "Did you see today's price?", "Booking early really is cheaper, huh.", "Entry's gone up, hasn't it?", "Should've prebooked yesterday." },
+                reply = { "The early ones get the discount.", "Same as always.", "Worth it if your Quin wins once.", "One round pays it back." },
+                follow = { "How many rounds are you doing?", "Bringing both of yours?", "Think it's worth it tonight?" },
+                close = { "We'll see after tonight.", "Can't win if you don't enter.", "Fine, I'm in.", "Wallet's crying, but okay." },
+            },
+            { -- the Quins
+                open = { "How's your Quin holding up?", "Did yours get fixed at the Workshop?", "Bringing {quin} tonight?", "Mine's still sore from last round." },
+                reply = { "Fresh and angry.", "Good as new, cost me though.", "Bit worn, but it'll fight.", "Trained all week." },
+                follow = { "Is it ready for a 16v16?", "What's its record now?", "Does it listen to your plans yet?" },
+                close = { "Then it'll be fine.", "Let's hope it holds.", "We'll find out tonight.", "Good. Bring it." },
+            },
+            { -- {place}
+                open = { "Were you at {place} earlier?", "Grab food before this?", "Saw {name} by the boards.", "This plaza's packed tonight." },
+                reply = { "Briefly. Too crowded.", "Noodles. Best decision today.", "Ha, they always show up.", "Big event night." },
+                follow = { "Going back after?", "Are they entering too?", "Is it always like this here?" },
+                close = { "Maybe after the round.", "Probably, knowing them.", "Every event night.", "Let's just get in first." },
             },
         },
     },
@@ -286,7 +319,7 @@ end
 -- A discussion for `phase` ("pre" / "live" / "post") and `context` ("glass" / "hall"), on one
 -- topic: { {who = 1 | 2, text}, ... }, 4 to 7 turns. `team` is the speakers' side (optional).
 function OwnerChatter.conversation(phase, context, rng, team)
-    local byContext = TOPICS[phase] or TOPICS.pre
+    local byContext = context == "queue" and TOPICS.pre or (TOPICS[phase] or TOPICS.pre)
     local topics = byContext[context] or byContext.glass
     local t = pick(topics, rng)
     local turns = {
@@ -306,6 +339,16 @@ function OwnerChatter.conversation(phase, context, rng, team)
         table.insert(turns, { who = turns[#turns].who == 1 and 2 or 1, text = fill(pick(t.close, rng), rng, team) })
     end
     return turns
+end
+
+-- One waiting alone in line, muttering
+local QUEUE_LINES = {
+    "Come on, come on...", "Any minute now.", "Is it my turn yet?", "Should've come earlier.",
+    "Hope there are seats left.", "I can see the terminal from here.", "Okay. Pick the Quins, pick the side.",
+    "Why's it so slow?", "Almost there.", "Everyone came tonight.",
+}
+function OwnerChatter.queueLine(rng)
+    return pick(QUEUE_LINES, rng)
 end
 
 -- The phase the owners talk about, from the arena's phase (Workspace attribute CrowdPhase)

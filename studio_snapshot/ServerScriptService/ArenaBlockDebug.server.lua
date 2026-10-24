@@ -13,6 +13,7 @@
 --   "print"             the current values to the output, as ArenaTiming.DEFAULTS lines
 --   "skip" / "stop"     the round's current phase / the whole round
 --   "npcowners", bool   NPC owners in the event's queue on / off (Workspace ArenaNpcOwners)
+--   "queueskip", bool   players skip the NPC owners' lines at the terminals (Workspace ArenaQueueSkip)
 -- Quick match stays on ArenaEntry ("quick"): the menu calls it there.
 
 local RunService = game:GetService("RunService")
@@ -116,6 +117,9 @@ local function handle(player, action, value)
     elseif action == "npcowners" then
         workspace:SetAttribute("ArenaNpcOwners", if value == true then nil else false)
         return true, value == true and "NPC owners on" or "NPC owners off"
+    elseif action == "queueskip" then
+        workspace:SetAttribute("ArenaQueueSkip", if value == true then nil else false)
+        return true, value == true and "Players skip the line" or "Players queue like everyone else"
     elseif action == "skip" or action == "stop" then
         local orch = shared.ArenaOrchestrator
         if not orch then

@@ -1049,6 +1049,21 @@ function NpcOwners.leave(npc, walkOut)
     end
 end
 
+-- The body tools, for NPC owners outside the rooms (ArenaTerminalQueue: the lines at the
+-- terminals). An npc there is { name, model, alive }.
+NpcOwners.body = {
+    make = makeAvatar,
+    walkTo = walkTo,
+    face = face,
+    say = say,
+    converse = converse,
+    emote = function(npc, name, seconds)
+        if npc.model then
+            NpcAnimator.emote(npc.model, name, seconds)
+        end
+    end,
+}
+
 function NpcOwners.clearAll()
     for _, m in ipairs(folder:GetChildren()) do
         m:Destroy()

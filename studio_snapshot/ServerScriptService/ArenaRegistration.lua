@@ -61,6 +61,7 @@ local Payouts = require(ServerScriptService:WaitForChild("SkylarkPayouts"))
 local QuinCare = require(ServerScriptService:WaitForChild("QuinCare"))
 local ArenaTiming = require(QuinCore:WaitForChild("ArenaTiming"))
 local ArenaNpcOwners = require(ServerScriptService:WaitForChild("ArenaNpcOwners"))
+local TerminalQueue = require(ServerScriptService:WaitForChild("ArenaTerminalQueue"))
 
 local Registration = {}
 
@@ -82,10 +83,13 @@ local boardVersion = 0
 -- real entries: the same owners fill the prep rooms round after round. Players always come first:
 -- they are seated before any NPC owner, and a player registering into a full event bumps the
 -- newest NPC owner (walk-ins before prebooks). Off: Workspace ArenaNpcOwners = false (they leave).
+-- Arriving, they walk in and queue at the terminals (ArenaTerminalQueue) and register when served;
+-- an arrival more than NPC_CATCHUP real seconds late (the clock was moved) registers at once.
 local npcEntries = {} -- { npc = { name, quins }, prebook, side, registeredAt } in arrival order
 local npcPending = {} -- { npc, at (clock time), prebook } still to arrive
 local NPC_PREBOOK_SHARE = 0.4
 local NPC_SPARE = 4 -- Quins in the pool beyond the seats (the late ones find it full)
+local NPC_CATCHUP = 90 -- real seconds
 local npcRng = Random.new()
 local buildNpcPool, npcTick, makeRoomForPlayers -- (below)
 
@@ -270,6 +274,7 @@ local function clearAll()
     end
     entries = {}
     npcEntries, npcPending = {}, {}
+    TerminalQueue.clear()
     publish()
 end
 
@@ -588,6 +593,12 @@ local function register(player, slots, anywhere, room) -- (anywhere: the debug q
     if not anywhere and not nearTerminal(player) then
         return false, "Register at " .. TERMINAL .. "."
     end
+    if not anywhere then
+        local mayUse, ahead = TerminalQueue.mayUse(player, "walkin")
+        if not mayUse then
+            return false, ahead and string.format("Wait your turn: %d ahead of you in line.", ahead) or "Join the line at the terminal."
+        end
+    end
     if player:GetAttribute("SpectateSeat") then -- (spectate the event or take part, not both)
         return false, "You hold a seat this round. Register when it ends."
     end
@@ -648,6 +659,10 @@ local function prebook(player, request)
     end
     if not nearPrebookTerminal(player) then
         return false, "Prebook at " .. PREBOOK_TERMINAL .. "."
+    end
+    local mayUse, ahead = TerminalQueue.mayUse(player, "prebook")
+    if not mayUse then
+        return false, ahead and string.format("Wait your turn: %d ahead of you in line.", ahead) or "Join the line at the terminal."
     end
     local side = request.side
     if side ~= "TeamAlpha" and side ~= "TeamBeta" then
@@ -976,6 +991,7 @@ makeRoomForPlayers = function()
             local ne = npcEntries[i]
             if (ne.prebook == true) == wantPrebook then
                 table.remove(npcEntries, i)
+                TerminalQueue.bump(ne.npc.name)
                 print(string.format("[ArenaRegistration] %s gives up their place to a player", ne.npc.name))
             end
         end
@@ -998,10 +1014,50 @@ local function prebookedOn(side)
     return n
 end
 
+-- An NPC owner at the front of a line (or arriving late): registers if they still can.
+-- "in" | "full" | "closed"
+local npcPoolKey = nil -- (the event the pool is for: a served owner from an older one doesn't count)
+local function registerNpc(p, kind, poolKey)
+    if poolKey ~= npcPoolKey or not ArenaNpcOwners.enabled() then
+        return "closed"
+    end
+    local seats = eventSeats(windowSlot)
+    local perTeam = windowSlot and windowSlot.Match and windowSlot.Match.Mode == "TeamBattle" and (windowSlot.Match.TeamSize or 1) or seats
+    if quinsIn() + #p.npc.quins > seats then
+        return "full"
+    end
+    local now = SkylarkTime.now()
+    if kind == "prebook" then
+        if not prebookOpen() then
+            return "closed"
+        end
+        -- a side by the board rule: the weaker one, if it has prebook places left
+        local sum = sideStrength(nil)
+        local side = sum.TeamAlpha <= sum.TeamBeta and "TeamAlpha" or "TeamBeta"
+        local other = side == "TeamAlpha" and "TeamBeta" or "TeamAlpha"
+        if prebookedOn(side) + #p.npc.quins > perTeam then
+            side = other
+        end
+        if prebookedOn(side) + #p.npc.quins > perTeam then
+            return "full"
+        end
+        table.insert(npcEntries, { npc = p.npc, prebook = true, side = side, registeredAt = now })
+    else
+        if not entryOpen() then
+            return "closed"
+        end
+        table.insert(npcEntries, { npc = p.npc, prebook = false, registeredAt = now })
+    end
+    boardVersion += 1
+    Workspace:SetAttribute("ArenaPrebookVersion", boardVersion) -- (the boards redraw)
+    return "in"
+end
+
 npcTick = function()
     if not ArenaNpcOwners.enabled() then
         if #npcEntries > 0 or #npcPending > 0 then -- (switched off: they leave)
             npcEntries, npcPending = {}, {}
+            TerminalQueue.clear()
             boardVersion += 1
             Workspace:SetAttribute("ArenaPrebookVersion", boardVersion)
         end
@@ -1011,33 +1067,23 @@ npcTick = function()
     if windowSlot and #npcEntries == 0 and #npcPending == 0 then -- (switched on again mid-event)
         buildNpcPool(windowSlot, true)
     end
+    npcPoolKey = windowKey
     local now = SkylarkTime.now()
-    local seats = eventSeats(windowSlot)
-    local perTeam = windowSlot and windowSlot.Match and windowSlot.Match.Mode == "TeamBattle" and (windowSlot.Match.TeamSize or 1) or seats
-    local changed = false
+    local rate = math.max(SkylarkTime.rate(), 1)
     while npcPending[1] and npcPending[1].at <= now do
         local p = table.remove(npcPending, 1)
-        local fits = quinsIn() + #p.npc.quins <= seats
-        if fits and p.prebook and prebookOpen() then
-            -- a side by the board rule: the weaker one, if it has prebook places left
-            local sum = sideStrength(nil)
-            local side = sum.TeamAlpha <= sum.TeamBeta and "TeamAlpha" or "TeamBeta"
-            local other = side == "TeamAlpha" and "TeamBeta" or "TeamAlpha"
-            if prebookedOn(side) + #p.npc.quins > perTeam then
-                side = other
+        -- which terminal: the prebook one while booking is open (if they meant to), else the desk
+        local kind = (p.prebook and prebookOpen()) and "prebook" or (entryOpen() and "walkin" or nil)
+        if kind then -- (else the desk is closed: they don't come)
+            local late = (now - p.at) / rate > NPC_CATCHUP
+            local key = windowKey
+            if late or not TerminalQueue.available(kind)
+                or not TerminalQueue.arrive(p.npc.name, kind, function()
+                    return registerNpc(p, kind, key)
+                end) then
+                registerNpc(p, kind, key)
             end
-            if prebookedOn(side) + #p.npc.quins <= perTeam then
-                table.insert(npcEntries, { npc = p.npc, prebook = true, side = side, registeredAt = now })
-                changed = true
-            end
-        elseif fits and entryOpen() then
-            table.insert(npcEntries, { npc = p.npc, prebook = false, registeredAt = now })
-            changed = true
-        end -- (else: full, or the desk is closed: they don't get in)
-    end
-    if changed then
-        boardVersion += 1
-        Workspace:SetAttribute("ArenaPrebookVersion", boardVersion) -- (the boards redraw)
+        end
     end
     local prebooked, quins = 0, 0
     for _, ne in ipairs(npcEntries) do
