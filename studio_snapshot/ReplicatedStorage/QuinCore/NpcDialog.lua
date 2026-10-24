@@ -1,9 +1,9 @@
 --// NpcDialog.lua (client only)
 -- Talking to an NPC: what they say in a big speech bubble over their head (typed out, only you see
 -- it), the menu (what you can do with them) and the choices on the right of the screen.
--- While it's open you stand still (controls off, turned to face them) and the camera is held over
--- your shoulder: your own avatar in view on the left, the NPC dead centre (aimed at their neck).
--- Both are let go when it closes.
+-- While it's open you stand still (controls off, turned to face them) and the camera is held
+-- face to face with the NPC: straight in front of them, level, their neck dead centre (owner's
+-- mockup, 2026-10-25). Both are let go when it closes.
 -- One for every NPC you deal with: the Arena Receptionist (ArenaEntry.client), and later the
 -- Trainer, the Quin Specialist and the rest.
 --
@@ -27,9 +27,7 @@ local NpcDialog = {}
 NpcDialog.__index = NpcDialog
 
 local MENU_X = 0.72 -- (scale) the centre of the menu side
-local BEHIND = 7 -- studs the camera sits behind you
-local SIDE = 2.6 -- studs to your right (so you stand on the left of the screen)
-local ABOVE = 2.2 -- studs above your head
+local DISTANCE = 6.5 -- studs in front of the NPC the camera sits
 local EASE = 0.5 -- seconds the camera takes to get there
 local BUBBLE_W = 380
 local TYPE_SPEED = 55 -- characters a second
@@ -94,16 +92,16 @@ function NpcDialog.open(model, options)
         hum:Move(Vector3.zero)
     end
     local neck = head.Position - Vector3.new(0, head.Size.Y * 0.6, 0)
-    -- the camera: over your shoulder, the NPC's neck dead centre (held every frame, last of all, so
-    -- other camera scripts can't pull it away while it's open)
+    -- the camera: straight in front of them, level with their neck, dead centre (held every frame,
+    -- last of all, so other camera scripts can't pull it away while it's open)
     local camera = Workspace.CurrentCamera
     if myRoot and camera then
         local toThem = Vector3.new(neck.X - myRoot.Position.X, 0, neck.Z - myRoot.Position.Z)
         toThem = toThem.Magnitude > 0.1 and toThem.Unit or Vector3.new(myRoot.CFrame.LookVector.X, 0, myRoot.CFrame.LookVector.Z).Unit
         character:PivotTo(CFrame.lookAt(myRoot.Position, myRoot.Position + toThem))
-        local right = toThem:Cross(Vector3.yAxis).Unit
-        local camPos = myRoot.Position - toThem * BEHIND + right * SIDE + Vector3.new(0, 1.5 + ABOVE, 0)
-        local goal = CFrame.lookAt(camPos, neck)
+        local facing = Vector3.new(head.CFrame.LookVector.X, 0, head.CFrame.LookVector.Z)
+        facing = facing.Magnitude > 0.1 and facing.Unit or -toThem
+        local goal = CFrame.lookAt(neck + facing * DISTANCE, neck)
         local from, t0 = camera.CFrame, os.clock()
         self.saved = { type = camera.CameraType, fov = camera.FieldOfView }
         self.cameraKey = "NpcDialogCamera_" .. tostring(t0)
