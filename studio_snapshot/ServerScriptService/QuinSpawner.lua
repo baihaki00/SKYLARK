@@ -13,6 +13,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local ElementData = require(QuinCore:WaitForChild("ElementData"))
 local QuinInstance = require(QuinCore:WaitForChild("Modules"):WaitForChild("QuinInstance"))
 local FXService = require(QuinCore:WaitForChild("Modules"):WaitForChild("FXService"))
+local QuinCare = require(game:GetService("ServerScriptService"):WaitForChild("QuinCare"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 
 local QuinSpawner = {}
@@ -289,6 +290,8 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 
 	-- Attach persistent QuinInstance identity, personality, and records
 	QuinInstance.attachToModel(quinInstance, clone)
+	-- a worn Quin fights worn (its condition caps health and energy)
+	QuinCare.applyToModel(quinInstance, clone)
 	clone:SetAttribute("Gender", selectedGender)
 
 	-- Team

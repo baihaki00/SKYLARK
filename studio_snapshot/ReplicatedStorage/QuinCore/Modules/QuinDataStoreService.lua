@@ -322,6 +322,11 @@ function QuinDataStoreService.findQuinById(quinId)
 	return nil
 end
 
+-- Mark a player's roster to be saved (QuinCare: condition, work, appraisals)
+function QuinDataStoreService.markDirty(userId)
+	dirtyRosters[tostring(userId)] = true
+end
+
 -- Record battle match outcome on a Quin (updates BattleRecord, Rivalries, Titles, and marks dirty)
 function QuinDataStoreService.recordMatchOutcome(quinId, outcome, matchStats, rivalQuinId)
 	local quin, userId = QuinDataStoreService.findQuinById(quinId)

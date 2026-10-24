@@ -31,6 +31,7 @@ local SocialRespect = require(ReplicatedStorage.QuinCore.Modules.SocialRespect)
 local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
 local QuinDataStoreService = require(ReplicatedStorage.QuinCore.Modules.QuinDataStoreService)
 local Payouts = require(ServerScriptService:WaitForChild("SkylarkPayouts"))
+local QuinCare = require(ServerScriptService:WaitForChild("QuinCare"))
 local Players = game:GetService("Players")
 
 local Orchestrator = {}
@@ -520,6 +521,7 @@ local function snapshotOwned()
             c.SurroundsSurvived = math.max(c.SurroundsSurvived, q:GetAttribute("Match_SurroundsSurvived") or 0)
             c.dmg = math.max(c.dmg, q:GetAttribute("MatchDamageDealt") or 0)
             c.taken = math.max(c.taken, hum.MaxHealth - math.max(0, hum.Health))
+            c.maxHp = hum.MaxHealth
             if c.alive then
                 c.lifetime = length
                 c.alive = hum.Health > 0
@@ -579,6 +581,8 @@ local function recordOwned(winnerName, winnerTeam, reason)
             local score, parts = Payouts.score({ dmg = c.dmg, taken = c.taken, kills = c.Kills, lifetime = c.lifetime },
                 { avgDmg = average.dmg, length = length }, won)
             local pay, lines = Payouts.payout(score, won, c.alive)
+            -- the fight wears it (QuinCare: rest, or a Workshop repair)
+            local condBefore, condAfter = QuinCare.afterMatch(e.quin, c.taken, c.maxHp, not c.alive)
             Payouts.grant(e.player, pay, string.format("Quin #%s %s, score %d", id:sub(3, 6), outcome, score))
             print(string.format("[Orchestrator] %s's Quin %s: %s, score %d, paid %d SC (entry %d), habits %s", e.player.Name, id,
                 outcome, score, pay, e.paid or 0, #moved > 0 and table.concat(moved, ", ") or "unchanged"))
@@ -597,6 +601,8 @@ local function recordOwned(winnerName, winnerTeam, reason)
                 Lines = lines,
                 Damage = math.floor(c.dmg),
                 KOs = c.Kills,
+                ConditionBefore = math.floor(condBefore + 0.5),
+                Condition = math.floor(condAfter + 0.5),
             })
         end
     end

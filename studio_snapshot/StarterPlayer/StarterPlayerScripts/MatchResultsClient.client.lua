@@ -214,7 +214,7 @@ local function updateBoard()
                 row.info.TextColor3 = q.Outcome == "Win" and C_GREEN or (q.Outcome == "Loss" and C_RED or C_MUTED)
                 row.fill.Size = UDim2.fromScale(math.clamp(q.Score / 1000, 0, 1), 1)
                 row.fill.BackgroundColor3 = C_AMBER
-                row.pay.Text = "Earned " .. signed(q.Pay) .. " SC"
+                row.pay.Text = "Earned " .. signed(q.Pay) .. " SC" .. (q.Condition and string.format("  •  condition %d%% -> %d%%", q.ConditionBefore or 100, q.Condition) or "")
             end
         end
         boardTotal.Text = string.format("Entry -%s  •  Earned +%s  •  Net %s SC", sc(lastResult.Fee), sc(lastResult.Earned), signed(lastResult.Net))
@@ -239,7 +239,7 @@ local function updateBoard()
             local ratio = math.clamp(hum.Health / math.max(1, hum.MaxHealth), 0, 1)
             row.fill.Size = UDim2.fromScale(ratio, 1)
             row.fill.BackgroundColor3 = ratio > 0.35 and C_GREEN or C_AMBER
-            row.pay.Text = "Live score (out of 1000; the win adds 100 at the end)"
+            row.pay.Text = string.format("Live score (out of 1000; the win adds 100 at the end)  •  condition %d%%", q:GetAttribute("Condition") or 100)
             row.pay.TextColor3 = C_MUTED
         end
     end
@@ -283,7 +283,8 @@ local function showResults(r)
     for _, q in ipairs(r.Quins) do
         local good = q.Outcome == "Win"
         label(body, { Position = UDim2.fromOffset(0, y), Size = UDim2.fromOffset(300, 18), Font = Enum.Font.GothamBold, TextSize = 14,
-            Text = string.format("Quin #%s  %s  •  %s", q.Tag, temperamentText(q.Temperament), string.upper(q.Outcome)),
+            Text = string.format("Quin #%s  %s  •  %s%s", q.Tag, temperamentText(q.Temperament), string.upper(q.Outcome),
+                q.Condition and string.format("  •  %d%% -> %d%%", q.ConditionBefore or 100, q.Condition) or ""),
             TextColor3 = good and C_GREEN or (q.Outcome == "Loss" and C_RED or C_TEXT) })
         label(body, { Position = UDim2.fromOffset(300, y), Size = UDim2.fromOffset(124, 18), Font = Enum.Font.GothamBold, TextSize = 14,
             TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = C_AMBER, Text = string.format("%d / 1000", q.Score) })

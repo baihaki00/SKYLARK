@@ -129,8 +129,10 @@ function Temperament.matchDeltas(counts, outcome, average)
 end
 
 -- Apply one session's habit steps to a saved Quin (QuinInstance). typeBounds: its Type's ranges.
+-- cap: the most one habit may move (default SESSION_CAP; a Trainer session passes its own).
 -- Returns { [habit] = applied step } for what moved.
-function Temperament.applyMatch(instance, rawDeltas, typeBounds)
+function Temperament.applyMatch(instance, rawDeltas, typeBounds, cap)
+	cap = cap or Temperament.SESSION_CAP
 	local habits = instance.Personality
 	if not habits then
 		return {}
@@ -177,7 +179,7 @@ function Temperament.applyMatch(instance, rawDeltas, typeBounds)
 				local t = math.clamp((distance - Temperament.HOME_RANGE) / (Temperament.FAR_RANGE - Temperament.HOME_RANGE), 0, 1)
 				step *= 1 - t * (1 - Temperament.AWAY_FROM_NATURE)
 			end
-			step = math.clamp(step, -Temperament.SESSION_CAP, Temperament.SESSION_CAP)
+			step = math.clamp(step, -cap, cap)
 			local new = math.round(math.clamp(value + step, 0.02, 0.98) * 1000) / 1000
 			if new ~= value then
 				habits[habit] = new

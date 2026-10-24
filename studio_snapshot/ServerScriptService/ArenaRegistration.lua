@@ -36,6 +36,7 @@ local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
 local ArenaSchedule = require(QuinCore:WaitForChild("ArenaSchedule"))
 local QuinRosterService = require(ServerScriptService:WaitForChild("QuinRosterService"))
 local Payouts = require(ServerScriptService:WaitForChild("SkylarkPayouts"))
+local QuinCare = require(ServerScriptService:WaitForChild("QuinCare"))
 
 local Registration = {}
 
@@ -236,6 +237,13 @@ function Registration.pickRound(mode, teamSize)
             end
         end
         local tag = quin.QuinId and quin.QuinId:sub(3, 6) or "?"
+        if QuinCare.isBusy(quin) then -- (in the Workshop or training: it sits this round out, free)
+            local notice = ArenaNetworkFolder():FindFirstChild("PrepRoom")
+            if notice then
+                notice:FireClient(e.player, "notice", string.format("Quin #%s sits this round out: busy (%s).", tag, quin.Busy.Kind))
+            end
+            return false
+        end
         local paid, why = Payouts.chargeEntry(e.player, tag)
         if not paid then
             local notice = ArenaNetworkFolder():FindFirstChild("PrepRoom")
@@ -300,6 +308,8 @@ local function rosterSummary(player)
                 Title = q.Titles and q.Titles.Current or nil,
                 Wins = record.Wins or 0,
                 Losses = record.Losses or 0,
+                Condition = math.floor(QuinCare.condition(q) + 0.5),
+                Busy = q.Busy and q.Busy.Kind or nil,
             })
         end
     end

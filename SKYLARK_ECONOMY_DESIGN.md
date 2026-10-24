@@ -260,3 +260,35 @@ The owner's rule: taking part costs something, and an early double loss should c
 | Strong win (tested: 660 and 586, both standing) | 709 | +509 |
 
 An average loss is slightly positive *before* step 3's drains (repairs after damage, maintenance, training). With those, an average loss should come out slightly negative and an average win clearly positive. Re-check this at step 5.
+
+## Step 3 built (2026-10-24): condition, rest, Workshop, Trainer, Specialist
+
+Owner: "yes condition handicap, stats later, timer first, go". Code: `ServerScriptService/QuinCare`
+(server), `StarterPlayerScripts/QuinCareClient` (the dialog), remote `ArenaNetwork.QuinCare`.
+All timers run on Skylark time (1 Skylark hour = 20 real minutes).
+
+| What | Number |
+|---|---|
+| Condition after a match | -25 x (damage taken / max health), -15 more if knocked out |
+| Worn handicap | max health and energy x (0.75 + 0.25 x condition): 60% fights at 90% |
+| Free rest | +5% a Skylark hour (also offline, worked out when next looked at) |
+| Workshop repair | 2 SC a point, back to 100% after 30 Skylark min (10 real min) |
+| Trainer Short / Normal / Long | 1h 100 SC +1 / 2h 180 SC +2 / 4h 320 SC +4 habit points, before Bond and nature resistance |
+| Training wear | -5% condition a session |
+| Bond (0-100) | +3 a session, +1 a fight; training counts x (0.6 + 0.4 x Bond/100) |
+| Specialist appraisal | 150 SC: each habit Low (<40) / Mid / High (>65), with drift arrows; true that day |
+| Free reveal | from 10 fights the 3 most extreme habits show, one more every 5 fights |
+
+A Quin in the Workshop or training is busy: it sits the round out with a notice and pays no entry.
+The terminal roster, the glass board and the results card show condition.
+
+Tested in Play: the three dialogs, repair charge and guards (not near, already full, busy),
+a Long session (Aggression 58 -> 60 at Bond 0, Awareness -1 by its link, -5% condition, Bond +3),
+appraisal bands, and a 4v4 (knocked-out winner 100% -> 60%, standing winner 100% -> 84%).
+Not yet seen in Play: a worn Quin's lower max health in a match, and the busy skip at seating.
+Studio test hook: workspace attribute `QuinCareDev` = `cond <slot> <value>` | `finish <slot>` |
+`dump` (reply in `QuinCareDevResult`). MCP code runs in its own VM: requiring QuinCare there
+makes a second copy that takes over the remote, so drive tests through the hook or the client.
+
+Thought for balance (step 5): a Long session gives about +2 at Bond 0 for 320 SC, which is slow
+on purpose (the owner's "5 points over 2 days"), but may feel thin; Bond lifts it to +4.

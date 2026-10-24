@@ -228,7 +228,8 @@ local function refreshQuinButtons()
         b.Visible = q ~= nil
         if q then
             local on = selected[slot] ~= nil
-            b.Text = string.format("   %s  %s Quin #%s   •   %s   •   W%d L%d", on and "[x]" or "[  ]", q.Gender or "", q.Tag, q.Title or "Rookie", q.Wins, q.Losses)
+            b.Text = string.format("   %s  %s Quin #%s   •   %s   •   W%d L%d   •   %d%%%s", on and "[x]" or "[  ]", q.Gender or "", q.Tag,
+                q.Title or "Rookie", q.Wins, q.Losses, q.Condition or 100, q.Busy and ("   •   busy: " .. q.Busy) or "")
             b.BackgroundColor3 = on and C_CARD_SEL or C_CARD
             b.TextColor3 = on and C_AMBER or C_TEXT
         end

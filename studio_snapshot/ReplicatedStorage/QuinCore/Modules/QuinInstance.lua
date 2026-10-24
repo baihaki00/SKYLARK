@@ -88,6 +88,13 @@ function QuinInstance.create(spec)
 		Temperament = temperament,
 		TrainingFocus = spec.TrainingFocus or {}, -- [habit] = +1 / -1: what the owner is training it toward
 		HabitTrend = spec.HabitTrend or {}, -- [habit] = recent drift (the stats panel's arrows)
+		-- care between fights (QuinCare): condition 0..100 and when it was last brought up to date,
+		-- work in progress, the bond with its owner, the last Specialist appraisal
+		Condition = spec.Condition or 100,
+		ConditionAt = spec.ConditionAt,
+		Busy = spec.Busy,
+		Bond = spec.Bond or 0,
+		Appraisal = spec.Appraisal,
 
 		BattleRecord = {
 			Battles       = spec.BattleRecord and spec.BattleRecord.Battles or 0,
@@ -334,6 +341,11 @@ function QuinInstance.serialize(instance)
 		Temperament = instance.Temperament,
 		TrainingFocus = instance.TrainingFocus,
 		HabitTrend = instance.HabitTrend,
+		Condition = instance.Condition,
+		ConditionAt = instance.ConditionAt,
+		Busy = instance.Busy,
+		Bond = instance.Bond,
+		Appraisal = instance.Appraisal,
 		BattleRecord = instance.BattleRecord,
 		Rivalries = instance.Rivalries,
 		Titles = instance.Titles,
