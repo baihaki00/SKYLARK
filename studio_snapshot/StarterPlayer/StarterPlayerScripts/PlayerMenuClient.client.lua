@@ -1,9 +1,10 @@
 --// PlayerMenuClient.client.lua
 -- The player menu (G, or the MENU button under the SC pill): what you own and what's coming, shown
 -- only. Actions stay at their stations (Workshop, Trainer, Arena Terminal).
---   MY QUINS   each slot's Quin: tag, gender, title, temperament, W/L and streak, condition, Bond,
+--   MY QUINS   a card per slot, left to right: the Quin itself standing in its idle (QuinPreview:
+--              drag to turn it), tag, temperament, gender, title, W/L and streak, condition, Bond,
 --              status (Ready / In repair / Training / Entered / Fighting now), the habits revealed
---              (QuinCare "list"); locked slots greyed.
+--              (QuinCare "list"); empty and locked slots greyed. Cards update in place.
 --   SCHEDULE   today's arena day (ArenaSchedule) in SST, with your entry or prebook marked.
 --   WALLET     SC and the last changes this session (SkylarkWallet, remote ArenaNetwork.WalletLog).
 --   LAST MATCH this session's last results (MatchResultsClient shares them), and the full card.
@@ -18,12 +19,13 @@ local playerGui = player:WaitForChild("PlayerGui")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
 local ArenaSchedule = require(QuinCore:WaitForChild("ArenaSchedule"))
+local QuinPreview = require(QuinCore:WaitForChild("QuinPreview"))
 local net = ReplicatedStorage:WaitForChild("ArenaNetwork")
 local careRemote = net:WaitForChild("QuinCare", 30)
 local walletRemote = net:WaitForChild("WalletLog", 30)
 
 local KEY = Enum.KeyCode.G
-local W, H = 660, 480
+local W, H = 1080, 680 -- (scaled down to fit a small screen)
 
 local C_BG = Color3.fromRGB(15, 18, 26)
 local C_CARD = Color3.fromRGB(22, 27, 38)
@@ -90,6 +92,15 @@ local gui = new("ScreenGui", { Name = "PlayerMenuUI", Parent = playerGui, ResetO
 local window = new("Frame", { Name = "Window", Parent = gui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(W, H), BackgroundColor3 = C_BG, BackgroundTransparency = 0.04 })
 corner(window, 12)
 new("UIStroke", { Parent = window, Color = C_AMBER, Thickness = 1.5 })
+local fitScale = new("UIScale", { Parent = window })
+local function fit()
+    local view = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(W, H)
+    fitScale.Scale = math.min(1, (view.X - 40) / W, (view.Y - 40) / H)
+end
+fit()
+if Workspace.CurrentCamera then
+    Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
+end
 label(window, { Position = UDim2.fromOffset(18, 14), Size = UDim2.fromOffset(300, 20), Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = C_AMBER, Text = "PLAYER MENU" })
 local headerRight = label(window, { Position = UDim2.fromOffset(W - 330, 16), Size = UDim2.fromOffset(270, 18), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_AMBER, TextXAlignment = Enum.TextXAlignment.Right, Text = "" })
 local closeButton = new("TextButton", { Name = "MenuClose", Parent = window, Text = "X", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(W - 44, 12), Size = UDim2.fromOffset(28, 28) })
@@ -193,9 +204,94 @@ local function statusOf(q, entered)
     return "Ready", C_GREEN
 end
 
+local GAP = 12
+local SLOTS = 4
+local CARD_W = math.floor((W - 36 - (SLOTS - 1) * GAP) / SLOTS)
+local CARD_H = H - 120
+local VIEW_H = 300
+
+local quinsRow = new("Frame", { Name = "QuinsRow", Parent = window, Position = UDim2.fromOffset(18, 86), Size = UDim2.fromOffset(W - 36, CARD_H), BackgroundTransparency = 1, Visible = false })
+local quinsLoading = label(quinsRow, { Size = UDim2.fromScale(1, 1), TextSize = 14, TextColor3 = C_MUTED, TextXAlignment = Enum.TextXAlignment.Center, Text = "Loading your Quins..." })
+local quinCards = {} -- [slot] = the card's parts
+
+local function quinCard(slot)
+    local c = {}
+    c.frame = new("Frame", { Name = "QuinCard" .. slot, Parent = quinsRow, Position = UDim2.fromOffset((slot - 1) * (CARD_W + GAP), 0), Size = UDim2.fromOffset(CARD_W, CARD_H), BackgroundColor3 = C_CARD })
+    corner(c.frame, 10)
+    c.stroke = new("UIStroke", { Parent = c.frame, Color = C_STROKE, Thickness = 1.5, Transparency = 0.3 })
+    c.view = new("ViewportFrame", { Name = "Preview", Parent = c.frame, Position = UDim2.fromOffset(8, 8), Size = UDim2.fromOffset(CARD_W - 16, VIEW_H), BackgroundColor3 = Color3.new(1, 1, 1) })
+    corner(c.view, 8)
+    new("UIGradient", { Parent = c.view, Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(52, 62, 86), Color3.fromRGB(16, 20, 30)) })
+    c.slotTag = label(c.frame, { Position = UDim2.fromOffset(18, 14), Size = UDim2.fromOffset(120, 16), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED, ZIndex = 3, Text = "SLOT " .. slot })
+    c.big = label(c.frame, { Position = UDim2.fromOffset(8, 8), Size = UDim2.fromOffset(CARD_W - 16, VIEW_H), Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = C_MUTED, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 3, Text = "" })
+    local strip = new("Frame", { Parent = c.frame, Position = UDim2.fromOffset(CARD_W - 140, 14), Size = UDim2.fromOffset(126, 22), BackgroundColor3 = C_BG, BackgroundTransparency = 0.25, BorderSizePixel = 0, ZIndex = 3 })
+    corner(strip, 11)
+    c.strip = strip
+    c.status = label(strip, { Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBold, TextSize = 11, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 4, Text = "" })
+    local y = VIEW_H + 16
+    c.name = label(c.frame, { Position = UDim2.fromOffset(14, y), Size = UDim2.fromOffset(CARD_W - 28, 22), Font = Enum.Font.GothamBold, TextSize = 18, Text = "" })
+    c.temper = label(c.frame, { Position = UDim2.fromOffset(14, y + 24), Size = UDim2.fromOffset(CARD_W - 28, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "" })
+    c.info = label(c.frame, { Position = UDim2.fromOffset(14, y + 44), Size = UDim2.fromOffset(CARD_W - 28, 16), TextSize = 12, TextColor3 = C_MUTED, Text = "" })
+    c.record = label(c.frame, { Position = UDim2.fromOffset(14, y + 62), Size = UDim2.fromOffset(CARD_W - 28, 16), TextSize = 12, Text = "" })
+    local function bar(at)
+        local text = label(c.frame, { Position = UDim2.fromOffset(14, at), Size = UDim2.fromOffset(CARD_W - 28, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED, Text = "" })
+        local track = new("Frame", { Parent = c.frame, Position = UDim2.fromOffset(14, at + 17), Size = UDim2.fromOffset(CARD_W - 28, 6), BackgroundColor3 = C_STROKE, BorderSizePixel = 0 })
+        corner(track, 3)
+        local fill = new("Frame", { Parent = track, Size = UDim2.fromScale(0, 1), BorderSizePixel = 0, BackgroundColor3 = C_GREEN })
+        corner(fill, 3)
+        return { text = text, track = track, fill = fill }
+    end
+    c.cond = bar(y + 88)
+    c.bond = bar(y + 118)
+    c.habits = label(c.frame, { Position = UDim2.fromOffset(14, y + 150), Size = UDim2.fromOffset(CARD_W - 28, CARD_H - y - 160), TextSize = 12, TextWrapped = true,
+        TextTruncate = Enum.TextTruncate.None, TextYAlignment = Enum.TextYAlignment.Top, Text = "" })
+    -- drag the Quin to turn it
+    c.yaw = 200
+    local dragging, lastX = false, 0
+    c.view.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging, lastX = true, input.Position.X
+        end
+    end)
+    c.view.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input) -- (released outside the card)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and c.preview and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            c.yaw += (input.Position.X - lastX) * 0.8 -- (Delta stays zero for a free mouse)
+            lastX = input.Position.X
+            c.preview.setYaw(c.yaw)
+        end
+    end)
+    return c
+end
+
+local function setPreview(c, q)
+    local key = q and (q.Tag .. ":" .. tostring(q.Gender)) or nil
+    if c.previewKey == key then
+        return
+    end
+    if c.preview then
+        c.preview.destroy()
+        c.preview = nil
+    end
+    c.previewKey = key
+    if q then
+        c.yaw = 200
+        c.preview = QuinPreview.mount(c.view, { Gender = q.Gender })
+    end
+end
+
 local function drawQuins()
+    quinsLoading.Visible = care == nil
     if not care then
-        line("Loading your Quins...", { TextColor3 = C_MUTED })
         return
     end
     local entered = enteredSlots()
@@ -203,47 +299,48 @@ local function drawQuins()
     for _, q in ipairs(care.Quins or {}) do
         bySlot[q.Slot] = q
     end
-    for slot = 1, care.MaxSlots or 4 do
+    for slot = 1, SLOTS do
+        local c = quinCards[slot] or quinCard(slot)
+        quinCards[slot] = c
         local q = bySlot[slot]
-        if slot > (care.Unlocked or 2) then
-            local f = card(40)
-            f.BackgroundTransparency = 0.5
-            label(f, { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -28, 1, 0), TextSize = 13, TextColor3 = C_MUTED, Text = string.format("SLOT %d  •  locked", slot) })
-        elseif not q then
-            local f = card(40)
-            label(f, { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -28, 1, 0), TextSize = 13, TextColor3 = C_MUTED, Text = string.format("SLOT %d  •  empty", slot) })
+        local locked = slot > (care.Unlocked or 2)
+        setPreview(c, (not locked) and q or nil)
+        local shown = q ~= nil and not locked
+        for _, part in ipairs({ c.name, c.temper, c.info, c.record, c.habits, c.strip, c.cond.text, c.cond.track, c.bond.text, c.bond.track }) do
+            part.Visible = shown
+        end
+        c.frame.BackgroundTransparency = shown and 0 or 0.5
+        if not shown then
+            c.big.Text = locked and "LOCKED" or "EMPTY SLOT"
+            c.stroke.Color = C_STROKE
         else
+            c.big.Text = ""
             local status, statusColor = statusOf(q, entered)
-            local f = card(112, statusColor)
-            label(f, { Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(380, 20), Font = Enum.Font.GothamBold, TextSize = 15,
-                Text = string.format("Quin #%s  %s", q.Tag, q.Temperament or "") })
-            label(f, { Position = UDim2.fromOffset(W - 290, 10), Size = UDim2.fromOffset(240, 20), Font = Enum.Font.GothamBold, TextSize = 13,
-                TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = statusColor, Text = status })
+            c.status.Text = status
+            c.status.TextColor3 = statusColor
+            c.stroke.Color = statusColor
+            c.name.Text = "Quin #" .. q.Tag
+            c.temper.Text = q.Temperament or ""
+            c.info.Text = string.format("%s  •  %s", q.Gender or "?", q.Title or "Rookie")
             local streak = (q.Streak or 0) >= 2 and string.format("  •  %d-win streak", q.Streak) or ""
-            label(f, { Position = UDim2.fromOffset(14, 32), Size = UDim2.new(1, -28, 0, 16), TextSize = 12, TextColor3 = C_MUTED,
-                Text = string.format("Slot %d  •  %s  •  %s  •  W%d L%d%s", slot, q.Gender or "?", q.Title or "Rookie", q.Wins or 0, q.Losses or 0, streak) })
-            -- condition bar
-            local c = q.Condition or 100
-            label(f, { Position = UDim2.fromOffset(14, 54), Size = UDim2.fromOffset(150, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED,
-                Text = string.format("CONDITION  %d%%  %s", c, conditionBand(c)) })
-            local track = new("Frame", { Parent = f, Position = UDim2.fromOffset(170, 58), Size = UDim2.fromOffset(170, 7), BackgroundColor3 = C_STROKE, BorderSizePixel = 0 })
-            corner(track, 3)
-            local fill = new("Frame", { Parent = track, Size = UDim2.fromScale(math.clamp(c / 100, 0, 1), 1), BorderSizePixel = 0,
-                BackgroundColor3 = c >= 70 and C_GREEN or (c >= 40 and C_AMBER or C_RED) })
-            corner(fill, 3)
-            label(f, { Position = UDim2.fromOffset(360, 54), Size = UDim2.fromOffset(240, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_MUTED,
-                Text = string.format("BOND  %d  %s", q.Bond or 0, bondBand(q.Bond or 0)) })
-            -- revealed habits
+            c.record.Text = string.format("W%d  L%d%s", q.Wins or 0, q.Losses or 0, streak)
+            local cond = q.Condition or 100
+            c.cond.text.Text = string.format("CONDITION  %d%%  %s", cond, conditionBand(cond))
+            c.cond.fill.Size = UDim2.fromScale(math.clamp(cond / 100, 0, 1), 1)
+            c.cond.fill.BackgroundColor3 = cond >= 70 and C_GREEN or (cond >= 40 and C_AMBER or C_RED)
+            local bond = q.Bond or 0
+            c.bond.text.Text = string.format("BOND  %d  %s", bond, bondBand(bond))
+            c.bond.fill.Size = UDim2.fromScale(math.clamp(bond / 100, 0, 1), 1)
+            c.bond.fill.BackgroundColor3 = C_CYAN
             local known = {}
             for _, h in ipairs(q.Habits or {}) do
                 if h.Band then
                     table.insert(known, h.Name .. " " .. h.Band .. (h.Trend == 1 and " ↑" or (h.Trend == -1 and " ↓" or "")))
                 end
             end
-            label(f, { Position = UDim2.fromOffset(14, 76), Size = UDim2.new(1, -28, 0, 28), TextSize = 12, TextWrapped = true, TextTruncate = Enum.TextTruncate.None,
-                TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = #known > 0 and C_CYAN or C_MUTED,
-                Text = #known > 0 and ("Known habits: " .. table.concat(known, ", "))
-                    or "Habits unknown: fights reveal them, or an appraisal at the Quin Specialist" })
+            c.habits.TextColor3 = #known > 0 and C_CYAN or C_MUTED
+            c.habits.Text = #known > 0 and ("KNOWN HABITS\n" .. table.concat(known, ", "))
+                or "Habits unknown: fights reveal them, or an appraisal at the Quin Specialist"
         end
     end
 end
@@ -376,6 +473,9 @@ local function redraw()
     end
     local y = content.CanvasPosition
     clear()
+    local quinsTab = current == "MY QUINS"
+    quinsRow.Visible = quinsTab -- (the cards stay built: their Quins keep standing in their idle)
+    content.Visible = not quinsTab
     for name, b in pairs(tabButtons) do
         local on = name == current
         b.BackgroundColor3 = on and C_AMBER or C_CARD
