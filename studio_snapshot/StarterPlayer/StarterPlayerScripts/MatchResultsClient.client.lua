@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local ArenaNetwork = ReplicatedStorage:WaitForChild("ArenaNetwork")
+local ScoutView = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("ScoutView"))
 local StateReplication = ArenaNetwork:WaitForChild("StateReplication", 30)
 local resultRemote = ArenaNetwork:WaitForChild("MatchResult", 60)
 
@@ -158,6 +159,45 @@ local standText = label(standPanel, { Position = UDim2.fromOffset(16, 30), Size 
 local scorePanel = panel("MyScore", 24, 370, 290, 78, "MY ROUND")
 local scoreText = label(scorePanel, { Position = UDim2.fromOffset(16, 28), Size = UDim2.fromOffset(258, 26), Font = Enum.Font.GothamBold, TextSize = 20 })
 local scoreSub = label(scorePanel, { Position = UDim2.fromOffset(16, 54), Size = UDim2.fromOffset(258, 18), TextSize = 13, TextColor3 = C_MUTED })
+
+-- 6. scouting (left of MY QUINS, under the chip; only before the fight): the other side and the arena
+local scoutPanel = panel("Opponents", 410, 124, 400, 200, "OPPONENTS")
+local scoutCount = label(scoutPanel, { Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(368, 22), Font = Enum.Font.GothamBold, TextSize = 18 })
+local function strengthBar(y, name, color)
+    label(scoutPanel, { Position = UDim2.fromOffset(16, y), Size = UDim2.fromOffset(60, 14), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_MUTED, Text = name })
+    local track = new("Frame", { Parent = scoutPanel, BackgroundColor3 = C_STROKE, BackgroundTransparency = 0.3, BorderSizePixel = 0, Position = UDim2.fromOffset(76, y + 3), Size = UDim2.fromOffset(308, 8) })
+    return new("Frame", { Parent = track, BackgroundColor3 = color, BorderSizePixel = 0, Size = UDim2.fromScale(0.5, 1) })
+end
+local themFill = strengthBar(60, "THEM", C_AMBER)
+local usFill = strengthBar(78, "US", C_CYAN)
+local scoutTemps = label(scoutPanel, { Position = UDim2.fromOffset(16, 100), Size = UDim2.fromOffset(368, 36), TextSize = 14, TextWrapped = true, TextTruncate = Enum.TextTruncate.None, TextYAlignment = Enum.TextYAlignment.Top })
+local scoutCond = label(scoutPanel, { Position = UDim2.fromOffset(16, 140), Size = UDim2.fromOffset(368, 18), TextSize = 14, TextColor3 = C_MUTED })
+local scoutBest = label(scoutPanel, { Position = UDim2.fromOffset(16, 162), Size = UDim2.fromOffset(368, 18), TextSize = 14, TextColor3 = C_MUTED })
+local arenaPanel = panel("ArenaScout", 410, 336, 400, 92, "ARENA")
+local arenaLine1 = label(arenaPanel, { Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(368, 22), Font = Enum.Font.GothamBold, TextSize = 16 })
+local arenaLine2 = label(arenaPanel, { Position = UDim2.fromOffset(16, 58), Size = UDim2.fromOffset(368, 20), TextSize = 14, TextColor3 = C_MUTED })
+local SCOUT_PHASES = { PREPARATION_ROOM = true, TELEPORTING_QUINS = true, STADIUM_ANTHEM = true, PRE_GAME = true }
+
+local function updateScout(phase)
+    local view = SCOUT_PHASES[phase] and ScoutView.opponents(player)
+    local _, line1, line2 = ScoutView.arena()
+    scoutPanel.Visible = view ~= nil
+    arenaPanel.Visible = SCOUT_PHASES[phase] == true and line1 ~= nil
+    if view then
+        scoutPanel.Header.Text = "OPPONENTS  •  " .. view.side
+        scoutCount.Text = string.format("%d Quins  •  %d owners", view.count, view.owners)
+        local top = math.max(view.us, view.them, 1)
+        themFill.Size = UDim2.fromScale(view.them / top, 1)
+        usFill.Size = UDim2.fromScale(view.us / top, 1)
+        scoutTemps.Text = view.temperaments
+        scoutCond.Text = string.format("%d Fresh  •  %d Worn  •  %d Battered  •  %d Bonded", view.fresh, view.worn, view.battered, view.bonded)
+        scoutBest.Text = view.best and string.format("Most wins: Quin #%s  (W%d L%d)", view.best.Tag, view.best.Wins or 0, view.best.Losses or 0) or ""
+    end
+    if line1 then
+        arenaLine1.Text = line1
+        arenaLine2.Text = line2
+    end
+end
 
 -- 5. the feed (bottom, wide): newest at the bottom, each fades after FEED_LIFE
 local FEED_LIFE, FEED_MAX = 6, 4
@@ -361,6 +401,7 @@ local function updateBoard()
     if phase == "IN_GAME" then
         watchFeed()
     end
+    updateScout(phase)
 
     -- standing
     local alpha, beta = 0, 0

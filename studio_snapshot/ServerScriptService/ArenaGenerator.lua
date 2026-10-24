@@ -825,6 +825,76 @@ end
 
 -- Run the whole show in `duration` seconds. isCancelled() true = hurry (SKIP): pick the next
 -- good seed and materialize at once. Returns true when a generated arena is in place.
+-- ============================================================================
+-- Scouting: the arena's facts for the owners in their preparation rooms (Workspace ArenaScout,
+-- JSON: Layout, Pieces, Trees, Cover OPEN / SOME / HEAVY, CoverPct, High, Lanes)
+-- ============================================================================
+
+local GROUND_BLOCKERS = { Wall = true, Cover = true, Low = true, Stone = true }
+local COVER_BANDS = { { 0.037, "OPEN" }, { 0.042, "SOME" }, { math.huge, "HEAVY" } } -- (share of the floor blocked; thirds of 200 seeds, 2.6-5.4%: "scout 200")
+local LANE_SAMPLES = 15
+
+local function scoutFacts(layout)
+	local center, halfX, halfZ, floorY = metrics()
+	-- what stands on the floor: footprints (XZ centre, radius)
+	local blockers, blockedArea = {}, 0
+	local high = 0
+	for _, piece in ipairs(layout.pieces) do
+		if GROUND_BLOCKERS[piece.kind] then
+			table.insert(blockers, { x = piece.cf.Position.X, z = piece.cf.Position.Z, r = 0.5 * math.sqrt(piece.size.X ^ 2 + piece.size.Z ^ 2) * 0.8 })
+			if piece.kind ~= "Stone" then
+				blockedArea += piece.size.X * piece.size.Z
+			end
+		elseif piece.kind == "High" or piece.kind == "Perch" then
+			high += 1
+		end
+	end
+	local treeR = (CFG.Trees and CFG.Trees.Footprint or 12) / 2
+	for _, t in ipairs(layout.trees or {}) do
+		if math.abs(t.cf.Position.Y - floorY) < 1 then
+			table.insert(blockers, { x = t.cf.Position.X, z = t.cf.Position.Z, r = treeR * 0.6 })
+			blockedArea += math.pi * (treeR * 0.6) ^ 2
+		end
+	end
+	local share = blockedArea / (4 * halfX * halfZ)
+	local cover = "HEAVY"
+	for _, b in ipairs(COVER_BANDS) do
+		if share < b[1] then
+			cover = b[2]
+			break
+		end
+	end
+	-- open lanes: straight runs from one side's yard to the other's with nothing on the floor
+	local a, b = layout.alphaAnchor, layout.betaAnchor
+	local dir = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+	local length = dir.Magnitude
+	dir = dir.Unit
+	local side = Vector3.new(-dir.Z, 0, dir.X)
+	local width = math.min(halfX, halfZ) * 0.85
+	local lanes, inLane = 0, false
+	for i = 0, LANE_SAMPLES - 1 do
+		local off = side * (-width + 2 * width * i / (LANE_SAMPLES - 1))
+		local from = Vector3.new(a.X, 0, a.Z) + off
+		local open = true
+		for _, k in ipairs(blockers) do
+			local rel = Vector3.new(k.x, 0, k.z) - from
+			local along = math.clamp(rel:Dot(dir), 0, length)
+			if (rel - dir * along).Magnitude < k.r then
+				open = false
+				break
+			end
+		end
+		if open and not inLane then
+			lanes += 1
+		end
+		inLane = open
+	end
+	return {
+		Layout = layout.option, Pieces = #layout.pieces, Trees = #(layout.trees or {}),
+		Cover = cover, CoverPct = math.floor(share * 1000 + 0.5) / 10, High = high, Lanes = lanes,
+	}
+end
+
 function Gen.runSequence(duration, isCancelled)
 	if running then return false end
 	running = true
@@ -926,6 +996,8 @@ function Gen.runSequence(duration, isCancelled)
 	playFx("Finish")
 	progress(1, string.format("ARENA READY • SEED %06X", chosen.seed))
 	Workspace:SetAttribute("ArenaSeed", string.format("%06X", chosen.seed))
+	local okScout, facts = pcall(scoutFacts, chosen)
+	Workspace:SetAttribute("ArenaScout", okScout and game:GetService("HttpService"):JSONEncode(facts) or nil)
 	print(string.format("[ArenaGenerator] Seed %06X locked after %d candidates: %s, %d pieces + %d trees (half each side)",
 		chosen.seed, tries, chosen.option, #chosen.pieces, #(chosen.trees or {})))
 	running = false
@@ -941,6 +1013,7 @@ function Gen.restore()
 	current = nil
 	progress(nil)
 	Workspace:SetAttribute("ArenaSeed", nil)
+	Workspace:SetAttribute("ArenaScout", nil)
 	refreshCatalogue()
 end
 
@@ -986,6 +1059,7 @@ function Gen.getCenterClearHalf()
 end
 
 -- Studio test hook: Workspace attribute ArenaGenDevCommand = "run <seconds>" | "restore" | "check <count>"
+-- | "scout <count>" (the scouting facts' spread: cover % quartiles, lanes, high ground)
 if game:GetService("RunService"):IsStudio() then
 	Workspace:GetAttributeChangedSignal("ArenaGenDevCommand"):Connect(function()
 		local cmd = Workspace:GetAttribute("ArenaGenDevCommand")
@@ -996,6 +1070,25 @@ if game:GetService("RunService"):IsStudio() then
 			task.spawn(Gen.runSequence, tonumber(arg) or 15)
 		elseif verb == "restore" then
 			Gen.restore()
+		elseif verb == "scout" then
+			local n, covers, lanes, highs, bands = tonumber(arg) or 200, {}, {}, 0, {}
+			for seed = 1, n do
+				local layout = generate(seed * 7919)
+				if validate(layout) then
+					local f = scoutFacts(layout)
+					table.insert(covers, f.CoverPct)
+					lanes[f.Lanes] = (lanes[f.Lanes] or 0) + 1
+					highs += f.High
+					bands[f.Cover] = (bands[f.Cover] or 0) + 1
+				end
+			end
+			table.sort(covers)
+			local function q(t) return covers[math.max(1, math.floor(#covers * t + 0.5))] or 0 end
+			local laneText, bandText = {}, {}
+			for k, v in pairs(lanes) do table.insert(laneText, k .. ":" .. v) end
+			for k, v in pairs(bands) do table.insert(bandText, k .. ":" .. v) end
+			Workspace:SetAttribute("ArenaGenCheck", string.format("%d layouts; cover%% min %.1f q1 %.1f med %.1f q3 %.1f max %.1f; bands %s; lanes %s; high avg %.1f",
+				#covers, q(0), q(0.25), q(0.5), q(0.75), q(1), table.concat(bandText, " "), table.concat(laneText, " "), highs / math.max(1, #covers)))
 		elseif verb == "check" then
 			-- statistics over many seeds (no instances)
 			local n, good, pieces = tonumber(arg) or 200, 0, 0

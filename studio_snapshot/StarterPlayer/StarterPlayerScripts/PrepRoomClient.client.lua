@@ -13,7 +13,8 @@
 --       keys: B binoculars, 1 / 2 your Quins, V view, M markers, P plan;
 --       the live event stats (time, both teams, your Quins). Backspace or X leaves it.
 --       PLAN: each of your Quins' plan for the round (stance, target, role: QuinPlans on the
---       server), only while the room is open; how much it follows shows on its card.
+--       server), only while the room is open; how much it follows shows on its card. Beside it,
+--       SCOUTING: the other side's owners and Quins and the arena's facts (ScoutView).
 --     While a terminal is in use the Spectator HUD and the spectate camera are limited to your own
 --     Quins too (shared.SpectateFilter, read by QuinDebugHUD and SmoothCamera).
 
@@ -30,6 +31,7 @@ local camera = Workspace.CurrentCamera
 local ArenaNetwork = ReplicatedStorage:WaitForChild("ArenaNetwork")
 local remote = ArenaNetwork:WaitForChild("PrepRoom", 30)
 local StateReplication = ArenaNetwork:WaitForChild("StateReplication", 30)
+local ScoutView = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("ScoutView"))
 
 local BASE_FOV = 70
 local MIN_FOV = 5
@@ -425,7 +427,7 @@ local function menuButton(name, text, x, color)
     new("UIStroke", { Parent = b, Color = color, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
     return b
 end
-local menuPlan = menuButton("PrepMenuPlan", "PLAN\n\nStance, target and role\nfor your Quins this round", 16, C_AMBER)
+local menuPlan = menuButton("PrepMenuPlan", "PLAN & SCOUT\n\nYour Quins' plans, who\nyou face, the arena", 16, C_AMBER)
 local menuWatch = menuButton("PrepMenuWatch", "BINOCULARS\n\nWatch the arena and\nfollow your Quins", 215, C_CYAN)
 local menuTerminal = nil
 
@@ -592,7 +594,7 @@ local PLAN_ROWS = {
 }
 planGui = new("ScreenGui", { Name = "PrepPlanUI", ResetOnSpawn = false, DisplayOrder = 72, IgnoreGuiInset = true, Enabled = false, Parent = player:WaitForChild("PlayerGui") })
 local planTerminal = nil -- (opened from the menu without the binoculars: the terminal it belongs to)
-local planPanel = new("Frame", { Name = "PlanPanel", Parent = planGui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(372, 470), BackgroundColor3 = C_BG, BackgroundTransparency = 0.08 })
+local planPanel = new("Frame", { Name = "PlanPanel", Parent = planGui, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(0.5, -6, 0.5, 0), Size = UDim2.fromOffset(372, 470), BackgroundColor3 = C_BG, BackgroundTransparency = 0.08 })
 corner(planPanel, 10)
 new("UIStroke", { Parent = planPanel, Color = C_AMBER, Thickness = 1, Transparency = 0.4 })
 label(planPanel, { Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(344, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "PLAN FOR THIS ROUND" })
@@ -600,6 +602,65 @@ local planClose = new("TextButton", { Name = "PlanClose", Parent = planPanel, Te
 corner(planClose, 6)
 local planSub = label(planPanel, { Name = "PlanSub", Position = UDim2.fromOffset(14, 30), Size = UDim2.fromOffset(344, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
 local planStatus = label(planPanel, { Name = "PlanStatus", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 14, 1, -10), Size = UDim2.fromOffset(344, 30), TextSize = 11, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = C_GREEN, Text = "" })
+local scoutPanel = new("Frame", { Name = "ScoutPanel", Parent = planGui, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0.5, 6, 0.5, 0), Size = UDim2.fromOffset(420, 470), BackgroundColor3 = C_BG, BackgroundTransparency = 0.08 })
+corner(scoutPanel, 10)
+new("UIStroke", { Parent = scoutPanel, Color = C_CYAN, Thickness = 1, Transparency = 0.4 })
+local scoutTitle = label(scoutPanel, { Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(392, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_CYAN, Text = "SCOUTING" })
+local scoutSub = label(scoutPanel, { Position = UDim2.fromOffset(14, 30), Size = UDim2.fromOffset(392, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
+local scoutArena1 = label(scoutPanel, { Position = UDim2.fromOffset(14, 52), Size = UDim2.fromOffset(392, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_AMBER, Text = "" })
+local scoutArena2 = label(scoutPanel, { Position = UDim2.fromOffset(14, 68), Size = UDim2.fromOffset(392, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
+local scoutList = new("ScrollingFrame", { Name = "ScoutList", Parent = scoutPanel, Position = UDim2.fromOffset(10, 92), Size = UDim2.fromOffset(400, 368), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4, ScrollBarImageColor3 = C_STROKE, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new() })
+new("UIListLayout", { Parent = scoutList, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) })
+local scoutShown = nil -- (the roster the list was drawn from)
+
+local function refreshScout()
+    local view = ScoutView.opponents(player)
+    local _, line1, line2 = ScoutView.arena()
+    scoutArena1.Text = line1 and ("ARENA  •  " .. line1) or "ARENA  •  not generated yet"
+    scoutArena2.Text = line2 or ""
+    local raw = Workspace:GetAttribute("ScoutRoster")
+    if raw == scoutShown then
+        return
+    end
+    scoutShown = raw
+    for _, c in ipairs(scoutList:GetChildren()) do
+        if c:IsA("GuiObject") then
+            c:Destroy()
+        end
+    end
+    if not view then
+        scoutTitle.Text = "SCOUTING"
+        scoutSub.Text = "Nothing to scout: your Quins aren't in this round."
+        return
+    end
+    scoutTitle.Text = "SCOUTING  •  " .. view.side
+    scoutSub.Text = string.format("%d Quins  •  %d owners  •  %d Fresh, %d Worn, %d Battered  •  %d Bonded", view.count, view.owners, view.fresh, view.worn, view.battered, view.bonded)
+    local order = 0
+    local function line(text, props)
+        order += 1
+        props = props or {}
+        props.LayoutOrder = order
+        props.Size = UDim2.new(1, -8, 0, props.height or 16)
+        props.height = nil
+        props.Text = text
+        props.TextWrapped = true
+        return label(scoutList, props)
+    end
+    for _, owner in ipairs(view.players) do
+        line(owner.name, { Font = Enum.Font.GothamBold, TextSize = 13, height = 20 })
+        for _, q in ipairs(owner.quins) do
+            line("   " .. ScoutView.quinLine(q), { TextSize = 11, TextColor3 = C_TEXT })
+            if q.Revealed then
+                line("      reveals: " .. q.Revealed, { TextSize = 10, TextColor3 = C_CYAN, height = 14 })
+            end
+        end
+    end
+    if view.npc.count > 0 then
+        line(string.format("Arena Quins  ×%d", view.npc.count), { Font = Enum.Font.GothamBold, TextSize = 13, height = 20 })
+        line("   " .. view.npc.temperaments, { TextSize = 11, TextColor3 = C_MUTED, height = 30 })
+    end
+end
+
 local planCards = {}
 for i = 1, 2 do
     local card = new("Frame", { Name = "PlanCard" .. i, Parent = planPanel, Position = UDim2.fromOffset(10, 52 + (i - 1) * 182), Size = UDim2.fromOffset(352, 174), BackgroundColor3 = C_CARD, BorderSizePixel = 0 })
@@ -630,6 +691,7 @@ local function refreshPlan()
     if not planGui.Enabled then
         return
     end
+    refreshScout()
     local open = planOpen()
     planSub.Text = open and string.format("Set before the Quins deploy  •  locks in %ds", latest.TimeRemaining or 0)
         or "Locked: plans are set while your room is open."

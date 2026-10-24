@@ -31,6 +31,9 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
 local ArenaNpcOwners = require(ServerScriptService:WaitForChild("ArenaNpcOwners"))
 local QuinPlans = require(ServerScriptService:WaitForChild("QuinPlans"))
+local QuinCare = require(ServerScriptService:WaitForChild("QuinCare"))
+local Temperament = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Temperament"))
+local HttpService = game:GetService("HttpService")
 
 local PrepRoom = {}
 
@@ -361,6 +364,38 @@ local function entranceCFrame()
     return CFrame.new(base + Vector3.new(math.random(-6, 6), 4, math.random(-6, 6)))
 end
 
+-- Scouting (ScoutView on the players' machines): the round's Quins per team as the ArenaBoards
+-- show them, bands only; published as Workspace ScoutRoster (JSON) while the rooms are open.
+local function publishRoster(entrants)
+    local roster = { TeamAlpha = {}, TeamBeta = {} }
+    for _, e in ipairs(entrants) do
+        local q = e.quin
+        if q and roster[e.team] then
+            local record = q.BattleRecord or {}
+            local cond = QuinCare.condition(q)
+            local bond = q.Bond or 0
+            local revealed = {}
+            for _, h in ipairs(QuinCare.knownHabits(q)) do
+                table.insert(revealed, h.Name .. " " .. h.Band)
+            end
+            table.insert(roster[e.team], {
+                Owner = e.player and e.player.DisplayName or (e.npc and e.npc.name) or "?",
+                UserId = e.player and e.player.UserId or nil,
+                Npc = e.npc ~= nil or nil,
+                Tag = q.QuinId:sub(3, 6),
+                Temperament = Temperament.displayName(q.Temperament or ""),
+                Wins = record.Wins or 0,
+                Losses = (record.Battles or 0) - (record.Wins or 0),
+                Cond = cond >= 80 and "Fresh" or (cond >= 50 and "Worn" or "Battered"),
+                Bond = bond >= 70 and "Bonded" or (bond >= 30 and "Close" or "New"),
+                Revealed = #revealed > 0 and table.concat(revealed, ", ") or nil,
+                S = math.floor(10 + 40 * ((record.Wins or 0) + 1) / ((record.Battles or 0) + 2) + 30 * cond / 100 + 20 * math.clamp(bond / 100, 0, 1) + 0.5),
+            })
+        end
+    end
+    Workspace:SetAttribute("ScoutRoster", HttpService:JSONEncode(roster))
+end
+
 -- Seat the round's entrants ({ player | npc, quin, team }): each owner in a free room on their
 -- team's side with their Quins. Sets entry.model / entry.standOffset.
 function PrepRoom.open(entrants)
@@ -469,6 +504,7 @@ function PrepRoom.open(entrants)
             warn(string.format("[ArenaPrepRoom] No free room on %s's side for %s", team, isNpc and owner.name or owner.Name))
         end
     end
+    publishRoster(entrants)
 end
 
 -- Move a Quin that waited in the room to `position` in the arena, standing at its own height
@@ -525,6 +561,7 @@ function PrepRoom.close(sendHome)
         releaseRoom(room, sendHome)
     end
     active = {}
+    Workspace:SetAttribute("ScoutRoster", nil)
 end
 
 -- ============================================================================
