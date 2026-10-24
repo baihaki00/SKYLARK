@@ -26,7 +26,7 @@ local NpcDialog = {}
 NpcDialog.__index = NpcDialog
 
 local DISTANCE = 8 -- studs from the NPC's head to the camera
-local ACROSS = 2.6 -- studs the camera sits to the side, so the NPC stands on the left
+local ACROSS = 2.65 -- studs right of the NPC the camera aims at, so they stand on the left of the screen
 local FOV = 50
 local MENU_X = 0.72 -- (scale) the centre of the menu side
 local BUBBLE_W = 380
@@ -97,8 +97,9 @@ function NpcDialog.open(model, options)
     local self = setmetatable({ open = true, model = model, head = head, placed = {}, onClose = options.onClose }, NpcDialog)
     currentDialog = self
 
-    -- the camera: in front of the NPC (the way they face; toward you if they face nowhere), a little
-    -- to their left so they stand on the left of the screen
+    -- the camera: right in front of the NPC, on their line of sight (the way they face; toward you if
+    -- they face nowhere), so they look straight into it; it turns a little to their left side, so
+    -- they stand on the left of the screen
     local myRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
     local npcRoot = model:FindFirstChild("HumanoidRootPart") or head
     local toMe = flat(npcRoot.CFrame.LookVector)
@@ -108,8 +109,8 @@ function NpcDialog.open(model, options)
     toMe = toMe.Magnitude > 0.01 and toMe.Unit or Vector3.new(0, 0, 1)
     local forward = -toMe
     local right = forward:Cross(Vector3.yAxis).Unit
-    local camPos = head.Position + toMe * DISTANCE + right * ACROSS + Vector3.new(0, 0.3, 0)
-    local goal = CFrame.lookAt(camPos, camPos + forward * 10 - Vector3.new(0, 0.9, 0))
+    local camPos = head.Position + toMe * DISTANCE + Vector3.new(0, 0.3, 0)
+    local goal = CFrame.lookAt(camPos, head.Position + right * ACROSS - Vector3.new(0, 0.45, 0))
     self.saved = { type = camera.CameraType, subject = camera.CameraSubject, fov = camera.FieldOfView }
     camera.CameraType = Enum.CameraType.Scriptable
     -- (held every frame, last of all: other camera scripts can't pull it away)
