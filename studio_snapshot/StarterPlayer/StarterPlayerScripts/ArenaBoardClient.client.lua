@@ -1,10 +1,10 @@
 --// ArenaBoardClient.client.lua
--- The Arena Boards around Argonia (ArenaRegistration: prebook):
+-- The Arena Boards and Arena Prebook Terminals around Argonia (ArenaRegistration: prebook):
 --   * each board's faces show the next event's prebook board: the event, when booking closes,
 --     today's price, and each side's owners with their Quins under them (record, condition band,
 --     Bond band, the habits fights have revealed; never their plans), with each side's strength;
---   * its "Prebook" prompt opens the booking dialog (PrebookUI): pick your Quins and a side, see
---     the price and the deposit, book; or see your booking and cancel it.
+--   * a prebook terminal's "Prebook Quins" prompt opens the booking dialog (PrebookUI): pick your
+--     Quins and a side, see the price and the deposit, book; or see your booking and cancel it.
 -- (Tests: set the player's PrebookOpen attribute to true.)
 
 local Players = game:GetService("Players")
@@ -69,13 +69,17 @@ local function button(parent, name, text, props)
     return b
 end
 
-local function countdown(t)
-    local s = t and SkylarkTime.realSecondsUntil(t)
-    if not s then
+-- "12:00 SST  •  1h 12m left" (just the Skylark time while the clock is paused)
+local function closesAt(t)
+    if not t then
         return "--:--"
     end
-    s = math.max(0, math.floor(s))
-    return string.format("%d:%02d", s // 60, s % 60)
+    local text = SkylarkTime.formatHours(SkylarkTime.info(t).Hours) .. " SST"
+    local s = SkylarkTime.realSecondsUntil(t)
+    if s then
+        text ..= "  •  " .. SkylarkTime.formatDuration(s) .. " left"
+    end
+    return text
 end
 
 local function boards()
@@ -183,11 +187,11 @@ local function fillColumn(list, owners)
     local order = 0
     for _, owner in ipairs(owners) do
         order += 1
-        label(list, { LayoutOrder = order, Size = UDim2.new(1, 0, 0, 22), Font = Enum.Font.GothamBold, TextSize = 18, Text = owner.Name })
+        label(list, { LayoutOrder = order, Size = UDim2.new(1, 0, 0, 28), Font = Enum.Font.GothamBold, TextSize = 22, Text = owner.Name })
         for _, q in ipairs(owner.Quins) do
             order += 1
             local revealed = #q.Revealed > 0 and ("  •  " .. table.concat(q.Revealed, ", ")) or ""
-            label(list, { LayoutOrder = order, Size = UDim2.new(1, 0, 0, 18), TextSize = 14, TextColor3 = C_MUTED,
+            label(list, { LayoutOrder = order, Size = UDim2.new(1, 0, 0, 22), TextSize = 17, TextColor3 = C_MUTED,
                 Text = string.format("    #%s %s  •  W%d L%d  •  %s  •  %s%s", q.Tag, q.Temperament, q.Wins, q.Losses, q.Condition, q.Bond, revealed) })
         end
     end
@@ -207,7 +211,7 @@ drawScreens = function()
         else
             s.header.Text = string.upper(v.Event)
             if v.Open then
-                s.status.Text = "PREBOOK OPEN  •  closes in " .. countdown(v.StartsAt)
+                s.status.Text = "PREBOOK OPEN  •  closes " .. closesAt(v.StartsAt)
                 s.status.TextColor3 = C_GREEN
                 s.price.Text = string.format("%d SC a round", v.Rate)
                 s.priceSub.Text = v.Rate < v.Fee and string.format("%d%% off now  •  full price %d at the start", math.floor((1 - v.Rate / v.Fee) * 100 + 0.5), v.Fee) or "Full price"
@@ -223,7 +227,7 @@ drawScreens = function()
             local total = math.max(1, a + b)
             s.bars.TeamAlpha.Size = UDim2.fromScale(a + b > 0 and a / total or 0.5, 1)
             s.bars.TeamBeta.Size = UDim2.fromScale(a + b > 0 and b / total or 0.5, 1)
-            s.foot.Text = string.format("Up to %d Quin%s per owner  •  booking early is cheaper  •  walk up and press E to prebook%s",
+            s.foot.Text = string.format("Up to %d Quin%s per owner  •  booking early is cheaper  •  prebook at the Arena Prebook Terminal%s",
                 v.PerPlayer, v.PerPlayer > 1 and "s" or "", v.WalkIns > 0 and string.format("  •  %d walk-in%s", v.WalkIns, v.WalkIns > 1 and "s" or "") or "")
         end
     end
@@ -251,7 +255,7 @@ task.spawn(function()
         else
             for _, s in ipairs(screens) do -- (the countdown ticks)
                 if view and view.Open then
-                    s.status.Text = "PREBOOK OPEN  •  closes in " .. countdown(view.StartsAt)
+                    s.status.Text = "PREBOOK OPEN  •  closes " .. closesAt(view.StartsAt)
                 end
             end
         end
@@ -380,7 +384,7 @@ refresh = function(local_only)
     clearBody()
     local v = view
     title.Text = v and v.Event and ("PREBOOK  •  " .. string.upper(v.Event)) or "PREBOOK"
-    subtitle.Text = v and v.Open and ("Booking closes in " .. countdown(v.StartsAt) .. ". Booking early is cheaper.")
+    subtitle.Text = v and v.Open and ("Booking closes " .. closesAt(v.StartsAt) .. ". Booking early is cheaper.")
         or (v and v.Live and "The event is live. Walk in at an Arena Terminal." or "Prebooking is closed.")
     if player:GetAttribute("ArenaPrebooked") then
         drawBooked()
@@ -404,7 +408,7 @@ end
 closeButton.MouseButton1Click:Connect(close)
 
 ProximityPromptService.PromptTriggered:Connect(function(prompt)
-    if prompt.Name == "ArenaBoardPrompt" then
+    if prompt.Name == "ArenaPrebookPrompt" then
         open()
     end
 end)

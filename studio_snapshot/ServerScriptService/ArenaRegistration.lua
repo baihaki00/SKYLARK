@@ -2,8 +2,10 @@
 -- Getting your own Quins into the arena's events, and the fair queue that seats the rounds.
 -- Two ways in (owner, 2026-10-24), both for the whole event window (all its rounds):
 --
---   * PREBOOK at an ArenaBoard (the Workspace parts named "ArenaBoard", around Argonia; each gets a
---     "Prebook" ProximityPrompt). Open from the end of the event before until this event starts.
+--   * PREBOOK at an Arena Prebook Terminal (the Workspace parts named "ArenaPrebookTerminal", by
+--     the Arena Boards around Argonia; each gets a "Prebook Quins" ProximityPrompt). The boards
+--     ("ArenaBoard") only show who is booked (ArenaBoardClient). Open from the end of the event
+--     before until this event starts.
 --     Booking early is cheaper: up to PREBOOK_DISCOUNT off, sliding to full price at the start;
 --     the price you booked at holds for every round of the event. You pick your side (the side
 --     guard can turn a strong Quin away from a side that is already well ahead). A deposit of one
@@ -54,8 +56,7 @@ local Registration = {}
 local OPENS_BEFORE = SkylarkTime.HOUR -- Skylark seconds before a window that the walk-in desk opens (20 real min)
 local CLOSES_BEFORE_END = 5 * 60 -- real seconds before the window ends that the walk-in desk closes
 local TERMINAL_RANGE = 16 -- studs: walk in only at a terminal
-local BOARD_RANGE = 14 -- studs beyond a board's edge: prebook only at a board
-local BOARD_DROP = 60 -- studs: a board hung this high still counts for whoever stands beneath it
+local PREBOOK_RANGE = 16 -- studs: prebook only at a prebook terminal
 local PREBOOK_DISCOUNT = 0.30 -- off the entry when booking the moment the boards open
 local CANCEL_KEEP = 0.25 -- of an unused deposit, kept when a prebook is cancelled
 local GUARD_AHEAD = 1.15 -- a side this much stronger than the other (plus one owner's booking) is "ahead"
@@ -84,8 +85,8 @@ local function terminals()
     return partsNamed("ArenaTerminal")
 end
 
-local function boards()
-    return partsNamed("ArenaBoard")
+local function prebookTerminals()
+    return partsNamed("ArenaPrebookTerminal")
 end
 
 local function addPrompt(part, name, action, object, distance)
@@ -105,20 +106,9 @@ for _, terminal in ipairs(terminals()) do
     terminal.Anchored = true -- (they were loose parts and could be knocked over)
     addPrompt(terminal, "ArenaTerminalPrompt", "Register Quins", "Arena Terminal", 12)
 end
-for _, board in ipairs(boards()) do
-    board.Anchored = true
-    -- (a board is big, and some hang high: the prompt sits on the ground in front of each face)
-    local params = RaycastParams.new()
-    params.FilterDescendantsInstances = { board }
-    for _, side in ipairs({ 1, -1 }) do
-        local spot = board:FindFirstChild("PrebookSpot" .. side) or Instance.new("Attachment")
-        spot.Name = "PrebookSpot" .. side
-        spot.Parent = board
-        local front = board.CFrame:PointToWorldSpace(Vector3.new(side * (board.Size.X / 2 + 5), -board.Size.Y / 2, 0))
-        local hit = Workspace:Raycast(front, Vector3.new(0, -BOARD_DROP, 0), params)
-        spot.WorldPosition = (hit and hit.Position or front) + Vector3.new(0, 3, 0)
-        addPrompt(spot, "ArenaBoardPrompt", "Prebook", "Arena Board", 12)
-    end
+for _, terminal in ipairs(prebookTerminals()) do
+    terminal.Anchored = true
+    addPrompt(terminal, "ArenaPrebookPrompt", "Prebook Quins", "Arena Prebook", 12)
 end
 
 local function rootOf(player)
@@ -139,15 +129,13 @@ local function nearTerminal(player)
     return false
 end
 
-local function nearBoard(player)
+local function nearPrebookTerminal(player)
     local root = rootOf(player)
     if not root then
         return false
     end
-    for _, board in ipairs(boards()) do
-        local rel = board.CFrame:PointToObjectSpace(root.Position)
-        if math.abs(rel.X) <= board.Size.X / 2 + BOARD_RANGE and rel.Y <= board.Size.Y / 2 + BOARD_RANGE
-            and rel.Y >= -(board.Size.Y / 2 + BOARD_DROP) and math.abs(rel.Z) <= board.Size.Z / 2 + BOARD_RANGE then
+    for _, terminal in ipairs(prebookTerminals()) do
+        if (terminal.Position - root.Position).Magnitude <= PREBOOK_RANGE then
             return true
         end
     end
@@ -482,7 +470,7 @@ end
 local function register(player, slots)
     refreshWindow()
     if not windowKey or windowKind == "Booking" then
-        return false, "The desk opens 20 minutes before each event. Prebook early at an Arena Board."
+        return false, "The desk opens 20 minutes before each event. Prebook early at an Arena Prebook Terminal."
     end
     if not entryOpen() then
         return false, "Entry for " .. windowSlot.Name .. " has closed."
@@ -492,7 +480,7 @@ local function register(player, slots)
     end
     local existing = entries[player.UserId]
     if existing and existing.prebook then
-        return false, "You're prebooked for " .. windowSlot.Name .. ". Change it at an Arena Board."
+        return false, "You're prebooked for " .. windowSlot.Name .. ". Change it at an Arena Prebook Terminal."
     end
     local chosen = chooseSlots(player, slots)
     if #chosen == 0 then
@@ -535,8 +523,8 @@ local function prebook(player, request)
         return false, windowKind == "Live" and (windowSlot.Name .. " has started: the boards open again when it ends. Walk in at an Arena Terminal.")
             or "Prebooking is closed."
     end
-    if not nearBoard(player) then
-        return false, "Prebook at an Arena Board."
+    if not nearPrebookTerminal(player) then
+        return false, "Prebook at an Arena Prebook Terminal."
     end
     local side = request.side
     if side ~= "TeamAlpha" and side ~= "TeamBeta" then
