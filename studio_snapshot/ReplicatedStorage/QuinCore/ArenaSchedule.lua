@@ -144,6 +144,7 @@ function ArenaSchedule.matchFor(slot, round)
         TeamSize = match.TeamSize,
         Toggles = match.Toggles,
         Durations = ArenaTiming.durations(),
+        CutAnthem = ArenaTiming.get("FastRounds") == true, -- (fast test rounds: the anthem fits its window)
     }
     if match.Sizes then
         settings.TeamSize = match.Sizes[(round - 1) % #match.Sizes + 1]

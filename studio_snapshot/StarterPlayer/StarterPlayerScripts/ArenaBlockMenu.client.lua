@@ -7,7 +7,8 @@
 --     event as lanes, the six moments marked (SST time, offset from the start at 1x, time left),
 --     and a NOW line;
 --   * what is open right now: prebook, walk-in, new rounds, the round's phase;
---   * JUMP to 10 real seconds before each moment; the clock (pause, 1x, 10x, 60x), Auto Events,
+--   * JUMP to 10 real seconds before each moment; SET CLOCK to a typed SST time, or move it by
+--     1 / 5 real minutes; the clock (pause, 1x, 10x, 60x), Auto Events,
 --     Fast Rounds (every round about 1.5 min), QUICK MATCH, skip a phase, stop the round;
 --   * TIMINGS (ArenaTiming), changed live for this session: RESET, and PRINT VALUES writes them
 --     to the output to bake in.
@@ -29,7 +30,7 @@ local entryRemote = net:WaitForChild("ArenaEntry", 30)
 local ARENA = SkylarkArenas.current()
 local SCHEDULE = ARENA.Schedule
 
-local W, H = 920, 734
+local W, H = 920, 776
 
 local C_BG = Color3.fromRGB(15, 18, 26)
 local C_CARD = Color3.fromRGB(22, 27, 38)
@@ -194,11 +195,27 @@ for i, item in ipairs(CLOCK_ITEMS) do
     clockButtons[i] = button(window, item[1], 20 + (i - 1) * (CLOCK_W + 8), 428, CLOCK_W, 32, "Clock" .. item[1]:gsub(" ", ""))
 end
 
+-- set the clock: a typed SST time, or a few real minutes either way
+label(window, { Position = UDim2.fromOffset(20, 470), Size = UDim2.fromOffset(150, 32), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_CYAN, Text = "SET CLOCK  (SST)" })
+local timeBox = new("TextBox", { Name = "ClockInput", Parent = window, Position = UDim2.fromOffset(150, 470), Size = UDim2.fromOffset(90, 32), BackgroundColor3 = C_BG,
+    Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_TEXT, PlaceholderText = "14:30", PlaceholderColor3 = C_MUTED, Text = "", ClearTextOnFocus = true })
+corner(timeBox, 6)
+new("UIStroke", { Parent = timeBox, Color = C_AMBER, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+local setTimeButton = button(window, "SET", 248, 470, 60, 32, "SetClock")
+setTimeButton.TextColor3 = C_AMBER
+local SHIFTS = { { "-5m", -300 }, { "-1m", -60 }, { "+1m", 60 }, { "+5m", 300 } }
+local shiftButtons = {}
+for i, item in ipairs(SHIFTS) do
+    shiftButtons[i] = button(window, item[1], 324 + (i - 1) * 68, 470, 60, 32, "Shift" .. item[1])
+end
+label(window, { Position = UDim2.fromOffset(324 + 4 * 68 + 8, 470), Size = UDim2.fromOffset(W - 20 - (324 + 4 * 68 + 8), 32), TextSize = 11, TextColor3 = C_MUTED,
+    Text = "real minutes (1 real min = 3 SST min)  •  type HH:MM and press SET or Enter" })
+
 -- ============================================================================
 -- TIMINGS
 -- ============================================================================
 
-label(window, { Position = UDim2.fromOffset(20, 472), Size = UDim2.fromOffset(600, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_CYAN,
+label(window, { Position = UDim2.fromOffset(20, 514), Size = UDim2.fromOffset(600, 14), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C_CYAN,
     Text = "TIMINGS  (this session only: real time at 1x, SST in brackets)" })
 
 -- kind: "min" (seconds shown as minutes), "sec", "pct", "rule"
@@ -219,7 +236,7 @@ local rowParts = {}
 for i, row in ipairs(ROWS) do
     local col = (i - 1) // 5
     local r = (i - 1) % 5
-    local f = new("Frame", { Parent = window, Position = UDim2.fromOffset(20 + col * (COL_W + 16), 492 + r * (ROW_H + 4)), Size = UDim2.fromOffset(COL_W, ROW_H), BackgroundColor3 = C_CARD })
+    local f = new("Frame", { Parent = window, Position = UDim2.fromOffset(20 + col * (COL_W + 16), 534 + r * (ROW_H + 4)), Size = UDim2.fromOffset(COL_W, ROW_H), BackgroundColor3 = C_CARD })
     corner(f, 6)
     label(f, { Position = UDim2.fromOffset(12, 0), Size = UDim2.fromOffset(200, ROW_H), TextSize = 12, Text = row.name })
     local value = label(f, { Position = UDim2.fromOffset(208, 0), Size = UDim2.fromOffset(COL_W - 208 - 76, ROW_H), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_AMBER, Text = "" })
@@ -233,7 +250,7 @@ for i, row in ipairs(ROWS) do
     rowParts[i] = parts
 end
 -- the 10th cell: what a round adds up to
-local lengthCell = new("Frame", { Parent = window, Position = UDim2.fromOffset(20 + COL_W + 16, 492 + 4 * (ROW_H + 4)), Size = UDim2.fromOffset(COL_W, ROW_H), BackgroundColor3 = C_BG })
+local lengthCell = new("Frame", { Parent = window, Position = UDim2.fromOffset(20 + COL_W + 16, 534 + 4 * (ROW_H + 4)), Size = UDim2.fromOffset(COL_W, ROW_H), BackgroundColor3 = C_BG })
 corner(lengthCell, 6)
 new("UIStroke", { Parent = lengthCell, Color = C_STROKE, Thickness = 1 })
 local lengthLabel = label(lengthCell, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -24, 1, 0), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
@@ -432,6 +449,42 @@ for i, row in ipairs(ROWS) do
             step(1)
         end)
     end
+end
+
+-- "14:30", "14", "1430", "9:05" -> SST hours
+local function parseTime(text)
+    text = (text or ""):gsub("%s", "")
+    local h, m = text:match("^(%d%d?):(%d%d)$")
+    if not h then
+        h, m = text:match("^(%d%d)(%d%d)$")
+    end
+    if not h then
+        h, m = text:match("^(%d%d?)$"), "0"
+    end
+    h, m = tonumber(h), tonumber(m)
+    if not h or not m or h > 23 or m > 59 then
+        return nil
+    end
+    return h + m / 60
+end
+local function setClock()
+    local hours = parseTime(timeBox.Text)
+    if not hours then
+        setStatus("Type a time like 14:30", C_RED)
+        return
+    end
+    send("hour", hours)
+end
+setTimeButton.MouseButton1Click:Connect(setClock)
+timeBox.FocusLost:Connect(function(enter)
+    if enter then
+        setClock()
+    end
+end)
+for i, item in ipairs(SHIFTS) do
+    shiftButtons[i].MouseButton1Click:Connect(function()
+        send("shift", item[2], string.format("Clock %s (real)", item[1]))
+    end)
 end
 
 resetButton.MouseButton1Click:Connect(function()

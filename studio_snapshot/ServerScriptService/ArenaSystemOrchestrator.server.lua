@@ -754,19 +754,22 @@ local function runMatchLifecycle()
     end
 
     -- PHASE 5: STADIUM ANTHEM. Back-timed to end ANTHEM_RING_OUT before the window closes;
-    -- no ARIA lines over it. A longer anthem than the window starts at once and is not cut.
+    -- no ARIA lines over it. A longer anthem than the window starts at once and is not cut,
+    -- except in a round with CutAnthem (fast test rounds: ArenaTiming FastRounds): it fades out
+    -- when the window closes.
     local anthemWindow = duration("StadiumAnthem")
     local anthemPrefix = activeConfig.SelectedAnthem or "ANTHEM1"
     local anthemLength = toggle("ProceduralMusic") and ArenaAudio.getAnthemLength(anthemPrefix) or 0
-    local startDelay = math.max(0, anthemWindow - ANTHEM_RING_OUT - anthemLength)
-    epoch = beginPhase("STADIUM_ANTHEM", math.max(anthemWindow, anthemLength + ANTHEM_RING_OUT), "STADIUM ANTHEM", "ALL RISE FOR THE ARENA ONE ANTHEM")
+    local cutAnthem = activeConfig.CutAnthem == true
+    local startDelay = cutAnthem and 0 or math.max(0, anthemWindow - ANTHEM_RING_OUT - anthemLength)
+    epoch = beginPhase("STADIUM_ANTHEM", cutAnthem and anthemWindow or math.max(anthemWindow, anthemLength + ANTHEM_RING_OUT), "STADIUM ANTHEM", "ALL RISE FOR THE ARENA ONE ANTHEM")
     ArenaScreen.displayAnnouncement("STADIUM ANTHEM // CEREMONIAL TRADITION", 4.0, "CEREMONY", Color3.fromRGB(212, 175, 55))
     print(string.format("[ArenaSystemOrchestrator] Anthem %s: %.2fs, starts at T+%.2fs of a %.0fs window", anthemPrefix, anthemLength, startDelay, phaseDuration))
     if waitPhase(epoch, os.clock() + startDelay) and toggle("ProceduralMusic") then
         ArenaAudio.stopPregameMusic(2.0) -- (handing over: the pre-game music fades as the anthem begins)
         ArenaAudio.playAnthem(anthemPrefix, 1.0)
     end
-    if not waitPhase(epoch) then
+    if not waitPhase(epoch) or cutAnthem then
         ArenaAudio.stopAnthem(1.5)
     end
 
@@ -906,6 +909,7 @@ function Orchestrator.startMatch(settings, player)
 
     activeConfig.Toggles = table.clone(ArenaConfig.DefaultToggles)
     activeConfig.Durations = table.clone(ArenaConfig.DefaultDurations)
+    activeConfig.CutAnthem = type(settings) == "table" and settings.CutAnthem == true
     if type(settings) == "table" then
         if settings.Mode then activeConfig.Mode = settings.Mode end
         if settings.TeamSize then activeConfig.TeamSize = tonumber(settings.TeamSize) or activeConfig.TeamSize end

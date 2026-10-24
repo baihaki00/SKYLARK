@@ -6,6 +6,8 @@
 --                       now (ArenaTiming.markers: PrebookOpens / WalkInOpens / Start / LastRound /
 --                       WalkInCloses / End); a paused clock starts at 1x
 --   "rate", n           clock speed (0 pauses)
+--   "hour", h           the clock to SST hour h (0-24) of the current day
+--   "shift", seconds    the clock forward (negative: back) by that many real seconds at 1x
 --   "autoevents", bool  scheduled rounds on / off
 --   "set", { key, value }  an ArenaTiming value for this session ("reset" = all defaults)
 --   "print"             the current values to the output, as ArenaTiming.DEFAULTS lines
@@ -92,6 +94,12 @@ local function handle(player, action, value)
         end
         sched.command("set", at - JUMP_LEAD * SkylarkTime.rate())
         return true, string.format("Clock: %ds before %s", JUMP_LEAD, tostring(value))
+    elseif action == "hour" and tonumber(value) then
+        sched.command("hour", math.clamp(tonumber(value), 0, 23.999))
+        return true, "Clock set to " .. SkylarkTime.formatHours(tonumber(value)) .. " SST"
+    elseif action == "shift" and tonumber(value) then
+        sched.command("shift", math.clamp(tonumber(value), -86400, 86400))
+        return true
     elseif action == "rate" then
         return sched.command("rate", tonumber(value) or 1)
     elseif action == "autoevents" then
