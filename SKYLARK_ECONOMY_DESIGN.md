@@ -315,7 +315,7 @@ How plans work:
 - The last plan per Quin is reused next round.
 - NPC owners don't set plans yet.
 
-**D. Scouting (ScoutView, a2d1052).** Owner: "show temperaments, facts only, one line for npcs". Opponents only for now; our own side could be added easily.
+**D. Scouting (ScoutView, a2d1052).** Owner: "show temperaments, facts only, one line for npcs". Both sides: theirs first, then YOUR SIDE (you marked); glass OUR SIDE panel (2251cd6).
 - The roster: ArenaPrepRoom publishes Workspace ScoutRoster while the rooms are open. It holds bands only, never plans or exact numbers: owner, temperament, W/L, condition band, Bond band, revealed habits, plus strength for the bars.
 - The arena: ArenaGenerator publishes ArenaScout with the layout, pieces, trees, cover band, high-ground count and open lanes.
 - Cover bands are relative. Over 200 seeds, cover only spans 2.6-5.4% of the floor, so OPEN is under 3.7% and HEAVY is 4.2% or more. Re-measure with `ArenaGenDevCommand "scout 200"`.
