@@ -176,12 +176,17 @@ local scoutBest = label(scoutPanel, { Position = UDim2.fromOffset(16, 162), Size
 local arenaPanel = panel("ArenaScout", 410, 336, 400, 92, "ARENA")
 local arenaLine1 = label(arenaPanel, { Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(368, 22), Font = Enum.Font.GothamBold, TextSize = 16 })
 local arenaLine2 = label(arenaPanel, { Position = UDim2.fromOffset(16, 58), Size = UDim2.fromOffset(368, 20), TextSize = 14, TextColor3 = C_MUTED })
+local oursPanel = panel("OurSide", 410, 440, 400, 112, "OUR SIDE")
+local oursCount = label(oursPanel, { Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(368, 20), Font = Enum.Font.GothamBold, TextSize = 16 })
+local oursTemps = label(oursPanel, { Position = UDim2.fromOffset(16, 54), Size = UDim2.fromOffset(368, 32), TextSize = 14, TextWrapped = true, TextTruncate = Enum.TextTruncate.None, TextYAlignment = Enum.TextYAlignment.Top })
+local oursCond = label(oursPanel, { Position = UDim2.fromOffset(16, 86), Size = UDim2.fromOffset(368, 18), TextSize = 14, TextColor3 = C_MUTED })
 local SCOUT_PHASES = { PREPARATION_ROOM = true, TELEPORTING_QUINS = true, STADIUM_ANTHEM = true, PRE_GAME = true }
 
 local function updateScout(phase)
     local view = SCOUT_PHASES[phase] and ScoutView.opponents(player)
     local _, line1, line2 = ScoutView.arena()
     scoutPanel.Visible = view ~= nil
+    oursPanel.Visible = view ~= nil
     arenaPanel.Visible = SCOUT_PHASES[phase] == true and line1 ~= nil
     if view then
         scoutPanel.Header.Text = "OPPONENTS  •  " .. view.side
@@ -191,6 +196,11 @@ local function updateScout(phase)
         usFill.Size = UDim2.fromScale(view.us / top, 1)
         scoutTemps.Text = view.temperaments
         scoutCond.Text = string.format("%d Fresh  •  %d Worn  •  %d Battered  •  %d Bonded", view.fresh, view.worn, view.battered, view.bonded)
+        local ours = view.ours
+        oursPanel.Header.Text = "OUR SIDE  •  " .. ours.side
+        oursCount.Text = string.format("%d Quins  •  %d owners", ours.count, ours.owners)
+        oursTemps.Text = ours.temperaments
+        oursCond.Text = string.format("%d Fresh  •  %d Worn  •  %d Battered  •  %d Bonded", ours.fresh, ours.worn, ours.battered, ours.bonded)
         scoutBest.Text = view.best and string.format("Most wins: Quin #%s  (W%d L%d)", view.best.Tag, view.best.Wins or 0, view.best.Losses or 0) or ""
     end
     if line1 then

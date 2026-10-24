@@ -34,9 +34,49 @@ local function mix(counts)
     return table.concat(out, ", ")
 end
 
--- The other side, as seen from `player`. nil when the player has no Quin in the round.
--- { side, count, owners, us, them (strength sums), players = { { name, strength, quins } },
+-- One side's Quins summed up: { side, count, owners, strength, players = { { name, userId, strength, quins } },
 --   npc = { count, temperaments }, temperaments, fresh, worn, battered, bonded, best = quin }
+local function summarize(team, list)
+    local view = { side = team == "TeamAlpha" and "ALPHA" or "BETA", count = 0, strength = 0,
+        players = {}, npc = { count = 0 }, fresh = 0, worn = 0, battered = 0, bonded = 0 }
+    local byOwner, temps, npcTemps = {}, {}, {}
+    for _, q in ipairs(list or {}) do
+        view.strength += q.S or 0
+        view.count += 1
+        local cond = string.lower(q.Cond or "Fresh")
+        view[cond] = (view[cond] or 0) + 1
+        if q.Bond == "Bonded" then
+            view.bonded += 1
+        end
+        temps[q.Temperament] = (temps[q.Temperament] or 0) + 1
+        if not view.best or (q.Wins or 0) > (view.best.Wins or 0) then
+            view.best = q
+        end
+        if q.Npc then
+            view.npc.count += 1
+            npcTemps[q.Temperament] = (npcTemps[q.Temperament] or 0) + 1
+        else
+            local owner = byOwner[q.Owner]
+            if not owner then
+                owner = { name = q.Owner, userId = q.UserId, strength = 0, quins = {} }
+                byOwner[q.Owner] = owner
+                table.insert(view.players, owner)
+            end
+            owner.strength += q.S or 0
+            table.insert(owner.quins, q)
+        end
+    end
+    view.owners = #view.players + (view.npc.count > 0 and 1 or 0)
+    table.sort(view.players, function(a, b)
+        return a.strength > b.strength
+    end)
+    view.temperaments = mix(temps)
+    view.npc.temperaments = mix(npcTemps)
+    return view
+end
+
+-- The other side, as seen from `player` (the summary above, plus us / them strength sums), with
+-- `ours` = our own side's summary. nil when the player has no Quin in the round.
 function ScoutView.opponents(player)
     player = player or Players.LocalPlayer
     local roster = decode("ScoutRoster")
@@ -55,47 +95,13 @@ function ScoutView.opponents(player)
         return nil
     end
     local theirs = mine == "TeamAlpha" and "TeamBeta" or "TeamAlpha"
-    local view = { side = theirs == "TeamAlpha" and "ALPHA" or "BETA", count = 0, us = 0, them = 0,
-        players = {}, npc = { count = 0 }, fresh = 0, worn = 0, battered = 0, bonded = 0 }
-    for _, q in ipairs(roster[mine] or {}) do
-        view.us += q.S or 0
-    end
-    local byOwner, temps, npcTemps = {}, {}, {}
-    for _, q in ipairs(roster[theirs] or {}) do
-        view.them += q.S or 0
-        view.count += 1
-        view[string.lower(q.Cond or "Fresh")] = (view[string.lower(q.Cond or "Fresh")] or 0) + 1
-        if q.Bond == "Bonded" then
-            view.bonded += 1
-        end
-        temps[q.Temperament] = (temps[q.Temperament] or 0) + 1
-        if not view.best or (q.Wins or 0) > (view.best.Wins or 0) then
-            view.best = q
-        end
-        if q.Npc then
-            view.npc.count += 1
-            npcTemps[q.Temperament] = (npcTemps[q.Temperament] or 0) + 1
-        else
-            local owner = byOwner[q.Owner]
-            if not owner then
-                owner = { name = q.Owner, strength = 0, quins = {} }
-                byOwner[q.Owner] = owner
-                table.insert(view.players, owner)
-            end
-            owner.strength += q.S or 0
-            table.insert(owner.quins, q)
-        end
-    end
-    view.owners = #view.players + (view.npc.count > 0 and 1 or 0)
-    table.sort(view.players, function(a, b)
-        return a.strength > b.strength
-    end)
-    view.temperaments = mix(temps)
-    view.npc.temperaments = mix(npcTemps)
+    local view = summarize(theirs, roster[theirs])
+    view.ours = summarize(mine, roster[mine])
+    view.them, view.us = view.strength, view.ours.strength
     return view
 end
 
--- One opponent Quin as a line: "Quin #8769  Hothead  •  W14 L3  •  Fresh  •  Bonded"
+-- One Quin as a line: "Quin #8769  Hothead  •  W14 L3  •  Fresh  •  Bonded"
 function ScoutView.quinLine(q)
     return string.format("Quin #%s  %s  •  W%d L%d  •  %s  •  %s", q.Tag or "????", q.Temperament or "?", q.Wins or 0, q.Losses or 0, q.Cond or "?", q.Bond or "?")
 end

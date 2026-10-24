@@ -14,7 +14,7 @@
 --       the live event stats (time, both teams, your Quins). Backspace or X leaves it.
 --       PLAN: each of your Quins' plan for the round (stance, target, role: QuinPlans on the
 --       server), only while the room is open; how much it follows shows on its card. Beside it,
---       SCOUTING: the other side's owners and Quins and the arena's facts (ScoutView).
+--       SCOUTING: both sides' owners and Quins (theirs first) and the arena's facts (ScoutView).
 --     While a terminal is in use the Spectator HUD and the spectate camera are limited to your own
 --     Quins too (shared.SpectateFilter, read by QuinDebugHUD and SmoothCamera).
 
@@ -646,19 +646,29 @@ local function refreshScout()
         props.TextWrapped = true
         return label(scoutList, props)
     end
-    for _, owner in ipairs(view.players) do
-        line(owner.name, { Font = Enum.Font.GothamBold, TextSize = 13, height = 20 })
-        for _, q in ipairs(owner.quins) do
-            line("   " .. ScoutView.quinLine(q), { TextSize = 11, TextColor3 = C_TEXT })
-            if q.Revealed then
-                line("      reveals: " .. q.Revealed, { TextSize = 10, TextColor3 = C_CYAN, height = 14 })
+    local function drawSide(side, mine)
+        for _, owner in ipairs(side.players) do
+            local you = mine and owner.userId == player.UserId
+            line(owner.name .. (you and "  (you)" or ""), { Font = Enum.Font.GothamBold, TextSize = 13, height = 20, TextColor3 = you and C_AMBER or nil })
+            for _, q in ipairs(owner.quins) do
+                line("   " .. ScoutView.quinLine(q), { TextSize = 11, TextColor3 = C_TEXT })
+                if q.Revealed then
+                    line("      reveals: " .. q.Revealed, { TextSize = 10, TextColor3 = C_CYAN, height = 14 })
+                end
             end
         end
+        if side.npc.count > 0 then
+            line(string.format("Arena Quins  ×%d", side.npc.count), { Font = Enum.Font.GothamBold, TextSize = 13, height = 20 })
+            line("   " .. side.npc.temperaments, { TextSize = 11, TextColor3 = C_MUTED, height = 30 })
+        end
     end
-    if view.npc.count > 0 then
-        line(string.format("Arena Quins  ×%d", view.npc.count), { Font = Enum.Font.GothamBold, TextSize = 13, height = 20 })
-        line("   " .. view.npc.temperaments, { TextSize = 11, TextColor3 = C_MUTED, height = 30 })
-    end
+    line("THEM  •  " .. view.side, { Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_CYAN, height = 18 })
+    drawSide(view, false)
+    local ours = view.ours
+    line("", { height = 8 })
+    line(string.format("YOUR SIDE  •  %s  •  %d Quins  •  %d owners", ours.side, ours.count, ours.owners), { Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_CYAN, height = 18 })
+    line(string.format("%d Fresh, %d Worn, %d Battered  •  %d Bonded", ours.fresh, ours.worn, ours.battered, ours.bonded), { TextSize = 11, TextColor3 = C_MUTED })
+    drawSide(ours, true)
 end
 
 local planCards = {}
