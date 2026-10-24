@@ -42,6 +42,7 @@ end
 
 function KnockbackState.enter(fighter, humanoid, rootPart)
 	require(ReplicatedStorage.QuinCore.Modules.Drives).onKnockdown(fighter) -- (fury)
+	require(ReplicatedStorage.QuinCore.Modules.PersonalitySystem).recordCombatOutcome(fighter, "KnockedDown") -- (habits: Temperament)
 	local stunDuration = CombatConfig.BaseStunDuration or 0.5
 	local stunResist = fighter:GetAttribute("StunResist") or 0
 	stunDuration = stunDuration * (1 - stunResist)

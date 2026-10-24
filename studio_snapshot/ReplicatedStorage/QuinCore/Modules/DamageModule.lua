@@ -281,6 +281,8 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		if attackerQuinId then
 			local curKills = attackerModel:GetAttribute("MatchKills") or 0
 			attackerModel:SetAttribute("MatchKills", curKills + 1)
+			-- (habits: Temperament; also settles a grudge on this target)
+			require(ReplicatedStorage.QuinCore.Modules.PersonalitySystem).recordCombatOutcome(attackerModel, "Kill", { TargetName = targetModel.Name })
 		end
 
 		-- Check if target is a designated rival

@@ -101,6 +101,17 @@ function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAl
 	local occupiedQuadrants = (#frontEnemies > 0 and 1 or 0) + (#flankLeftEnemies > 0 and 1 or 0)
 		+ (#flankRightEnemies > 0 and 1 or 0) + (#rearEnemies > 0 and 1 or 0)
 	local isSurrounded = enemyCount >= 3 and occupiedQuadrants >= (CombatConfig.SurroundedQuadrantThreshold or 3)
+	-- A gang-up it came through (at least 1.5 s, still standing) counts for its habits (Temperament)
+	if isSurrounded then
+		if not quinModel:GetAttribute("SurroundedSince") then
+			quinModel:SetAttribute("SurroundedSince", os.clock())
+		end
+	elseif quinModel:GetAttribute("SurroundedSince") then
+		if os.clock() - quinModel:GetAttribute("SurroundedSince") >= 1.5 and (self.healthRatio or 0) > 0 then
+			PersonalitySystem.recordCombatOutcome(quinModel, "SurroundSurvived")
+		end
+		quinModel:SetAttribute("SurroundedSince", nil)
+	end
 
 	-- Rear threat, within a range set by the Quin's awareness
 	local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65

@@ -107,8 +107,11 @@ function Temperament.matchDeltas(counts, outcome, average)
 	local function add(habit, amount)
 		d[habit] = (d[habit] or 0) + amount
 	end
+	-- (relative to the average: 3 more knockbacks than an average of 13 is a small step, one
+	-- more KO than an average of 0.7 a big one)
 	local function vsAverage(key)
-		return math.clamp((counts[key] or 0) - (average[key] or 0), -2, 2)
+		local avg = average[key] or 0
+		return math.clamp(((counts[key] or 0) - avg) / math.max(1, avg) * 2, -2, 2)
 	end
 	local kills = vsAverage("Kills") -- (more KOs than most: bolder)
 	local downs = vsAverage("KnockedDown") -- (knocked down more than most: warier)

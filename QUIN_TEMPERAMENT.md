@@ -56,6 +56,19 @@ There are 11. The 12th slot is left open for the owner. "Focus" is TargetPersist
 - **A 30-fight run of being knocked down more than everyone else:** a Hothead's Retreat goes 8 → 19 → 30 → 40. It moves faster at first and slower as it leaves its nature.
 - **1:3:** a bad session took a trained habit down 0.2 points against 0.6 untrained.
 
+## 16v16 check (2026-10-24: 8 matches, 256 Quins, 22-30 of each)
+
+Damage dealt compared with the Quin's own team average (100% = typical); run-to-run noise is about ±10%.
+
+| Guardian | Opportunist | Free Spirit | Wary | Friendly | Jester | Stoic | Hothead | Egoist | Gambler | Hunter |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 110% | 107% | 105% | 104% | 103% | 101% | 100% | 97% | 95% | 93% | 91% |
+
+- **Nothing is trash.** Hunter and Gambler were below average in *both* runs (about 7-9%), so they're the ones to watch.
+- **Egoist** fights the most, retreats the least and dies first in both runs: overconfident. That's character, not weakness (95% damage).
+- **Behaviour differences are subtle:** time in Fight/Chase/Circling is within a few % for all temperaments. The habits act as small biases in the decision system.
+- **Found and fixed:** nothing ever recorded KOs, knockbacks or gang-ups for the habits. They are now hooked in DamageModule (Kill), KnockbackState (KnockedDown = any knockback, about 13 per Quin per match) and SituationAwareness (a surround of 1.5 s or more, survived). Match steps now judge counts relative to the average.
+
 ## Not built yet
 
 - **Training sessions** (they set `TrainingFocus` and push habits): economy step 3, Workshop/Trainer dialogs.
