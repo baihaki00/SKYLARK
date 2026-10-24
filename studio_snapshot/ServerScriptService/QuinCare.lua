@@ -333,6 +333,10 @@ local function list(player)
                 Bond = math.floor(q.Bond or 0),
                 Battles = q.BattleRecord and q.BattleRecord.Battles or 0,
                 Wins = q.BattleRecord and q.BattleRecord.Wins or 0,
+                Losses = q.BattleRecord and q.BattleRecord.Losses or 0,
+                Streak = q.BattleRecord and q.BattleRecord.CurrentStreak or 0,
+                Gender = q.Gender,
+                Title = q.Titles and q.Titles.Current or nil,
                 Habits = habitView(q),
                 AppraisedAt = q.Appraisal and q.Appraisal.At or nil,
             })
@@ -340,6 +344,8 @@ local function list(player)
     end
     return {
         Quins = out,
+        Unlocked = roster.UnlockedSlots,
+        MaxSlots = QuinRosterService.MAX_SLOTS,
         Balance = Wallet.balance(player),
         Sessions = Care.SESSIONS,
         AppraiseCost = Care.APPRAISE_COST,

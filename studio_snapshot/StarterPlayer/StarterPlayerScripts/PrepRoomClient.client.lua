@@ -899,7 +899,8 @@ RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Val
     end
     -- the mouse looks around freely; Alt (or the plan panel open) gives the cursor back
     local results = player.PlayerGui:FindFirstChild("MatchResultsUI") -- (the results card: it needs the cursor)
-    lookHeld = not using.cursor and not planGui.Enabled and not (results and results.Enabled)
+    local menu = player.PlayerGui:FindFirstChild("PlayerMenuUI") -- (the player menu, G)
+    lookHeld = not using.cursor and not planGui.Enabled and not (results and results.Enabled) and not (menu and menu.Enabled)
         and not UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) and not UserInputService:IsKeyDown(Enum.KeyCode.RightAlt)
     if lookHeld then
         local delta = UserInputService:GetMouseDelta()

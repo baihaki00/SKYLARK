@@ -6,6 +6,8 @@
 --   Wallet.balance(player)                 -> number (nil until loaded)
 --   Wallet.spend(player, amount, reason)   -> true, newBalance | false, message
 --   Wallet.grant(player, amount, reason)   -> newBalance
+--   Wallet.history(player)                 -> the last LOG_SIZE changes { t, amount, reason, balance },
+--                                             newest first (this session only; remote ArenaNetwork.WalletLog)
 --
 -- Saved in the DataStore "SkylarkWallet_v1" (key "u_<userId>"): loaded on join (a new player starts
 -- with START_BALANCE), saved when it changes (at most every SAVE_EVERY seconds), on leaving and on
@@ -22,6 +24,7 @@ local Wallet = {}
 
 Wallet.START_BALANCE = 2500
 local SAVE_EVERY = 30
+local LOG_SIZE = 20
 
 local store = nil
 pcall(function()
@@ -31,6 +34,14 @@ end)
 local balances = {} -- [userId] = number
 local saveable = {} -- [userId] = true when loaded from the store (so saving can't clobber)
 local dirty = {} -- [userId] = true: changed since the last save
+local logs = {} -- [userId] = { newest first }
+
+local function logChange(player, amount, reason)
+    local log = logs[player.UserId] or {}
+    logs[player.UserId] = log
+    table.insert(log, 1, { t = os.time(), amount = amount, reason = tostring(reason or ""), balance = balances[player.UserId] })
+    log[LOG_SIZE + 1] = nil
+end
 
 local function key(player)
     return "u_" .. player.UserId
@@ -103,6 +114,9 @@ function Wallet.spend(player, amount, reason)
     balances[player.UserId] = current - amount
     dirty[player.UserId] = true
     publish(player)
+    if amount > 0 then
+        logChange(player, -amount, reason)
+    end
     print(string.format("[SkylarkWallet] %s -%d SC (%s) = %d", player.Name, amount, tostring(reason), balances[player.UserId]))
     return true, balances[player.UserId]
 end
@@ -115,8 +129,28 @@ function Wallet.grant(player, amount, reason)
     balances[player.UserId] += amount
     dirty[player.UserId] = true
     publish(player)
+    logChange(player, amount, reason)
     print(string.format("[SkylarkWallet] %s +%d SC (%s) = %d", player.Name, amount, tostring(reason), balances[player.UserId]))
     return balances[player.UserId]
+end
+
+function Wallet.history(player)
+    return logs[player.UserId] or {}
+end
+
+do
+    local net = game:GetService("ReplicatedStorage"):FindFirstChild("ArenaNetwork")
+    if not net then
+        net = Instance.new("Folder")
+        net.Name = "ArenaNetwork"
+        net.Parent = game:GetService("ReplicatedStorage")
+    end
+    local remote = net:FindFirstChild("WalletLog") or Instance.new("RemoteFunction")
+    remote.Name = "WalletLog"
+    remote.Parent = net
+    remote.OnServerInvoke = function(player)
+        return Wallet.history(player)
+    end
 end
 
 Players.PlayerAdded:Connect(load)
@@ -128,7 +162,7 @@ end
 Session.addSaver(function(player)
     save(player)
     if not player.Parent then
-        balances[player.UserId], saveable[player.UserId], dirty[player.UserId] = nil, nil, nil
+        balances[player.UserId], saveable[player.UserId], dirty[player.UserId], logs[player.UserId] = nil, nil, nil, nil
     end
 end)
 

@@ -579,10 +579,15 @@ local function showResults(r)
     resultsGui.Enabled = true
 end
 
+shared.ShowMatchCard = function(r) -- (the player menu reopens the card)
+    showResults(r)
+end
+
 if resultRemote then
     resultRemote.OnClientEvent:Connect(function(r)
         if type(r) == "table" and type(r.Quins) == "table" then
             lastResult = r
+            shared.LastMatch = r -- (the player menu's LAST MATCH: kept for the session)
             showResults(r)
             pcall(hudResult, r)
         end
