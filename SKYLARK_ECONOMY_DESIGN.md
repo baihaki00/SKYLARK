@@ -294,3 +294,25 @@ makes a second copy that takes over the remote, so drive tests through the hook 
 
 Thought for balance (step 5): a Long session gives about +2 at Bond 0 for 320 SC, which is slow
 on purpose (the owner's "5 points over 2 days"), but may feel thin; Bond lifts it to +4.
+
+## Step 4 built so far (2026-10-24): prebook, boards, plans
+
+**A. Prebook (ArenaRegistration, ArenaBoardClient).** Only at the owner-placed ArenaPrebookTerminal parts. You book the event (the 80-minute window), not a round. It opens when the previous event ends and closes at the start. The discount slides from 30% off to full price at the start. The deposit is one round per Quin at the booked rate and counts as the first round. Prebooked Quins are seated first, on the side you chose. Cancelling keeps 25% of the unused deposit. Unused deposit comes back in full at the event's end or when you leave. Arena Terminals are the staffed walk-in desk: full price, opening 20 minutes before.
+
+**B. ArenaBoards (display only).** They show both sides' owners with their Quins: temperament, W/L, condition band, Bond band, revealed habits. Also the strength bar, the price, and the close time in SST (plus the real time left while the clock runs). The side guard refuses a booking that would stack an already stronger side.
+
+**Spectate or take part, never both.** If your Quins are entered or prebooked, you can't buy a seat. If you hold a seat this round, you can't register.
+
+**C. Plans (QuinPlans, PrepRoomClient PLAN panel).** Plans are set only in the prep room, at the terminal, while PREPARATION_ROOM lasts. Each Quin gets three choices:
+- Stance: Aggressive / Balanced / Defensive.
+- Target: Own pick / Weakest / Strongest / Defend.
+- Role: Free / Striker / Guard / Hunter.
+
+How plans work:
+- A plan leans the Quin's live habits (Pers_ values) and adds a target score. It never adds stats.
+- Follow = 0.4 + 0.6 x Bond/100.
+- Each part that goes against its nature (e.g. Aggressive with Aggression < 0.45, Defensive with > 0.8, Guard with Protectiveness < 0.3, Hunter with > 0.75) cuts follow to 70% and adds 0.8 s of hesitation at release (max 2 s).
+- The last plan per Quin is reused next round.
+- NPC owners don't set plans yet.
+
+Still to do: D. Scouting (opponents + the ARENA line on the glass), NPQ fill to the weaker side, a 16v16 all-Aggressive vs all-Defensive measurement, and the hesitation animation (look up at the owner, nod).
