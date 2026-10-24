@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local ElementData = require(QuinCore:WaitForChild("ElementData"))
 local PersonalitySystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("PersonalitySystem"))
+local Temperament = require(QuinCore:WaitForChild("Modules"):WaitForChild("Temperament"))
 
 local QuinInstance = {
 	QuinInstanceVersion = 2,
@@ -39,10 +40,15 @@ function QuinInstance.create(spec)
 	local qQuinClass = spec.QuinClass or "Normal"     -- "Normal" or "Admin"
 	local qArchetype = spec.Archetype or "Standard"   -- "Standard" or "Benchmark"
 
-	-- Personality is generated once upon birth and permanently owned
+	-- Temperament: who it is, never changes (Temperament.lua). A Quin saved before temperaments
+	-- gets one now, without touching the habits it already has.
+	local temperament = Temperament.isValid(spec.Temperament) and spec.Temperament or Temperament.random()
+
+	-- Personality (the habits) is generated once upon birth, tilted by the temperament, then
+	-- reshaped by what happens to it (Temperament.applyMatch)
 	local personality = spec.Personality
 	if not personality then
-		personality = PersonalitySystem.generate(qType, spec.PersonalityOverrides)
+		personality = Temperament.tilt(PersonalitySystem.generate(qType, spec.PersonalityOverrides), temperament)
 	else
 		local valid, err = PersonalitySystem.validate(personality)
 		if not valid then
@@ -79,6 +85,9 @@ function QuinInstance.create(spec)
 
 		PersonalityVersion = PersonalitySystem.PersonalityVersion,
 		Personality = personality,
+		Temperament = temperament,
+		TrainingFocus = spec.TrainingFocus or {}, -- [habit] = +1 / -1: what the owner is training it toward
+		HabitTrend = spec.HabitTrend or {}, -- [habit] = recent drift (the stats panel's arrows)
 
 		BattleRecord = {
 			Battles       = spec.BattleRecord and spec.BattleRecord.Battles or 0,
@@ -87,6 +96,7 @@ function QuinInstance.create(spec)
 			Draws         = spec.BattleRecord and spec.BattleRecord.Draws or 0,
 			CurrentStreak = spec.BattleRecord and spec.BattleRecord.CurrentStreak or 0,
 			BestStreak    = spec.BattleRecord and spec.BattleRecord.BestStreak or 0,
+			LossStreak    = spec.BattleRecord and spec.BattleRecord.LossStreak or 0,
 			TotalKills    = spec.BattleRecord and spec.BattleRecord.TotalKills or 0,
 			TotalDeaths   = spec.BattleRecord and spec.BattleRecord.TotalDeaths or 0,
 			DamageDealt   = spec.BattleRecord and spec.BattleRecord.DamageDealt or 0,
@@ -161,6 +171,7 @@ function QuinInstance.recordBattle(instance, result, stats)
 
 	if result == "Win" or result == "win" then
 		br.Wins = (br.Wins or 0) + 1
+		br.LossStreak = 0
 		br.CurrentStreak = (br.CurrentStreak or 0) + 1
 		if br.CurrentStreak > (br.BestStreak or 0) then
 			br.BestStreak = br.CurrentStreak
@@ -169,6 +180,7 @@ function QuinInstance.recordBattle(instance, result, stats)
 		br.Losses = (br.Losses or 0) + 1
 		br.TotalDeaths = (br.TotalDeaths or 0) + 1
 		br.CurrentStreak = 0
+		br.LossStreak = (br.LossStreak or 0) + 1
 	else
 		br.Draws = (br.Draws or 0) + 1
 		br.CurrentStreak = 0
@@ -319,6 +331,9 @@ function QuinInstance.serialize(instance)
 		Ownership = instance.Ownership,
 		PersonalityVersion = instance.PersonalityVersion,
 		Personality = instance.Personality,
+		Temperament = instance.Temperament,
+		TrainingFocus = instance.TrainingFocus,
+		HabitTrend = instance.HabitTrend,
 		BattleRecord = instance.BattleRecord,
 		Rivalries = instance.Rivalries,
 		Titles = instance.Titles,
@@ -344,6 +359,7 @@ function QuinInstance.attachToModel(instance, model)
 	model:SetAttribute("Element", instance.Element)
 	model:SetAttribute("QuinClass", instance.QuinClass)
 	model:SetAttribute("Archetype", instance.Archetype)
+	model:SetAttribute("Temperament", instance.Temperament and Temperament.displayName(instance.Temperament) or nil)
 
 	-- Personality attributes for live perception and HUD display
 	if instance.Personality then

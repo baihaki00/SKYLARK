@@ -29,6 +29,7 @@ local ArenaNpcOwners = require(ServerScriptService:WaitForChild("ArenaNpcOwners"
 local VfxModule = require(ReplicatedStorage.QuinCore.Modules.VfxModule)
 local SocialRespect = require(ReplicatedStorage.QuinCore.Modules.SocialRespect)
 local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
+local QuinDataStoreService = require(ReplicatedStorage.QuinCore.Modules.QuinDataStoreService)
 local Players = game:GetService("Players")
 
 local Orchestrator = {}
@@ -482,6 +483,62 @@ local function decideWinner(mode)
         string.format("Time Limit (Health %.0f%% vs %.0f%%)", math.max(alphaPct, betaPct) * 100, math.min(alphaPct, betaPct) * 100)
 end
 
+-- Players' own Quins: what each did this match (read while it is on the field: a fallen Quin's
+-- body goes home), then at the end its record and its habits (Temperament: the match reshapes
+-- them a little, up and down)
+-- (every fighter is counted: the habit steps judge a Quin against the match's average)
+local matchCounts = {} -- [QuinId] = { Kills, KnockedDown, SurroundsSurvived, name }
+
+local function snapshotOwned()
+    for _, q in ipairs(getTournamentFighters()) do
+        local id = q:GetAttribute("QuinId")
+        if id then
+            local c = matchCounts[id] or { Kills = 0, KnockedDown = 0, SurroundsSurvived = 0, name = q.Name }
+            c.Kills = math.max(c.Kills, q:GetAttribute("Match_Kills") or 0)
+            c.KnockedDown = math.max(c.KnockedDown, q:GetAttribute("Match_KnockedDown") or 0)
+            c.SurroundsSurvived = math.max(c.SurroundsSurvived, q:GetAttribute("Match_SurroundsSurvived") or 0)
+            matchCounts[id] = c
+        end
+    end
+end
+
+local function recordOwned(winnerName, winnerTeam)
+    local average, n = { Kills = 0, KnockedDown = 0, SurroundsSurvived = 0 }, 0
+    for _, c in pairs(matchCounts) do
+        n += 1
+        for key in pairs(average) do
+            average[key] += c[key]
+        end
+    end
+    for key in pairs(average) do
+        average[key] = n > 0 and average[key] / n or 0
+    end
+    for _, e in ipairs(roundEntrants) do
+        local id = e.player and e.quin and e.quin.QuinId
+        local c = id and matchCounts[id]
+        if c then
+            local outcome
+            if winnerTeam == "Draw" then
+                outcome = "Draw"
+            elseif winnerTeam == "FFA Champion" then
+                outcome = (c.name == winnerName) and "Win" or "Loss"
+            else
+                outcome = (e.team == winnerTeam) and "Win" or "Loss"
+            end
+            local ok, applied = QuinDataStoreService.recordMatchOutcome(id, outcome, { kills = c.Kills, counts = c, average = average })
+            if ok then
+                local moved = {}
+                for habit, step in pairs(applied or {}) do
+                    table.insert(moved, string.format("%s %+.1f", habit, step * 100))
+                end
+                print(string.format("[Orchestrator] %s's Quin %s: %s, habits %s", e.player.Name, id, outcome,
+                    #moved > 0 and table.concat(moved, ", ") or "unchanged"))
+            end
+        end
+    end
+    matchCounts = {}
+end
+
 -- ============================================================================
 -- LIFECYCLE STATE MACHINE
 -- ============================================================================
@@ -568,6 +625,7 @@ local function runMatchLifecycle()
     roundEntrants = ArenaNpcOwners.fillRound(roundEntrants, mode, roundTeamSize,
         (mode == "TeamBattle" and roundTeamSize >= 16) and 2 or 1, math.floor(#ArenaPrepRoom.rooms() / 2))
     ArenaPrepRoom.open(roundEntrants) -- (their owners join them in their rooms)
+    matchCounts = {}
     local prepTime = duration("PreparationRoom")
     epoch = beginPhase("PREPARATION_ROOM", prepTime, "PREPARATION ROOM", string.format("FIGHTERS CALIBRATING IN BACKROOMS • %d SECONDS", prepTime))
     if toggle("Announcer") then
@@ -669,11 +727,14 @@ local function runMatchLifecycle()
         elseif alphaAlive == 0 or betaAlive == 0 then
             break
         end
+        snapshotOwned()
         task.wait(0.25)
     end
 
     -- PHASE 8: WINNER DETERMINATION / VICTORY CEREMONY
+    snapshotOwned()
     local winnerName, winnerTeam, reason = decideWinner(mode)
+    recordOwned(winnerName, winnerTeam)
     matchStats.Winner, matchStats.WinnerTeam, matchStats.EndReason = winnerName, winnerTeam, reason
     Workspace:SetAttribute("MatchStarted", false)
     Workspace:SetAttribute("MatchEndsAt", nil)

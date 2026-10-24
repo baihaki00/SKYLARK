@@ -76,9 +76,14 @@ local TYPE_BOUNDS = {
 	},
 }
 
+-- A Type's ranges (Temperament reads them for a Quin's nature)
+function PersonalitySystem.typeBounds(typeName)
+	return TYPE_BOUNDS[typeName] or TYPE_BOUNDS.Standard or TYPE_BOUNDS.TypeA
+end
+
 -- Generate a persistent personality for a genuinely new Quin
 function PersonalitySystem.generate(typeName, customOverrides, rng)
-	local bounds = TYPE_BOUNDS[typeName] or TYPE_BOUNDS.Standard or TYPE_BOUNDS.TypeA
+	local bounds = PersonalitySystem.typeBounds(typeName)
 	local personality = {}
 
 	local randomFloat = function(min, max)

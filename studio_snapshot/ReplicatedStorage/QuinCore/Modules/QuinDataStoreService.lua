@@ -10,6 +10,8 @@ local RunService = game:GetService("RunService")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local QuinInstance = require(QuinCore:WaitForChild("Modules"):WaitForChild("QuinInstance"))
+local PersonalitySystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("PersonalitySystem"))
+local Temperament = require(QuinCore:WaitForChild("Modules"):WaitForChild("Temperament"))
 
 local QuinDataStoreService = {
 	DATA_STORE_NAME = "Skylark_QuinRoster_v2",
@@ -327,6 +329,13 @@ function QuinDataStoreService.recordMatchOutcome(quinId, outcome, matchStats, ri
 
 	QuinInstance.recordBattle(quin, outcome, matchStats)
 
+	-- what the match did to its habits (Temperament: up and down, linked, capped per session)
+	local applied = nil
+	if matchStats and matchStats.counts then
+		applied = Temperament.applyMatch(quin, Temperament.matchDeltas(matchStats.counts, outcome, matchStats.average),
+			PersonalitySystem.typeBounds(quin.Type))
+	end
+
 	if rivalQuinId and rivalQuinId ~= "" then
 		local damage = matchStats and matchStats.damage or 0
 		QuinInstance.recordRivalry(quin, rivalQuinId, outcome, damage)
@@ -336,7 +345,7 @@ function QuinDataStoreService.recordMatchOutcome(quinId, outcome, matchStats, ri
 		dirtyRosters[userId] = true
 	end
 
-	return true
+	return true, applied
 end
 
 -- ============================================================
