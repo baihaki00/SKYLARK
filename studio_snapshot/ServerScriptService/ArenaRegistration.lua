@@ -36,8 +36,10 @@
 -- ArenaPrebookStartsAt / ArenaPrebookRate / ArenaPrebookVersion (the boards) / ArenaEntrants /
 -- ArenaRoundSeats; each Player ArenaEntered / ArenaEntrySlots ("1,3") / ArenaQueuePos /
 -- ArenaSatOut / ArenaInRound / ArenaPrebooked / ArenaPrebookSide.
--- Remote: ArenaNetwork.ArenaEntry (RemoteFunction) "roster" | "register", {slots} | "withdraw" |
--- "prebook", { slots = {..}, side = "TeamAlpha" | "TeamBeta" } | "cancel" | "board" |
+-- Remote: ArenaNetwork.ArenaEntry (RemoteFunction) "roster" | "register", { slots = {..}, room = n } |
+-- "withdraw" | "prebook", { slots = {..}, side = "TeamAlpha" | "TeamBeta", room = n } | "cancel" | "board" |
+-- (room: the prep room wished for, 1-16 on the owner's side, nil = any; ArenaPrepRoom seats it.
+-- A prebook's room is a claim: no other prebook on that side may take it. A walk-in's is a wish.)
 -- "quick" (DEBUG, Studio or admins: QUICK MATCH in the ARENA MENU [DEBUG]. Moves the clock
 -- into the next 16v16 Team Battles window if it isn't in one, enters your Quins and starts a round now).
 
@@ -207,13 +209,25 @@ local function publish()
         e.player:SetAttribute("ArenaSatOut", e.satOut)
         e.player:SetAttribute("ArenaPrebooked", e.prebook == true)
         e.player:SetAttribute("ArenaPrebookSide", e.side)
+        e.player:SetAttribute("ArenaRoomWish", e.room)
     end
     Workspace:SetAttribute("ArenaEntrants", #list)
     boardVersion += 1
     Workspace:SetAttribute("ArenaPrebookVersion", boardVersion) -- (the boards redraw)
 end
 
+-- A prep room number, 1-16, or nil (any)
+local ROOMS_PER_SIDE = 16
+local function roomWish(v)
+    v = tonumber(v)
+    if not v or v ~= math.floor(v) or v < 1 or v > ROOMS_PER_SIDE then
+        return nil
+    end
+    return v
+end
+
 local function clearPlayer(player)
+    player:SetAttribute("ArenaRoomWish", nil)
     player:SetAttribute("ArenaEntered", false)
     player:SetAttribute("ArenaEntrySlots", nil)
     player:SetAttribute("ArenaQueuePos", nil)
@@ -402,7 +416,7 @@ function Registration.pickRound(mode, teamSize)
             sideOf[e] = team
             teamCount[team] += 1
         end
-        table.insert(entrants, { player = e.player, quin = quin, team = team, paid = price })
+        table.insert(entrants, { player = e.player, quin = quin, team = team, paid = price, room = e.room })
         return true
     end
 
@@ -478,8 +492,13 @@ local function chooseSlots(player, slots)
     return chosen
 end
 
-local function register(player, slots, anywhere) -- (anywhere: the debug quick match)
+local function register(player, slots, anywhere, room) -- (anywhere: the debug quick match)
     refreshWindow()
+    if type(slots) == "table" and slots.slots then -- ({ slots, room } from a terminal)
+        room = slots.room
+        slots = slots.slots
+    end
+    room = roomWish(room)
     if not windowKey or windowKind == "Booking" then
         return false, string.format("The desk opens %d minutes before each event. Prebook early at " .. PREBOOK_TERMINAL .. ".",
             math.floor(ArenaTiming.get("WalkInOpensBefore") / 60 + 0.5))
@@ -506,8 +525,9 @@ local function register(player, slots, anywhere) -- (anywhere: the debug quick m
     end
     if existing then
         existing.slots = chosen -- (changing your Quins keeps your place in the queue)
+        existing.room = room
     else
-        entries[player.UserId] = { player = player, slots = chosen, registeredAt = os.clock(), satOut = 0 }
+        entries[player.UserId] = { player = player, slots = chosen, registeredAt = os.clock(), satOut = 0, room = room }
     end
     publish()
     return true, string.format("Entered %s with %d Quin%s. Entry %d SC per Quin, paid each round they fight.",
@@ -544,6 +564,14 @@ local function prebook(player, request)
     local side = request.side
     if side ~= "TeamAlpha" and side ~= "TeamBeta" then
         return false, "Pick a side."
+    end
+    local room = roomWish(request.room)
+    if room then -- (a prebook claims its room on that side)
+        for userId, e in pairs(entries) do
+            if userId ~= player.UserId and e.prebook and e.side == side and e.room == room then
+                return false, string.format("Room %d on %s is booked. Pick another room.", room, side == "TeamAlpha" and "Alpha" or "Beta")
+            end
+        end
     end
     local existing = entries[player.UserId]
     if existing and existing.prebook then
@@ -591,7 +619,7 @@ local function prebook(player, request)
     end
     entries[player.UserId] = {
         player = player, slots = chosen, registeredAt = os.clock(), satOut = existing and existing.satOut or 0,
-        prebook = true, side = side, rate = rate, credit = credit,
+        prebook = true, side = side, rate = rate, credit = credit, room = room,
     }
     publish()
     return true, string.format("Prebooked %s for %s with %d Quin%s at %d SC a round (%d%% off). Deposit %d SC paid.",
@@ -620,7 +648,18 @@ local function withdraw(player)
 end
 
 -- What the boards show: each side's owners and their Quins (never their plans)
-local function boardView()
+-- The rooms prebooks have claimed, per side ([n] = true), except `except`'s own
+local function takenRooms(except)
+    local taken = { TeamAlpha = {}, TeamBeta = {} }
+    for userId, e in pairs(entries) do
+        if e.prebook and e.side and e.room and userId ~= except then
+            taken[e.side][tostring(e.room)] = true
+        end
+    end
+    return taken
+end
+
+local function boardView(player)
     refreshWindow()
     local sides = { TeamAlpha = {}, TeamBeta = {} }
     local sum = { TeamAlpha = 0, TeamBeta = 0 }
@@ -666,6 +705,7 @@ local function boardView()
         Beta = sides.TeamBeta,
         Strength = { Alpha = math.floor(sum.TeamAlpha), Beta = math.floor(sum.TeamBeta) },
         WalkIns = walkIns,
+        TakenRooms = takenRooms(player and player.UserId),
     }
 end
 
@@ -724,7 +764,7 @@ local function quickMatch(player, slots)
                 end
             end
         end
-        local ok, msg = register(player, slots, true)
+        local ok, msg = register(player, slots, true, existing and existing.room)
         if not ok then
             return false, msg
         end
@@ -748,7 +788,7 @@ entryRemote.OnServerInvoke = function(player, action, value)
     elseif action == "prebook" then
         return prebook(player, value)
     elseif action == "board" then
-        return boardView()
+        return boardView(player)
     elseif action == "quick" then
         return quickMatch(player, value)
     end

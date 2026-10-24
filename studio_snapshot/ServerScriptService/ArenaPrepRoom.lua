@@ -16,6 +16,11 @@
 --     arena entrance, NPC owners walk out) a few seconds later.
 --   * Match over: everyone back to the entrance, the NPC owners leave, the rooms are free again.
 --
+-- Room numbers: each side's rooms are 1-16 (lower floor 1-8, upper 9-16, along the wall), on the
+-- model (RoomNumber) and a sign over the door. An owner may wish for a number when registering
+-- (ArenaRegistration: entry.room): rooms go in seating order (players first, in queue order), each
+-- to its wished number on the owner's side if free, else the nearest free number.
+--
 -- Rooms publish (attributes on the PrepRoom model): PrepOwner (name), PrepOwnerUserId (players),
 -- PrepTeam, PrepAllowed (",id,id," of the players who may enter).
 -- Remote ArenaNetwork.PrepRoom: server -> client "knock", name, userId | "notice", text;
@@ -104,6 +109,30 @@ local function allRooms()
         end
         return a.center.Z > b.center.Z
     end)
+    -- numbered per side in that order, with a sign over each door
+    local count = {}
+    for _, room in ipairs(rooms) do
+        count[room.side] = (count[room.side] or 0) + 1
+        room.number = count[room.side]
+        room.model:SetAttribute("RoomNumber", room.number)
+        local sign = room.door:FindFirstChild("RoomSign") or Instance.new("BillboardGui")
+        sign.Name = "RoomSign"
+        sign.Size = UDim2.fromOffset(120, 34)
+        sign.StudsOffsetWorldSpace = Vector3.new(0, room.door.Size.Y / 2 + 1.5, 0)
+        sign.MaxDistance = 70
+        sign.LightInfluence = 0
+        local text = sign:FindFirstChild("Text") or Instance.new("TextLabel")
+        text.Name = "Text"
+        text.Size = UDim2.fromScale(1, 1)
+        text.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
+        text.BackgroundTransparency = 0.2
+        text.Font = Enum.Font.GothamBold
+        text.TextSize = 18
+        text.TextColor3 = Color3.fromRGB(255, 180, 50)
+        text.Text = "ROOM " .. room.number
+        text.Parent = sign
+        sign.Parent = room.door
+    end
     print(string.format("[ArenaPrepRoom] %d preparation rooms", #rooms))
     return rooms
 end
@@ -404,13 +433,18 @@ function PrepRoom.open(entrants)
     for _, room in ipairs(allRooms()) do
         table.insert(free, room)
     end
-    local function takeRoom(side)
+    -- the wished number on that side if free, else the nearest free number (the lower on a tie)
+    local function takeRoom(side, wish)
+        local best, bestGap = nil, math.huge
         for i, room in ipairs(free) do
             if room.side == side then
-                return table.remove(free, i)
+                local gap = wish and math.abs(room.number - wish) or 0
+                if gap < bestGap then
+                    best, bestGap = i, gap
+                end
             end
         end
-        return nil
+        return best and table.remove(free, best) or nil
     end
 
     local groups, order = {}, {}
@@ -426,7 +460,8 @@ function PrepRoom.open(entrants)
     for i, owner in ipairs(order) do
         local group = groups[owner]
         local team = group[1].team or ((i % 2 == 1) and "TeamAlpha" or "TeamBeta")
-        local room = takeRoom(sideOf(team))
+        local wish = group[1].room
+        local room = takeRoom(sideOf(team), wish)
         local isNpc = group[1].npc ~= nil
         if room then
             local state = {
@@ -483,7 +518,7 @@ function PrepRoom.open(entrants)
                 end
                 return list
             end)
-            room.door.DoorPrompt.ObjectText = state.ownerName .. "'s room"
+            room.door.DoorPrompt.ObjectText = string.format("Room %d  •  %s's room", room.number, state.ownerName)
             room.door.DoorPrompt.Enabled = true
             publish(room, state)
             if isNpc then
@@ -501,6 +536,9 @@ function PrepRoom.open(entrants)
                 local spot = Vector3.new(spawn.Position.X, room.floorY + 4, spawn.Position.Z) - room.toArena * 6
                 teleportPlayer(owner, CFrame.lookAt(spot, spot + room.toArena))
                 owner:SetAttribute("ArenaPrepRoom", room.model:GetFullName())
+                owner:SetAttribute("ArenaPrepRoomNumber", room.number)
+                notice(owner, (wish and wish ~= room.number) and string.format("Room %d was taken: you're in Room %d.", wish, room.number)
+                    or string.format("You're in Room %d.", room.number))
             end
         else
             warn(string.format("[ArenaPrepRoom] No free room on %s's side for %s", team, isNpc and owner.name or owner.Name))
@@ -550,6 +588,7 @@ local function releaseRoom(room, sendHome)
         ArenaNpcOwners.leave(state.owner, sendHome ~= false)
     elseif state.owner.Parent then
         state.owner:SetAttribute("ArenaPrepRoom", nil)
+        state.owner:SetAttribute("ArenaPrepRoomNumber", nil)
         if sendHome ~= false then
             teleportPlayer(state.owner, entranceCFrame())
         end

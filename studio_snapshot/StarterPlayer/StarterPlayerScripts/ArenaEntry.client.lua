@@ -147,8 +147,11 @@ refreshCoins()
 -- REGISTRATION POPUP (the arena's terminal)
 -- ============================================================================
 
-local PW, PH = 440, 432
+local PW = 440
 local QUIN_Y, QUIN_H = 100, 40
+local ROOM_Y = QUIN_Y + 4 * QUIN_H + 6 -- (the prep room row)
+local ACTION_Y = ROOM_Y + 84
+local PH = ACTION_Y + 152
 local popup = new("Frame", {
     Name = "TerminalPopup",
     Parent = gui,
@@ -171,11 +174,11 @@ local pickLabel = label(popup, { Position = UDim2.fromOffset(16, 82), Size = UDi
 
 local registerBack = new("TextButton", { Parent = popup, Text = "<", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(PW - 72, 10), Size = UDim2.fromOffset(26, 26) })
 corner(registerBack, 6)
-local actionButton = new("TextButton", { Name = "ActionBtn", Parent = popup, Text = "REGISTER", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_BG, BackgroundColor3 = C_AMBER, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 8), Size = UDim2.fromOffset(PW - 32, 38) })
+local actionButton = new("TextButton", { Name = "ActionBtn", Parent = popup, Text = "REGISTER", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_BG, BackgroundColor3 = C_AMBER, Position = UDim2.fromOffset(16, ACTION_Y), Size = UDim2.fromOffset(PW - 32, 38) })
 corner(actionButton, 7)
-local withdrawButton = new("TextButton", { Name = "WithdrawBtn", Parent = popup, Text = "WITHDRAW", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_RED, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 52), Size = UDim2.fromOffset(PW - 32, 28), Visible = false })
+local withdrawButton = new("TextButton", { Name = "WithdrawBtn", Parent = popup, Text = "WITHDRAW", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_RED, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(16, ACTION_Y + 44), Size = UDim2.fromOffset(PW - 32, 28), Visible = false })
 corner(withdrawButton, 6)
-local statusLabel = label(popup, { Name = "Status", Position = UDim2.fromOffset(16, QUIN_Y + 4 * QUIN_H + 86), Size = UDim2.fromOffset(PW - 32, 32), TextSize = 12,
+local statusLabel = label(popup, { Name = "Status", Position = UDim2.fromOffset(16, ACTION_Y + 78), Size = UDim2.fromOffset(PW - 32, 32), TextSize = 12,
     TextWrapped = true, TextTruncate = Enum.TextTruncate.None, TextYAlignment = Enum.TextYAlignment.Top, Text = "" })
 label(popup, {
     Position = UDim2.fromOffset(16, PH - 40),
@@ -190,6 +193,39 @@ label(popup, {
 
 local roster = {}
 local selected = {} -- [slot] = order picked
+local wishRoom = nil -- the prep room wished for (1-16 on your side), nil = any
+
+-- PREP ROOM: 1-16 in two rows; your side is set when you're seated, so it's room N on that side
+local roomLabel = label(popup, { Position = UDim2.fromOffset(16, ROOM_Y), Size = UDim2.fromOffset(PW - 32, 14), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_MUTED, Text = "" })
+local roomButtons = {}
+local ROOM_W = (PW - 32 - 7 * 6) / 8
+for n = 1, 16 do
+    local b = new("TextButton", {
+        Name = "Room" .. n, Parent = popup, Text = tostring(n), Font = Enum.Font.GothamBold, TextSize = 13,
+        TextColor3 = C_TEXT, BackgroundColor3 = C_CARD,
+        Position = UDim2.fromOffset(16 + ((n - 1) % 8) * (ROOM_W + 6), ROOM_Y + 20 + math.floor((n - 1) / 8) * 30),
+        Size = UDim2.fromOffset(ROOM_W, 26),
+    })
+    corner(b, 6)
+    roomButtons[n] = b
+end
+local function refreshRooms()
+    for n, b in ipairs(roomButtons) do
+        local on = wishRoom == n
+        b.BackgroundColor3 = on and C_AMBER or C_CARD
+        b.TextColor3 = on and C_BG or C_TEXT
+    end
+    roomLabel.Text = wishRoom and string.format("PREP ROOM %d ON YOUR SIDE  (TAKEN: THE NEAREST FREE)", wishRoom) or "PREP ROOM  •  ANY FREE ROOM  (PICK ONE TO ASK FOR IT)"
+end
+for n, b in ipairs(roomButtons) do
+    b.MouseButton1Click:Connect(function()
+        if Workspace:GetAttribute("ArenaRegOpen") ~= true then
+            return
+        end
+        wishRoom = wishRoom ~= n and n or nil -- (again: any room)
+        refreshRooms()
+    end)
+end
 local quinButtons = {}
 local openTerminal = nil
 
@@ -285,7 +321,9 @@ local function openPopup(terminal)
     if not next(selected) and roster[1] then
         selected[roster[1].Slot] = 1
     end
+    wishRoom = player:GetAttribute("ArenaRoomWish")
     refreshQuinButtons()
+    refreshRooms()
 end
 
 -- ============================================================================
@@ -525,7 +563,7 @@ actionButton.MouseButton1Click:Connect(function()
         return
     end
     local ok, result, message = pcall(function()
-        return entryRemote:InvokeServer("register", selectedList())
+        return entryRemote:InvokeServer("register", { slots = selectedList(), room = wishRoom })
     end)
     if ok then
         setStatus(message, result and C_GREEN or C_RED)

@@ -274,19 +274,20 @@ end)
 local gui = new("ScreenGui", { Name = "PrebookUI", Parent = playerGui, ResetOnSpawn = false, DisplayOrder = 85, Enabled = false })
 local card = new("Frame", {
     Name = "PrebookCard", Parent = gui, BackgroundColor3 = C_BG, BackgroundTransparency = 0.04,
-    AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(520, 420),
+    AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(520, 500),
 })
 corner(card, 12)
 new("UIStroke", { Parent = card, Color = C_CYAN, Thickness = 1.5 })
 local title = label(card, { Position = UDim2.fromOffset(18, 14), Size = UDim2.fromOffset(440, 22), Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = C_CYAN, Text = "PREBOOK" })
 local closeButton = button(card, "PrebookClose", "X", { Position = UDim2.fromOffset(474, 12), Size = UDim2.fromOffset(30, 26) })
 local subtitle = label(card, { Position = UDim2.fromOffset(18, 38), Size = UDim2.fromOffset(484, 16), TextSize = 12, TextColor3 = C_MUTED })
-local body = new("Frame", { Name = "PrebookBody", Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(18, 64), Size = UDim2.fromOffset(484, 300) })
-local status = label(card, { Name = "PrebookStatus", Position = UDim2.fromOffset(18, 376), Size = UDim2.fromOffset(484, 34), TextSize = 13, TextWrapped = true, TextTruncate = Enum.TextTruncate.None })
+local body = new("Frame", { Name = "PrebookBody", Parent = card, BackgroundTransparency = 1, Position = UDim2.fromOffset(18, 64), Size = UDim2.fromOffset(484, 380) })
+local status = label(card, { Name = "PrebookStatus", Position = UDim2.fromOffset(18, 456), Size = UDim2.fromOffset(484, 34), TextSize = 13, TextWrapped = true, TextTruncate = Enum.TextTruncate.None })
 
 local roster = nil
 local picked = {} -- [slot] = true
 local pickedSide = nil
+local pickedRoom = nil -- the prep room claimed on that side (1-16), nil = any
 
 local refresh -- (forward)
 
@@ -298,7 +299,8 @@ end
 
 local function drawBooked()
     label(body, { Size = UDim2.fromOffset(484, 22), Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = C_GREEN,
-        Text = string.format("You're prebooked on %s.", player:GetAttribute("ArenaPrebookSide") == "TeamBeta" and "BETA" or "ALPHA") })
+        Text = string.format("You're prebooked on %s%s.", player:GetAttribute("ArenaPrebookSide") == "TeamBeta" and "BETA" or "ALPHA",
+            player:GetAttribute("ArenaRoomWish") and ("  •  Room " .. player:GetAttribute("ArenaRoomWish")) or "") })
     label(body, { Position = UDim2.fromOffset(0, 28), Size = UDim2.fromOffset(484, 60), TextSize = 13, TextColor3 = C_MUTED, TextWrapped = true,
         TextTruncate = Enum.TextTruncate.None, TextYAlignment = Enum.TextYAlignment.Top,
         Text = "Your Quins are seated first, on your side, every round of the event. A deposit you never use comes back when the event ends. Cancelling keeps 25% of what's unused." })
@@ -349,6 +351,31 @@ local function drawBooking()
         end)
     end
     y += 60
+    -- PREP ROOM: 1-16 on the side picked; rooms other prebooks hold are greyed
+    local taken = pickedSide and v and v.TakenRooms and v.TakenRooms[pickedSide] or {}
+    if pickedRoom and taken[tostring(pickedRoom)] then
+        pickedRoom = nil
+    end
+    label(body, { Position = UDim2.fromOffset(0, y), Size = UDim2.fromOffset(484, 18), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_MUTED,
+        Text = not pickedSide and "PREP ROOM  •  pick a side first" or (pickedRoom and string.format("PREP ROOM %d", pickedRoom) or "PREP ROOM  •  any free room (or pick one)") })
+    local roomW = (484 - 7 * 6) / 8
+    for n = 1, 16 do
+        local isTaken = taken[tostring(n)] == true
+        local on = pickedRoom == n
+        local usable = pickedSide ~= nil and not isTaken
+        button(body, "PrebookRoom" .. n, tostring(n), {
+            Position = UDim2.fromOffset(((n - 1) % 8) * (roomW + 6), y + 20 + math.floor((n - 1) / 8) * 28), Size = UDim2.fromOffset(roomW, 24),
+            TextSize = 12, AutoButtonColor = usable,
+            BackgroundColor3 = on and C_AMBER or (usable and C_CARD or C_BG), TextColor3 = on and C_BG or (usable and C_TEXT or C_MUTED),
+        }).MouseButton1Click:Connect(function()
+            if not usable then
+                return
+            end
+            pickedRoom = pickedRoom ~= n and n or nil
+            refresh(true)
+        end)
+    end
+    y += 80
     local rate = v and v.Rate or 100
     label(body, { Position = UDim2.fromOffset(0, y), Size = UDim2.fromOffset(484, 34), TextSize = 13, TextWrapped = true, TextTruncate = Enum.TextTruncate.None,
         TextYAlignment = Enum.TextYAlignment.Top,
@@ -368,7 +395,7 @@ local function drawBooking()
         table.sort(slots)
         status.Text = "..."
         status.TextColor3 = C_MUTED
-        local ok, msg = entryRemote:InvokeServer("prebook", { slots = slots, side = pickedSide })
+        local ok, msg = entryRemote:InvokeServer("prebook", { slots = slots, side = pickedSide, room = pickedRoom })
         status.Text = tostring(msg or "")
         status.TextColor3 = ok and C_GREEN or C_RED
         refresh()
@@ -420,7 +447,7 @@ refresh = function(local_only)
 end
 
 local function open()
-    picked, pickedSide = {}, nil
+    picked, pickedSide, pickedRoom = {}, nil, nil
     status.Text = ""
     gui.Enabled = true
     refresh()
