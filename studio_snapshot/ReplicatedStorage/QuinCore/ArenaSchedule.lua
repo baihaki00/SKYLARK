@@ -11,9 +11,11 @@
 -- `Sizes` rotates the team size round by round (brackets: 1v1, 2v2, 4v4, 8v8 until the bracket
 -- ladder exists). 20v20 is on the sheet; the arena runs 16v16 for now.
 -- `PerPlayer`: how many of their Quins a player may enter together (ArenaRegistration); 2 in the
--- 16v16 battles, 1 otherwise. Scheduled rounds give the preparation room a full minute.
+-- 16v16 battles, 1 otherwise. A round's phase durations come from ArenaTiming (the preparation
+-- room gets a full minute; the ARENA MENU [DEBUG] can change them live or make rounds fast).
 
 local SkylarkTime = require(script.Parent:WaitForChild("SkylarkTime"))
+local ArenaTiming = require(script.Parent:WaitForChild("ArenaTiming"))
 
 local ArenaSchedule = {}
 
@@ -63,8 +65,6 @@ ArenaSchedule.EVENTS = {
 }
 
 ArenaSchedule.EVENT_SLOTS = { "Brackets", "TeamBattles", "Night" }
-
-ArenaSchedule.PREPARATION_SECONDS = 60
 
 -- The slot of Skylark day `day` that holds Skylark hour `hours`
 local function resolve(day, index)
@@ -143,7 +143,7 @@ function ArenaSchedule.matchFor(slot, round)
         Mode = match.Mode,
         TeamSize = match.TeamSize,
         Toggles = match.Toggles,
-        Durations = { PreparationRoom = ArenaSchedule.PREPARATION_SECONDS },
+        Durations = ArenaTiming.durations(),
     }
     if match.Sizes then
         settings.TeamSize = match.Sizes[(round - 1) % #match.Sizes + 1]

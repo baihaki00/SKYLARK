@@ -9,9 +9,9 @@
 --     up to the event's limit: 2 in the 16v16 battles; Register, change them or Withdraw).
 --     It closes when you walk away from the terminal;
 --   * your Skylark Coin (SC): a pill on the Skylark clock's top bar (TopBar, LayoutOrder 2);
---   * QUICK MATCH (a debug button: shown with F8 in any role, and always in the Roblox Player role
---     for testers): a 16v16 round now with your Quins
---     (ArenaRegistration "quick": Studio or admins).
+--   * ARENA MENU [DEBUG] (shown with F8 in any role, and always in the Roblox Player role for
+--     testers): opens the block test menu (ArenaBlockMenu.client: timeline, jumps, live timings,
+--     QUICK MATCH).
 -- Everything shown comes from attributes the server keeps (Workspace ArenaReg*, Player Arena*).
 
 local Players = game:GetService("Players")
@@ -25,6 +25,7 @@ local player = Players.LocalPlayer
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
 local ARENA = require(QuinCore:WaitForChild("SkylarkArenas")).current()
+local ArenaTiming = require(QuinCore:WaitForChild("ArenaTiming"))
 local entryRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("ArenaEntry", 30)
 local spectateRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("Spectate", 30)
 
@@ -322,7 +323,7 @@ local spectateChoice = button(chooser, "SPECTATE\n\nWatch from the stands\nor a 
 stroke(spectateChoice, C_GREEN)
 local registerChoice = button(chooser, "REGISTER QUIN\n\nEnter your Quins\nfor this event", 16 + half + 10, 60, half, 112, C_CARD, C_TEXT, "RegisterChoice")
 stroke(registerChoice, C_AMBER)
-local quickButton = button(chooser, "QUICK MATCH  •  debug: a 16v16 round now with your Quins", 16, 182, PW - 32, 30, C_CARD, C_AMBER, "QuickMatchBtn")
+local quickButton = button(chooser, "ARENA MENU  [DEBUG]", 16, 182, PW - 32, 30, C_CARD, C_AMBER, "ArenaMenuBtn")
 stroke(quickButton, C_AMBER).Transparency = 0.5
 quickButton.TextSize = 11
 local quickStatus = label(chooser, { Position = UDim2.fromOffset(16, 216), Size = UDim2.fromOffset(PW - 32, 14), TextSize = 11, Text = "" })
@@ -502,18 +503,12 @@ registerChoice.MouseButton1Click:Connect(function()
     openPopup(openTerminal)
 end)
 quickButton.MouseButton1Click:Connect(function()
-    quickStatus.Text = "..."
-    quickStatus.TextColor3 = C_MUTED
-    local _, already = enteredSlots()
-    local ok, result, message = pcall(function()
-        return entryRemote:InvokeServer("quick", already)
-    end)
-    if ok and result then
+    if shared.OpenArenaBlockMenu then -- (ArenaBlockMenu.client)
         quickStatus.Text = ""
         closePopup()
-        notify("Quick match", message or "")
+        shared.OpenArenaBlockMenu()
     else
-        quickStatus.Text = ok and (message or "Could not start") or "Could not reach " .. ARENA.Name
+        quickStatus.Text = "The arena menu isn't loaded"
         quickStatus.TextColor3 = C_RED
     end
 end)
@@ -548,7 +543,7 @@ local function update()
     elseif window then
         entryState("ENTRY CLOSED FOR THIS EVENT", C_MUTED, false)
     else
-        entryState("ENTRY CLOSED  •  opens 20m before events", C_MUTED, false)
+        entryState(string.format("ENTRY CLOSED  •  opens %dm before events", math.floor(ArenaTiming.get("WalkInOpensBefore") / 60 + 0.5)), C_MUTED, false)
     end
 
     if chooser.Visible or spectate.Visible or popup.Visible then
@@ -568,7 +563,7 @@ local function update()
         elseif window then
             whenLabel.Text = "Entry has closed for this event"
         else
-            whenLabel.Text = "Entry opens 20 minutes before each event"
+            whenLabel.Text = string.format("Entry opens %d minutes before each event", math.floor(ArenaTiming.get("WalkInOpensBefore") / 60 + 0.5))
         end
         local limit = perPlayer()
         pickLabel.Text = limit > 1 and string.format("PICK UP TO %d QUINS (THEY FIGHT TOGETHER)", limit) or "PICK YOUR QUIN"

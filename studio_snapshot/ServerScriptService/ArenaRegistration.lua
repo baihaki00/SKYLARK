@@ -6,15 +6,16 @@
 --     the Arena Boards around Argonia; each gets a "Prebook Quins" ProximityPrompt). The boards
 --     ("ArenaBoard") only show who is booked (ArenaBoardClient). Open from the end of the event
 --     before until this event starts.
---     Booking early is cheaper: up to PREBOOK_DISCOUNT off, sliding to full price at the start;
+--     Booking early is cheaper: up to ArenaTiming PrebookDiscount off, sliding to full price at the start;
 --     the price you booked at holds for every round of the event. You pick your side (the side
 --     guard can turn a strong Quin away from a side that is already well ahead). A deposit of one
 --     round per Quin is paid at booking and counts as that Quin's first round; a deposit never
 --     used comes back in full when the event ends. Cancelling keeps CANCEL_KEEP of what is unused.
 --     Prebooked Quins are seated before walk-ins, on their side.
 --   * WALK-IN at an Arena Terminal (an arena worker at the venue, "Register Quins"): the event on
---     now, or the next one in its last 20 minutes before it opens, until 5 real minutes before
---     the window ends. Full price, paid each round a Quin is seated; the side is wherever there
+--     now, or the next one from ArenaTiming WalkInOpensBefore (20 min) before it opens, until the
+--     close rule (WalkInCloseRule: 5 real minutes before the window ends, or when no new round can
+--     start). All live-tunable in the ARENA MENU [DEBUG]. Full price, paid each round a Quin is seated; the side is wherever there
 --     is room.
 --
 --   * How many Quins: the window's PerPlayer (ArenaSchedule): 2 in the 16v16 battles, entered
@@ -37,7 +38,7 @@
 -- ArenaSatOut / ArenaInRound / ArenaPrebooked / ArenaPrebookSide.
 -- Remote: ArenaNetwork.ArenaEntry (RemoteFunction) "roster" | "register", {slots} | "withdraw" |
 -- "prebook", { slots = {..}, side = "TeamAlpha" | "TeamBeta" } | "cancel" | "board" |
--- "quick" (DEBUG, Studio or admins: QUICK MATCH on the terminal, F8 shows it. Moves the clock
+-- "quick" (DEBUG, Studio or admins: QUICK MATCH in the ARENA MENU [DEBUG]. Moves the clock
 -- into the next 16v16 Team Battles window if it isn't in one, enters your Quins and starts a round now).
 
 local Players = game:GetService("Players")
@@ -53,14 +54,12 @@ local Temperament = require(QuinCore.Modules:WaitForChild("Temperament"))
 local QuinRosterService = require(ServerScriptService:WaitForChild("QuinRosterService"))
 local Payouts = require(ServerScriptService:WaitForChild("SkylarkPayouts"))
 local QuinCare = require(ServerScriptService:WaitForChild("QuinCare"))
+local ArenaTiming = require(QuinCore:WaitForChild("ArenaTiming"))
 
 local Registration = {}
 
-local OPENS_BEFORE = SkylarkTime.HOUR -- Skylark seconds before a window that the walk-in desk opens (20 real min)
-local CLOSES_BEFORE_END = 5 * 60 -- real seconds before the window ends that the walk-in desk closes
 local TERMINAL_RANGE = 16 -- studs: walk in only at a terminal
 local PREBOOK_RANGE = 16 -- studs: prebook only at a prebook terminal
-local PREBOOK_DISCOUNT = 0.30 -- off the entry when booking the moment the boards open
 local CANCEL_KEEP = 0.25 -- of an unused deposit, kept when a prebook is cancelled
 local GUARD_AHEAD = 1.15 -- a side this much stronger than the other (plus one owner's booking) is "ahead"
 
@@ -168,7 +167,7 @@ local function prebookRate()
     local opensAt = windowSlot.PrebookOpensAt or windowSlot.StartsAt
     local span = math.max(1, windowSlot.StartsAt - opensAt)
     local early = math.clamp((windowSlot.StartsAt - SkylarkTime.now()) / span, 0, 1)
-    return math.floor(Payouts.ENTRY_FEE * (1 - PREBOOK_DISCOUNT * early) + 0.5)
+    return math.floor(Payouts.ENTRY_FEE * (1 - ArenaTiming.get("PrebookDiscount") * early) + 0.5)
 end
 
 -- ============================================================================
@@ -241,8 +240,8 @@ local function clearAll()
     publish()
 end
 
--- The event entries are for: the one on now, else the next one (boards; the walk-in desk too in
--- its last 20 minutes)
+-- The event entries are for: the one on now, else the next one (boards; the walk-in desk too from
+-- WalkInOpensBefore)
 local function targetWindow()
     local t = SkylarkTime.now()
     local slot = ArenaSchedule.slotAt(t)
@@ -253,12 +252,12 @@ local function targetWindow()
     if not nextEvent then
         return nil
     end
-    return nextEvent, nextEvent.StartsAt - t <= OPENS_BEFORE and "Soon" or "Booking"
+    return nextEvent, nextEvent.StartsAt - t <= ArenaTiming.get("WalkInOpensBefore") and "Soon" or "Booking"
 end
 
--- The walk-in desk closes 5 real minutes before the window ends (never while the clock is paused)
+-- The walk-in desk closes by ArenaTiming's close rule
 local function closesAt(slot)
-    return slot.EndsAt - CLOSES_BEFORE_END * math.max(SkylarkTime.rate(), 0)
+    return ArenaTiming.walkInClosesAt(slot)
 end
 
 local function entryOpen()
@@ -271,15 +270,7 @@ end
 
 -- When the boards opened for this event: the end of the event before it
 local function prebookOpensAt(slot)
-    local t = slot.StartsAt - 1
-    for _ = 1, #ArenaSchedule.DAILY do
-        local before = ArenaSchedule.slotAt(t)
-        if before.Kind == "Event" then
-            return before.EndsAt
-        end
-        t = before.StartsAt - 1
-    end
-    return slot.StartsAt - OPENS_BEFORE
+    return ArenaTiming.prebookOpensAt(ArenaSchedule, slot)
 end
 
 local function refreshWindow()
@@ -470,15 +461,16 @@ local function chooseSlots(player, slots)
     return chosen
 end
 
-local function register(player, slots)
+local function register(player, slots, anywhere) -- (anywhere: the debug quick match)
     refreshWindow()
     if not windowKey or windowKind == "Booking" then
-        return false, "The desk opens 20 minutes before each event. Prebook early at an Arena Prebook Terminal."
+        return false, string.format("The desk opens %d minutes before each event. Prebook early at an Arena Prebook Terminal.",
+            math.floor(ArenaTiming.get("WalkInOpensBefore") / 60 + 0.5))
     end
     if not entryOpen() then
         return false, "Entry for " .. windowSlot.Name .. " has closed."
     end
-    if not nearTerminal(player) then
+    if not anywhere and not nearTerminal(player) then
         return false, "Register at an Arena Terminal."
     end
     if player:GetAttribute("SpectateSeat") then -- (spectate the event or take part, not both)
@@ -673,7 +665,8 @@ if not entryRemote then
     entryRemote.Parent = ArenaNetwork
 end
 
--- QUICK MATCH (debug): a 16v16 round now, with your Quins in it, from any role
+-- QUICK MATCH (debug, the ARENA MENU): a 16v16 round now, with your Quins in it, from any role and
+-- anywhere
 local function isTeamBattle(slot)
     local m = slot and slot.Match
     return m ~= nil and m.Mode == "TeamBattle" and m.TeamSize == 16
@@ -689,9 +682,6 @@ local function quickMatch(player, slots)
     end
     if orch.getPhase() ~= "IDLE" then
         return false, "A match is on. Wait for it to end."
-    end
-    if not nearTerminal(player) then
-        return false, "Use an Arena Terminal."
     end
     local slot = ArenaSchedule.slotAt(SkylarkTime.now())
     if not isTeamBattle(slot) then -- (into the next Team Battles window, a minute after it opens)
@@ -717,7 +707,7 @@ local function quickMatch(player, slots)
                 end
             end
         end
-        local ok, msg = register(player, slots)
+        local ok, msg = register(player, slots, true)
         if not ok then
             return false, msg
         end

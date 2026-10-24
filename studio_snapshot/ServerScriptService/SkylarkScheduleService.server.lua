@@ -6,7 +6,8 @@
 --   * announces each new slot on the arena screen;
 --   * Auto Events (Workspace attribute SkylarkAutoEvents): while an event window is open, starts a
 --     round through the Arena System Orchestrator whenever the arena is idle. A round only starts
---     if it can finish inside the window; one in progress when the window closes plays out.
+--     if it can finish inside the window (ArenaTiming.lastRoundAt); one in progress when the
+--     window closes plays out. The gap between rounds is ArenaTiming RoundGap.
 --     Off by default in Studio (manual testing keeps the arena), on in live servers.
 --   * debug time for the owner (ArenaNetwork.SkylarkTimeDebug, Studio or the place's creator):
 --     leave real time, pause, speed up, scrub to any moment, back to real time.
@@ -24,10 +25,9 @@ local RunService = game:GetService("RunService")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
 local ArenaSchedule = require(QuinCore:WaitForChild("ArenaSchedule"))
-local ArenaConfig = require(QuinCore:WaitForChild("ArenaConfig"))
+local ArenaTiming = require(QuinCore:WaitForChild("ArenaTiming"))
 local ArenaScreen = require(ServerScriptService:WaitForChild("ArenaScreenManager"))
 
-local ROUND_GAP = 15 -- real seconds between the end of one round and the next
 local ANNOUNCE_MAX_RATE = 60 -- no slot announcements while scrubbing faster than this
 local MAX_RATE = 7200
 
@@ -126,16 +126,6 @@ end)
 
 local SlotChanged = Instance.new("BindableEvent")
 
--- Longest a round can take (real seconds), from the default phase durations
-local function roundLength()
-    local total = 0
-    for _, seconds in pairs(ArenaConfig.DefaultDurations) do
-        total += seconds
-    end
-    return total
-end
-local ROUND_LENGTH = roundLength()
-
 local currentKey = nil
 local windowRound = 0
 local idleSince = os.clock()
@@ -174,15 +164,15 @@ local function tryAutoRound(slot)
         autoRunning = false
         idleSince = os.clock()
     end
-    if os.clock() - idleSince < ROUND_GAP then
+    if os.clock() - idleSince < ArenaTiming.get("RoundGap") then
         return
     end
-    -- only if the round fits in what is left of the window (always while the clock is paused)
-    local left = SkylarkTime.realSecondsUntil(slot.EndsAt)
-    if left and left < ROUND_LENGTH then
+    -- only if the round fits in what is left of the window
+    if SkylarkTime.now() > ArenaTiming.lastRoundAt(slot) then
         return
     end
     windowRound += 1
+    Workspace:SetAttribute("ArenaWindowRound", windowRound)
     local settings = ArenaSchedule.matchFor(slot, windowRound)
     print(string.format("[SkylarkSchedule] %s round %d: %s, team size %s", slot.Name, windowRound,
         tostring(settings.Mode), tostring(settings.TeamSize)))

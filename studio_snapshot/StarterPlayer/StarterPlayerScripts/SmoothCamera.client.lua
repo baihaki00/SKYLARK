@@ -192,7 +192,7 @@ local function menuOpen()
 	end
 	local terminal = playerGui:FindFirstChild("PrepTerminalUI")
 	if terminal and terminal.Enabled then return true end
-	for _, name in ipairs({ "PrepPlanUI", "PrepMenuUI", "PlayerMenuUI" }) do -- (the prep terminal's plan panel and menu; the player menu)
+	for _, name in ipairs({ "PrepPlanUI", "PrepMenuUI", "PlayerMenuUI", "ArenaBlockDebugUI" }) do -- (the prep terminal's plan panel and menu; the player menu; the ARENA MENU [DEBUG])
 		local g = playerGui:FindFirstChild(name)
 		if g and g.Enabled then return true end
 	end
