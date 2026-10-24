@@ -4,7 +4,10 @@
 --   * your entry state: closed / open at the arena's terminals / entered and your place in the
 --     queue / your Quins fight this round. Shared as shared.ArenaEntryStatus { Arena, Text, Color,
 --     Active } for the player menu's SCHEDULE (and the MENU button's dot); no HUD bar of its own;
---   * the arena's terminal (its ProximityPrompt) opens on two choices: SPECTATE (left: pick a side
+--   * the arena's terminal (its ProximityPrompt). The prompt always shows and says the state
+--     ("Register Quins" / "Spectate" / "Opens in 12m 30s"); in the chooser a closed choice is
+--     greyed with why and when it opens (ArenaTiming.describe), and can't be picked;
+--   * the terminal opens on two choices: SPECTATE (left: pick a side
 --     and a seat, Normal 100 SC or VIP 300 SC: SkylarkSpectate) and REGISTER QUIN (pick your Quins,
 --     up to the event's limit: 2 in the 16v16 battles; Register, change them or Withdraw).
 --     It closes when you walk away from the terminal;
@@ -26,6 +29,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
 local ARENA = require(QuinCore:WaitForChild("SkylarkArenas")).current()
 local ArenaTiming = require(QuinCore:WaitForChild("ArenaTiming"))
+local SCHEDULE = ARENA.Schedule
 local entryRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("ArenaEntry", 30)
 local spectateRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("Spectate", 30)
 
@@ -424,26 +428,59 @@ buyButton.MouseButton1Click:Connect(function()
     end
 end)
 
+-- A choice open, or greyed with why and when (the reason under the title)
+local choiceOpen = { spectate = false, register = false }
+local function setChoice(b, strokeColor, title, open, text)
+    -- a reason on lines: each sentence, then the SST time
+    b.Text = title .. "\n\n" .. text:gsub("%. ", ".\n"):gsub(" %(", "\n(")
+    b.TextColor3 = open and C_TEXT or C_MUTED
+    b.BackgroundColor3 = open and C_CARD or C_BG
+    b.AutoButtonColor = open
+    local s = b:FindFirstChildOfClass("UIStroke")
+    if s then
+        s.Color = open and strokeColor or C_STROKE
+    end
+end
+
+local function refreshChooser()
+    local state = ArenaTiming.describe(SCHEDULE, Workspace:GetAttribute("ArenaPhase"))
+    -- spectate the event or take part in it, not both
+    local inEvent = player:GetAttribute("ArenaEntered") == true
+    local watching = player:GetAttribute("SpectateSeat") ~= nil
+    local walkInOpen = state.walkIn.open and Workspace:GetAttribute("ArenaRegOpen") == true
+    choiceOpen.spectate = state.spectate.open and not inEvent
+    choiceOpen.register = (walkInOpen and not watching) or inEvent -- (entered: change or withdraw)
+    setChoice(spectateChoice, C_GREEN, "SPECTATE", choiceOpen.spectate,
+        inEvent and "Not while your Quins\nare in this event" or (state.spectate.open and "Watch from the stands\nor a VIP box" or state.spectate.reason))
+    setChoice(registerChoice, C_AMBER, "REGISTER QUIN", choiceOpen.register,
+        inEvent and "Your entry: change\nor withdraw" or (watching and walkInOpen and "Not while you hold\na seat this round")
+            or (walkInOpen and "Enter your Quins\nfor this event" or state.walkIn.reason or "Closed"))
+    local event = state.walkIn.event
+    local phase = Workspace:GetAttribute("ArenaPhase")
+    local head = event and string.upper(event.Name) or "NO EVENT"
+    if state.live and event == state.live then
+        head ..= "  •  LIVE"
+    end
+    if phase and phase ~= "IDLE" then
+        head ..= "  •  MATCH ON"
+    elseif walkInOpen then
+        head ..= "  •  WALK-IN OPEN"
+    elseif state.walkIn.reason then
+        head ..= "  •  WALK-IN: " .. state.walkIn.reason
+    end
+    chooserEvent.Text = head
+end
+
 local function showChooser(terminal)
     openTerminal = terminal
     popup.Visible = false
     spectate.Visible = false
     chooser.Visible = true
-    -- spectate the event or take part in it, not both
-    local inEvent = player:GetAttribute("ArenaEntered") == true
-    local watching = player:GetAttribute("SpectateSeat") ~= nil
-    spectateChoice.Text = inEvent and "SPECTATE\n\nNot while your Quins\nare in this event" or "SPECTATE\n\nWatch from the stands\nor a VIP box"
-    spectateChoice.TextColor3 = inEvent and C_MUTED or C_TEXT
-    registerChoice.Text = watching and "REGISTER QUIN\n\nNot while you hold\na seat this round" or "REGISTER QUIN\n\nEnter your Quins\nfor this event"
-    registerChoice.TextColor3 = watching and C_MUTED or C_TEXT
-    local window = Workspace:GetAttribute("ArenaRegWindow")
-    local phase = Workspace:GetAttribute("ArenaPhase")
-    chooserEvent.Text = (window and string.upper(window) or "NO EVENT OPEN")
-        .. ((phase and phase ~= "IDLE") and "   •   MATCH ON" or "")
+    refreshChooser()
 end
 
 spectateChoice.MouseButton1Click:Connect(function()
-    if player:GetAttribute("ArenaEntered") == true then
+    if not choiceOpen.spectate then
         return
     end
     chooser.Visible = false
@@ -499,6 +536,9 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt)
     end
 end)
 registerChoice.MouseButton1Click:Connect(function()
+    if not choiceOpen.register then
+        return
+    end
     chooser.Visible = false
     openPopup(openTerminal)
 end)
@@ -580,10 +620,51 @@ player:GetAttributeChangedSignal("ArenaInRound"):Connect(function()
     end
 end)
 
-local last = 0
+-- The terminals' prompts (made by ArenaRegistration): named for the arena, and the action says
+-- what you can do now, or when it opens (a local change: each player sees their own clock)
+local terminalPrompts = {}
+local function watchPrompt(d)
+    if d:IsA("ProximityPrompt") and d.Name == "ArenaTerminalPrompt" then
+        terminalPrompts[d] = true
+    end
+end
+for _, d in ipairs(Workspace:GetDescendants()) do
+    watchPrompt(d)
+end
+Workspace.DescendantAdded:Connect(watchPrompt)
+
+local function refreshPrompts()
+    local state = ArenaTiming.describe(SCHEDULE, Workspace:GetAttribute("ArenaPhase"))
+    local entered = player:GetAttribute("ArenaEntered") == true
+    local action
+    if state.walkIn.open or entered then
+        action = entered and "Your Entry" or "Register Quins"
+    elseif state.spectate.open then
+        action = "Spectate"
+    else
+        action = (state.walkIn.reason or "Closed"):gsub(" %(.-%)$", ""):gsub("^Closed for this event%. Next: [^,]+, opens", "Next opens")
+    end
+    for prompt in pairs(terminalPrompts) do
+        if prompt.Parent then
+            prompt.ObjectText = ARENA.Name .. " Terminal"
+            prompt.ActionText = action
+        else
+            terminalPrompts[prompt] = nil
+        end
+    end
+end
+
+local last, lastPrompts = 0, 0
 RunService.RenderStepped:Connect(function()
     if os.clock() - last >= 0.25 then
         last = os.clock()
         update()
+        if chooser.Visible then
+            refreshChooser()
+        end
+    end
+    if os.clock() - lastPrompts >= 1 then
+        lastPrompts = os.clock()
+        refreshPrompts()
     end
 end)

@@ -152,4 +152,78 @@ function ArenaTiming.targetEvent(schedule, t)
     return schedule.nextEvent(t)
 end
 
+-- "12m 30s (11:00 SST)", or "at 11:00 SST (clock paused)"
+function ArenaTiming.untilText(t)
+    local at = SkylarkTime.formatHours(SkylarkTime.info(t).Hours) .. " SST"
+    local real = SkylarkTime.realSecondsUntil(t)
+    if not real then
+        return "at " .. at .. " (clock paused)"
+    end
+    real = math.max(0, math.floor(real))
+    -- a countdown ticks: seconds under an hour
+    local text = (real < 3600 and real >= 60) and string.format("%dm %02ds", real // 60, real % 60) or SkylarkTime.formatDuration(real)
+    return text .. " (" .. at .. ")"
+end
+
+-- What a player can do at an arena's terminals now, and when the rest opens (clients: the
+-- terminal prompts and windows). `phase` is the round's (Workspace ArenaPhase).
+--   { walkIn = { open, event, reason }, prebook = { open, event, reason },
+--     spectate = { open, reason }, live = event on now or nil }
+function ArenaTiming.describe(schedule, phase, t)
+    t = t or SkylarkTime.now()
+    local out = {}
+    local target = ArenaTiming.targetEvent(schedule, t)
+    local live = target and t >= target.StartsAt and t < target.EndsAt and target or nil
+    out.live = live
+
+    -- walk-in: the event on now, or the next
+    local walkIn = { event = target, open = false }
+    if target then
+        local m = ArenaTiming.markers(schedule, target)
+        if t < m.WalkInOpens then
+            walkIn.reason = "Opens in " .. ArenaTiming.untilText(m.WalkInOpens)
+        elseif t < m.WalkInCloses then
+            walkIn.open = true
+        else
+            local nextEvent = schedule.nextEvent(t)
+            walkIn.event = nextEvent
+            walkIn.reason = nextEvent and string.format("Closed for this event. Next: %s, opens in %s", nextEvent.Name,
+                ArenaTiming.untilText(ArenaTiming.markers(schedule, nextEvent).WalkInOpens)) or "Closed for this event"
+        end
+    else
+        walkIn.reason = "No event on the schedule"
+    end
+    out.walkIn = walkIn
+
+    -- prebook: for the next event that hasn't started (while one is live, the one after it)
+    local pre = live and schedule.nextEvent(t) or target
+    local prebook = { event = pre, open = false }
+    if pre then
+        local opensAt = ArenaTiming.prebookOpensAt(schedule, pre)
+        if t < opensAt then
+            prebook.reason = string.format("Prebook for %s opens in %s", pre.Name, ArenaTiming.untilText(opensAt))
+        elseif t < pre.StartsAt then
+            prebook.open = true
+            prebook.reason = "Closes in " .. ArenaTiming.untilText(pre.StartsAt)
+        end
+    else
+        prebook.reason = "No event on the schedule"
+    end
+    out.prebook = prebook
+
+    -- spectate: seats are sold while a round runs
+    local spectate = { open = phase ~= nil and phase ~= "IDLE" }
+    if not spectate.open then
+        if live then
+            spectate.reason = "Seats open when the next round starts"
+        elseif target then
+            spectate.reason = string.format("No round on. %s starts in %s", target.Name, ArenaTiming.untilText(target.StartsAt))
+        else
+            spectate.reason = "No round on"
+        end
+    end
+    out.spectate = spectate
+    return out
+end
+
 return ArenaTiming

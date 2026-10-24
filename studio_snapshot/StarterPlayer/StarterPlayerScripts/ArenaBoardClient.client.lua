@@ -5,6 +5,8 @@
 --     Bond band, the habits fights have revealed; never their plans), with each side's strength;
 --   * a prebook terminal's "Prebook Quins" prompt opens the booking dialog (PrebookUI): pick your
 --     Quins and a side, see the price and the deposit, book; or see your booking and cancel it.
+--     The prompt always shows and says the state ("Prebook Quins" / "Opens in 40m"); while
+--     prebooking is closed the dialog shows a greyed card with when it opens (ArenaTiming.describe).
 -- (Tests: set the player's PrebookOpen attribute to true.)
 
 local Players = game:GetService("Players")
@@ -16,6 +18,8 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
+local ArenaTiming = require(QuinCore:WaitForChild("ArenaTiming"))
+local ARENA = require(QuinCore:WaitForChild("SkylarkArenas")).current()
 local entryRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("ArenaEntry", 60)
 
 local C_BG = Color3.fromRGB(15, 18, 26)
@@ -216,7 +220,7 @@ drawScreens = function()
                 s.price.Text = string.format("%d SC a round", v.Rate)
                 s.priceSub.Text = v.Rate < v.Fee and string.format("%d%% off now  •  full price %d at the start", math.floor((1 - v.Rate / v.Fee) * 100 + 0.5), v.Fee) or "Full price"
             else
-                s.status.Text = v.Live and "LIVE NOW  •  walk in at an Arena Terminal" or "PREBOOK CLOSED"
+                s.status.Text = v.Live and "LIVE NOW  •  walk in at an " .. ARENA.Name .. " terminal" or "PREBOOK CLOSED"
                 s.status.TextColor3 = v.Live and C_AMBER or C_MUTED
                 s.price.Text = ""
                 s.priceSub.Text = ""
@@ -227,7 +231,7 @@ drawScreens = function()
             local total = math.max(1, a + b)
             s.bars.TeamAlpha.Size = UDim2.fromScale(a + b > 0 and a / total or 0.5, 1)
             s.bars.TeamBeta.Size = UDim2.fromScale(a + b > 0 and b / total or 0.5, 1)
-            s.foot.Text = string.format("Up to %d Quin%s per owner  •  booking early is cheaper  •  prebook at the Arena Prebook Terminal%s",
+            s.foot.Text = string.format("Up to %d Quin%s per owner  •  booking early is cheaper  •  prebook at an " .. ARENA.Name .. " prebook terminal%s",
                 v.PerPlayer, v.PerPlayer > 1 and "s" or "", v.WalkIns > 0 and string.format("  •  %d walk-in%s", v.WalkIns, v.WalkIns > 1 and "s" or "") or "")
         end
     end
@@ -371,6 +375,26 @@ local function drawBooking()
     end)
 end
 
+-- Prebooking closed: a greyed card that says when it opens (and where to go while live)
+local function drawClosed()
+    local state = ArenaTiming.describe(ARENA.Schedule, Workspace:GetAttribute("ArenaPhase"))
+    if state.prebook.event then
+        title.Text = "PREBOOK  •  " .. string.upper(state.prebook.event.Name)
+    end
+    local card = new("Frame", { Name = "PrebookClosed", Parent = body, BackgroundColor3 = C_CARD, BackgroundTransparency = 0.3,
+        Size = UDim2.fromOffset(484, 120), BorderSizePixel = 0 })
+    corner(card, 10)
+    new("UIStroke", { Parent = card, Color = C_STROKE, Thickness = 1 })
+    label(card, { Position = UDim2.fromOffset(16, 14), Size = UDim2.fromOffset(452, 20), Font = Enum.Font.GothamBold, TextSize = 15,
+        TextColor3 = C_MUTED, Text = "PREBOOKING CLOSED" })
+    label(card, { Name = "Reason", Position = UDim2.fromOffset(16, 40), Size = UDim2.fromOffset(452, 40), TextSize = 13, TextWrapped = true,
+        TextColor3 = C_MUTED, Text = state.prebook.reason or "No event on the schedule" })
+    if state.live then
+        label(card, { Position = UDim2.fromOffset(16, 86), Size = UDim2.fromOffset(452, 20), TextSize = 13, TextColor3 = C_AMBER,
+            Text = string.format("%s is live: walk in at an %s terminal", state.live.Name, ARENA.Name) })
+    end
+end
+
 refresh = function(local_only)
     if not local_only then
         fetch()
@@ -385,11 +409,13 @@ refresh = function(local_only)
     local v = view
     title.Text = v and v.Event and ("PREBOOK  •  " .. string.upper(v.Event)) or "PREBOOK"
     subtitle.Text = v and v.Open and ("Booking closes " .. closesAt(v.StartsAt) .. ". Booking early is cheaper.")
-        or (v and v.Live and "The event is live. Walk in at an Arena Terminal." or "Prebooking is closed.")
+        or (v and v.Live and ("The event is live. Walk in at an " .. ARENA.Name .. " terminal.") or "Prebooking is closed.")
     if player:GetAttribute("ArenaPrebooked") then
         drawBooked()
     elseif v and v.Open then
         drawBooking()
+    else
+        drawClosed()
     end
 end
 
@@ -410,6 +436,46 @@ closeButton.MouseButton1Click:Connect(close)
 ProximityPromptService.PromptTriggered:Connect(function(prompt)
     if prompt.Name == "ArenaPrebookPrompt" then
         open()
+    end
+end)
+
+-- The prebook terminals' prompts: named for the arena, the action says the state
+local prebookPrompts = {}
+local function watchPrompt(d)
+    if d:IsA("ProximityPrompt") and d.Name == "ArenaPrebookPrompt" then
+        prebookPrompts[d] = true
+    end
+end
+for _, d in ipairs(Workspace:GetDescendants()) do
+    watchPrompt(d)
+end
+Workspace.DescendantAdded:Connect(watchPrompt)
+
+task.spawn(function()
+    while true do
+        local state = ArenaTiming.describe(ARENA.Schedule, Workspace:GetAttribute("ArenaPhase"))
+        local action = state.prebook.open and "Prebook Quins"
+            or ((state.prebook.reason or "Closed"):gsub(" %(.-%)$", ""):gsub("^Prebook for [^%d]- opens", "Opens"))
+        if player:GetAttribute("ArenaPrebooked") then
+            action = "Your Prebook"
+        end
+        for prompt in pairs(prebookPrompts) do
+            if prompt.Parent then
+                prompt.ObjectText = ARENA.Name .. " Prebook"
+                prompt.ActionText = action
+            else
+                prebookPrompts[prompt] = nil
+            end
+        end
+        -- the closed card counts down while the dialog is open
+        local reason = gui.Enabled and body:FindFirstChild("PrebookClosed") and body.PrebookClosed:FindFirstChild("Reason")
+        if reason then
+            reason.Text = state.prebook.reason or reason.Text
+            if state.prebook.open then
+                refresh()
+            end
+        end
+        task.wait(1)
     end
 end)
 
