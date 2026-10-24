@@ -7,6 +7,13 @@
 --   * the arena's terminal (its ProximityPrompt). The prompt always shows and says the state
 --     ("Register Quins" / "Spectate" / "Opens in 12m 30s"); in the chooser a closed choice is
 --     greyed with why and when it opens (ArenaTiming.describe), and can't be picked;
+--   * the Arena Receptionist behind the terminal (NpcDialog): the camera comes round to them, they
+--     talk to you on the left (only you see it), the terminal's menus sit on the right. They welcome
+--     a new owner (none of your Quins has fought yet), and once you're registered they tell you your
+--     Quins and side and ask: off to your prep room now ("goprep"), or later (then: be back inside
+--     the arena's grounds before it starts). A terminal with no receptionist opens the menus alone;
+--   * leaving the arena's grounds while entered (ArenaRegistration: player ArenaOutside /
+--     ArenaLeaveIn): a warning across the top; SHOW ARENA GROUNDS (Menu > DEBUG) draws the circle;
 --   * the terminal opens on two choices: SPECTATE (left: pick a side
 --     and a seat, Normal 100 SC or VIP 300 SC: SkylarkSpectate) and REGISTER QUIN (pick your Quins,
 --     up to the event's limit: 2 in the 16v16 battles; Register, change them or Withdraw).
@@ -29,6 +36,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local SkylarkTime = require(QuinCore:WaitForChild("SkylarkTime"))
 local ARENA = require(QuinCore:WaitForChild("SkylarkArenas")).current()
 local ArenaTiming = require(QuinCore:WaitForChild("ArenaTiming"))
+local NpcDialog = require(QuinCore:WaitForChild("NpcDialog"))
 local SCHEDULE = ARENA.Schedule
 local entryRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("ArenaEntry", 30)
 local spectateRemote = ReplicatedStorage:WaitForChild("ArenaNetwork"):WaitForChild("Spectate", 30)
@@ -441,11 +449,18 @@ betaButton.MouseButton1Click:Connect(function() pickSide = "TeamBeta" refreshSpe
 normalButton.MouseButton1Click:Connect(function() pickSeat = "Normal" refreshSpectate() end)
 vipButton.MouseButton1Click:Connect(function() pickSeat = "VIP" refreshSpectate() end)
 
+local dialog = nil -- the receptionist's NpcDialog while open
+
 local function closePopup()
     popup.Visible = false
     chooser.Visible = false
     spectate.Visible = false
     openTerminal = nil
+    if dialog then
+        local d = dialog
+        dialog = nil
+        d:close()
+    end
 end
 
 buyButton.MouseButton1Click:Connect(function()
@@ -569,15 +584,120 @@ for _, attr in ipairs({ "SC", "SpectateSide", "SpectateSeat" }) do
     end)
 end
 
+-- ============================================================================
+-- THE RECEPTIONIST (NpcDialog): what they say to you
+-- ============================================================================
+
+local function receptionistFor(terminal)
+    local best, gap = nil, 12
+    for _, d in ipairs(Workspace:GetDescendants()) do
+        if d.Name == "Arena Receptionist" and d:IsA("Model") and d:FindFirstChild("Head") then
+            local g = (d:GetPivot().Position - terminal.Position).Magnitude
+            if g < gap then
+                best, gap = d, g
+            end
+        end
+    end
+    return best
+end
+
+local function eventName()
+    return Workspace:GetAttribute("ArenaRegWindow") or "the event"
+end
+
+local function greet(d)
+    local ok, list = pcall(function()
+        return entryRemote:InvokeServer("roster")
+    end)
+    if not d.open then
+        return
+    end
+    local fresh = ok and type(list) == "table" and #list > 0
+    for _, q in ipairs(ok and type(list) == "table" and list or {}) do
+        if (q.Wins or 0) + (q.Losses or 0) > 0 then
+            fresh = false
+        end
+    end
+    local entered = player:GetAttribute("ArenaEntered") == true
+    if fresh and not entered then
+        d:say(string.format("Oh, I see you're new here! Welcome to %s.", ARENA.Name))
+        task.wait(1.6)
+    end
+    local state = ArenaTiming.describe(SCHEDULE, Workspace:GetAttribute("ArenaPhase"))
+    if entered then
+        d:say(string.format("Welcome back, %s. You're entered in %s.", player.DisplayName, eventName()))
+    elseif state.walkIn.open and Workspace:GetAttribute("ArenaRegOpen") == true then
+        d:say(string.format("Hello! %s is taking entries. Registering your Quins, or watching from the stands?", eventName()))
+    elseif state.spectate.open then
+        d:say("Entry's closed right now, but you can still watch from the stands.")
+    else
+        d:say("Sorry, we're closed right now. The times are on the screen.")
+    end
+end
+
+-- Registered: your Quins and side, then off to your prep room now, or later
+local function registeredTalk(d, slots)
+    local names = {}
+    for _, s in ipairs(slots) do
+        for _, q in ipairs(roster) do
+            if q.Slot == s then
+                table.insert(names, "Quin #" .. tostring(q.Tag))
+            end
+        end
+    end
+    local list = #names > 1 and (table.concat(names, ", ", 1, #names - 1) .. " and " .. names[#names]) or (names[1] or "Your Quin")
+    local side = player:GetAttribute("ArenaSide")
+    d:say(string.format("Registered! %s %s entered in %s%s. We'll bring you and your Quins in before it starts.",
+        list, #names > 1 and "are" or "is", eventName(), side and (" on the " .. (side == "TeamAlpha" and "Alpha" or "Beta") .. " side") or ""))
+    task.wait(2.2)
+    if not d.open then
+        return
+    end
+    local choice = d:choose("Would you like to go to your prep room now, or do you still have things to do?", {
+        { id = "go", text = "Take me to my prep room", primary = true },
+        { id = "later", text = "I'll come later" },
+    })
+    if not d.open then
+        return
+    end
+    if choice == "go" then
+        d:say("Right this way!")
+        task.wait(1)
+        local ok, done, message = pcall(function()
+            return entryRemote:InvokeServer("goprep")
+        end)
+        if ok and done then
+            closePopup()
+            notify(message or "Your prep room", "Wait here: your room opens when the round starts.")
+        else
+            d:say(ok and (message or "Sorry, I can't send you there.") or "Sorry, I can't send you there.")
+        end
+    elseif choice == "later" then
+        local startsAt = Workspace:GetAttribute("ArenaRegStartsAt")
+        local when = Workspace:GetAttribute("ArenaRegKind") == "Live" and "the next round starts soon"
+            or (startsAt and (eventName() .. " starts in " .. untilText(startsAt)) or (eventName() .. " starts soon"))
+        local okay = d:choose(string.format("Understood. The stairs lead to the prep rooms. If you look around, please be back soon: %s. Stay inside %s: if you're outside when it starts, we can't bring you in.",
+            when, ARENA.Name), { { id = "ok", text = "Got it", primary = true } })
+        if okay and d.open then
+            closePopup()
+        end
+    end
+end
+
 actionButton.MouseButton1Click:Connect(function()
     if Workspace:GetAttribute("ArenaRegOpen") ~= true then
         return
     end
+    local wasEntered = player:GetAttribute("ArenaEntered") == true
+    local slots = selectedList()
     local ok, result, message = pcall(function()
-        return entryRemote:InvokeServer("register", { slots = selectedList(), room = wishRoom })
+        return entryRemote:InvokeServer("register", { slots = slots, room = wishRoom })
     end)
     if ok then
         setStatus(message, result and C_GREEN or C_RED)
+        if result and dialog and not wasEntered then
+            task.spawn(registeredTalk, dialog, slots)
+        end
     else
         setStatus("Could not reach " .. ARENA.Name, C_RED)
     end
@@ -597,6 +717,24 @@ end)
 
 ProximityPromptService.PromptTriggered:Connect(function(prompt)
     if prompt.Name == "ArenaTerminalPrompt" then
+        if dialog then
+            return
+        end
+        local clerk = receptionistFor(prompt.Parent)
+        if clerk then
+            local d = NpcDialog.open(clerk, { name = "Receptionist", onClose = function()
+                if dialog then
+                    closePopup()
+                end
+            end })
+            dialog = d
+            if d then
+                d:place(chooser)
+                d:place(popup)
+                d:place(spectate)
+                task.spawn(greet, d)
+            end
+        end
         showChooser(prompt.Parent)
     end
 end)
@@ -617,6 +755,69 @@ quickButton.MouseButton1Click:Connect(function()
         quickStatus.TextColor3 = C_RED
     end
 end)
+
+-- ============================================================================
+-- THE ARENA'S GROUNDS: the warning when you're out, and the ring (DEBUG)
+-- ============================================================================
+
+local awayBanner = new("TextLabel", {
+    Name = "ArenaAwayBanner", Parent = gui, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 70),
+    Size = UDim2.fromOffset(620, 44), BackgroundColor3 = C_BG, BackgroundTransparency = 0.08, Font = Enum.Font.GothamBold,
+    TextSize = 14, TextWrapped = true, TextColor3 = C_AMBER, Text = "", Visible = false,
+})
+corner(awayBanner, 10)
+local awayStroke = stroke(awayBanner, C_AMBER)
+
+local function refreshAway()
+    local out = player:GetAttribute("ArenaOutside") == true
+    local leaveIn = player:GetAttribute("ArenaLeaveIn")
+    awayBanner.Visible = out
+    if not out then
+        return
+    end
+    if leaveIn then
+        awayBanner.Text = string.format("You've left %s! Come back within %ds or your entry for %s is gone.", ARENA.Name, leaveIn, eventName())
+        awayBanner.TextColor3 = C_RED
+        awayStroke.Color = C_RED
+    else
+        awayBanner.Text = string.format("You're outside %s. Be back inside before %s starts, or your entry is gone.", ARENA.Name, eventName())
+        awayBanner.TextColor3 = C_AMBER
+        awayStroke.Color = C_AMBER
+    end
+end
+player:GetAttributeChangedSignal("ArenaOutside"):Connect(refreshAway)
+player:GetAttributeChangedSignal("ArenaLeaveIn"):Connect(refreshAway)
+
+local ring = nil
+local function refreshRing()
+    if ring then
+        ring:Destroy()
+        ring = nil
+    end
+    local centre, radius = Workspace:GetAttribute("ArenaBoundaryCentre"), Workspace:GetAttribute("ArenaBoundaryRadius")
+    if player:GetAttribute("ShowArenaBoundary") ~= true or typeof(centre) ~= "Vector3" or not radius then
+        return
+    end
+    ring = Instance.new("Folder")
+    ring.Name = "ArenaGroundsRing" -- (this machine only)
+    local n = 96
+    local length = 2 * math.pi * radius / n + 0.5
+    for i = 1, n do
+        local a = (i - 0.5) / n * 2 * math.pi
+        local p = centre + Vector3.new(math.cos(a) * radius, 2, math.sin(a) * radius)
+        local part = Instance.new("Part")
+        part.Anchored, part.CanCollide, part.CanQuery, part.CanTouch = true, false, false, false
+        part.Material = Enum.Material.Neon
+        part.Color = C_AMBER
+        part.Transparency = 0.3
+        part.Size = Vector3.new(1, 6, length)
+        part.CFrame = CFrame.lookAt(p, p + Vector3.new(-math.sin(a), 0, math.cos(a)))
+        part.Parent = ring
+    end
+    ring.Parent = Workspace
+end
+player:GetAttributeChangedSignal("ShowArenaBoundary"):Connect(refreshRing)
+Workspace:GetAttributeChangedSignal("ArenaBoundaryRadius"):Connect(refreshRing)
 
 -- ============================================================================
 -- STATE

@@ -6,14 +6,21 @@
 -- ArenaRegistration: "in" / "full" / "closed"). Then they hang around near the terminals a while
 -- and walk back out to the spawn, gone. A bumped owner (a player took the place) says so and leaves.
 --
--- A line runs back from the terminal's face that looks toward the spawn, one spot every SPACING.
+-- A line stands on the terminal's queue platforms (placed in Studio: a group holding one
+-- "QueuePlatformTrigger", the front spot, right at the terminal, and the "QueuePlatform"s behind it):
+-- the trigger is spot 1, then the platforms nearest first. More people than platforms wait beside
+-- the last one. A terminal with no platforms gets a line running back from its face toward the spawn.
+--
+-- The "Arena Receptionist" behind a terminal (the nearest within CLERK_RANGE) serves its line out
+-- loud: "Next, please!" when the front moves up, a word with each NPC owner, and how it went.
+-- (Players get their own private conversation: NpcDialog on their machine, ArenaEntry.client.)
 --
 -- Players and the line (Workspace ArenaQueueSkip, the DEBUG tab):
 --   * on (the default): players skip it. A player at a terminal is served at once: the NPC owner at
 --     the front waits ("Go ahead.") until the player steps away.
---   * off: a player near a terminal joins the end of its line, and may register only at the front
---     (Queue.mayUse; player attributes TerminalQueuePos, 1 = your turn, and TerminalQueueKind).
---     Walking away leaves the line.
+--   * off: a player stepping onto a line's platforms (or near a terminal without them) joins the
+--     end of its line, and may register only at the front (Queue.mayUse; player attributes
+--     TerminalQueuePos, 1 = your turn, and TerminalQueueKind). Walking away leaves the line.
 -- Workspace ArenaQueueBodies: what's going on, for the DEBUG tab.
 --
 --   Queue.available(kind)                   -> bodies may come (terminals exist, under the cap)
@@ -39,7 +46,19 @@ local PLAYER_AT = 12 -- studs: a player this close to a terminal is using it (it
 local JOIN_RANGE = 12 -- (players in line) this close to a terminal: join its line
 local LEAVE_RANGE = 18 -- this far from the line's terminal (beyond the line's end): out of it
 
+local PLATFORM_RANGE = 14 -- studs: a trigger this close to a terminal is its line's front
+local ON_SPOT = 2.6 -- studs (flat) from a platform's centre: standing on it
+local CLERK_RANGE = 12 -- studs: the receptionist serving a terminal
+
 local PART_NAME = { walkin = "ArenaTerminal", prebook = "ArenaPrebookTerminal" }
+local CLERK = {
+    next = { "Next, please!", "Next!", "Next in line, please.", "Who's next?" },
+    greet = { "Hello! Registering tonight?", "Hi there. Entering your Quins?", "Welcome! Which Quins today?", "Next for the event? Go ahead." },
+    ["in"] = { "Thank you! Good luck out there.", "You're in. Thank you!", "All set. Good luck tonight!", "Thank you, enjoy the event." },
+    full = { "Sorry, every seat's taken.", "I'm sorry, we're full.", "No seats left, I'm afraid." },
+    closed = { "Sorry, entry has just closed.", "I'm afraid entry's closed now." },
+}
+local ANSWER = { "Yes, both of mine please.", "Just the one tonight.", "Yes please. Same as always.", "Yep. Put me down.", "Two Quins, please." }
 local AFTER_YOU = { "Go ahead.", "After you.", "Oh, you first.", "No rush, go on." }
 local RESULT = {
     ["in"] = { "Done. We're in!", "Registered. Let's go.", "Got a place!", "That's us in." },
@@ -49,7 +68,7 @@ local RESULT = {
 local BUMPED = { "A player took my place. I'll watch from the stands.", "Bumped by a player. Stands it is.", "Lost my place. Fine, I'll watch." }
 
 local rng = Random.new()
-local lines = {} -- [terminal part] = { kind, part, dir, base, members = { { npc } | { player } } }
+local lines = {} -- [terminal part] = { kind, part, dir, base, spots, clerk, members = { { npc } | { player } }, front }
 local bodies = {} -- [npc] = true (npc = { name, model, alive, state = "line" | "hang" | "leaving" })
 
 local function pick(list)
@@ -76,10 +95,68 @@ local function terminalsOf(kind)
     return list
 end
 
--- The line at a terminal: from its face toward the spawn, back the way people come
+local function flat(v)
+    return Vector3.new(v.X, 0, v.Z)
+end
+
+-- The standing points of a terminal's queue platforms, front (the trigger) first; nil if none
+local function platformSpots(part)
+    local trigger, best = nil, PLATFORM_RANGE
+    for _, d in ipairs(Workspace:GetDescendants()) do
+        if d.Name == "QueuePlatformTrigger" and d:IsA("BasePart") then
+            local gap = flat(d.Position - part.Position).Magnitude
+            if gap < best then
+                trigger, best = d, gap
+            end
+        end
+    end
+    if not trigger then
+        return nil
+    end
+    local pads = {}
+    for _, d in ipairs(trigger.Parent:GetChildren()) do
+        if d.Name == "QueuePlatform" and d:IsA("BasePart") then
+            table.insert(pads, d)
+        end
+    end
+    table.sort(pads, function(a, b)
+        return (a.Position - trigger.Position).Magnitude < (b.Position - trigger.Position).Magnitude
+    end)
+    table.insert(pads, 1, trigger)
+    local spots = {}
+    for _, pad in ipairs(pads) do
+        table.insert(spots, pad.Position + Vector3.new(0, pad.Size.Y / 2 + 3, 0))
+    end
+    return spots
+end
+
+-- The receptionist behind a terminal (a model named "Arena Receptionist"), as a speaker for body.say
+local function clerkFor(part)
+    local best, gap = nil, CLERK_RANGE
+    for _, d in ipairs(Workspace:GetDescendants()) do
+        if d.Name == "Arena Receptionist" and d:IsA("Model") and d:FindFirstChild("Head") then
+            local g = flat(d:GetPivot().Position - part.Position).Magnitude
+            if g < gap then
+                best, gap = d, g
+            end
+        end
+    end
+    return best and { name = best.Name, model = best, alive = true } or nil
+end
+
+-- The line at a terminal: on its queue platforms, or from its face toward the spawn
 local function lineFor(part, kind)
     local line = lines[part]
     if line then
+        return line
+    end
+    local spots = platformSpots(part)
+    if spots and #spots >= 2 then
+        local dir = flat(spots[#spots] - spots[1])
+        dir = dir.Magnitude > 0.1 and dir.Unit or Vector3.new(0, 0, -1)
+        line = { kind = kind, part = part, dir = dir, base = spots[1], spots = spots, members = {}, clerk = clerkFor(part) }
+        part:SetAttribute("QueueSpots", #spots)
+        lines[part] = line
         return line
     end
     local look = part.CFrame.LookVector
@@ -91,14 +168,37 @@ local function lineFor(part, kind)
     end
     local depth = math.abs(part.CFrame:VectorToObjectSpace(dir):Dot(part.Size)) / 2
     local groundY = part.Position.Y - part.Size.Y / 2
-    line = { kind = kind, part = part, dir = dir, members = {},
+    line = { kind = kind, part = part, dir = dir, members = {}, clerk = clerkFor(part),
         base = Vector3.new(part.Position.X, groundY + 3, part.Position.Z) + dir * (depth + 2.5) }
     lines[part] = line
     return line
 end
 
 local function slot(line, i)
-    return line.base + line.dir * ((i - 1) * SPACING)
+    local spots = line.spots
+    if not spots then
+        return line.base + line.dir * ((i - 1) * SPACING)
+    end
+    if i <= #spots then
+        return spots[i]
+    end
+    -- (the platforms are full: wait beside the last one, a little apart)
+    local side = Vector3.new(-line.dir.Z, 0, line.dir.X)
+    local k = i - #spots
+    return spots[#spots] + side * 4 + line.dir * ((k - 1) * SPACING)
+end
+
+-- Standing on one of the line's platforms (or near its terminal, if it has none)
+local function onLine(line, position)
+    if not line.spots then
+        return (position - line.part.Position).Magnitude <= JOIN_RANGE
+    end
+    for _, spot in ipairs(line.spots) do
+        if flat(position - spot).Magnitude <= ON_SPOT and math.abs(position.Y - spot.Y) < 6 then
+            return true
+        end
+    end
+    return false
 end
 
 local function indexOf(line, test)
@@ -122,12 +222,18 @@ local function bodyCount()
     return n
 end
 
--- A player close to this terminal (using it)
+-- A player at this terminal (using it): on its front platform, or close to it
 local function playerAt(line)
     for _, p in ipairs(Players:GetPlayers()) do
         local root = rootOf(p.Character)
-        if root and (root.Position - line.part.Position).Magnitude <= PLAYER_AT then
-            return true
+        if root then
+            local front = line.spots and line.spots[1]
+            if front and flat(root.Position - front).Magnitude <= ON_SPOT + 1 then
+                return true
+            end
+            if (root.Position - line.part.Position).Magnitude <= (line.spots and 6 or PLAYER_AT) then
+                return true
+            end
         end
     end
     return false
@@ -215,6 +321,15 @@ local function waitInLine(npc, member, line, onServed)
                 task.wait(1)
             else
                 body.face(npc, line.part.Position)
+                local clerk = line.clerk
+                if clerk and clerk.model.Parent then -- (a word with the receptionist)
+                    task.wait(0.8)
+                    body.say(clerk, pick(CLERK.greet))
+                    task.wait(rng:NextNumber(1.6, 2.4))
+                    if npc.alive and npc.state == "line" then
+                        body.say(npc, pick(ANSWER))
+                    end
+                end
                 task.wait(rng:NextNumber(SERVE[1], SERVE[2]))
                 if not (npc.alive and npc.state == "line") then
                     break
@@ -223,6 +338,10 @@ local function waitInLine(npc, member, line, onServed)
                     continue
                 end
                 local result = onServed() or "full"
+                if clerk and clerk.model.Parent then
+                    body.say(clerk, pick(CLERK[result] or CLERK.full))
+                    task.wait(1.4)
+                end
                 body.say(npc, pick(RESULT[result] or RESULT.full))
                 if result == "in" then
                     body.emote(npc, "cheer", 1.5)
@@ -344,8 +463,11 @@ task.spawn(function()
                     return m.player == p
                 end)
                 if i then
+                    local away = line.spots and not onLine(line, root and root.Position or Vector3.zero)
+                        and (not root or flat(root.Position - slot(line, i)).Magnitude > 8)
+                        and (not root or (root.Position - line.part.Position).Magnitude > PLAYER_AT)
                     local reach = LEAVE_RANGE + #line.members * SPACING
-                    if skip or not root or (root.Position - line.part.Position).Magnitude > reach then
+                    if skip or not root or away or (not line.spots and (root.Position - line.part.Position).Magnitude > reach) then
                         table.remove(line.members, i)
                     else
                         inLine, pos = line, i
@@ -354,7 +476,7 @@ task.spawn(function()
             end
             if not skip and not inLine and root then
                 for _, line in pairs(lines) do
-                    if (root.Position - line.part.Position).Magnitude <= JOIN_RANGE then
+                    if onLine(line, root.Position) then
                         table.insert(line.members, { player = p })
                         inLine, pos = line, #line.members
                         break
@@ -363,6 +485,16 @@ task.spawn(function()
             end
             p:SetAttribute("TerminalQueuePos", pos)
             p:SetAttribute("TerminalQueueKind", inLine and inLine.kind or nil)
+        end
+        -- the receptionist calls the next one up when the front changes
+        for _, line in pairs(lines) do
+            local front = line.members[1]
+            if front ~= line.front then
+                if front and line.front and line.clerk and line.clerk.model.Parent then
+                    body.say(line.clerk, pick(CLERK.next))
+                end
+                line.front = front
+            end
         end
         local counts = { walkin = 0, prebook = 0 }
         for _, line in pairs(lines) do

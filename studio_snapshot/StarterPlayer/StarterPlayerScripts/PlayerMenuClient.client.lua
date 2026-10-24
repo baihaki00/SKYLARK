@@ -590,7 +590,7 @@ end
 
 -- DEBUG: the switches, then the arena menu itself (ArenaBlockMenu.client lends its window)
 local function drawDebug()
-    local tools = card(156, C_AMBER)
+    local tools = card(204, C_AMBER)
     label(tools, { Position = UDim2.fromOffset(16, 10), Size = UDim2.fromOffset(300, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "DEBUG TOOLS" })
     label(tools, { Position = UDim2.fromOffset(16, 32), Size = UDim2.fromOffset(520, 16), TextSize = 12, TextColor3 = C_MUTED,
         Text = "Testers only (Studio or admins). Role now: " .. tostring(player:GetAttribute("SkylarkRole") or "?") })
@@ -640,6 +640,22 @@ local function drawDebug()
                 remote:InvokeServer("queueskip", not skipOn)
             end)
         end
+        shared.OpenPlayerMenu("DEBUG")
+    end)
+    -- the arena's grounds (ArenaRegistration: registered owners must be inside): draw the ring
+    local ringOn = player:GetAttribute("ShowArenaBoundary") == true
+    local radius = Workspace:GetAttribute("ArenaBoundaryRadius")
+    label(tools, { Position = UDim2.fromOffset(16, 160), Size = UDim2.fromOffset(700, 16), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT,
+        Text = "ARENA GROUNDS  •  " .. (radius and string.format("a circle of %d studs round the arena ground", math.floor(radius + 0.5)) or "no ArenaGround found")
+            .. (player:GetAttribute("ArenaOutside") and "  •  YOU'RE OUTSIDE" or "") })
+    label(tools, { Position = UDim2.fromOffset(16, 178), Size = UDim2.fromOffset(700, 16), TextSize = 11, TextColor3 = C_MUTED,
+        Text = "Registered owners must be inside when each round starts, and stay while the event is on." })
+    local ringButton = new("TextButton", { Name = "BoundaryToggle", Parent = tools, Position = UDim2.new(1, -276, 0, 156), Size = UDim2.fromOffset(260, 36),
+        Text = "SHOW ARENA GROUNDS:  " .. (ringOn and "ON" or "OFF"), Font = Enum.Font.GothamBold, TextSize = 12,
+        BackgroundColor3 = ringOn and C_AMBER or C_BG, TextColor3 = ringOn and C_BG or C_TEXT })
+    corner(ringButton, 7)
+    ringButton.MouseButton1Click:Connect(function()
+        player:SetAttribute("ShowArenaBoundary", not ringOn or nil) -- (ArenaEntry.client draws it, on this machine only)
         shared.OpenPlayerMenu("DEBUG")
     end)
     order += 1

@@ -15,8 +15,18 @@
 --   * WALK-IN at an Arena Terminal (an arena worker at the venue, "Register Quins"): the event on
 --     now, or the next one from ArenaTiming WalkInOpensBefore (20 min) before it opens, until the
 --     close rule (WalkInCloseRule: 5 real minutes before the window ends, or when no new round can
---     start). All live-tunable in the ARENA MENU [DEBUG]. Full price, paid each round a Quin is seated; the side is wherever there
---     is room.
+--     start). All live-tunable in the ARENA MENU [DEBUG]. Full price, paid each round a Quin is seated.
+--     The side is set when you register: the lighter one (players' and NPC prebooks' Quins), so the
+--     receptionist can send you to your side's prep rooms at once ("goprep"); NPC owners walking in
+--     fill the other side at seating, which evens it out.
+--
+--   * BE THERE (owner, 2026-10-25): a registered owner must be inside the arena's grounds (a circle
+--     round its ArenaGround, BOUNDARY_MARGIN beyond its edge: Workspace ArenaBoundaryCentre /
+--     ArenaBoundaryRadius) when each round starts, and stay while the event is on. Before the event
+--     you may roam; outside when a round's entrants are picked, or outside LEAVE_GRACE seconds while
+--     it's live, and your entry is gone (a prebook's unused deposit too; walk-ins pay per round, so
+--     nothing). Quins already fighting finish their round. Player ArenaOutside (true) / ArenaLeaveIn
+--     (seconds left) for the warning on their screen.
 --
 --   * How many Quins: the window's PerPlayer (ArenaSchedule): 2 in the 16v16 battles, entered
 --     together (same team), 1 otherwise.
@@ -35,9 +45,10 @@
 -- walk-in desk) and ArenaPrebookOpen / ArenaPrebookEvent / ArenaPrebookOpensAt /
 -- ArenaPrebookStartsAt / ArenaPrebookRate / ArenaPrebookVersion (the boards) / ArenaEntrants /
 -- ArenaRoundSeats; each Player ArenaEntered / ArenaEntrySlots ("1,3") / ArenaQueuePos /
--- ArenaSatOut / ArenaInRound / ArenaPrebooked / ArenaPrebookSide.
+-- ArenaSatOut / ArenaInRound / ArenaPrebooked / ArenaPrebookSide / ArenaSide (prebook or walk-in).
 -- Remote: ArenaNetwork.ArenaEntry (RemoteFunction) "roster" | "register", { slots = {..}, room = n } |
 -- "withdraw" | "prebook", { slots = {..}, side = "TeamAlpha" | "TeamBeta", room = n } | "cancel" | "board" |
+-- "goprep" (entered, at a terminal: off to your side's prep room hallway now) |
 -- (room: the prep room wished for, 1-16 on the owner's side, nil = any; ArenaPrepRoom seats it.
 -- A prebook's room is a claim: no other prebook on that side may take it. A walk-in's is a wish.)
 -- "quick" (DEBUG, Studio or admins: QUICK MATCH in the ARENA MENU [DEBUG]. Moves the clock
@@ -69,6 +80,8 @@ local TERMINAL_RANGE = 16 -- studs: walk in only at a terminal
 local PREBOOK_RANGE = 16 -- studs: prebook only at a prebook terminal
 local CANCEL_KEEP = 0.25 -- of an unused deposit, kept when a prebook is cancelled
 local GUARD_AHEAD = 1.15 -- a side this much stronger than the other (plus one owner's booking) is "ahead"
+local BOUNDARY_MARGIN = 250 -- studs beyond the arena ground's edge: still inside the arena's grounds
+local LEAVE_GRACE = 10 -- seconds outside while the event is live before the entry is gone
 
 local entries = {} -- [userId] = { player, slots, registeredAt, satOut, prebook?, side?, rate?, credit = { [slot] = SC } }
 local windowKey = nil -- the event the entries are for
@@ -227,7 +240,8 @@ local function publish()
         e.player:SetAttribute("ArenaQueuePos", pos)
         e.player:SetAttribute("ArenaSatOut", e.satOut)
         e.player:SetAttribute("ArenaPrebooked", e.prebook == true)
-        e.player:SetAttribute("ArenaPrebookSide", e.side)
+        e.player:SetAttribute("ArenaPrebookSide", e.prebook and e.side or nil)
+        e.player:SetAttribute("ArenaSide", e.side)
         e.player:SetAttribute("ArenaRoomWish", e.room)
     end
     Workspace:SetAttribute("ArenaEntrants", #list)
@@ -253,6 +267,9 @@ local function clearPlayer(player)
     player:SetAttribute("ArenaSatOut", nil)
     player:SetAttribute("ArenaPrebooked", nil)
     player:SetAttribute("ArenaPrebookSide", nil)
+    player:SetAttribute("ArenaSide", nil)
+    player:SetAttribute("ArenaOutside", nil)
+    player:SetAttribute("ArenaLeaveIn", nil)
 end
 
 local function unusedCredit(e)
@@ -402,6 +419,11 @@ function Registration.pickRound(mode, teamSize)
     end
     local perTeam = mode == "FFA" and seats or (mode == "1vs1" and 1 or teamSize)
     local perPlayer = ArenaSchedule.perPlayer(windowSlot)
+    for _, e in ipairs(ordered()) do -- (not inside the arena's grounds as the round starts: out)
+        if not Registration.insideArena(e.player) then
+            Registration.dropAbsent(e, string.format("You weren't inside %s when the round started: your entry for %s is gone.", ARENA_NAME, windowSlot.Name))
+        end
+    end
     local queue = ordered()
     local entrants = {}
     local teamCount = { TeamAlpha = 0, TeamBeta = 0 }
@@ -576,6 +598,24 @@ local function chooseSlots(player, slots)
     return chosen
 end
 
+local sideStrength -- (below)
+
+-- A walk-in's side: the lighter one, if it has places left for these Quins (none in FFA)
+local function walkInSide(player, quins)
+    local m = windowSlot and windowSlot.Match
+    if not m or m.Mode == "FFA" then
+        return nil
+    end
+    local perTeam = m.Mode == "TeamBattle" and (m.TeamSize or 1) or 1
+    local sum, count = sideStrength(player.UserId)
+    local side = sum.TeamAlpha <= sum.TeamBeta and "TeamAlpha" or "TeamBeta"
+    local other = side == "TeamAlpha" and "TeamBeta" or "TeamAlpha"
+    if count[side] + quins > perTeam and count[other] + quins <= perTeam then
+        side = other
+    end
+    return side
+end
+
 local function register(player, slots, anywhere, room) -- (anywhere: the debug quick match)
     refreshWindow()
     if type(slots) == "table" and slots.slots then -- ({ slots, room } from a terminal)
@@ -617,19 +657,22 @@ local function register(player, slots, anywhere, room) -- (anywhere: the debug q
         existing.slots = chosen -- (changing your Quins keeps your place in the queue)
         existing.room = room
     else
-        entries[player.UserId] = { player = player, slots = chosen, registeredAt = os.clock(), satOut = 0, room = room }
+        entries[player.UserId] = { player = player, slots = chosen, registeredAt = os.clock(), satOut = 0, room = room,
+            side = walkInSide(player, #chosen) }
     end
     makeRoomForPlayers()
     publish()
-    return true, string.format("Entered %s with %d Quin%s. Entry %d SC per Quin, paid each round they fight.",
-        windowSlot.Name, #chosen, #chosen > 1 and "s" or "", Payouts.ENTRY_FEE)
+    local side = entries[player.UserId].side
+    return true, string.format("Entered %s with %d Quin%s%s. Entry %d SC per Quin, paid each round they fight.",
+        windowSlot.Name, #chosen, #chosen > 1 and "s" or "", side and (" on " .. (side == "TeamAlpha" and "Alpha" or "Beta")) or "", Payouts.ENTRY_FEE)
 end
 
--- Each side's prebooked strength (walk-ins have no side until they are seated)
-local function sideStrength(except)
+-- Each side's strength so far: players' Quins (prebooked, and walk-ins: they get a side when they
+-- register) and NPC prebooks' (NPC walk-ins get theirs at seating)
+function sideStrength(except)
     local sum, count = { TeamAlpha = 0, TeamBeta = 0 }, { TeamAlpha = 0, TeamBeta = 0 }
     for userId, e in pairs(entries) do
-        if e.prebook and e.side and userId ~= except then
+        if e.side and userId ~= except then
             for _, s in ipairs(e.slots) do
                 local q = QuinRosterService.getQuinInSlot(e.player, s)
                 if q then
@@ -729,6 +772,36 @@ local function prebook(player, request)
     return true, string.format("Prebooked %s for %s with %d Quin%s at %d SC a round (%d%% off). Deposit %d SC paid.",
         side == "TeamAlpha" and "Alpha" or "Beta", windowSlot.Name, #chosen, #chosen > 1 and "s" or "", rate,
         math.floor((1 - rate / Payouts.ENTRY_FEE) * 100 + 0.5), rate * #chosen)
+end
+
+-- Entered and at a terminal: off to your side's prep rooms now, outside the room you wished for
+-- (or Room 1). The rooms open when the round starts; you're put inside then.
+local function goToPrep(player)
+    refreshWindow()
+    local e = entries[player.UserId]
+    if not e or not windowKey or windowKind == "Booking" then
+        return false, "You're not entered in an event that's on soon."
+    end
+    if not nearTerminal(player) then
+        return false, "Ask at " .. TERMINAL .. "."
+    end
+    local PrepRoom = require(ServerScriptService:WaitForChild("ArenaPrepRoom"))
+    local side = PrepRoom.sideOf(e.side or "TeamAlpha")
+    local wish = e.room or 1
+    local best = nil
+    for _, room in ipairs(PrepRoom.rooms()) do
+        if room.side == side and (not best or math.abs(room.number - wish) < math.abs(best.number - wish)) then
+            best = room
+        end
+    end
+    local root = rootOf(player)
+    if not best or not root then
+        return false, "The prep rooms aren't ready."
+    end
+    local spot = best.doorHall + Vector3.new(0, 4, 0)
+    player.Character:PivotTo(CFrame.lookAt(spot, Vector3.new(best.door.Position.X, spot.Y, best.door.Position.Z)))
+    root.AssemblyLinearVelocity = Vector3.zero
+    return true, string.format("Room %d", best.number)
 end
 
 -- Leaving an event: a prebook keeps CANCEL_KEEP of its unused deposit
@@ -909,6 +982,8 @@ entryRemote.OnServerInvoke = function(player, action, value)
         return boardView(player)
     elseif action == "quick" then
         return quickMatch(player, value)
+    elseif action == "goprep" then
+        return goToPrep(player)
     end
     return false, "Unknown request"
 end
@@ -922,6 +997,70 @@ Players.PlayerRemoving:Connect(function(player)
         end
         entries[player.UserId] = nil
         publish()
+    end
+end)
+
+-- ============================================================================
+-- BE THERE: the arena's grounds
+-- ============================================================================
+
+local boundaryCentre, boundaryRadius = nil, nil
+local function boundary()
+    if not boundaryCentre then
+        local ground = Workspace:FindFirstChild("ArenaGround", true)
+        if ground and ground:IsA("BasePart") then
+            boundaryCentre = ground.Position
+            boundaryRadius = math.max(ground.Size.X, ground.Size.Z) / 2 + BOUNDARY_MARGIN
+            Workspace:SetAttribute("ArenaBoundaryCentre", boundaryCentre)
+            Workspace:SetAttribute("ArenaBoundaryRadius", boundaryRadius)
+        end
+    end
+    return boundaryCentre, boundaryRadius
+end
+
+-- Inside the arena's grounds (no body right now, e.g. respawning: counted as inside)
+function Registration.insideArena(player)
+    local centre, radius = boundary()
+    local root = rootOf(player)
+    if not centre or not root then
+        return true
+    end
+    local d = root.Position - centre
+    return Vector3.new(d.X, 0, d.Z).Magnitude <= radius
+end
+
+-- Not there: the entry is gone (a prebook's unused deposit with it)
+function Registration.dropAbsent(e, text)
+    if entries[e.player.UserId] ~= e then
+        return
+    end
+    entries[e.player.UserId] = nil
+    clearPlayer(e.player)
+    publish()
+    notice(e.player, text)
+    print(string.format("[ArenaRegistration] %s left %s's grounds: entry for %s dropped", e.player.Name, ARENA_NAME, windowSlot and windowSlot.Name or "?"))
+end
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        boundary() -- (published for the DEBUG ring even before anyone registers)
+        for _, e in pairs(entries) do
+            local inside = Registration.insideArena(e.player)
+            e.player:SetAttribute("ArenaOutside", (not inside) or nil)
+            if not inside and windowKind == "Live" then
+                e.outSince = e.outSince or os.clock()
+                local left = LEAVE_GRACE - (os.clock() - e.outSince)
+                if left <= 0 then
+                    Registration.dropAbsent(e, string.format("You left %s while %s was on: your entry is gone.", ARENA_NAME, windowSlot and windowSlot.Name or "the event"))
+                else
+                    e.player:SetAttribute("ArenaLeaveIn", math.ceil(left))
+                end
+            else
+                e.outSince = nil
+                e.player:SetAttribute("ArenaLeaveIn", nil)
+            end
+        end
     end
 end)
 
