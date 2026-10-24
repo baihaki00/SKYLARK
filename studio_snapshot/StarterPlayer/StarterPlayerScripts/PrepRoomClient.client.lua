@@ -3,12 +3,14 @@
 --   * doors: solid for this player unless they may enter (the room's owner, a friend, or let in);
 --     the Knock prompt shows only on doors this player may not open;
 --   * knocks: the owner gets "Let in / No"; notices from the rooms show as notifications;
---   * the PrepRoomTerminal:
+--   * the PrepRoomTerminal: its prompt opens a menu, PLAN or BINOCULARS.
 --       BINOCULARS: a free camera held by hand (a slight shake) that flies only within a box in
---       front of the room's glass (WASD, Space / C up and down, Shift faster), hold the right mouse
---       button to look, the wheel zooms smoothly;
+--       front of the room's glass (WASD, Space / C up and down, Shift faster); the mouse looks
+--       around freely (hold Alt for the cursor), the wheel zooms smoothly;
 --       QUIN 1 / QUIN 2: your OWN Quins only, followed in 3rd person (the Spectator HUD's view:
---       right mouse orbits, wheel distance) or through their eyes (POV); the VIEW button switches;
+--       the mouse orbits, wheel distance) or through their eyes (POV); the VIEW button switches;
+--       MARKERS: a small marker over each of your Quins in every view (M toggles it, for recording);
+--       keys: B binoculars, 1 / 2 your Quins, V view, M markers, P plan;
 --       the live event stats (time, both teams, your Quins). Backspace or X leaves it.
 --       PLAN: each of your Quins' plan for the round (stance, target, role: QuinPlans on the
 --       server), only while the room is open; how much it follows shows on its card.
@@ -186,10 +188,12 @@ local viewLabel = label(gui, { AnchorPoint = Vector2.new(0.5, 0), Position = UDi
 local hintLabel = label(gui, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0.88, -6), Size = UDim2.fromOffset(700, 14), TextXAlignment = Enum.TextXAlignment.Center, TextSize = 11, TextColor3 = C_MUTED, Text = "" })
 
 -- Mode buttons (top)
-local bar = new("Frame", { Name = "ModeBar", Parent = gui, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), Size = UDim2.fromOffset(740, 34), BackgroundTransparency = 1 })
-new("UIListLayout", { Parent = bar, FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 8) })
+local bar = new("Frame", { Name = "ModeBar", Parent = gui, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), Size = UDim2.fromOffset(900, 34), BackgroundTransparency = 1 })
+new("UIListLayout", { Parent = bar, FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder })
+local barOrder = 0
 local function barButton(name, text, width)
-    local b = new("TextButton", { Name = name, Parent = bar, Text = text, Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_BG, BackgroundTransparency = 0.1, Size = UDim2.fromOffset(width, 34) })
+    barOrder += 1
+    local b = new("TextButton", { Name = name, Parent = bar, LayoutOrder = barOrder, Text = text, Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_BG, BackgroundTransparency = 0.1, Size = UDim2.fromOffset(width, 34) })
     corner(b, 8)
     new("UIStroke", { Parent = b, Color = C_STROKE, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
     return b
@@ -197,6 +201,7 @@ end
 local binoButton = barButton("BinoButton", "BINOCULARS", 120)
 local quinButtons = { barButton("Quin1Button", "MY QUIN 1", 110), barButton("Quin2Button", "MY QUIN 2", 110) }
 local viewButton = barButton("ViewButton", "VIEW: 3RD PERSON", 150)
+local markersButton = barButton("MarkersButton", "MARKERS: ON", 130)
 local planButton = barButton("PlanButton", "PLAN", 90)
 local exitButton = barButton("ExitButton", "X", 40)
 
@@ -330,6 +335,8 @@ local function setMode(mode)
     end
 end
 
+local planGui, showPlan -- (the plan panel: built further down)
+
 local function stopUsing()
     if not using then
         return
@@ -343,6 +350,10 @@ local function stopUsing()
     hideQuin(nil)
     using = nil
     gui.Enabled = false
+    if planGui.Enabled and not planTerminal then
+        showPlan(false)
+    end
+    UserInputService.MouseIconEnabled = true
     shared.TerminalCameraCFrame = nil
     shared.SpectateFilter = nil
     shared.SpectatedQuin = nil
@@ -399,25 +410,158 @@ viewButton.MouseButton1Click:Connect(function()
 end)
 exitButton.MouseButton1Click:Connect(stopUsing)
 
-ProximityPromptService.PromptTriggered:Connect(function(prompt)
-    if prompt.Name == "TerminalPrompt" and not using then
-        startUsing(prompt.Parent)
+-- THE MENU: the terminal's prompt asks what for
+local menuGui = new("ScreenGui", { Name = "PrepMenuUI", ResetOnSpawn = false, DisplayOrder = 73, IgnoreGuiInset = true, Enabled = false, Parent = player:WaitForChild("PlayerGui") })
+local menu = new("Frame", { Name = "PrepMenu", Parent = menuGui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(420, 190), BackgroundColor3 = C_BG, BackgroundTransparency = 0.04 })
+corner(menu, 12)
+new("UIStroke", { Parent = menu, Color = C_CYAN, Thickness = 1, Transparency = 0.3 })
+label(menu, { Position = UDim2.fromOffset(16, 12), Size = UDim2.fromOffset(340, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_CYAN, Text = "PREP TERMINAL" })
+local menuSub = label(menu, { Position = UDim2.fromOffset(16, 34), Size = UDim2.fromOffset(388, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
+local menuClose = new("TextButton", { Name = "PrepMenuClose", Parent = menu, Text = "X", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.new(1, -38, 0, 10), Size = UDim2.fromOffset(26, 26) })
+corner(menuClose, 6)
+local function menuButton(name, text, x, color)
+    local b = new("TextButton", { Name = name, Parent = menu, Text = text, Font = Enum.Font.GothamBold, TextSize = 12, TextWrapped = true, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.fromOffset(x, 60), Size = UDim2.fromOffset(189, 112) })
+    corner(b, 8)
+    new("UIStroke", { Parent = b, Color = color, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+    return b
+end
+local menuPlan = menuButton("PrepMenuPlan", "PLAN\n\nStance, target and role\nfor your Quins this round", 16, C_AMBER)
+local menuWatch = menuButton("PrepMenuWatch", "BINOCULARS\n\nWatch the arena and\nfollow your Quins", 215, C_CYAN)
+local menuTerminal = nil
+
+local function showMenu(terminal)
+    menuTerminal = terminal
+    menuGui.Enabled = terminal ~= nil
+    if terminal then
+        local phase = Workspace:GetAttribute("ArenaPhase")
+        menuSub.Text = phase == "PREPARATION_ROOM" and "Plans are open until your Quins deploy."
+            or "Plans are locked for this round. You can still watch."
+    end
+end
+menuClose.MouseButton1Click:Connect(function()
+    showMenu(nil)
+end)
+menuPlan.MouseButton1Click:Connect(function()
+    local terminal = menuTerminal
+    showMenu(nil)
+    if terminal then
+        showPlan(true, terminal)
     end
 end)
+menuWatch.MouseButton1Click:Connect(function()
+    local terminal = menuTerminal
+    showMenu(nil)
+    if terminal and not using then
+        showPlan(false)
+        startUsing(terminal)
+    end
+end)
+
+ProximityPromptService.PromptTriggered:Connect(function(prompt)
+    if prompt.Name == "TerminalPrompt" and not using then
+        showMenu(prompt.Parent)
+    end
+end)
+-- (Studio test hook: the player attribute PrepTerminalOpen opens the menu at the nearest terminal)
+player:GetAttributeChangedSignal("PrepTerminalOpen"):Connect(function()
+    local me = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not player:GetAttribute("PrepTerminalOpen") or not me or using then
+        return
+    end
+    player:SetAttribute("PrepTerminalOpen", nil)
+    local best, bestDist = nil, 14
+    for _, d in ipairs(Workspace:GetDescendants()) do
+        if d.Name == "PrepRoomTerminal" and d:IsA("BasePart") and (d.Position - me.Position).Magnitude < bestDist then
+            best, bestDist = d, (d.Position - me.Position).Magnitude
+        end
+    end
+    if best then
+        showMenu(best)
+    end
+end)
+
+-- MARKERS: over your own Quins, on this screen only (a PES / FIFA style player marker)
+local markersOn = true
+local markers = {} -- [quin model] = BillboardGui
+local function markerFor(q, index)
+    local m = markers[q]
+    if not m then
+        local root = q:FindFirstChild("HumanoidRootPart")
+        if not root then
+            return nil
+        end
+        m = new("BillboardGui", { Name = "MyQuinMarker", Adornee = root, AlwaysOnTop = true, LightInfluence = 0, Size = UDim2.fromOffset(64, 40), StudsOffsetWorldSpace = Vector3.new(0, 5.5, 0), MaxDistance = 2000, ResetOnSpawn = false, Parent = player:WaitForChild("PlayerGui") })
+        local tag = new("TextLabel", { Name = "Tag", Parent = m, BackgroundColor3 = C_BG, BackgroundTransparency = 0.15, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0), Size = UDim2.fromOffset(40, 20), Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C_AMBER, Text = "" })
+        corner(tag, 5)
+        new("UIStroke", { Parent = tag, Color = C_AMBER, Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+        new("TextLabel", { Name = "Arrow", Parent = m, BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 18), Size = UDim2.fromOffset(24, 20), Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = C_AMBER, Text = "▼" })
+        markers[q] = m
+    end
+    m.Tag.Text = "Q" .. index
+    return m
+end
+local function updateMarkers()
+    local show = using ~= nil and markersOn
+    local mine = show and myQuins() or {}
+    local keep = {}
+    for i, q in ipairs(mine) do
+        local hum = q:FindFirstChildOfClass("Humanoid")
+        local viewing = using.mode == i and using.view == "pov" -- (through its own eyes: not over itself)
+        if hum and hum.Health > 0 and not viewing then
+            local m = markerFor(q, i)
+            if m then
+                m.Enabled = true
+                keep[q] = true
+            end
+        end
+    end
+    for q, m in pairs(markers) do
+        if not keep[q] then
+            if q.Parent then
+                m.Enabled = false
+            else
+                m:Destroy()
+                markers[q] = nil
+            end
+        end
+    end
+    markersButton.Text = markersOn and "MARKERS: ON" or "MARKERS: OFF"
+    markersButton.TextColor3 = markersOn and C_AMBER or C_MUTED
+end
+local function toggleMarkers()
+    markersOn = not markersOn
+    updateMarkers()
+end
+markersButton.MouseButton1Click:Connect(toggleMarkers)
 
 UserInputService.InputBegan:Connect(function(input, gp)
     if not using then
         return
     end
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        lookHeld = true
-    elseif input.KeyCode == Enum.KeyCode.Backspace and not gp then
+    if gp or UserInputService:GetFocusedTextBox() then
+        return
+    end
+    local key = input.KeyCode
+    if key == Enum.KeyCode.Backspace then
         stopUsing()
+    elseif key == Enum.KeyCode.B then
+        setMode("bino")
+    elseif (key == Enum.KeyCode.One or key == Enum.KeyCode.Two) and aliveRoot(myQuins()[key == Enum.KeyCode.One and 1 or 2]) then
+        setMode(key == Enum.KeyCode.One and 1 or 2)
+    elseif key == Enum.KeyCode.V then
+        using.view = using.view == "third" and "pov" or "third"
+        if using.mode ~= "bino" then
+            setMode(using.mode)
+        end
+    elseif key == Enum.KeyCode.M then
+        toggleMarkers()
+    elseif key == Enum.KeyCode.P then
+        showPlan(not planGui.Enabled, using.terminal)
     end
 end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        lookHeld = false
+UserInputService.InputBegan:Connect(function(input, gp)
+    if not using and planGui.Enabled and planTerminal and input.KeyCode == Enum.KeyCode.Backspace and not gp then
+        showPlan(false)
     end
 end)
 UserInputService.InputChanged:Connect(function(input)
@@ -442,10 +586,14 @@ local PLAN_ROWS = {
     { key = "Target", attr = "PlanTarget", options = { "Own pick", "Weakest", "Strongest", "Defend" }, default = "Own pick" },
     { key = "Role", attr = "PlanRole", options = { "Free", "Striker", "Guard", "Hunter" }, default = "Free" },
 }
-local planPanel = new("Frame", { Name = "PlanPanel", Parent = gui, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 24, 0.5, 0), Size = UDim2.fromOffset(372, 470), BackgroundColor3 = C_BG, BackgroundTransparency = 0.08, Visible = false })
+planGui = new("ScreenGui", { Name = "PrepPlanUI", ResetOnSpawn = false, DisplayOrder = 72, IgnoreGuiInset = true, Enabled = false, Parent = player:WaitForChild("PlayerGui") })
+local planTerminal = nil -- (opened from the menu without the binoculars: the terminal it belongs to)
+local planPanel = new("Frame", { Name = "PlanPanel", Parent = planGui, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 24, 0.5, 0), Size = UDim2.fromOffset(372, 470), BackgroundColor3 = C_BG, BackgroundTransparency = 0.08 })
 corner(planPanel, 10)
 new("UIStroke", { Parent = planPanel, Color = C_AMBER, Thickness = 1, Transparency = 0.4 })
 label(planPanel, { Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(344, 18), Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C_AMBER, Text = "PLAN FOR THIS ROUND" })
+local planClose = new("TextButton", { Name = "PlanClose", Parent = planPanel, Text = "X", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_TEXT, BackgroundColor3 = C_CARD, Position = UDim2.new(1, -36, 0, 8), Size = UDim2.fromOffset(26, 26) })
+corner(planClose, 6)
 local planSub = label(planPanel, { Name = "PlanSub", Position = UDim2.fromOffset(14, 30), Size = UDim2.fromOffset(344, 14), TextSize = 11, TextColor3 = C_MUTED, Text = "" })
 local planStatus = label(planPanel, { Name = "PlanStatus", AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 14, 1, -10), Size = UDim2.fromOffset(344, 30), TextSize = 11, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = C_GREEN, Text = "" })
 local planCards = {}
@@ -474,8 +622,8 @@ local function planOpen()
 end
 
 local function refreshPlan()
-    planButton.TextColor3 = planPanel.Visible and C_AMBER or C_TEXT
-    if not planPanel.Visible then
+    planButton.TextColor3 = planGui.Enabled and C_AMBER or C_TEXT
+    if not planGui.Enabled then
         return
     end
     local open = planOpen()
@@ -524,10 +672,17 @@ for i, c in ipairs(planCards) do
         end
     end
 end
-planButton.MouseButton1Click:Connect(function()
-    planPanel.Visible = not planPanel.Visible
+showPlan = function(on, terminal)
+    planGui.Enabled = on
+    planTerminal = on and terminal or nil
     planStatus.Text = ""
     refreshPlan()
+end
+planButton.MouseButton1Click:Connect(function()
+    showPlan(not planGui.Enabled, using and using.terminal)
+end)
+planClose.MouseButton1Click:Connect(function()
+    showPlan(false)
 end)
 if remote then
     remote.OnClientEvent:Connect(function(kind, ok, text)
@@ -639,6 +794,24 @@ RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Val
         refreshDoors()
     end
     if not using then
+        -- the plan or the menu opened on their own: closed when walked away, the plan kept fresh
+        local me = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        local away = function(t)
+            return not me or not t or not t.Parent or (me.Position - t.Position).Magnitude > 14
+        end
+        if planGui.Enabled and planTerminal and away(planTerminal) then
+            showPlan(false)
+        end
+        if menuGui.Enabled and away(menuTerminal) then
+            showMenu(nil)
+        end
+        if planGui.Enabled and now - lastStats > 0.25 then
+            lastStats = now
+            refreshPlan()
+        end
+        if next(markers) then
+            updateMarkers()
+        end
         return
     end
     -- walked or was sent away from the terminal: done
@@ -647,6 +820,8 @@ RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Val
         stopUsing()
         return
     end
+    -- the mouse looks around freely; Alt (or the plan panel open) gives the cursor back
+    lookHeld = not planGui.Enabled and not UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) and not UserInputService:IsKeyDown(Enum.KeyCode.RightAlt)
     if lookHeld then
         local delta = UserInputService:GetMouseDelta()
         local scale = LOOK_SENSITIVITY * (using.sFov / BASE_FOV)
@@ -657,16 +832,18 @@ RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Val
             using.yaw -= delta.X * scale
             using.pitch = math.clamp(using.pitch - delta.Y * scale, -70, 35)
         end
-        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        UserInputService.MouseIconEnabled = false
     else
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
     end
 
     local cf
     if using.mode == "bino" then
         cf = binocularCFrame(dt)
         viewLabel.Text = "BINOCULARS"
-        hintLabel.Text = "WASD fly  •  Space / C up, down  •  hold right mouse to look  •  wheel to zoom  •  Backspace to leave"
+        hintLabel.Text = "Mouse looks  •  WASD fly  •  Space / C up, down  •  wheel zoom  •  hold Alt for the cursor  •  1 / 2 your Quins  •  M markers  •  P plan  •  Backspace leaves"
     else
         local q = myQuins()[using.mode]
         local root = aliveRoot(q)
@@ -678,11 +855,11 @@ RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Val
         if using.view == "third" then
             hideQuin(nil)
             cf = thirdPersonCFrame(root, dt)
-            hintLabel.Text = "Hold right mouse to orbit  •  wheel for distance  •  Backspace to leave"
+            hintLabel.Text = "Mouse orbits  •  wheel for distance  •  V view  •  B binoculars  •  hold Alt for the cursor  •  Backspace leaves"
         else
             hideQuin(q)
             cf = povCFrame(q, root, dt)
-            hintLabel.Text = "Hold right mouse to look  •  wheel to zoom  •  Backspace to leave"
+            hintLabel.Text = "Mouse looks  •  wheel to zoom  •  V view  •  B binoculars  •  hold Alt for the cursor  •  Backspace leaves"
         end
         viewLabel.Text = string.format("MY QUIN %d  •  %s", using.mode, using.view == "third" and "3RD PERSON" or "POV")
     end
@@ -693,5 +870,6 @@ RunService:BindToRenderStep("PrepTerminalCamera", Enum.RenderPriority.Camera.Val
     if now - lastStats > 0.25 then
         lastStats = now
         updateStats()
+        updateMarkers()
     end
 end)

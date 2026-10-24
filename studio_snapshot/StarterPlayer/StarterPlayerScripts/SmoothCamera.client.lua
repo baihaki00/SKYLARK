@@ -192,6 +192,10 @@ local function menuOpen()
 	end
 	local terminal = playerGui:FindFirstChild("PrepTerminalUI")
 	if terminal and terminal.Enabled then return true end
+	for _, name in ipairs({ "PrepPlanUI", "PrepMenuUI" }) do -- (the prep terminal's plan panel and menu)
+		local g = playerGui:FindFirstChild(name)
+		if g and g.Enabled then return true end
+	end
 	local results = playerGui:FindFirstChild("MatchResultsUI") -- (the match results card: MatchResultsClient)
 	if results and results.Enabled then return true end
 	local care = playerGui:FindFirstChild("QuinCareUI") -- (the Workshop / Trainer / Specialist dialog: QuinCareClient)
