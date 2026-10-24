@@ -10,6 +10,7 @@
 --     Quin told to be Aggressive, a loner told to Guard...) follows 30% less and makes it hesitate
 --     a moment before it fights (PlanHesitation seconds: the orchestrator holds it inert that long).
 --   * The last plan per Quin is remembered for the session and put back on its next round.
+--   * NPC owners plan too (npcPick: from the Quin's own habits), so a plan is no edge players alone have.
 -- Model attributes: PlanStance, PlanTarget, PlanRole, PlanFollow (0..1), PlanClash (text),
 -- PlanHesitation (s).
 
@@ -113,6 +114,37 @@ function Plans.apply(model, quin, plan)
         return true, string.format("Plan set, against its nature (%s): follows about %d%% and hesitates first.", table.concat(against, ", "), pct)
     end
     return true, string.format("Plan set. It follows about %d%%.", pct)
+end
+
+-- An NPC owner's plan for its Quin: read from the Quin's own habits (so it rarely goes against its
+-- nature), with a little chance so two alike Quins don't always get the same plan.
+function Plans.npcPick(quin, rng)
+    rng = rng or Random.new()
+    local h = quin.Personality or {}
+    local aggression, protect = h.Aggression or 0.6, h.Protectiveness or 0.5
+    local mobility = h.MobilityPreference or 0.5
+    local stance = "Balanced"
+    if aggression > 0.7 and rng:NextNumber() < 0.7 then
+        stance = "Aggressive"
+    elseif aggression < 0.5 and rng:NextNumber() < 0.7 then
+        stance = "Defensive"
+    end
+    local role = "Free"
+    if protect > 0.65 then
+        role = "Guard"
+    elseif mobility > 0.75 and protect < 0.45 then
+        role = "Hunter"
+    elseif aggression > 0.75 then
+        role = "Striker"
+    end
+    local target = "Own pick"
+    local roll = rng:NextNumber()
+    if roll < 0.2 then
+        target = "Weakest"
+    elseif roll < 0.3 and protect >= 0.4 then
+        target = "Defend"
+    end
+    return { Stance = stance, Target = target, Role = role }
 end
 
 -- May plans change now?

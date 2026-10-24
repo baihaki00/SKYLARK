@@ -17,6 +17,11 @@
 --     PathfindingService round chairs, terminals and door frames, and after a stroll turn to the
 --     glass or the room, never a wall. When their Quins are down they sit, then leave; when the
 --     match ends they walk out and are gone.
+--   * The arena's Quins aren't all new: each rolls a tier (VETERAN_TIERS: Rookie / Regular /
+--     Veteran) that gives it a record and a Bond, so their strength (ArenaRegistration.strength)
+--     and how well they follow their owner's plan differ. In team battles they are dealt
+--     strongest first, each to the side that is weaker at that moment (players' Quins counted),
+--     so a side a strong player joined gets the lighter arena Quins.
 --   * Off: Workspace attribute ArenaNpcOwners = false.
 
 local Players = game:GetService("Players")
@@ -43,6 +48,12 @@ end
 local NpcOwners = {}
 
 local NPC_SHARE = 1 -- of the empty seats (Workspace attribute ArenaNpcShare overrides)
+-- the arena's Quins by experience: share of them, battles fought, win rate, Bond
+local VETERAN_TIERS = {
+    { name = "Rookie", share = 0.5, battles = { 0, 6 }, winRate = { 0.3, 0.6 }, bond = { 0, 15 } },
+    { name = "Regular", share = 0.35, battles = { 10, 40 }, winRate = { 0.35, 0.6 }, bond = { 20, 50 } },
+    { name = "Veteran", share = 0.15, battles = { 40, 120 }, winRate = { 0.5, 0.7 }, bond = { 55, 90 } },
+}
 local WALK_SPEED = { 8, 11 } -- (a stroll: the walk animation, never the run)
 
 local NAMES = {
@@ -105,6 +116,26 @@ end
 -- ROUNDS
 -- ============================================================================
 
+-- One of the arena's Quins for an NPC owner, with its tier's record and Bond
+local function arenaQuin(ownerName)
+    local roll, tier = rng:NextNumber(), VETERAN_TIERS[#VETERAN_TIERS]
+    for _, t in ipairs(VETERAN_TIERS) do
+        if roll < t.share then
+            tier = t
+            break
+        end
+        roll -= t.share
+    end
+    local battles = rng:NextInteger(tier.battles[1], tier.battles[2])
+    local wins = math.floor(battles * (tier.winRate[1] + rng:NextNumber() * (tier.winRate[2] - tier.winRate[1])) + 0.5)
+    return QuinInstance.create({
+        Type = "Standard",
+        OwnerId = "NPC_" .. ownerName,
+        Bond = rng:NextInteger(tier.bond[1], tier.bond[2]),
+        BattleRecord = { Battles = battles, Wins = wins, Losses = battles - wins },
+    })
+end
+
 -- Add NPC owners' Quins to the round's entrants (in place) and return them
 function NpcOwners.fillRound(entrants, mode, teamSize, perPlayer, roomsPerSide)
     if not enabled() or (mode ~= "TeamBattle" and mode ~= "FFA" and mode ~= "1vs1") then
@@ -129,32 +160,85 @@ function NpcOwners.fillRound(entrants, mode, teamSize, perPlayer, roomsPerSide)
         roomsLeft[team] = math.max(0, (roomsPerSide or 16) - used)
     end
     local share = tonumber(Workspace:GetAttribute("ArenaNpcShare")) or NPC_SHARE
+    local strength = require(script.Parent:WaitForChild("ArenaRegistration")).strength
     local added = 0
-    -- owners for `team` (nil: FFA) in up to `rooms` rooms, holding `npcSeats` Quins between them
-    local function addOwners(team, npcSeats, rooms)
-        local owners = math.min(rooms, npcSeats)
-        local extra = math.min(npcSeats - owners, owners * (perPlayer - 1))
+    -- owners for `team` (nil: FFA) in up to `rooms` rooms, holding the Quins `quins` between them
+    local function addOwners(team, quins, rooms)
+        local owners = math.min(rooms, #quins)
+        local extra = math.min(#quins - owners, owners * (perPlayer - 1))
+        local next_ = 1
         for i = 1, owners do
             nameIndex = nameIndex % #NAMES + 1
             local npc = { name = NAMES[nameIndex], npc = true, team = team }
             for _ = 1, (i <= extra) and 2 or 1 do
-                local quin = QuinInstance.create({ Type = "Standard", OwnerId = "NPC_" .. npc.name })
+                local quin = quins[next_]
+                next_ += 1
+                quin.OwnerId = "NPC_" .. npc.name
+                quin.OriginalOwnerId = quin.OwnerId
                 table.insert(entrants, { npc = npc, quin = quin, team = team })
                 added += 1
             end
         end
     end
+    local function pool(n)
+        local list = {}
+        for _ = 1, n do
+            table.insert(list, arenaQuin("Arena"))
+        end
+        return list
+    end
     if mode == "FFA" then
         local free = math.max(0, seats - #entrants)
-        addOwners(nil, math.floor(free * share + 0.5), roomsLeft.TeamAlpha + roomsLeft.TeamBeta)
+        addOwners(nil, pool(math.floor(free * share + 0.5)), roomsLeft.TeamAlpha + roomsLeft.TeamBeta)
     else
-        for _, team in ipairs({ "TeamAlpha", "TeamBeta" }) do
-            local free = math.max(0, perTeam - teamCount[team])
-            addOwners(team, math.floor(free * share + 0.5), roomsLeft[team])
+        -- strongest first, each to the side that is weaker now (players' Quins counted)
+        local need, sum, dealt = {}, { TeamAlpha = 0, TeamBeta = 0 }, { TeamAlpha = {}, TeamBeta = {} }
+        for _, e in ipairs(entrants) do
+            if e.team and e.quin then
+                sum[e.team] += strength(e.quin)
+            end
         end
+        local total = 0
+        for _, team in ipairs({ "TeamAlpha", "TeamBeta" }) do
+            need[team] = math.floor(math.max(0, perTeam - teamCount[team]) * share + 0.5)
+            total += need[team]
+        end
+        local list = pool(total)
+        local power = {}
+        for _, q in ipairs(list) do
+            power[q] = strength(q)
+        end
+        table.sort(list, function(a, b)
+            return power[a] > power[b]
+        end)
+        local poolLeft = 0
+        for _, q in ipairs(list) do
+            poolLeft += power[q]
+        end
+        for i, q in ipairs(list) do
+            local team
+            if need.TeamAlpha > 0 and need.TeamBeta > 0 then
+                -- (the weaker side once full: what it has, plus its empty seats at the pool's average)
+                local avg = poolLeft / (#list - i + 1)
+                local a = sum.TeamAlpha + need.TeamAlpha * avg
+                local b = sum.TeamBeta + need.TeamBeta * avg
+                team = a <= b and "TeamAlpha" or "TeamBeta"
+            else
+                team = need.TeamAlpha > 0 and "TeamAlpha" or "TeamBeta"
+            end
+            need[team] -= 1
+            sum[team] += power[q]
+            poolLeft -= power[q]
+            table.insert(dealt[team], q)
+        end
+        for _, team in ipairs({ "TeamAlpha", "TeamBeta" }) do
+            addOwners(team, dealt[team], roomsLeft[team])
+        end
+        Workspace:SetAttribute("ArenaSideStrength", string.format("Alpha %d / Beta %d", sum.TeamAlpha, sum.TeamBeta))
     end
     if added > 0 then
-        print(string.format("[ArenaNpcOwners] %d arena seats go to NPC owners' Quins", added))
+        print(string.format("[ArenaNpcOwners] %d arena seats go to NPC owners' Quins (%s)", added,
+            tostring(Workspace:GetAttribute("ArenaSideStrength"))))
     end
     return entrants
 end

@@ -464,6 +464,8 @@ function PrepRoom.open(entrants)
                     local lastPlan = (not isNpc) and QuinPlans.lastFor(e.quin)
                     if lastPlan then -- (last round's plan, until the owner changes it)
                         QuinPlans.apply(q, e.quin, lastPlan)
+                    elseif isNpc then -- (NPC owners plan too: QuinPlans.npcPick)
+                        QuinPlans.apply(q, e.quin, QuinPlans.npcPick(e.quin))
                     end
                     e.model = q
                     e.standOffset = q:GetPivot().Position.Y - top
@@ -660,7 +662,8 @@ PrepRoom.sideOf = sideOf
 
 -- Studio test hook: Workspace attribute PlanDevCommand = JSON { TeamAlpha = plan, TeamBeta = plan }
 -- puts that plan on every Quin of the team (NPC owners' too) while the rooms are open; the reply
--- is in PlanDevResult ("TeamAlpha 16 Quins, follow 0.52, 3 clash ...")
+-- is in PlanDevResult ("TeamAlpha 16 Quins, follow 0.52, 3 clash ..."). Bond = n (top level) first
+-- sets every NPC owner's Quin to that Bond (the ceiling test: Bond 100 follows fully).
 if game:GetService("RunService"):IsStudio() then
     Workspace:GetAttributeChangedSignal("PlanDevCommand"):Connect(function()
         local raw = Workspace:GetAttribute("PlanDevCommand")
@@ -674,6 +677,18 @@ if game:GetService("RunService"):IsStudio() then
             return
         end
         local out = {}
+        local bond = tonumber(plans.Bond)
+        plans.Bond = nil
+        if bond then
+            for _, state in pairs(active) do
+                if state.isNpc then
+                    for model, quin in pairs(state.quinOf) do
+                        quin.Bond = bond
+                        model:SetAttribute("Bond", bond)
+                    end
+                end
+            end
+        end
         for team, plan in pairs(plans) do
             local n, follow, clash = 0, 0, 0
             for _, state in pairs(active) do

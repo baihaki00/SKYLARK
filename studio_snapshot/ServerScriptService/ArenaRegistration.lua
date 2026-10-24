@@ -767,6 +767,8 @@ task.spawn(function()
     end
 end)
 
+Registration.strength = strength -- (ArenaNpcOwners deals the arena's Quins by it)
+
 Registration.queue = function()
     local out = {}
     for pos, e in ipairs(ordered()) do
