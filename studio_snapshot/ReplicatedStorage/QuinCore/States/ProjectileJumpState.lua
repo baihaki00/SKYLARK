@@ -605,7 +605,9 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		starting.animTrack = playClip(humanoid, starting.kit.jump, false)
 	end
 
-	AudioModule.playJumpUp(rootPart.Position)
+	-- (a spot hop to a point is a low jump: the quiet jump sound; the launch sound is for the sky)
+	local marker = starting.precise and target:FindFirstChildWhichIsA("BasePart")
+	if marker and marker.Position.Y - rootPart.Position.Y < (CombatConfig.ProjectileJump_SoftSoundRise or 30) then AudioModule.playJumpSoft(rootPart.Position) else AudioModule.playJumpUp(rootPart.Position) end
 
 	local att = Instance.new("Attachment")
 	att.Name = "PJ_Att"

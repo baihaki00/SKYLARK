@@ -18,8 +18,14 @@ local AudioIds = {
 	Slam = "rbxassetid://128160597080272", -- BOOM / Slam
 	Dash = "rbxassetid://113019448050553",
 	
-	-- Authentic Normal Jump Sound
-	Jump = "rbxassetid://72520498970750",
+	-- Normal jump (owner 2026-10-27: four takes, played very quietly; also for a low projectile
+	-- jump - a spot hop - where the big launch sound was too loud just above the ground)
+	Jump = {
+		"rbxassetid://106485673013283",
+		"rbxassetid://83748734104759",
+		"rbxassetid://99421528966169",
+		"rbxassetid://127502517687729",
+	},
 	
 	-- New Projectile Jump Sounds
 	JumpUp = {
@@ -40,6 +46,8 @@ local AudioIds = {
 		"rbxassetid://128160597080272"  -- FALL_ON_THE_GROUND2
 	}
 }
+
+local JUMP_VOLUME = 0.12 -- (normal jumps and spot hops: very subtle)
 
 local function playSoundAt(id, position, volume, pitch, eqGain)
 	local part = Instance.new("Part")
@@ -131,26 +139,16 @@ end
 
 -- Authentic Normal Jump Audio Method
 function AudioModule.playJump(targetOrPos, volume)
-	local jumpVol = volume or 0.2
+	-- very subtle: whatever a caller asks for, no louder than JumpSoundVolume
+	local jumpVol = math.min(volume or 0.2, JUMP_VOLUME)
 	local jumpPitch = math.random(95, 105) / 100
 
 	if typeof(targetOrPos) == "Instance" then
 		local hrp = targetOrPos:IsA("BasePart") and targetOrPos or targetOrPos:FindFirstChild("HumanoidRootPart")
 		if hrp then
-			local soundObj = nil
-			local qc = ReplicatedStorage:FindFirstChild("QuinCore")
-			local assets = qc and qc:FindFirstChild("Assets")
-			if assets and assets:FindFirstChild("JUMP") then
-				soundObj = assets.JUMP
-			end
-
-			local sound
-			if soundObj and soundObj:IsA("Sound") then
-				sound = soundObj:Clone()
-			else
-				sound = Instance.new("Sound")
-				sound.SoundId = AudioIds.Jump
-			end
+			-- (the old Assets.JUMP clip is no longer used: one of the four takes, at random)
+			local sound = Instance.new("Sound")
+			sound.SoundId = AudioIds.Jump[math.random(1, #AudioIds.Jump)]
 			sound.Name = "QuinJumpSound"
 			sound.Volume = jumpVol
 			sound.PlaybackSpeed = jumpPitch
@@ -169,6 +167,11 @@ function AudioModule.playJump(targetOrPos, volume)
 end
 
 -- Projectile Jump Audio Methods
+-- A low projectile jump (a spot hop to a point, not a launch into the sky) sounds like a jump
+function AudioModule.playJumpSoft(position)
+	playSoundAt(AudioIds.Jump, position, JUMP_VOLUME, math.random(95, 105) / 100, 0)
+end
+
 function AudioModule.playJumpUp(position)
 	playSoundAt(AudioIds.JumpUp, position, 0.1, math.random(90, 110)/100, 5)
 end

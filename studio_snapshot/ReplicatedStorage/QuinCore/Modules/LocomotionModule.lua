@@ -1469,6 +1469,8 @@ function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
 	AnimationModule.playConfig(humanoid, "Movement.Dash", 1.4, Enum.AnimationPriority.Action3, false)
 	AudioModule.playDash(rootPart)
 	VfxModule.createVaporCone(rootPart, 0.4)
+	-- (and the dust trail for the length of the dash, as the duel dash has)
+	task.delay(slideDuration, VfxModule.createDashTrail(rootPart))
 
 	-- Physical propulsion
 	KnockbackModule.applySlide(fighter, dashDir, dashSpeed, slideDuration)

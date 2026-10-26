@@ -345,7 +345,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local stone = NavigationModule.nextStone(fighter, rootPart, targetHRP, 2)
 		if stone then
 			fighter:SetAttribute("ObstacleAwareness", string.format("Stepping stone: %.0f up, %.0f across", stone.rise, stone.hop))
-			if tick() - (fighter:GetAttribute("LastStoneHopTime") or 0) >= 0.6 then
+			-- (owner 2026-10-27: tone the stone hops down - one every StoneHopCooldown, not 0.6 s)
+			if tick() - (fighter:GetAttribute("LastStoneHopTime") or 0) >= (CombatConfig.Nav_StoneHopCooldown or 2.5) then
 				fighter:SetAttribute("LastStoneHopTime", tick())
 				-- A stone it is facing, within a jump's reach and range, and wide enough to land
 				-- a running jump on, is simply jumped on to; the spot hop (a projectile arc) is
@@ -360,6 +361,12 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 					fighter:SetAttribute("ObstacleAwareness", string.format("Jump to a stone: %.0f up, %.0f across", stone.rise, stone.hop))
 					fighter:SetAttribute("StoneJumps", (fighter:GetAttribute("StoneJumps") or 0) + 1) -- (probes)
 					require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).noteJump(fighter, stone.point)
+					return ChaseState
+				end
+				-- a wide stone it is only not lined up with: it turns to it and jumps, no spot hop
+				if wideTop and not lined and toStone.Magnitude > 0.1 then
+					fighter:SetAttribute("LastStoneHopTime", 0)
+					LocomotionModule.steer(fighter, humanoid, rootPart, stone.point, 16.0, 0.1)
 					return ChaseState
 				end
 				fighter:SetAttribute("LastProjectileJumpTime", tick())
@@ -1403,6 +1410,29 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			if q:GetAttribute("Team") == fighter:GetAttribute("Team") and q:GetAttribute("TargetQuin") == target.Name then
 				table.insert(sameTargetTeammates, q)
 			end
+		end
+	end
+
+	-- Carved running (owner 2026-10-27: arcs and the whole-body tilt into them were rarely seen; the
+	-- chase ran straight lines). On a long sprint the Quin swings out to one side of the line to
+	-- its target and now and then carves across to the other, like a skier: the run curves and
+	-- the body leans into it (the tilt reads the curve). Wider swings for a mobile Quin; none up
+	-- close, while walking, detouring or out of sight.
+	local arcCfg = CombatConfig.Chase_CarveDegrees or 0
+	if arcCfg > 0 and hasLoS and not shouldWalk and not inShowdown and reachable and distance > 14 then
+		if now >= (data.carveFlipAt or 0) then
+			data.carveSide = (data.carveSide or (math.random() < 0.5 and 1 or -1)) * -1
+			data.carveFlipAt = now + (CombatConfig.Chase_CarveSwitchMin or 1.6) + math.random() * (CombatConfig.Chase_CarveSwitchSpread or 1.6)
+		end
+		local mob = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+		local fade = math.clamp((distance - 14) / 30, 0, 1)
+		local angle = math.rad(arcCfg * (0.6 + mob * 0.8) * fade) * data.carveSide
+		local to = arcTarget - rootPart.Position
+		local flatTo = Vector3.new(to.X, 0, to.Z)
+		if flatTo.Magnitude > 1 then
+			local c, sn = math.cos(angle), math.sin(angle)
+			local turned = Vector3.new(flatTo.X * c - flatTo.Z * sn, 0, flatTo.X * sn + flatTo.Z * c)
+			arcTarget = rootPart.Position + turned + Vector3.new(0, to.Y, 0)
 		end
 	end
 

@@ -422,6 +422,9 @@ CombatConfig.Knockback_MaxLaunchVertical = 75.0    -- studs/s cap on the upward 
 -- snap back. Keep these off until mirrored, correctly sized clips exist; the gait carries the turn.
 CombatConfig.Chase_TurnCutOverlayEnabled = false
 CombatConfig.Chase_ArcRunOverlayEnabled = false
+CombatConfig.Chase_CarveDegrees = 32                   -- carved running: the chase swings this far off the line to its target (x 0.6-1.4 by mobility), 0 = off
+CombatConfig.Chase_CarveSwitchMin = 1.6                 -- seconds before it carves across to the other side (+ up to CarveSwitchSpread)
+CombatConfig.Chase_CarveSwitchSpread = 1.6
 -- Awareness.Turn180Pivot uses the same 177 degree hip-pivot clip. It needs root-motion handling
 -- (hold the root during the clip, rotate it 180 as the clip ends) before it can be used; until
 -- then rear turns go through the facing gyro.
@@ -439,7 +442,7 @@ CombatConfig.Combat_LaunchMinForce = 60                -- launch force floor, so
 CombatConfig.Combat_FlinchSlideStuds = 2.5             -- studs a flinching victim slides back
 CombatConfig.Combat_FlinchSlidePerComboStep = 0.4      -- extra studs per combo step
 CombatConfig.Combat_HeavyFlinchSlideBonus = 1.5        -- extra studs on a heavy hit
-CombatConfig.Combat_BlockSlideStuds = 1.5              -- studs a defender slides when its guard holds
+CombatConfig.Combat_BlockSlideStuds = 0.5              -- studs a defender slides when its guard holds (1.5 slid the body with the block clip's feet still; owner 2026-10-27)
 CombatConfig.Combat_CounterSlideStuds = 4.5            -- studs the victim of a counter-punch slides
 CombatConfig.Combat_GroundKnockbackMinStuds = 10       -- ground knockback skid distance range
 CombatConfig.Combat_GroundKnockbackMaxStuds = 18
@@ -493,6 +496,8 @@ CombatConfig.EnergyDrain_PointJump = 8          -- mana for a hop on to a spot (
 CombatConfig.BeamStruggle_MaxDuration = 5.5     -- seconds a beam struggle may last
 CombatConfig.ProjectileJump_TurnLegSlope = 0.2  -- how far downhill a turn leg of a dive runs (drop per stud across)
 CombatConfig.Nav_StoneJumpMinWidth = 10                 -- studs: a stepping stone's top at least this wide is jumped on to; a smaller one gets the spot hop
+CombatConfig.Nav_StoneHopCooldown = 2.5               -- seconds between stepping-stone hops (was 0.6; owner 2026-10-27: tone them down)
+CombatConfig.ProjectileJump_SoftSoundRise = 30         -- a spot hop to a point less than this far up plays the quiet jump sound, not the launch
 
 -- === Projectile jump flight ===
 CombatConfig.ProjectileJump_SlamSpeed = 480            -- studs/s of the dive onto the target (styles 3, 6 and 7 dive 15% faster)
@@ -1367,7 +1372,11 @@ CombatConfig.Momentum = {
 	MaxMoveTime = 6,        -- s a chain of moves may hold the body at most
 	DashSpeed = 140,        -- studs/s (owner 2026-10-27: 480 too fast, closer to the ground dash's 110; nil = ProjectileJump_SlamSpeed)
 	DashMaxTime = 1.5,      -- s a dash flies before it gives up and falls
-	ContactDistance = 7,    -- studs at which a dash has reached its target
+	ContactDistance = 4.5,  -- studs at which a dash has reached its target (7 left a gap: "they look like they never met")
+	DashRampTime = 0.18,    -- seconds a dash builds up to its speed (from DashRampStart of it)
+	DashRampStart = 0.35,
+	ThrownGetUpFall = 60,   -- thrown off a mid-air hit and landing this fast (down or across): it falls and gets up
+	ThrownGetUpSpeed = 60,
 	ContactDamage = 2,
 	ThrowMin = 70, ThrowMax = 140,     -- studs/s each is thrown sideways off a contact
 	ThrowUpMin = 50, ThrowUpMax = 110, -- ... and up

@@ -292,6 +292,12 @@ function Evasion.focusDash(fighter, humanoid, rootPart, targetRoot, want, opts)
 	AnimationModule.playConfig(humanoid, clipPath, playSpeed / ((clip and clip.speed) or 1), Enum.AnimationPriority.Action3, false)
 	local AudioModule = require(Modules:WaitForChild("AudioModule"))
 	if AudioModule.playDash then AudioModule.playDash(rootPart) end
+	-- the ground dash's look (owner 2026-10-27): the vapour cone at the push-off, the dust trail
+	-- for the dash
+	local VfxModule = require(Modules:WaitForChild("VfxModule"))
+	VfxModule.createVaporCone(rootPart, 0.35)
+	local stopTrail = VfxModule.createDashTrail(rootPart)
+	task.delay(travelEnd, stopTrail)
 
 	drive(fighter, humanoid, rootPart, move,
 		function(t) return sample(path, t, step) * distance end,

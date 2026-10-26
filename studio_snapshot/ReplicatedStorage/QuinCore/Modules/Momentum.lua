@@ -246,6 +246,7 @@ local function finish(rec, interrupted)
 	moves[rec.fighter] = nil
 	stopLoops(rec)
 	if rec.dashFx then rec.dashFx() rec.dashFx = nil end
+	if rec.dashPose then rec.dashPose:Stop(0.12) rec.dashPose = nil end
 	for _, inst in ipairs({ rec.att, rec.lv, rec.ao }) do
 		if inst and inst.Parent then inst:Destroy() end
 	end
@@ -258,8 +259,16 @@ local function finish(rec, interrupted)
 	if rec.fighter.Parent then rec.fighter:SetAttribute("MomentumMove", nil) end
 end
 
+local function dropDashPose(rec)
+	if rec.dashPose then
+		rec.dashPose:Stop(0.12)
+		rec.dashPose = nil
+	end
+end
+
 local function setBallistic(rec, velocity, kind)
 	if rec.dashFx then rec.dashFx() rec.dashFx = nil end
+	dropDashPose(rec)
 	rec.kind = kind or "air"
 	rec.target, rec.point = nil, nil
 	rec.lv.MaxAxesForce = Vector3.zero
@@ -341,7 +350,15 @@ function Momentum.dash(fighter, target, speed)
 	AnimationModule.stopConfig(humanoid, "ProjectileJump.NinjaJump", 0.08)
 	AnimationModule.stopConfig(humanoid, "Movement.AirDash", 0.08)
 	clearPose(rec)
-	playClip(rec, "Movement.Dash", 1.4, true) -- the ground dash's pose (a 0.1 s clip), held for the flight
+	-- the ground dash's pose held for the flight: the 0.1 s clip played to its last frame and
+	-- frozen there (looped, it twitched through itself 14 times a second; owner: "doesn't look
+	-- like a dash")
+	local pose = playClip(rec, "Movement.Dash", 1, false)
+	if pose then
+		pose.TimePosition = math.max(pose.Length * 0.95, 0)
+		pose:AdjustSpeed(0)
+		rec.dashPose = pose
+	end
 	AudioModule.playDash(root) -- the ground dash's sound (the sonic boom stays ProjectileJump's own)
 	VfxModule.createVaporCone(root, 0.5)
 	if rec.dashFx then rec.dashFx() end
@@ -464,7 +481,19 @@ land = function(rec, velocity, standPos)
 	local fall = -velocity.Y
 	finish(rec, false)
 	fighter:SetAttribute("MomentumLandedAt", os.clock())
-	if h.Magnitude >= cfg("RollMinSpeed", 40) then
+	-- thrown off a mid-air hit and coming down hard: it falls and gets up (Recovery's get-up),
+	-- not snapped upright onto its feet in one frame (owner: "looks like they snapped on the ground")
+	if rec.kind == "thrown" and (fall >= cfg("ThrownGetUpFall", 60) or h.Magnitude >= cfg("ThrownGetUpSpeed", 60)) then
+		fighter:SetAttribute("KnockbackType", "hard_ground")
+		fighter:SetAttribute("ForceState", "Recovery")
+		AnimationModule.playConfig(humanoid, "Reactions.SlammedDown", 1, Enum.AnimationPriority.Action4, false)
+		AudioModule.playFallOnGround(root.Position)
+		if h.Magnitude > 10 then
+			ImpulseModule.push(fighter, "momentum_skid", look, math.min(h.Magnitude * 0.5, 40), 0.35, {
+				profile = "friction", endRatio = 0, priority = ImpulseModule.Priority.Reaction,
+			})
+		end
+	elseif h.Magnitude >= cfg("RollMinSpeed", 40) then
 		ImpulseModule.push(fighter, "momentum_roll", look, math.min(h.Magnitude, cfg("RollMaxSpeed", 160)), cfg("RollTime", 0.5), {
 			profile = "friction", endRatio = cfg("RollEndRatio", 0.3), priority = ImpulseModule.Priority.SelfMotion,
 		})
@@ -560,7 +589,11 @@ local function step(rec, dt)
 				setBallistic(rec, offset.Unit * rec.speed * 0.3)
 			else
 				lv.MaxAxesForce = FULL_FORCE
-				lv.VectorVelocity = containVelocity(root.Position, unitOr(offset, root.CFrame.LookVector) * rec.speed)
+				-- it builds up to dash speed over DashRampTime from what it was doing (snapping to
+				-- full speed in one frame read as a teleport; owner: "kinda snappy")
+				local ramp = math.clamp((now - rec.phaseAt) / cfg("DashRampTime", 0.18), 0, 1)
+				local speedNow = rec.speed * (cfg("DashRampStart", 0.35) + (1 - cfg("DashRampStart", 0.35)) * ramp * (2 - ramp))
+				lv.VectorVelocity = containVelocity(root.Position, unitOr(offset, root.CFrame.LookVector) * speedNow)
 			end
 		end
 	end
