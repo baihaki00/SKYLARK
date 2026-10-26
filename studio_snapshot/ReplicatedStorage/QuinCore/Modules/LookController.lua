@@ -138,6 +138,17 @@ function LookController:resolveTargetPosition()
 		-- high ground. The head pitches to the gaze, straight ahead of the body.
 		local gazeMode = serverModel:GetAttribute("GazeMode")
 		local gazePitch = math.rad(serverModel:GetAttribute("GazePitch") or 0)
+		-- A glance up at a Quin overhead (GazeAt): the head goes to that Quin
+		local gazeAt = gazeMode == "glance" and serverModel:GetAttribute("GazeAt")
+		if not isPlayer and gazeAt then
+			local qServer = Workspace:FindFirstChild("QuinServer") or Workspace
+			local qGhost = Workspace:FindFirstChild("QuinGhost") or Workspace:FindFirstChild("AIGhosts")
+			local other = (qGhost and qGhost:FindFirstChild(gazeAt .. "_Visual")) or qServer:FindFirstChild(gazeAt)
+			local otherRoot = other and other:FindFirstChild("HumanoidRootPart")
+			if otherRoot then
+				return otherRoot.Position + Vector3.new(0, 2, 0), "SCAN"
+			end
+		end
 		if not isPlayer and (gazeMode == "glance" or gazeMode == "resting") and math.abs(gazePitch) > math.rad(5) and self.rootPart then
 			local look = self.rootPart.CFrame.LookVector
 			local flat = Vector3.new(look.X, 0, look.Z)

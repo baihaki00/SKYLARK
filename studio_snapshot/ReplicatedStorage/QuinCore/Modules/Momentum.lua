@@ -314,7 +314,7 @@ function Momentum.dash(fighter, target, speed)
 	rec.lv.MaxAxesForce = FULL_FORCE
 	fighter:SetAttribute("MomentumMove", "dash")
 	stopLoops(rec)
-	playClip(rec, "ProjectileJump.DiveFly", 1, true)
+	playClip(rec, "Movement.Dash", 1.4, true) -- the ground dash's pose (a 0.1 s clip), held for the flight
 	AudioModule.playDash(root) -- the ground dash's sound (the sonic boom stays ProjectileJump's own)
 	VfxModule.createVaporCone(root, 0.5)
 	return true

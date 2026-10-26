@@ -5,8 +5,10 @@
 -- platform is only seen when the Quin is looking that way:
 --   following  it watches its target wherever the target goes
 --   resting    level on the ground; down over the edge when it stands on high ground
---   glance     every few seconds (more often for aware Quins, never mid-fight) a short look
---              at the sky; from high ground, alternately at the sky and at the ground
+--   glance     a short look at something that happened (owner 2026-10-27: never a mindless
+--              look at the sky): a Quin high overhead nearby (a jumper, a duel, a dive - it hears
+--              it) draws the head to it, more surely for aware Quins; mid-chase only an enemy
+--              does, mid-fight nothing does. On high ground it also looks down over the edge.
 -- While it glances up it does not see what is level with it: looking has a price.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -20,11 +22,47 @@ local Gaze = {}
 
 -- States in which a Quin has no attention to spare for looking around
 local ENGAGED_STATES = { Fight = true, Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, Special = true, BeamStruggle = true }
+-- States busy with a fight: only an enemy overhead is worth a look
+local ACTIVE_STATES = { Chase = true, Circling = true, Retreat = true }
 
-local function nextGlanceDelay(quinModel, cfg)
+local Workspace = game:GetService("Workspace")
+
+local function gcfg(cfg, key, default)
+	local v = cfg[key]
+	if v == nil then return default end
+	return v
+end
+
+-- Between looks down over the edge of high ground (more often for aware Quins)
+local function nextEdgeDelay(quinModel, cfg)
 	local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
 	local interval = cfg.GazeGlanceIntervalMax + (cfg.GazeGlanceIntervalMin - cfg.GazeGlanceIntervalMax) * awareness
 	return interval * (0.7 + math.random() * 0.6)
+end
+
+-- The nearest Quin high overhead within hearing (nil: nothing up there). activeOnly: enemies only
+local function overheadCue(quinModel, eye, targetName, cfg, activeOnly)
+	local folder = Workspace:FindFirstChild("QuinServer")
+	if not folder then return nil end
+	local myTeam = quinModel:GetAttribute("Team") or "None"
+	local range, height = gcfg(cfg, "GazeCueRange", 160), gcfg(cfg, "GazeCueHeight", 15)
+	local best, bestDist
+	for _, other in ipairs(folder:GetChildren()) do
+		if other ~= quinModel and other.Name ~= targetName then
+			local root = other:FindFirstChild("HumanoidRootPart")
+			local hum = other:FindFirstChildOfClass("Humanoid")
+			if root and hum and hum.Health > 0 then
+				local offset = root.Position - eye
+				local flatDist = Vector3.new(offset.X, 0, offset.Z).Magnitude
+				local team = other:GetAttribute("Team") or "None"
+				local enemy = myTeam == "None" or team ~= myTeam
+				if offset.Y > height and flatDist < range and (enemy or not activeOnly) and (not bestDist or flatDist < bestDist) then
+					best, bestDist = other, flatDist
+				end
+			end
+		end
+	end
+	return best
 end
 
 -- Returns { pitch = degrees (up positive), mode = "following" | "resting" | "glance", onHighGround }
@@ -32,7 +70,7 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 	local cfg = CombatConfig.Cognition
 	local gaze = board.gaze
 	if not gaze then
-		gaze = { pitch = 0, mode = "resting", glanceUntil = 0, glancePitch = 0, nextGlance = now + nextGlanceDelay(quinModel, cfg), lookedUpLast = false }
+		gaze = { pitch = 0, mode = "resting", glanceUntil = 0, glancePitch = 0, nextGlance = now, edgeAt = now + nextEdgeDelay(quinModel, cfg) }
 		board.gaze = gaze
 	end
 
@@ -57,15 +95,32 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 		end
 	end
 
-	if now >= gaze.nextGlance and not ENGAGED_STATES[quinModel:GetAttribute("CurrentState") or ""] then
-		gaze.nextGlance = now + nextGlanceDelay(quinModel, cfg)
-		gaze.glanceUntil = now + cfg.GazeGlanceDuration
-		if onHighGround and gaze.lookedUpLast then
+	local state = quinModel:GetAttribute("CurrentState") or ""
+	if ENGAGED_STATES[state] then
+		gaze.glanceUntil = 0 -- a fight takes the head back at once
+	elseif now >= gaze.nextGlance and now >= gaze.glanceUntil then
+		gaze.nextGlance = now + gcfg(cfg, "GazeCueCheck", 0.4)
+		local eye = SpatialModule.getEyePosition(rootPart)
+		local active = ACTIVE_STATES[state] == true
+		local cue = overheadCue(quinModel, eye, targetName, cfg, active)
+		gaze.cues = gaze.cues or setmetatable({}, { __mode = "k" })
+		if cue and now >= (gaze.cues[cue] or 0) then
+			gaze.cues[cue] = now + gcfg(cfg, "GazeCueCooldown", 5)
+			local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
+			local chance = (gcfg(cfg, "GazeCueChanceBase", 0.25) + gcfg(cfg, "GazeCueChanceAwareness", 0.6) * awareness) * (active and gcfg(cfg, "GazeCueActiveShare", 0.5) or 1)
+			if math.random() < chance then
+				local offset = cue.HumanoidRootPart.Position - eye
+				gaze.glanceAt = cue
+				gaze.glancePitch = math.clamp(math.deg(math.asin(math.clamp(offset.Y / offset.Magnitude, -1, 1))), -cfg.GazeMaxPitch, cfg.GazeMaxPitch)
+				gaze.glanceUntil = now + cfg.GazeGlanceDuration
+				gaze.nextGlance = gaze.glanceUntil + gcfg(cfg, "GazeCueCheck", 0.4)
+			end
+		elseif onHighGround and not active and now >= (gaze.edgeAt or 0) then
+			-- standing on high ground: now and then a look down over the edge
+			gaze.edgeAt = now + nextEdgeDelay(quinModel, cfg)
+			gaze.glanceAt = nil
 			gaze.glancePitch = cfg.GazeDownPitch
-			gaze.lookedUpLast = false
-		else
-			gaze.glancePitch = cfg.GazeSkyPitch
-			gaze.lookedUpLast = true
+			gaze.glanceUntil = now + cfg.GazeGlanceDuration
 		end
 	end
 	if now < gaze.glanceUntil then
@@ -82,6 +137,11 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 	end
 	if quinModel:GetAttribute("GazeMode") ~= mode then
 		quinModel:SetAttribute("GazeMode", mode)
+	end
+	-- the Quin it glanced up at (the head looks at it, not just up)
+	local at = mode == "glance" and gaze.glanceAt and gaze.glanceAt.Parent and gaze.glanceAt.Name or nil
+	if quinModel:GetAttribute("GazeAt") ~= at then
+		quinModel:SetAttribute("GazeAt", at)
 	end
 	return gaze
 end

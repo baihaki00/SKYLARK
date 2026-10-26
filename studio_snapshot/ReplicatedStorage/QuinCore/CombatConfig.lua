@@ -1060,6 +1060,14 @@ CombatConfig.Cognition = {
 	GazeGlanceIntervalMin = 2.5,   -- seconds between glances at awareness 1
 	GazeGlanceIntervalMax = 7.0,   -- ... at awareness 0
 	GazeGlanceDuration = 0.8,      -- seconds a glance lasts
+	-- Sky glances only on a cue (owner 2026-10-27: "make it intentional, not mindless"): a Quin
+	-- high overhead within hearing. The interval above is now only for looks down from high ground.
+	GazeCueRange = 160,            -- studs (flat) a Quin overhead is heard from
+	GazeCueHeight = 15,            -- studs above the eyes that count as overhead
+	GazeCueCheck = 0.4,            -- seconds between checks
+	GazeCueCooldown = 5,           -- seconds before the same Quin draws another look
+	GazeCueChanceBase = 0.25, GazeCueChanceAwareness = 0.6, -- chance to look: base + awareness x this
+	GazeCueActiveShare = 0.5,      -- x the chance while chasing / circling / retreating (enemies only)
 
 	AttentionCapacityMin = 2,      -- enemies kept track of at awareness 0
 	AttentionCapacityMax = 6,      -- ... at awareness 1
@@ -1343,8 +1351,8 @@ CombatConfig.Impact_HitStopHeavyExtra = 0.06 -- ...plus this x weight (a kick 0.
 CombatConfig.Momentum = {
 	Enabled = true,
 	MaxMoveTime = 6,        -- s a chain of moves may hold the body at most
-	DashSpeed = nil,        -- studs/s (nil: the projectile jump's dive speed, ProjectileJump_SlamSpeed)
-	DashMaxTime = 1.2,      -- s a dash flies before it gives up and falls
+	DashSpeed = 140,        -- studs/s (owner 2026-10-27: 480 too fast, closer to the ground dash's 110; nil = ProjectileJump_SlamSpeed)
+	DashMaxTime = 1.5,      -- s a dash flies before it gives up and falls
 	ContactDistance = 7,    -- studs at which a dash has reached its target
 	ContactDamage = 2,
 	ThrowMin = 70, ThrowMax = 140,     -- studs/s each is thrown sideways off a contact
@@ -1356,7 +1364,8 @@ CombatConfig.Momentum = {
 	BounceKeep = 0.5, BounceMinSpeed = 60, BounceMaxSpeed = 220, BouncePush = 30, BounceUp = 90,
 	BounceRedashDelay = 0.22, -- s after a bounce off a wall before a dash goes again at its target
 	RollMinSpeed = 40,      -- studs/s landing speed for a roll that carries on
-	RollMaxSpeed = 160, RollTime = 0.5, RollEndRatio = 0.3, RollClipSpeed = 1.7,
+	GroundHitPush = 35,     -- studs/s a ground-fight contact shoves the other (was 70: it skated in a hit pose)
+	RollMaxSpeed = 50, RollTime = 0.35, RollEndRatio = 0.3, RollClipSpeed = 1.7, -- (audit 2026-10-27: 160 slid a landing pose across the floor)
 	HardLandingSpeed = 150, -- studs/s falling: superhero landing and a shockwave
 	DemoRounds = 3,
 }
@@ -1377,12 +1386,14 @@ CombatConfig.MomentumDuel = {
 	SidestepChance = 0.35,
 	AirDashes = 2,              -- per airtime (a brawl goes past it)
 	-- rates: times per second, x the duel's intensity (a choice per beat was near certain in half a second)
-	AirDashBase = 0.3, AirDashPreference = 0.9, AirDashRange = 220,
+	AirDashBase = 0.3, AirDashPreference = 0.9, AirDashRange = 180,
 	DashUpBase = 0.2, DashUpAggression = 0.6, LeapUpBase = 0.2, LeapUpMobility = 0.6,
 	HopMobility = 1.2, LeapAtBase = 0.15, LeapAtMobility = 0.5,
 	ReflexShare = 0.5,          -- a dash coming at it is answered in this share of its reaction time
-	GroundDashRange = 170,      -- studs: a Quin on the ground dashes up at one in the air
-	LeapApexMin = 25, LeapApexMax = 85, LeapSide = 45,
+	GroundDashRange = 150,      -- studs: a Quin on the ground dashes up at one in the air
+	LeapApexMin = 25, LeapApexMax = 85, LeapSide = 12, -- studs either side of the line a leap lands (was 45: aimless)
+	LeapReach = 160, LeapLandGapMin = 8, LeapLandGapMax = 16, LeapLeadMax = 1.5, -- leaps aim ahead of the other, land at striking distance
+	DashMinClosing = 0.35, DashCatchShare = 0.85, -- a dash only goes if it can catch the other in its time
 	GroundFightRange = 20,      -- studs: both on the ground this close, the fight goes on on foot
 	GroundFightChance = 0.5,    -- a dash into a Quin on its feet ends in a fight on the ground
 	BrawlChance = 0.3, BrawlMin = 2, BrawlMax = 4, BrawlThrow = 0.35, BrawlUp = 0.5,

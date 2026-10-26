@@ -1131,6 +1131,13 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 				end
 				fighter:SetAttribute("CounterUntil", now + (CombatConfig.Flow_CounterWindow or 0.7))
 			end
+			-- the legs go with it (audit 2026-10-27: the dodge had no clip, a standing fight pose
+			-- glided 6-9 studs): the quick evade leaning the way the body goes
+			local right = rootPart.CFrame.RightVector
+			local flatRight = Vector3.new(right.X, 0, right.Z)
+			local lateral = flatRight.Magnitude > 0.01 and slideDir:Dot(flatRight.Unit) or 0
+			local evadeClip = (lateral > 0.5 and "Tactics.QuickEvadeRight") or (lateral < -0.5 and "Tactics.QuickEvadeLeft") or "Tactics.QuickEvadeBack"
+			AnimationModule.playConfig(humanoid, evadeClip, CombatConfig.Flow_DodgeClipSpeed or 1.2, Enum.AnimationPriority.Action3, false)
 			KnockbackModule.applySlide(fighter, slideDir, 35, 0.25)
 		end
 		return FightState

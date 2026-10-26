@@ -133,16 +133,31 @@ local function endDuel(duel, why)
 	publish()
 end
 
--- a leap at the other, off to one side, landing short of it
+-- seconds a leap of this apex takes from one height to another (Momentum.leap's arc)
+local function flightTime(fromY, toY, apex)
+	local g = Workspace.Gravity
+	local top = math.max(fromY, toY) + math.max(apex, 1)
+	return math.sqrt(2 * (top - fromY) / g) + math.sqrt(2 * (top - toY) / g)
+end
+
+-- a leap at the other, aimed where it will be when this one comes down (audit 2026-10-27: aimed
+-- at where it stood, 13 of 14 leaps that missed landed 40-140 studs away). In reach it comes
+-- down at striking distance; from far it closes in and lands short.
 local function leapAt(me, other, apexMin, apexMax)
 	local root, oRoot = rootOf(me), rootOf(other)
 	if not (root and oRoot) then return false end
-	local gap = flat(oRoot.Position - root.Position)
+	local apex = math.random(apexMin, apexMax)
+	local lead = math.min(flightTime(root.Position.Y, oRoot.Position.Y, apex), cfg("LeapLeadMax", 1.5))
+	local ahead = oRoot.Position + flat(oRoot.AssemblyLinearVelocity) * lead
+	local gap = flat(ahead - root.Position)
 	local dir = unitOr(gap, Vector3.zAxis)
-	local side = Vector3.new(-dir.Z, 0, dir.X) * math.random(-cfg("LeapSide", 45), cfg("LeapSide", 45))
-	local spot = groundSpot(root.Position + dir * gap.Magnitude * (math.random(45, 85) / 100) + side)
+	local reach = cfg("LeapReach", 160)
+	local short = gap.Magnitude <= reach and math.random(cfg("LeapLandGapMin", 8), cfg("LeapLandGapMax", 16))
+		or gap.Magnitude - reach * (math.random(80, 100) / 100)
+	local side = Vector3.new(-dir.Z, 0, dir.X) * math.random(-cfg("LeapSide", 12), cfg("LeapSide", 12))
+	local spot = groundSpot(root.Position + dir * math.max(gap.Magnitude - short, 0) + side)
 	if not spot then return false end
-	if Momentum.leap(me, spot, math.random(apexMin, apexMax)) then
+	if Momentum.leap(me, spot, apex) then
 		spend(me, cfg("LeapCost", 8))
 		stats.leaps += 1
 		return true
@@ -150,7 +165,22 @@ local function leapAt(me, other, apexMin, apexMax)
 	return false
 end
 
+-- can a dash catch it? (audit 2026-10-27: half the dashes flew out their time behind a target
+-- moving away). Closing speed = dash speed less how fast it moves away.
+local function canCatch(me, other)
+	local root, oRoot = rootOf(me), rootOf(other)
+	if not (root and oRoot) then return false end
+	local mcfg = CombatConfig.Momentum or {}
+	local speed = (mcfg.DashSpeed or CombatConfig.ProjectileJump_SlamSpeed or 480) * (Workspace:GetAttribute("GameSpeedMultiplier") or 1)
+	local gap = oRoot.Position - root.Position
+	local away = oRoot.AssemblyLinearVelocity:Dot(unitOr(gap, Vector3.zAxis))
+	local closing = speed - away
+	if closing < speed * cfg("DashMinClosing", 0.35) then return false end
+	return gap.Magnitude / closing <= (mcfg.DashMaxTime or 1.2) * cfg("DashCatchShare", 0.85)
+end
+
 local function dashAt(me, other)
+	if not canCatch(me, other) then return false end
 	if Momentum.dash(me, other) then
 		spend(me, cfg("DashCost", 10))
 		stats.dashes += 1
@@ -332,6 +362,20 @@ local function findTarget(fighter)
 	return name and folder and folder:FindFirstChild(name) or nil
 end
 
+-- a teammate of q already fighting t on foot (audit 2026-10-27: 5 of 24 duels pulled an
+-- enemy out of a teammate's fight)
+local function allyFighting(q, t)
+	local team = q:GetAttribute("Team")
+	if not team then return false end
+	for _, ally in ipairs(t.Parent:GetChildren()) do
+		if ally ~= q and ally:GetAttribute("Team") == team and ally:GetAttribute("CurrentState") == "Fight"
+			and ally:GetAttribute("CurrentTarget") == t.Name then
+			return true
+		end
+	end
+	return false
+end
+
 local function scanOpeners()
 	if #duels >= cfg("MaxDuels", 3) then return end
 	local folder = Workspace:FindFirstChild("QuinServer")
@@ -345,7 +389,7 @@ local function scanOpeners()
 			and energy(q) >= cfg("OpenerMinEnergy", 45) then
 			local t = findTarget(q)
 			local root, tRoot = rootOf(q), t and rootOf(t)
-			if tRoot and not mind[t] and capable(t) and not Momentum.busy(t)
+			if tRoot and not mind[t] and capable(t) and not Momentum.busy(t) and not allyFighting(q, t)
 				and now - (t:GetAttribute("MomentumDuelAt") or -1e9) > cfg("Cooldown", 10) * 0.5 then
 				local d = (tRoot.Position - root.Position).Magnitude
 				local chance = cfg("OpenerChance", 0.05) * (0.5 + pers(q, "Aggression")) * (0.5 + pers(q, "MobilityPreference")) * boost
