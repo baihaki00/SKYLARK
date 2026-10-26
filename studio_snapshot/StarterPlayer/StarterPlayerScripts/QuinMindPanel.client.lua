@@ -163,6 +163,7 @@ end
 local watched: Model? = nil
 local lastTarget: string? = nil -- (a change of target is said once, with why)
 local lastSweptAt, sweptUntil = nil, 0 -- (SweptAt changes when its legs are taken: it is "swept" for a moment after)
+local lastCallAt, lastHeardAt = nil, nil -- (Cognition/Callouts: a shout made or heard is said once)
 local holding = {} -- thought keys that hold right now (a key is said once when it starts to hold)
 local lastSaid = {} -- key -> when it was last said
 
@@ -178,6 +179,8 @@ local function watch(model: Model?)
 	lastTarget = model and (model:GetAttribute("CurrentTarget") or model:GetAttribute("TargetQuin")) or nil
 	lastSweptAt, sweptUntil = model and model:GetAttribute("SweptAt") or nil, 0
 	holding, lastSaid = {}, {}
+	lastCallAt = model and model:GetAttribute("CalloutAt") or nil
+	lastHeardAt = model and model:GetAttribute("HeardCalloutAt") or nil
 	clearStream()
 	mindEvent:FireServer(model and model.Name or "")
 	gui.Enabled = model ~= nil
@@ -240,6 +243,16 @@ local function refresh()
 			think(ThoughtVoice.say("Target:" .. tostring(model:GetAttribute("TargetChangedBy") or "Select"), model:GetAttribute("Pers_Aggression"), target))
 		end
 		lastTarget = target
+	end
+	-- a shout: an enemy it spotted, or one an ally called
+	local callAt, heardAt = model:GetAttribute("CalloutAt"), model:GetAttribute("HeardCalloutAt")
+	if callAt ~= lastCallAt then
+		lastCallAt = callAt
+		think(ThoughtVoice.say("Callout", model:GetAttribute("Pers_Aggression"), model:GetAttribute("CalloutOf")))
+	end
+	if heardAt ~= lastHeardAt then
+		lastHeardAt = heardAt
+		think(ThoughtVoice.say("CalloutHeard", nil, model:GetAttribute("HeardCalloutOf")) .. "  (" .. tostring(model:GetAttribute("HeardCalloutFrom")) .. ")")
 	end
 	local sweptAt = model:GetAttribute("SweptAt")
 	if sweptAt ~= lastSweptAt then

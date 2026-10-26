@@ -156,8 +156,16 @@ local function drawDebug(quinModel, rootPart, board, sensesOn)
 				DebugDraw.sphere("Tracks", quinModel, contact.position, 0.6 + contact.confidence, color)
 				DebugDraw.line("Tracks", quinModel, rootPart.Position, contact.position, color)
 				DebugDraw.text("Tracks", quinModel, contact.position + Vector3.new(0, 3, 0),
-					string.format("%s: %s %.0f%%", contact.channel, contact.model.Name, contact.confidence * 100), color)
+					string.format("%s: %s %.0f%%%s", contact.channel, contact.model.Name, contact.confidence * 100,
+						contact.heardFrom and (" (" .. contact.heardFrom .. " called it)") or ""), color)
 			end
+		end
+		-- its own shout, for a moment: a line from it to the enemy it called
+		local called = board.called
+		local cRoot = called and os.clock() - called.at < 1.5 and called.enemy:FindFirstChild("HumanoidRootPart")
+		if cRoot then
+			DebugDraw.line("Tracks", quinModel, rootPart.Position + Vector3.new(0, 3, 0), cRoot.Position, Color3.fromRGB(255, 255, 255))
+			DebugDraw.text("Tracks", quinModel, rootPart.Position + Vector3.new(0, 8, 0), "! " .. called.enemy.Name, Color3.fromRGB(255, 255, 255))
 		end
 	end
 end

@@ -114,6 +114,23 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 			end
 		end
 	end
+	-- Callouts: the one that shouts looks at what it called; one that hears may look that way
+	local call = board.called and board.called.at ~= gaze.calledAt and board.called
+	local heard = board.heard and board.heard.at ~= gaze.heardAt and board.heard
+	if call then gaze.calledAt = call.at end
+	if heard then gaze.heardAt = heard.at end
+	local lookAt = call and call.enemy
+		or (heard and math.random() < gcfg(cfg, "CalloutGlanceChance", 0.6) and heard.enemy)
+	local lRoot = lookAt and not ENGAGED_STATES[state] and now >= gaze.glanceUntil and lookAt:FindFirstChild("HumanoidRootPart")
+	if lRoot then
+		local offset = lRoot.Position - SpatialModule.getEyePosition(rootPart)
+		if offset.Magnitude > 1 then
+			gaze.glanceAt = lookAt
+			gaze.glancePitch = math.clamp(math.deg(math.asin(math.clamp(offset.Y / offset.Magnitude, -1, 1))), -cfg.GazeMaxPitch, cfg.GazeMaxPitch)
+			gaze.glanceUntil = now + cfg.GazeGlanceDuration
+			gaze.nextGlance = gaze.glanceUntil + gcfg(cfg, "GazeCueCheck", 0.4)
+		end
+	end
 	if ENGAGED_STATES[state] then
 		gaze.glanceUntil = 0 -- a fight takes the head back at once
 	elseif now >= gaze.nextGlance and now >= gaze.glanceUntil then

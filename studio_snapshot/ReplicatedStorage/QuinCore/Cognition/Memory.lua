@@ -15,6 +15,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Blackboard = require(script.Parent:WaitForChild("Blackboard"))
+local Callouts = require(script.Parent:WaitForChild("Callouts"))
+local Layers = require(script.Parent:WaitForChild("Layers"))
 
 local Memory = {}
 
@@ -61,6 +63,7 @@ local function contactFromTrack(track, myPos, now, retention, cfg)
 		confidence = confidence,
 		visible = false,
 		age = age,
+		heardFrom = track.heardFrom,
 	}
 end
 
@@ -74,7 +77,14 @@ local function remember(tracks, percept, now, reported)
 		time = now,
 		visible = not reported,
 		reported = reported or nil,
+		heardFrom = percept.heardFrom,
 	}
+end
+
+-- What the team has not had eyes on for a while: no track at all, or one of its own that has gone
+-- stale (a report means a teammate already knows)
+local function isNews(track, now, cfg)
+	return not track or (not track.reported and now - track.time > (cfg.CalloutNewAfter or 4))
 end
 
 -- Take over what allies within shouting distance are looking at right now and this Quin is not
@@ -124,8 +134,12 @@ function Memory.update(board, quinModel, rootPart, percepts, now, enabled)
 			track.visible = false
 		end
 		local live = {}
+		local fresh = {}
 		for _, percept in ipairs(percepts) do
 			if not percept.isAlly and percept.channel and percept.attended ~= false then
+				if percept.channel == "sight" and isNews(tracks[percept.model], now, cfg) then
+					table.insert(fresh, percept)
+				end
 				remember(tracks, percept, now)
 				live[percept.model] = percept
 			end
@@ -133,6 +147,20 @@ function Memory.update(board, quinModel, rootPart, percepts, now, enabled)
 		if now - (board.lastReportTime or 0) >= cfg.ReportInterval then
 			board.lastReportTime = now
 			takeReports(tracks, percepts, now, cfg.ReportRange)
+		end
+		if Layers.isEnabled("Callouts") then
+			Callouts.maybeCall(board, quinModel, rootPart, fresh, now)
+			-- a shout heard: believed like a report, unless this Quin sees that enemy itself
+			Callouts.listen(board, quinModel, rootPart, now, function(call)
+				local mine = tracks[call.enemy]
+				if mine and (mine.visible or mine.time >= call.at) then return false end
+				remember(tracks, {
+					model = call.enemy, position = call.position, velocity = call.velocity,
+					healthRatio = call.healthRatio, energyRatio = call.energyRatio,
+					heardFrom = call.caller.Name,
+				}, call.at, true)
+				return true
+			end)
 		end
 
 		local retention = Memory.retention(quinModel)

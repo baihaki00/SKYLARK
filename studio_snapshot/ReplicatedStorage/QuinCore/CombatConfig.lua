@@ -1101,6 +1101,17 @@ CombatConfig.Cognition = {
 	ReportConfidence = 0.7,        -- confidence of a second-hand sighting
 	RumourFallback = true,         -- with no contact at all, the team's rough idea of the nearest enemy
 	RumourConfidence = 0.3,
+	-- Callouts (Cognition/Callouts, its own layer switch): a Quin that spots an enemy the team has
+	-- not had eyes on for a while may shout it; allies within earshot believe it second-hand
+	Callouts = true,
+	CalloutRange = 110,            -- studs from where it was shouted that a call is heard
+	CalloutNewAfter = 4,           -- seconds without own eyes on an enemy before seeing it is news
+	CalloutCooldown = 2.5,         -- seconds between one Quin's calls (and its tries)
+	CalloutTeamRepeat = 4,         -- seconds before the team calls the same enemy again
+	CalloutChanceBase = 0.35,      -- chance to call news, + awareness x CalloutChanceAwareness
+	CalloutChanceAwareness = 0.5,
+	CalloutKeep = 3,               -- seconds a call stays in the air for allies to hear
+	CalloutGlanceChance = 0.6,     -- chance a Quin that hears a call glances where it was called
 }
 
 -- Social layer (Modules/SocialSystem): pack leaders, signals, respect customs, arena events.

@@ -84,6 +84,9 @@ local PHRASES = {
 	Lost = { any = { "I don't know what to do.", "..." } },
 
 	-- why it turned to someone else (%s: the new target)
+	-- Callouts (Cognition/Callouts): it shouts an enemy it spotted; it hears an ally's shout
+	Callout = { bold = { "%s's here!", "Got one. %s!" }, careful = { "Eyes on %s.", "%s, over there." } },
+	CalloutHeard = { any = { "%s spotted.", "They've seen %s." } },
 	["Target:Select"] = { bold = { "%s. You're next.", "%s is the one to hit." }, careful = { "%s is the better mark.", "Switch. %s." } },
 	["Target:RearThreat"] = { any = { "%s is right behind me!", "Turn. %s is on my back." } },
 	["Target:Distraction"] = { any = { "%s is right here. Him first.", "Can't run past %s." } },

@@ -18,6 +18,7 @@ Layers.Switchable = {
 	{ id = "Senses", label = "Senses (vision cone, hearing)" },
 	{ id = "Attention", label = "Attention (limited focus)" },
 	{ id = "Memory", label = "Memory (remember, forget, share)" },
+	{ id = "Callouts", label = "Callouts (spot it, shout it)" },
 }
 
 local function attributeName(id)
