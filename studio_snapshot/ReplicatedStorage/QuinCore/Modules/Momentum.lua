@@ -158,7 +158,10 @@ end
 -- ============================================================
 
 local function playClip(rec, path, speed, looped, priority)
-	local track = AnimationModule.playConfig(rec.humanoid, path, speed or 1, priority or Enum.AnimationPriority.Action3, looped or false)
+	-- (playConfig's 5th argument is "overlay", not "looped": the dash pose, a 0.1 s clip, played
+	-- once and the fight idle showed through the rest of the dash. play() takes the loop flag.)
+	AnimationModule.ensureBaseIdle(rec.humanoid)
+	local track = AnimationModule.play(rec.humanoid, path, priority or Enum.AnimationPriority.Action3, looped or false, speed or 1, nil, looped or false)
 	if looped then rec.loops[path] = true end
 	return track
 end
@@ -225,6 +228,7 @@ local function finish(rec, interrupted)
 	if moves[rec.fighter] ~= rec then return end
 	moves[rec.fighter] = nil
 	stopLoops(rec)
+	if rec.dashFx then rec.dashFx() rec.dashFx = nil end
 	for _, inst in ipairs({ rec.att, rec.lv, rec.ao }) do
 		if inst and inst.Parent then inst:Destroy() end
 	end
@@ -238,6 +242,7 @@ local function finish(rec, interrupted)
 end
 
 local function setBallistic(rec, velocity, kind)
+	if rec.dashFx then rec.dashFx() rec.dashFx = nil end
 	rec.kind = kind or "air"
 	rec.target, rec.point = nil, nil
 	rec.lv.MaxAxesForce = Vector3.zero
@@ -314,9 +319,14 @@ function Momentum.dash(fighter, target, speed)
 	rec.lv.MaxAxesForce = FULL_FORCE
 	fighter:SetAttribute("MomentumMove", "dash")
 	stopLoops(rec)
+	-- (a dash out of a leap: the leap's push-off clip is cut, the dash pose shows)
+	AnimationModule.stopConfig(humanoid, "ProjectileJump.NinjaJump", 0.08)
+	AnimationModule.stopConfig(humanoid, "Movement.AirDash", 0.08)
 	playClip(rec, "Movement.Dash", 1.4, true) -- the ground dash's pose (a 0.1 s clip), held for the flight
 	AudioModule.playDash(root) -- the ground dash's sound (the sonic boom stays ProjectileJump's own)
 	VfxModule.createVaporCone(root, 0.5)
+	if rec.dashFx then rec.dashFx() end
+	rec.dashFx = VfxModule.createDashTrail(root) -- the cone's dust kept up for the whole dash
 	return true
 end
 
@@ -353,7 +363,14 @@ local function contact(rec, other)
 	local function strike(humanoid)
 		local list = (math.random() < 0.5 and #punches > 0) and punches or kicks
 		if #list > 0 then
-			AnimationModule.play(humanoid, list[math.random(1, #list)], Enum.AnimationPriority.Action4, false, 1.6)
+			-- the blow only: then the fall it is thrown into shows (the whole strike clip flew it
+			-- across the arena in a punch pose)
+			local track = AnimationModule.play(humanoid, list[math.random(1, #list)], Enum.AnimationPriority.Action4, false, 1.6)
+			if track then
+				task.delay(cfg("ContactStrikeHold", 0.18), function()
+					if track.IsPlaying then track:Stop(0.15) end
+				end)
+			end
 		end
 	end
 	strike(rec.humanoid)

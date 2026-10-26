@@ -221,6 +221,71 @@ function VfxModule.createVaporCone(rootPart, duration)
 	Debris:AddItem(att, 0.4)
 end
 
+-- A dash that lasts (the duel dash flies up to 1.5 s): the vapor cone's backward dust kept
+-- streaming, plus a short streak. Returns stop(): the dust stops and the streak fades out.
+function VfxModule.createDashTrail(rootPart)
+	local elem = ElementVfx.get(resolveElement(rootPart))
+	local att = Instance.new("Attachment")
+	att.Name = "DashTrailAtt"
+	att.Parent = rootPart
+	local smoke = Instance.new("ParticleEmitter")
+	smoke.Texture = elem.trailTexture
+	smoke.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.2),
+		NumberSequenceKeypoint.new(1, 0.4),
+	})
+	smoke.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.6),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	smoke.Lifetime = NumberRange.new(0.15, 0.25)
+	smoke.Speed = NumberRange.new(15, 25)
+	smoke.SpreadAngle = Vector2.new(10, 10)
+	smoke.Color = ColorSequence.new(elem.trailColor)
+	smoke.LightEmission = elem.trailEmission
+	smoke.EmissionDirection = Enum.NormalId.Back
+	smoke.Rate = 40
+	smoke.Parent = att
+
+	local att0 = Instance.new("Attachment")
+	att0.Name = "DashTrailAtt0"
+	att0.Position = Vector3.new(0, 0.6, 0)
+	att0.Parent = rootPart
+	local att1 = Instance.new("Attachment")
+	att1.Name = "DashTrailAtt1"
+	att1.Position = Vector3.new(0, -0.6, 0)
+	att1.Parent = rootPart
+	local trail = Instance.new("Trail")
+	trail.Name = "DashTrail"
+	trail.Attachment0 = att0
+	trail.Attachment1 = att1
+	trail.Lifetime = 0.3
+	trail.MinLength = 0.1
+	trail.Color = ColorSequence.new(elem.trailCore, elem.trailColor)
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	trail.LightEmission = elem.trailEmission
+	trail.Parent = rootPart
+
+	local stopped = false
+	return function()
+		if stopped then return end
+		stopped = true
+		smoke.Enabled = false
+		trail.Enabled = false
+		Debris:AddItem(att, 0.3)
+		Debris:AddItem(trail, 0.35)
+		Debris:AddItem(att0, 0.35)
+		Debris:AddItem(att1, 0.35)
+	end
+end
+
 -- ============================================================
 -- SHOCKWAVE RING
 -- ============================================================
