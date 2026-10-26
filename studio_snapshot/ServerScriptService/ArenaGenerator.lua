@@ -32,6 +32,7 @@ local Gen = {}
 
 local active = false        -- a generated layout is in the arena
 local current = nil         -- the locked layout
+local purpose = nil         -- the mode the next layout is for ("LanternSiege": Shrine sites kept open, ringed with cover)
 local stash = nil           -- { { part, parent } } edit-mode parts put aside
 local spawnPadHome = nil    -- { { part, cframe } } QuinSpawn parts' edit-mode places
 local pool = {}             -- hologram / generated parts
@@ -154,6 +155,37 @@ local function generate(seed)
 			end
 		end
 		return nil
+	end
+
+	-- Lantern Siege: two Shrine sites on each half (the defenders' pair is the mirror of this
+	-- half's), kept open with nothing overhead and ringed by low cover, so a site can be held
+	local siteSpots = nil
+	if purpose == "LanternSiege" then
+		siteSpots = {}
+		local toC = Vector3.new(center.X - alphaAnchor.X, 0, center.Z - alphaAnchor.Z)
+		local span = toC.Magnitude
+		local dirA = span > 1 and toC.Unit or Vector3.new(1, 0, 0)
+		local sideA = Vector3.new(-dirA.Z, 0, dirA.X)
+		local L = CFG.LanternSiege or {}
+		for i = 1, 2 do
+			local sign = i == 1 and 1 or -1
+			local site = alphaAnchor + dirA * span * (L.SiteForward or 0.35) + sideA * sign * span * (L.SiteSide or 0.55)
+			site = Vector3.new(site.X, 0, site.Z)
+			table.insert(siteSpots, site)
+			-- low cover round it, a gap toward the middle so it can be walked onto
+			local n = L.CoverPieces or 4
+			for k = 1, n do
+				local a = math.atan2(dirA.Z, dirA.X) + math.pi * (0.35 + 1.3 * (k - 1) / math.max(1, n - 1)) + rng:NextNumber(-0.15, 0.15)
+				local d = range(rng, L.CoverRing or { 17, 23 })
+				local spot = site + Vector3.new(math.cos(a) * d, 0, math.sin(a) * d)
+				local size = Vector3.new(range(rng, L.CoverWidth or { 8, 16 }), range(rng, L.CoverHeight or { 4, 6 }), range(rng, L.CoverDepth or { 3, 6 }))
+				if fits(spot, radiusOf(size), floorY, floorY + size.Y) then
+					add(CFrame.new(spot.X, floorY + size.Y / 2, spot.Z) * CFrame.Angles(0, -a, 0), size, "Cover")
+				end
+			end
+			-- the site itself stays clear, ground to sky
+			table.insert(placed, { pos = site, r = L.SiteClear or 12, y0 = floorY - 5, y1 = floorY + 1000 })
+		end
 	end
 
 	local P = CFG.Pieces
@@ -300,6 +332,11 @@ local function generate(seed)
 		seed = seed, option = option.Name, center = center, floorY = floorY,
 		alphaAnchor = alphaAnchor, betaAnchor = betaAnchor, pieces = pieces, trees = trees,
 		spawns = { TeamAlpha = alphaSpawns, TeamBeta = betaSpawns },
+		-- (Lantern Siege: the defenders' Shrines, on the beta half)
+		shrines = siteSpots and {
+			A = mirrorPoint(center, siteSpots[1]) * Vector3.new(1, 0, 1) + Vector3.new(0, floorY, 0),
+			B = mirrorPoint(center, siteSpots[2]) * Vector3.new(1, 0, 1) + Vector3.new(0, floorY, 0),
+		} or nil,
 	}
 end
 
@@ -1033,6 +1070,11 @@ end
 function Gen.getCenter()
 	local center, _, _, floorY = metrics()
 	return center, floorY
+end
+
+-- What the next layout is for (the orchestrator, before generating): nil = the plain arena
+function Gen.setPurpose(mode)
+	purpose = mode == "LanternSiege" and "LanternSiege" or nil
 end
 
 function Gen.getLayout()

@@ -26,6 +26,8 @@ local Workspace = game:GetService("Workspace")
 
 local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
 local VfxModule = require(ReplicatedStorage.QuinCore.Modules.VfxModule)
+local AnimationModule = require(ReplicatedStorage.QuinCore.Modules.AnimationModule)
+local AudioModule = require(ReplicatedStorage.QuinCore.Modules.AudioModule)
 local ArenaGenerator = require(ServerScriptService:WaitForChild("ArenaGenerator"))
 
 local LanternSiege = {}
@@ -108,8 +110,9 @@ local function buildField()
 	for i, name in ipairs({ "A", "B" }) do
 		local sign = i == 1 and 1 or -1
 		-- (on the floor: a point on a platform is nudged toward the middle until it is not)
-		local spot = nil
-		for try = 0, 8 do
+		-- (the arena made for this mode already holds the sites: ArenaGenerator.setPurpose)
+		local spot = layout.shrines and layout.shrines[name] or nil
+		for try = 0, spot and -1 or 8 do
 			local p = defendAnchor + dir * span * (cfg("ShrineForward", 0.35) + try * 0.04) + side * sign * span * (cfg("ShrineSide", 0.55) - try * 0.04)
 			local g = groundAt(Vector3.new(p.X, (floorY or center.Y), p.Z))
 			if math.abs(g.Y - (floorY or g.Y)) < 2 then spot = g break end
@@ -250,6 +253,11 @@ local function placeLantern(pos, state)
 	end
 	lantern.Anchored = true
 	lantern.CFrame = CFrame.new(pos)
+	if state ~= "Planted" then
+		lantern.Transparency = 0
+		lantern.PointLight.Enabled = true
+		lantern.PointLight.Range = 18
+	end
 	lantern:SetAttribute("State", state)
 	lantern:SetAttribute("Carrier", nil)
 end
@@ -267,6 +275,34 @@ local function carry(q)
 	setCarrierFlags(q, true)
 	lantern:SetAttribute("State", "Carried")
 	lantern:SetAttribute("Carrier", q.Name)
+end
+
+-- The superhero landing (Parkour.LandingSuperHero) for lighting the Lantern and for stamping it
+-- out: the Quin goes down on one knee, still, for `hold` seconds; the ground shakes.
+local function heroLand(q, hold, position)
+	local h = q:FindFirstChildOfClass("Humanoid")
+	local root = q:FindFirstChild("HumanoidRootPart")
+	if not h or not root then return end
+	q:SetAttribute("IsInert", true)
+	root.AssemblyLinearVelocity = Vector3.zero
+	AnimationModule.playConfig(h, "Parkour.LandingSuperHero", 1.0, Enum.AnimationPriority.Action4, false)
+	VfxModule.createLandingImpact(root, 0.8)
+	VfxModule.createShockwave(position or root.Position, 18, 0.6)
+	AudioModule.playSlam(position or root.Position)
+	local token = {}
+	q:SetAttribute("HeroLandToken", tostring(token))
+	task.delay(hold, function()
+		if q:GetAttribute("HeroLandToken") == tostring(token) and onField(q) and field and field.folder:GetAttribute("Live") then
+			q:SetAttribute("IsInert", false)
+		end
+	end)
+end
+
+local function heroLandRelease(q)
+	q:SetAttribute("HeroLandToken", nil)
+	if onField(q) and field and field.folder:GetAttribute("Live") then
+		q:SetAttribute("IsInert", false)
+	end
 end
 
 ----------------------------------------------------------------------------------------
@@ -354,6 +390,7 @@ local function playRound(attackers, isCancelled, announce)
 	release()
 	local liveEnds = os.clock() + cfg("LiveTime", 100)
 	local igniteEnds, stamp = nil, 0
+	local stamper, stamperHitAt, stamperLand = nil, 0, 0
 	local lantern = field.lantern
 	local last = os.clock()
 	while true do
@@ -383,7 +420,10 @@ local function playRound(attackers, isCancelled, announce)
 			else
 				for name, ring in pairs(field.shrines) do
 					if flat(root.Position, ring.Position) <= cfg("ShrineRadius", 7) then
+						local planter = c
 						placeLantern(ring.Position + Vector3.new(0, 2.5, 0), "Planted")
+						heroLand(planter, cfg("PlantHold", 1.1), ring.Position)
+						field.lantern.PointLight.Range = 30
 						folder:SetAttribute("PlantedShrine", name)
 						igniteEnds = clock + cfg("IgniteTime", 20)
 						folder:SetAttribute("IgniteEndsAt", now() + cfg("IgniteTime", 20))
@@ -394,17 +434,38 @@ local function playRound(attackers, isCancelled, announce)
 				end
 			end
 		elseif state == "Planted" then
-			local stamping = false
-			for q, rec in pairs(roster) do
-				local root = q:FindFirstChild("HumanoidRootPart")
-				if rec.team == defenders and onField(q) and root and flat(root.Position, lantern.Position) <= cfg("StampRange", 5) then
-					stamping = true
-					break
+			-- a defender on it kneels and stamps (superhero landing, still); a blow knocks it off
+			-- the job and costs time
+			local s = stamper
+			local sRoot = s and s:FindFirstChild("HumanoidRootPart")
+			if s and (not onField(s) or not sRoot or flat(sRoot.Position, lantern.Position) > cfg("StampRange", 5) + 2
+				or (s:GetAttribute("ImpactTime") or 0) > stamperHitAt) then
+				if s and onField(s) and (s:GetAttribute("ImpactTime") or 0) > stamperHitAt then
+					stamp = math.max(0, stamp - cfg("StampHitCost", 1))
+				end
+				heroLandRelease(s)
+				stamper = nil
+			end
+			if not stamper then
+				for q, rec in pairs(roster) do
+					local root = q:FindFirstChild("HumanoidRootPart")
+					if rec.team == defenders and onField(q) and root and flat(root.Position, lantern.Position) <= cfg("StampRange", 5) then
+						stamper, stamperHitAt, stamperLand = q, q:GetAttribute("ImpactTime") or 0, 0
+						break
+					end
 				end
 			end
-			stamp = stamping and stamp + dt or math.max(0, stamp - dt * 2)
+			if stamper and clock - stamperLand >= 1.2 then
+				stamperLand = clock
+				heroLand(stamper, 1.3, lantern.Position)
+			end
+			stamp = stamper and stamp + dt or math.max(0, stamp - dt * 0.5)
 			folder:SetAttribute("StampProgress", stamp / cfg("StampTime", 2.5))
 			if stamp >= cfg("StampTime", 2.5) then
+				if stamper then heroLandRelease(stamper) end
+				lantern.PointLight.Enabled = false
+				lantern.Transparency = 0.7
+				VfxModule.createShockwave(lantern.Position, 30, 0.8)
 				return defenders, "Stamped it out"
 			end
 			if clock >= igniteEnds then

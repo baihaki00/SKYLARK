@@ -308,6 +308,12 @@ ArenaConfig.ArenaGeneration = {
         Cover = { Count = { 10, 16 }, Width = { 6, 34 }, Height = { 4, 24 }, Depth = { 4, 26 } },
         Wall = { Count = { 3, 6 }, Length = { 30, 70 }, Thickness = { 3, 5 }, Height = { 12, 28 } },
     },
+    -- Lantern Siege arenas (ArenaGenerator.setPurpose): Shrine sites (fractions of anchor-to-centre;
+    -- the defenders' pair mirrors these) kept clear, ringed with low cover open toward the middle
+    LanternSiege = {
+        SiteForward = 0.35, SiteSide = 0.55, SiteClear = 12,
+        CoverPieces = 4, CoverRing = { 17, 23 }, CoverWidth = { 8, 16 }, CoverHeight = { 4, 6 }, CoverDepth = { 3, 6 },
+    },
     -- Trees: clones of the edit-mode Workspace model named Template, on the ground and on the
     -- tops of wide platforms (mirrored like everything else)
     Trees = {

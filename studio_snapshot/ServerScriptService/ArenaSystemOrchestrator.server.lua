@@ -728,6 +728,7 @@ local function runMatchLifecycle()
         local generationEpoch = epoch
         local finished = false
         task.spawn(function()
+            ArenaGenerator.setPurpose(mode) -- (Lantern Siege: Shrine sites kept open, ringed with cover)
             local ok, err = pcall(ArenaGenerator.runSequence, generationTime, function()
                 return skipEpoch ~= generationEpoch
             end)
