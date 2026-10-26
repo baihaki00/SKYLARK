@@ -107,6 +107,22 @@ function TargetingModule.selectTarget(quinModel, localState)
 		end
 	end
 
+	-- Task choice (Modules/TaskChoice, chosen in Main just before this): a Quin that set out to
+	-- save a hurt ally takes on whoever is hurting it, wherever that is
+	local task = localState and localState.Task
+	if task and task.name == "Rescue" and task.enemy and TargetingModule.isValid(task.enemy) then
+		local why = "Rescue: " .. tostring(task.why)
+		assign(quinModel, task.enemy.Name, "Rescue")
+		quinModel:SetAttribute("LastTargetName", task.enemy.Name)
+		DebugReadouts.set(quinModel, "TargetReason", why)
+		if quinModel:GetAttribute("PackIntent") ~= "Rescuer" or quinModel:GetAttribute("PackIntentAlly") ~= task.ally then
+			quinModel:SetAttribute("PackIntent", "Rescuer")
+			quinModel:SetAttribute("PackIntentAlly", task.ally or "")
+			quinModel:SetAttribute("PackIntentAt", tick())
+		end
+		return task.enemy, 500, why
+	end
+
 	-- Personality & runtime attributes
 	local aggression        = quinModel:GetAttribute("Pers_Aggression") or 0.6
 	local targetPersistence = quinModel:GetAttribute("Pers_TargetPersistence") or 0.7
@@ -124,6 +140,15 @@ function TargetingModule.selectTarget(quinModel, localState)
 		if kept and TargetingModule.isValid(kept) then
 			return kept, 50, "Committed to its target (nobody near)"
 		end
+		-- Hunt (TaskChoice): the enemy it believes is out there, seen, remembered or called
+		if task and task.name == "Hunt" and task.enemy and TargetingModule.isValid(task.enemy) then
+			local why = "Hunt: " .. tostring(task.why)
+			assign(quinModel, task.enemy.Name, "Hunt")
+			quinModel:SetAttribute("LastTargetName", task.enemy.Name)
+			DebugReadouts.set(quinModel, "TargetReason", why)
+			return task.enemy, 50, why
+		end
+		-- (knows of nobody at all: the nearest, so a battle never stalls)
 		local nearest, nearestDist = TargetingModule.getNearest(rootPart, 500)
 		if nearest then
 			local fallbackReason = string.format("Nearest enemy fallback (%.1f studs)", nearestDist)

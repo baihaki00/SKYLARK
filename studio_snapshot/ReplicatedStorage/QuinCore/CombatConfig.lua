@@ -714,6 +714,26 @@ CombatConfig.Team_Flank = true                       -- a Flanker curves round t
 CombatConfig.Team_FlankLean = 1.0                    -- x awareness = chance to flank instead of joining head-on
 CombatConfig.Team_FlankRadius = 12                   -- studs from the enemy the curve runs at
 CombatConfig.Team_FlankBehindDot = 0.55              -- this far round (cos of the angle from the enemy's back) counts as behind: go in
+-- Task choice (Modules/TaskChoice, 2026-10-27): Fight / Rescue / Hunt, weighed each tick from what it knows
+CombatConfig.Task_Enabled = true                     -- off: always Fight (the old behaviour)
+CombatConfig.Task_MinHold = 2.5                      -- seconds a task is kept before another may take over...
+CombatConfig.Task_SwitchMargin = 20                  -- ...and after that, only for one this much better
+CombatConfig.Task_FightBase = 60                     -- enemies right here (+ 20 x (aggression - 0.5))
+CombatConfig.Task_PinnedRange = 20                   -- an enemy on it this close pins it to the fight...
+CombatConfig.Task_PinnedBonus = 60                   -- ...worth this much more
+CombatConfig.Task_RescueHealth = 0.45                -- an ally at or below this health is in trouble
+CombatConfig.Task_RescueMinRange = 45                -- closer allies are already helped by target choice (cover score)
+CombatConfig.Task_RescueRange = 140                  -- farther than this is too far to get there in time
+CombatConfig.Task_RescueValue = 130                  -- x (1 - ally health) x (0.4 + protectiveness)
+CombatConfig.Task_RescueDistanceCost = 0.35          -- per stud
+CombatConfig.Task_RescueDangerRadius = 30            -- enemies this close to the ally count as its danger
+CombatConfig.Task_RescueDangerCost = 18              -- per enemy past the first, x (1.2 - risk tolerance)
+CombatConfig.Task_RescueTakenCost = 45               -- per ally already going to that ally's rescue
+CombatConfig.Task_HuntBase = 50                      -- x (0.5 + aggression) x (0.5 + confidence)
+CombatConfig.Task_HuntWeakValue = 30                 -- x (1 - its believed health)
+CombatConfig.Task_HuntCalledValue = 15               -- an enemy a teammate called out
+CombatConfig.Task_HuntKeepValue = 25                 -- the enemy it already had
+CombatConfig.Task_HuntDistanceCost = 0.15            -- per stud
 
 -- === Circling ===
 CombatConfig.Circling_TiredEnergyRatio = 0.35          -- below this energy the Quin drags its strafe

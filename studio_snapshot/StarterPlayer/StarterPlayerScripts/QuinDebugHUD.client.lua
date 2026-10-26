@@ -735,6 +735,11 @@ RunService.Heartbeat:Connect(function()
 			local packAlly = model:GetAttribute("PackIntentAlly") or ""
 			teamRole = teamRole .. " / " .. packIntent .. (packAlly ~= "" and (" for " .. packAlly) or "") .. (model:GetAttribute("Flanking") and " (going round)" or "")
 		end
+		-- (what it set out to do: Modules/TaskChoice)
+		local task = model:GetAttribute("Task")
+		if task then
+			teamRole = teamRole .. "  |  Task " .. task .. ": " .. tostring(model:GetAttribute("TaskWhy") or "")
+		end
 		local temperament = model:GetAttribute("Temperament") or "—"
 		local curSpecial = model:GetAttribute("CurrentSpecial")
 

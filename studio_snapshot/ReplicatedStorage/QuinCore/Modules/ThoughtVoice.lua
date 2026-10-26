@@ -86,6 +86,9 @@ local PHRASES = {
 	-- why it turned to someone else (%s: the new target)
 	-- Callouts (Cognition/Callouts): it shouts an enemy it spotted; it hears an ally's shout
 	Callout = { bold = { "%s's here!", "Got one. %s!" }, careful = { "Eyes on %s.", "%s, over there." } },
+	-- Task choice (Modules/TaskChoice): what it sets out to do, said when it changes
+	["Task:Rescue"] = { any = { "Hold on. I'm coming.", "One of ours is going down. Move." } },
+	["Task:Hunt"] = { bold = { "Where are you hiding?", "Go find one." }, careful = { "Somewhere over there. Careful.", "Let's see who's out there." } },
 	CalloutHeard = { any = { "%s spotted.", "They've seen %s." } },
 	["Target:Select"] = { bold = { "%s. You're next.", "%s is the one to hit." }, careful = { "%s is the better mark.", "Switch. %s." } },
 	["Target:RearThreat"] = { any = { "%s is right behind me!", "Turn. %s is on my back." } },

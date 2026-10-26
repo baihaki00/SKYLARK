@@ -39,6 +39,7 @@ local TacticalPerception = require(QuinCore:WaitForChild("Modules"):WaitForChild
 local DecisionSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("DecisionSystem"))
 local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
+local TaskChoice = require(QuinCore:WaitForChild("Modules"):WaitForChild("TaskChoice"))
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
@@ -655,6 +656,8 @@ task.spawn(function()
 				if NO_RETARGET_STATES[currentState.name] then
 					selectedTarget = TargetingModule.getCommittedTarget(Quin, rootPart) -- (the one it has)
 				else
+					-- what it sets out to do first (fight, rescue, hunt), then whom
+					tacticalContext.Task = TaskChoice.choose(Quin, rootPart, tacticalContext)
 					selectedTarget, targetScore, targetReason = TargetingModule.selectTarget(Quin, tacticalContext)
 				end
 				if targetReason then
