@@ -1336,4 +1336,28 @@ CombatConfig.Impact_HitStop = true        -- a landed strike holds both bodies' 
 CombatConfig.Impact_HitStopBase = 0.045   -- seconds for the lightest hit...
 CombatConfig.Impact_HitStopHeavyExtra = 0.06 -- ...plus this x weight (a kick 0.6, +0.4 for a finisher or crit)
 
+-- === Momentum (Modules/Momentum): a Quin's movement as momentum - leaps, air dashes, wall bounces, ===
+-- landing rolls, contacts that throw both apart. Step 1: the moves only (Studio MomentumDevCommand).
+-- Enabled = false switches it all off (Main's guard and the test command).
+CombatConfig.Momentum = {
+	Enabled = true,
+	MaxMoveTime = 6,        -- s a chain of moves may hold the body at most
+	DashSpeed = nil,        -- studs/s (nil: the projectile jump's dive speed, ProjectileJump_SlamSpeed)
+	DashMaxTime = 1.2,      -- s a dash flies before it gives up and falls
+	ContactDistance = 7,    -- studs at which a dash has reached its target
+	ContactDamage = 2,
+	ThrowMin = 70, ThrowMax = 140,     -- studs/s each is thrown sideways off a contact
+	ThrowUpMin = 50, ThrowUpMax = 110, -- ... and up
+	HopApex = 6, HopMinSpeed = 40,
+	BigLeapApex = 30,       -- studs: a leap this high or higher has the launch shockwave
+	LeapClipSpeed = 1.3,
+	BounceMax = 2,          -- wall bounces per chain
+	BounceKeep = 0.5, BounceMinSpeed = 60, BounceMaxSpeed = 220, BouncePush = 30, BounceUp = 90,
+	BounceRedashDelay = 0.22, -- s after a bounce off a wall before a dash goes again at its target
+	RollMinSpeed = 40,      -- studs/s landing speed for a roll that carries on
+	RollMaxSpeed = 160, RollTime = 0.5, RollEndRatio = 0.3, RollClipSpeed = 1.7,
+	HardLandingSpeed = 150, -- studs/s falling: superhero landing and a shockwave
+	DemoRounds = 3,
+}
+
 return CombatConfig

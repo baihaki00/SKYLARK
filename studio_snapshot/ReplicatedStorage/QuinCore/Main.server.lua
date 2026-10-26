@@ -46,6 +46,7 @@ local ArenaTrespass = require(QuinCore:WaitForChild("Modules"):WaitForChild("Are
 local EdgeAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("EdgeAwareness"))
 local BodyStamina = require(QuinCore:WaitForChild("Modules"):WaitForChild("BodyStamina"))
 local Drives = require(QuinCore:WaitForChild("Modules"):WaitForChild("Drives"))
+local Momentum = require(QuinCore:WaitForChild("Modules"):WaitForChild("Momentum"))
 local lastBodyTick = os.clock()
 local Cognition = require(QuinCore:WaitForChild("Cognition"))
 
@@ -771,6 +772,11 @@ task.spawn(function()
 			end
 		elseif Quin:GetAttribute("NearEdge") then
 			Quin:SetAttribute("NearEdge", nil)
+		end
+		-- A momentum move (leap, air dash, bounce, roll) has the body: the state waits. A forced state
+		-- above still cuts in, and the move lets go (Modules/Momentum).
+		if not newState and Momentum.enabled() and Momentum.busy(Quin) then
+			newState = currentState
 		end
 		if not newState and isPiloted() and not PILOT_STATES[currentState.name] then
 			newState = States.Piloted
