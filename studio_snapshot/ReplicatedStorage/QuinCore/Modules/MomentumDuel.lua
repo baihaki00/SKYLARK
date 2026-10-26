@@ -133,6 +133,20 @@ local function endDuel(duel, why)
 	publish()
 end
 
+-- solid world between a point and a direction (platform undersides, walls)
+local worldParams
+local function blocked(from, along, radius)
+	local world = Workspace:FindFirstChild("argoniaonion")
+	if not world then return false end
+	if not worldParams then
+		worldParams = RaycastParams.new()
+		worldParams.FilterType = Enum.RaycastFilterType.Include
+	end
+	worldParams.FilterDescendantsInstances = { world }
+	local hit = Workspace:Spherecast(from, radius or 2, along, worldParams)
+	return hit ~= nil and hit.Instance.CanCollide
+end
+
 -- seconds a leap of this apex takes from one height to another (Momentum.leap's arc)
 local function flightTime(fromY, toY, apex)
 	local g = Workspace.Gravity
@@ -147,6 +161,8 @@ local function leapAt(me, other, apexMin, apexMax)
 	local root, oRoot = rootOf(me), rootOf(other)
 	if not (root and oRoot) then return false end
 	local apex = math.random(apexMin, apexMax)
+	-- not up into the underside of a platform
+	if blocked(root.Position + Vector3.new(0, 2.5, 0), Vector3.new(0, apex, 0)) then return false end
 	local lead = math.min(flightTime(root.Position.Y, oRoot.Position.Y, apex), cfg("LeapLeadMax", 1.5))
 	local ahead = oRoot.Position + flat(oRoot.AssemblyLinearVelocity) * lead
 	local gap = flat(ahead - root.Position)
@@ -176,6 +192,8 @@ local function canCatch(me, other)
 	local away = oRoot.AssemblyLinearVelocity:Dot(unitOr(gap, Vector3.zAxis))
 	local closing = speed - away
 	if closing < speed * cfg("DashMinClosing", 0.35) then return false end
+	-- not through a platform or a wall (a dash up from under a platform hit its underside)
+	if blocked(root.Position + Vector3.new(0, 2.5, 0), gap) then return false end
 	return gap.Magnitude / closing <= (mcfg.DashMaxTime or 1.2) * cfg("DashCatchShare", 0.85)
 end
 
@@ -308,7 +326,9 @@ local function think(me, m, dt)
 			-- up after it, toward under where it is going
 			local ahead = oRoot.Position + flat(oRoot.AssemblyLinearVelocity) * 0.5
 			local spot = groundSpot(ahead)
-			if spot and Momentum.leap(me, spot, math.clamp(oRoot.Position.Y - spot.Y, 15, 90)) then
+			local upApex = spot and math.clamp(oRoot.Position.Y - spot.Y, 15, 90)
+			if spot and not blocked(rootOf(me).Position + Vector3.new(0, 2.5, 0), Vector3.new(0, upApex, 0))
+				and Momentum.leap(me, spot, upApex) then
 				spend(me, cfg("LeapCost", 8))
 				stats.leaps += 1
 			end

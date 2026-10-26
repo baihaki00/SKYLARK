@@ -47,6 +47,22 @@ function AirInterceptModule.consider(fighter, rootPart)
 	end
 	if not nearest then return nil end
 
+	-- The flight goes straight at it: a platform in between is flown into from below (owner
+	-- 2026-10-27: Quins went up under the same platform again and again)
+	local world = workspace:FindFirstChild("argoniaonion")
+	local nRoot = nearest:FindFirstChild("HumanoidRootPart")
+	if world and nRoot then
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = { world }
+		local head = rootPart.Position + Vector3.new(0, 2.5, 0)
+		local hit = workspace:Spherecast(head, 2, nRoot.Position - head, params)
+		if hit and hit.Instance.CanCollide then
+			fighter:SetAttribute("JumpSkip", "intercept blocked")
+			return nil
+		end
+	end
+
 	-- One decision per sighting
 	local now = os.clock()
 	board.interceptWeighed = board.interceptWeighed or setmetatable({}, { __mode = "k" })

@@ -337,7 +337,15 @@ local function bounce(rec, velocity, normal, at)
 	local speed = math.clamp(out.Magnitude * cfg("BounceKeep", 0.5), cfg("BounceMinSpeed", 60), cfg("BounceMaxSpeed", 220))
 	rec.bounces += 1
 	stopLoops(rec)
-	setBallistic(rec, unitOr(flat(out), normal) * speed + normal * cfg("BouncePush", 30) + Vector3.yAxis * cfg("BounceUp", 90), "bounce")
+	-- a ceiling (the underside of a platform) is dropped off, never kicked up into again: the up
+	-- kick and the redash at a target beyond it banged the underside over and over (2026-10-27)
+	local ceiling = normal.Y < -0.5
+	if ceiling then
+		target = nil
+		setBallistic(rec, flat(velocity) * 0.4 + normal * cfg("BouncePush", 30), "bounce")
+	else
+		setBallistic(rec, unitOr(flat(out), normal) * speed + normal * cfg("BouncePush", 30) + Vector3.yAxis * cfg("BounceUp", 90), "bounce")
+	end
 	playClip(rec, "Movement.AirDash", 1.4, false)
 	playClip(rec, "Movement.Fall", 1, true, Enum.AnimationPriority.Action)
 	AudioModule.playDash(rec.root)

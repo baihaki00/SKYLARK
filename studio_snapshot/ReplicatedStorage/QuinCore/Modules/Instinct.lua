@@ -86,7 +86,12 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 		away = Vector3.new(away.X, 0, away.Z)
 		away = away.Magnitude > 0.01 and away.Unit or -rootPart.CFrame.LookVector
 		local side = Vector3.new(-away.Z, 0, away.X) * (math.random() < 0.5 and -1 or 1)
-		KnockbackModule.applySlide(defender, (side * 0.85 + away * 0.5).Unit, cfg("SlipSpeed", 35), 0.25)
+		local slipDir = (side * 0.85 + away * 0.5).Unit
+		-- the legs go with it (audit 2026-10-27: this slip had no clip, the stance glided)
+		local right = rootPart.CFrame.RightVector
+		local lateral = slipDir:Dot(Vector3.new(right.X, 0, right.Z).Unit)
+		AnimationModule.playConfig(humanoid, (lateral > 0.5 and "Tactics.QuickEvadeRight") or (lateral < -0.5 and "Tactics.QuickEvadeLeft") or "Tactics.QuickEvadeBack", 1.2, Enum.AnimationPriority.Action3, false)
+		KnockbackModule.applySlide(defender, slipDir, cfg("SlipSpeed", 35), 0.25)
 		local soundPart = defender:FindFirstChild("Sounds")
 		local swish = soundPart and soundPart:FindFirstChild("swish")
 		if swish then swish.Volume = 0.3 swish:Play() end

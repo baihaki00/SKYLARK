@@ -798,6 +798,38 @@ task.spawn(function()
 		elseif newState and not isPiloted() and newState.name == "Piloted" then
 			newState = States.Idle -- (the player let go: the Quin's own decisions again)
 		end
+		-- No rocket jump from under a platform (owner 2026-10-27: Quins launched into the underside
+		-- and hit their heads, again and again). Checked here, before the state, for every way
+		-- into it (ProjectileJumpState itself is left as it is); the jump's cooldown is already spent,
+		-- so it does not try again every tick.
+		if newState and newState ~= currentState and newState.name == "ProjectileJump" and forceState == nil
+			and CombatConfig.ProjectileJump_HeadroomCheck ~= false then
+			local world = workspace:FindFirstChild("argoniaonion")
+			if world then
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Include
+				params.FilterDescendantsInstances = { world }
+				local head = rootPart.Position + Vector3.new(0, 2.5, 0)
+				local ceiling = workspace:Spherecast(head, 2, Vector3.new(0, CombatConfig.ProjectileJump_Headroom or 45, 0), params)
+				-- (the bumps were 31-38 studs up and up to 29 across: the climb toward the target is
+				-- checked too)
+				local target = not ceiling and (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(Quin:GetAttribute("CurrentTarget") or "")
+				local tRoot = target and target:FindFirstChild("HumanoidRootPart")
+				if tRoot then
+					local toward = tRoot.Position - head
+					local flatToward = Vector3.new(toward.X, 0, toward.Z)
+					if flatToward.Magnitude > 1 then
+						-- the launch climbs steeply: up the headroom, a third of that across
+						local climb = Vector3.new(0, CombatConfig.ProjectileJump_Headroom or 45, 0) + flatToward.Unit * math.min(flatToward.Magnitude, (CombatConfig.ProjectileJump_Headroom or 45) / 3)
+						ceiling = workspace:Spherecast(head, 2, climb, params)
+					end
+				end
+				if ceiling and ceiling.Instance.CanCollide then
+					Quin:SetAttribute("JumpSkip", "ceiling")
+					newState = currentState
+				end
+			end
+		end
 		if newState and newState ~= currentState then
 			-- State Dwell Commitment Check: prevent rapid 100-300ms fluttering
 			local isInterrupt = (forceState ~= nil)

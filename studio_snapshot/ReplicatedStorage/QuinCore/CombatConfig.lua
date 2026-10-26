@@ -495,6 +495,8 @@ CombatConfig.Nav_StoneJumpMinWidth = 10                 -- studs: a stepping sto
 
 -- === Projectile jump flight ===
 CombatConfig.ProjectileJump_SlamSpeed = 480            -- studs/s of the dive onto the target (styles 3, 6 and 7 dive 15% faster)
+CombatConfig.ProjectileJump_HeadroomCheck = true      -- no projectile jump from under a platform (Main gate; false = off)
+CombatConfig.ProjectileJump_Headroom = 45             -- studs of clear air above the head it needs (and up the first climb toward the target)
 -- Air dash (Modules/AirDash): a Quin already in the air may dash once per airtime - in at a target
 -- (a jump or a wall kick, then the dash), on to a ledge a jump is falling short of, or after a
 -- target that kept running off a wall. Shares LastDashTime with the ground dash.
@@ -1272,7 +1274,7 @@ CombatConfig.FocusDash_CurveMaxDeg = 35        -- the path bends up to this much
 CombatConfig.FocusDash_OrbitBlend = 0.6        -- sideways dashes curve round the target this much
 CombatConfig.FocusDash_Range = 18              -- used only with the target this close
 CombatConfig.FocusDash_RepositionChance = 0.6  -- Circling: backing away dashes (facing) instead of turning its back
-CombatConfig.FocusDash_OpeningChance = 0.3     -- Fight: round a guard / after a stopped strike, to find an opening
+CombatConfig.FocusDash_OpeningChance = 0.5     -- (was 0.3: focus dashes barely seen) Fight: round a guard / after a stopped strike, to find an opening
 CombatConfig.FocusDash_EnergyCost = 6
 CombatConfig.Circling_TurnBackChance = 0.25   -- share of circlings in which it may still turn its back and run off a close target
 CombatConfig.FocusDash_MinEnergy = 15
@@ -1314,7 +1316,7 @@ CombatConfig.Instinct_ReactionBase = 0.16 -- seconds, x (1.3 - 0.6 x awareness)
 CombatConfig.Instinct_TiredExtra = 0.08   -- seconds slower under FatigueThreshold mana
 CombatConfig.Instinct_Range = 14          -- studs: strikes from further than this are not answered
 CombatConfig.Instinct_GuardChance = 0.3   -- x (0.5 + defense preference)
-CombatConfig.Instinct_SlipChance = 0.3    -- x (0.5 + mobility); needs SlipMinTime left before contact (0.15 before the Cascadeur evades, 2026-10-26)
+CombatConfig.Instinct_SlipChance = 0.45    -- (owner 2026-10-27: evades barely seen; was 0.3) x (0.5 + mobility); needs SlipMinTime left before contact (0.15 before the Cascadeur evades, 2026-10-26)
 CombatConfig.Instinct_SlipMinTime = 0.12
 CombatConfig.Instinct_SlipSpeed = 35
 CombatConfig.Instinct_HopChance = 0.5     -- x (0.5 + mobility), against a low kick; needs HopMinTime left
