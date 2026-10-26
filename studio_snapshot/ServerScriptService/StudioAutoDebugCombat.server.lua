@@ -3,6 +3,7 @@
 -- StudioAutoDebugCombat = true, pressing Play makes the first player Admin and starts the
 -- DEBUG COMBAT match at once (the same as the DEBUG COMBAT button: instant 16v16, no clothes,
 -- crowd, music, announcer, fireworks or drones). Untick the attribute to play normally.
+-- Workspace attribute StudioAutoMode = "LanternSiege" starts a 5v5 Lantern Siege instead.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -36,6 +37,7 @@ if not _G.ArenaOrchestrator then
 end
 task.wait(2) -- let the arena finish its own start-up
 local ok, err = pcall(function()
-    _G.ArenaOrchestrator.startMatch({ Mode = "TeamBattle", TeamSize = 16, Toggles = DEBUG_COMBAT_TOGGLES })
+    local mode = Workspace:GetAttribute("StudioAutoMode") == "LanternSiege" and "LanternSiege" or "TeamBattle"
+    _G.ArenaOrchestrator.startMatch({ Mode = mode, TeamSize = mode == "LanternSiege" and 5 or 16, Toggles = DEBUG_COMBAT_TOGGLES })
 end)
-print(ok and "[StudioAutoDebugCombat] Admin + DEBUG COMBAT 16v16 started" or ("[StudioAutoDebugCombat] start failed: " .. tostring(err)))
+print(ok and ("[StudioAutoDebugCombat] Admin + DEBUG COMBAT started: " .. tostring(Workspace:GetAttribute("StudioAutoMode") or "TeamBattle")) or ("[StudioAutoDebugCombat] start failed: " .. tostring(err)))

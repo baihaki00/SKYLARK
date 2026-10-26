@@ -89,6 +89,12 @@ local PHRASES = {
 	-- Task choice (Modules/TaskChoice): what it sets out to do, said when it changes
 	["Task:Rescue"] = { any = { "Hold on. I'm coming.", "One of ours is going down. Move." } },
 	["Task:Hunt"] = { bold = { "Where are you hiding?", "Go find one." }, careful = { "Somewhere over there. Careful.", "Let's see who's out there." } },
+	["Task:Carry"] = { bold = { "It's mine. Get it there.", "Clear the way." }, careful = { "Slow and steady. Get it there.", "Don't drop it." } },
+	["Task:PickUp"] = { any = { "The Lantern. Grab it!", "Someone has to take it. Me." } },
+	["Task:Escort"] = { any = { "I've got your back.", "Stay close, I'm with you." } },
+	["Task:HoldPlant"] = { any = { "It's burning. Hold here.", "Nobody touches it." } },
+	["Task:Guard"] = { bold = { "Let them come here.", "This one's mine to hold." }, careful = { "Watch the way in.", "Eyes open. They'll come." } },
+	["Task:Retake"] = { any = { "It's lit! Stamp it out!", "Go, go, put it out!" } },
 	CalloutHeard = { any = { "%s spotted.", "They've seen %s." } },
 	["Target:Select"] = { bold = { "%s. You're next.", "%s is the one to hit." }, careful = { "%s is the better mark.", "Switch. %s." } },
 	["Target:RearThreat"] = { any = { "%s is right behind me!", "Turn. %s is on my back." } },

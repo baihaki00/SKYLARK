@@ -7,6 +7,8 @@ local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitF
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
+local Cognition = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Cognition"))
 
 local IdleState = { name = "Idle" }
 
@@ -104,6 +106,30 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		local data = idleData[fighter]
 		if data then data.matchStartTime = nil end
 		return IdleState
+	end
+
+	-- A task with a place to go (TaskChoice: carry, guard, escort ...): walk there, and stand
+	-- once there, unless an enemy it can see comes within reach of the job (ObjectiveEngage)
+	local goTo = fighter:GetAttribute("ObjectiveGoTo")
+	if typeof(goTo) == "Vector3" and workspace:GetServerTimeNow() <= (fighter:GetAttribute("ObjectiveUntil") or 0) then
+		local engage = fighter:GetAttribute("ObjectiveEngage") or 16
+		local threat = false
+		for _, contact in ipairs(Cognition.knownEnemies(fighter) or {}) do
+			if contact.visible and contact.distance <= engage then threat = true break end
+		end
+		if not threat then
+			local gyro = rootPart:FindFirstChild("IdleGyro")
+			if gyro then gyro:Destroy() end
+			local flat = Vector3.new(goTo.X - rootPart.Position.X, 0, goTo.Z - rootPart.Position.Z)
+			if flat.Magnitude > 3 then
+				LocomotionModule.steer(fighter, humanoid, rootPart, Vector3.new(goTo.X, rootPart.Position.Y, goTo.Z), fighter:GetAttribute("ObjectiveSpeed") or 40, 0.1)
+			else
+				LocomotionModule.brake(fighter, humanoid, rootPart, 0.1)
+				AnimationModule.ensureBaseIdle(humanoid)
+			end
+			GaitModule.update(humanoid, rootPart, 0.1)
+			return IdleState
+		end
 	end
 
 	local data = idleData[fighter]

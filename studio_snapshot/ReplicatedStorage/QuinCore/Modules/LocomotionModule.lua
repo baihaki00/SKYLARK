@@ -1428,6 +1428,7 @@ end
 -- ============================================================================
 
 function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
+	if fighter:GetAttribute("NoDash") then return end -- (carrying the Lantern: LanternSiege)
 	-- tick(): every reader of LastDashTime compares against tick(). Written with os.clock()
 	-- the cooldown never applied and dashes could chain back to back.
 	fighter:SetAttribute("LastDashTime", tick())

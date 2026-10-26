@@ -5,6 +5,15 @@
 --   Fight   deal with what is in front of it (TargetingModule then picks the enemy, as before)
 --   Rescue  go to an ally further off who is in trouble, and take on whoever is hurting it
 --   Hunt    nobody near: go after an enemy it believes is somewhere (seen, remembered, called)
+-- And, when a mode puts objectives on the field (Modules/Objectives, Lantern Siege):
+--   Carry     it has the Lantern: take it to the Shrine it believes is least defended
+--   PickUp    the Lantern lies free: go and take it
+--   Escort    walk with the ally carrying it
+--   HoldPlant it burns in a Shrine: stand round it
+--   Guard     (defending) watch a Shrine, spread across them
+--   Retake    (defending) it burns: get to it and stamp it out, more urgent as time runs out
+-- A task with a place to go returns point / speed / engage: the Quin walks there and turns to
+-- fight only an enemy within `engage` (Main, IdleState).
 -- Each task is scored on value, danger and distance, and temperament bends it. Leanings, never
 -- rules: a protective Quin answers a hurt ally sooner; a timid one hunts less; nobody leaves a
 -- fight it is pinned in. A task is kept for a moment unless another is clearly better.
@@ -17,6 +26,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Blackboard = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Blackboard"))
 local FightMaths = require(QuinCore:WaitForChild("Modules"):WaitForChild("FightMaths"))
+local Objectives = require(QuinCore:WaitForChild("Modules"):WaitForChild("Objectives"))
 
 local TaskChoice = {}
 
@@ -145,7 +155,109 @@ local function score(quinModel, rootPart, context, board)
 		end
 	end
 	tasks.Hunt = bestHunt or { score = -math.huge, why = "nobody known" }
+
+	local view = Objectives.view(quinModel)
+	if view then
+		TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggression, protect)
+	end
 	return tasks
+end
+
+-- How many teammates already have this task at this spot (the team talks)
+local function takenBy(task, spot, me)
+	local n = 0
+	for _, q in ipairs((workspace:FindFirstChild("QuinServer") or workspace):GetChildren()) do
+		if q ~= me and q:GetAttribute("Team") == me:GetAttribute("Team") and q:GetAttribute("Task") == task
+			and (spot == nil or q:GetAttribute("TaskSpot") == spot) then
+			n += 1
+		end
+	end
+	return n
+end
+
+function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggression, protect)
+	local myPos = rootPart.Position
+	local awareness = pers(quinModel, "Pers_Awareness", 0.65)
+	local run = cfg("Objective_RunSpeed", 40)
+	local engage = cfg("Objective_EngageRange", 16)
+
+	if view.role == "Attack" then
+		if view.iCarry then
+			-- the Shrine it believes is least defended (fight maths at each), kept unless another
+			-- becomes clearly better
+			local best, bestScore = nil, -math.huge
+			for _, s in ipairs(view.shrines) do
+				local _, enemies = FightMaths.sides(quinModel, rootPart, s.position)
+				local sc = -(enemies or 0) * cfg("Objective_ShrineEnemyCost", 40) - flat(s.position, myPos) * 0.1
+					+ (board.carryShrine == s.name and cfg("Objective_ShrineKeep", 30) or 0)
+				if sc > bestScore then best, bestScore = s, sc end
+			end
+			if best then
+				board.carryShrine = best.name
+				-- (a hot-headed carrier may turn on one that is on it; a calm one keeps walking)
+				tasks.Carry = {
+					score = cfg("Objective_CarryValue", 150) + 60 * (1 - aggression), point = best.position, spot = best.name,
+					speed = cfg("Objective_CarrySpeed", 22), engage = 0,
+					why = string.format("carry it to %s (%s)", best.name, bestScore > -20 and "looks open" or "least bad"),
+				}
+			end
+		elseif view.lantern.state == "Base" or view.lantern.state == "Dropped" then
+			local pos = view.lantern.position
+			tasks.PickUp = {
+				score = cfg("Objective_PickUpValue", 140) - flat(pos, myPos) * 0.3 - takenBy("PickUp", nil, quinModel) * 70,
+				point = pos, speed = run, engage = engage * 0.6,
+				why = view.lantern.state == "Base" and "take the Lantern" or "the Lantern is down, grab it",
+			}
+		elseif view.lantern.state == "Carried" and view.carrier then
+			local cRoot = view.carrier:FindFirstChild("HumanoidRootPart")
+			if cRoot then
+				-- walk a little ahead of the carrier, to one side (each escort its own side)
+				local toShrine = cRoot.CFrame.LookVector
+				local side = Vector3.new(-toShrine.Z, 0, toShrine.X) * ((#quinModel.Name % 2 == 0) and 1 or -1)
+				local point = cRoot.Position + Vector3.new(toShrine.X, 0, toShrine.Z) * 8 + side * 7
+				tasks.Escort = {
+					score = cfg("Objective_EscortValue", 75) + 40 * protect - flat(cRoot.Position, myPos) * 0.15
+						- math.max(0, takenBy("Escort", nil, quinModel) - 1) * 25,
+					point = point, speed = run, engage = engage,
+					why = "walk with " .. view.carrier.Name,
+				}
+			end
+		elseif view.planted then
+			local ring = view.planted.position + (myPos - view.planted.position) * Vector3.new(1, 0, 1)
+			ring = (ring - view.planted.position).Magnitude > 0.1 and view.planted.position + (ring - view.planted.position).Unit * 10 or view.planted.position
+			tasks.HoldPlant = {
+				score = cfg("Objective_HoldValue", 110) - flat(view.planted.position, myPos) * 0.2,
+				point = ring, speed = run, engage = engage,
+				why = "hold " .. tostring(view.planted.shrine) .. " while it burns",
+			}
+		end
+	else
+		if view.planted then
+			local left = math.max(0, view.planted.endsAt - workspace:GetServerTimeNow())
+			tasks.Retake = {
+				score = cfg("Objective_RetakeValue", 150) + (1 - left / cfg("Objective_IgniteTime", 20)) * 80 - flat(view.planted.position, myPos) * 0.2,
+				point = view.planted.position, speed = run, engage = engage * 0.6,
+				why = string.format("stamp it out at %s (%ds left)", tostring(view.planted.shrine), left),
+			}
+		end
+		-- watch a Shrine: the one fewest teammates watch, near the way the attackers come
+		local best, bestScore = nil, -math.huge
+		for _, s in ipairs(view.shrines) do
+			local sc = -takenBy("Guard", s.name, quinModel) * cfg("Objective_GuardTakenCost", 35) - flat(s.position, myPos) * 0.1
+				+ (board.task and board.task.spot == s.name and 20 or 0)
+			if sc > bestScore then best, bestScore = s, sc end
+		end
+		if best then
+			local toward = view.lantern.position or best.position
+			local dir = Vector3.new(toward.X - best.position.X, 0, toward.Z - best.position.Z)
+			local point = best.position + (dir.Magnitude > 1 and dir.Unit * 12 or Vector3.zero)
+			tasks.Guard = {
+				score = cfg("Objective_GuardValue", 70) + 20 * awareness + bestScore * 0.5, point = point, spot = best.name,
+				speed = run, engage = engage * (1 + 0.5 * aggression),
+				why = "watch " .. best.name,
+			}
+		end
+	end
 end
 
 -- The task this Quin takes now: { name, enemy, ally, why }. Published as Task / TaskWhy /
@@ -190,11 +302,13 @@ function TaskChoice.choose(quinModel, rootPart, context)
 		board.task = { name = bestName, since = now }
 		quinModel:SetAttribute("TaskAt", tick())
 	end
-	board.task.enemy, board.task.ally, board.task.why = best.enemy, best.ally, best.why
+	board.task.enemy, board.task.ally, board.task.why, board.task.spot = best.enemy, best.ally, best.why, best.spot
+	if quinModel:GetAttribute("TaskSpot") ~= best.spot then quinModel:SetAttribute("TaskSpot", best.spot) end
 	if quinModel:GetAttribute("Task") ~= bestName then quinModel:SetAttribute("Task", bestName) end
 	if quinModel:GetAttribute("TaskWhy") ~= best.why then quinModel:SetAttribute("TaskWhy", best.why) end
 	if quinModel:GetAttribute("TaskAlly") ~= (best.ally or "") then quinModel:SetAttribute("TaskAlly", best.ally or "") end
-	return { name = bestName, enemy = best.enemy, ally = best.ally, why = best.why }
+	return { name = bestName, enemy = best.enemy, ally = best.ally, why = best.why,
+		point = best.point, speed = best.speed, engage = best.engage }
 end
 
 return TaskChoice

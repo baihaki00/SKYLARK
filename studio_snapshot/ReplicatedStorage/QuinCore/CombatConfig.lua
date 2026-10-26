@@ -722,6 +722,30 @@ CombatConfig.Task_Enabled = true                     -- off: always Fight (the o
 CombatConfig.Task_MinHold = 2.5                      -- seconds a task is kept before another may take over...
 CombatConfig.Task_SwitchMargin = 20                  -- ...and after that, only for one this much better
 CombatConfig.Task_KeepValue = 25                     -- the task it already has scores this much more (finish what it started)
+-- Objectives (Modules/Objectives -> TaskChoice): tasks a mode's objectives offer (Lantern Siege)
+CombatConfig.Objective_RunSpeed = 40                 -- studs/s walking to a task's spot
+CombatConfig.Objective_EngageRange = 16              -- on the way / on watch, an enemy it sees this close is fought
+CombatConfig.Objective_CarryValue = 150              -- carrying the Lantern (+ 60 x (1 - aggression)): beats a fight unless hot-headed
+CombatConfig.Objective_CarrySpeed = 22               -- the carrier is slow
+CombatConfig.Objective_ShrineEnemyCost = 40          -- per enemy it believes at a Shrine, choosing where to carry
+CombatConfig.Objective_ShrineKeep = 30               -- the Shrine it already chose
+CombatConfig.Objective_PickUpValue = 140             -- - 0.3/stud - 70 per teammate already going for it
+CombatConfig.Objective_EscortValue = 75              -- + 40 x protectiveness - 0.15/stud
+CombatConfig.Objective_HoldValue = 110               -- standing round a burning Lantern
+CombatConfig.Objective_RetakeValue = 150             -- + up to 80 as the burn runs out
+CombatConfig.Objective_IgniteTime = 20               -- (same as LanternSiege.IgniteTime)
+CombatConfig.Objective_GuardValue = 70               -- + 20 x awareness; spread: - 35 per teammate on that Shrine
+CombatConfig.Objective_GuardTakenCost = 35
+CombatConfig.Objective_CarrierTargetBonus = 70       -- target utility of an enemy carrying the Lantern
+-- Lantern Siege rounds (ServerScriptService.LanternSiege)
+CombatConfig.LanternSiege = {
+	HuddleTime = 10, LiveTime = 100, IgniteTime = 20, RoundOverTime = 4,
+	RoundsToWin = 5, SwapAfter = 4,
+	ShrineForward = 0.35, ShrineSide = 0.55, ShrineRadius = 7, -- (Shrines: fractions of anchor-to-centre from the defenders' anchor)
+	LanternAhead = 14, PickUpRange = 5, StampRange = 5, StampTime = 2.5,
+	BenchHeight = 3000,
+}
+
 -- Fight maths (Modules/FightMaths): count the believed sides around an enemy before taking it on
 CombatConfig.FightMaths_Enabled = true               -- off: no counting (live A/B: Workspace attribute FightMathsOff)
 CombatConfig.FightMaths_Radius = 25                  -- studs around the enemy that count as "there"

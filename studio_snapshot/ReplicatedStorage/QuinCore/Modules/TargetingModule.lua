@@ -310,6 +310,9 @@ function TargetingModule.selectTarget(quinModel, localState)
 				oddsCost, oddsWhy = FightMaths.cost(quinModel, rootPart, cand.position or model.HumanoidRootPart.Position, confidence)
 			end
 
+			-- 12d. It carries the Lantern (LanternSiege): stopping it is worth more than most fights
+			local carrierScore = model:GetAttribute("LanternCarrier") and (CombatConfig.Objective_CarrierTargetBonus or 70) or 0
+
 			-- 13. Social layer (SocialSystem): a leader's attack signal this Quin chose to follow, an
 			-- enemy going for the leader it trusts, a Quin it holds off (respect custom)
 			local socialScore = SocialSystem.targetScore(quinModel, model)
@@ -362,7 +365,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				coverScore = (CombatConfig.Targeting_CoverScore or 45) * (0.5 + protectiveness)
 			end
 
-			local utility = crowdScore + coverScore + distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + struckScore + socialScore + planScore - oddsCost
+			local utility = crowdScore + coverScore + distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + struckScore + carrierScore + socialScore + planScore - oddsCost
 
 			if model.Name == heldName then
 				heldCandidate, heldUtility = model, utility
@@ -388,6 +391,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				if huntedScore > 0 then table.insert(reasons, "It is hunting me") end
 				if struckScore > 0 then table.insert(reasons, "It just hit me") end
 				if oddsCost > 15 then table.insert(reasons, oddsWhy) end
+				if carrierScore > 0 then table.insert(reasons, "It carries the Lantern") end
 				if crowdScore < -15 then table.insert(reasons, string.format("%d allies already on it", onIt)) end
 				if coverScore > 0 then table.insert(reasons, "Cutting off one going for a busy ally") end
 				if riskScore > 15 then table.insert(reasons, "High risk penalty") end

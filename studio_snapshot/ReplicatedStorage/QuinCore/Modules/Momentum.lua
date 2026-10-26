@@ -284,6 +284,7 @@ end
 -- A ballistic arc from where it is to a standing spot (the feet's point), topping out apex studs
 -- over its higher end. True when it went.
 function Momentum.leap(fighter, spot, apex)
+	if fighter:GetAttribute("NoDash") then return false end -- (carrying the Lantern: LanternSiege)
 	local humanoid, root = bodyOf(fighter)
 	if not humanoid then return false end
 	local g = Workspace.Gravity
@@ -311,6 +312,7 @@ end
 
 -- A short leap on along the way it is running: the run's speed is kept
 function Momentum.hop(fighter, apex)
+	if fighter:GetAttribute("NoDash") then return false end -- (carrying the Lantern: LanternSiege)
 	local humanoid, root = bodyOf(fighter)
 	if not humanoid then return false end
 	apex = apex or cfg("HopApex", 6)
@@ -336,6 +338,7 @@ end
 
 -- A burst at a target (a Quin: led and re-aimed every frame) or at a spot (a Vector3)
 function Momentum.dash(fighter, target, speed)
+	if fighter:GetAttribute("NoDash") then return false end -- (carrying the Lantern: LanternSiege)
 	local humanoid, root = bodyOf(fighter)
 	if not humanoid then return false end
 	local rec = take(fighter, humanoid, root)

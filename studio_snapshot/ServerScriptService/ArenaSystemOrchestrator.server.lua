@@ -23,6 +23,8 @@ local ArenaDroneManager = require(ServerScriptService:WaitForChild("ArenaDroneMa
 local ArenaCrowd = require(ServerScriptService:WaitForChild("ArenaCrowdManager"))
 local ArenaGenerator = require(ServerScriptService:WaitForChild("ArenaGenerator"))
 local QuinSpawner = require(ServerScriptService:WaitForChild("QuinSpawner"))
+local LanternSiege = require(ServerScriptService:WaitForChild("LanternSiege"))
+local lanternResult = nil -- { winnerTeam, reason } of the last Lantern Siege match
 local ArenaRegistration = require(ServerScriptService:WaitForChild("ArenaRegistration"))
 local ArenaPrepRoom = require(ServerScriptService:WaitForChild("ArenaPrepRoom"))
 local ArenaNpcOwners = require(ServerScriptService:WaitForChild("ArenaNpcOwners"))
@@ -488,6 +490,11 @@ end
 
 -- Who won: an elimination, or at the time limit more fighters alive, then more health
 local function decideWinner(mode)
+    if mode == "LanternSiege" then
+        local team = lanternResult and lanternResult.winnerTeam
+        if not team then return "DRAW", "Draw", "Stopped" end
+        return team == "TeamAlpha" and "TEAM ALPHA" or "TEAM BETA", team, lanternResult.reason
+    end
     if mode == "PlayerSolo" then
         return pilotPlayer and pilotPlayer.Name or "SOLO", "TeamAlpha", "Solo Session Over"
     end
@@ -836,7 +843,7 @@ local function runMatchLifecycle()
     matchStartedAt = os.clock()
     -- (the Quins know how long they have: SocialTension)
     -- (Solo has no time limit: no end for the Quins to feel coming either)
-    local timed = mode ~= "PlayerSolo"
+    local timed = mode ~= "PlayerSolo" and mode ~= "LanternSiege" -- (Lantern Siege keeps its own round clocks)
     Workspace:SetAttribute("MatchLength", timed and duration("GameTime") or nil)
     Workspace:SetAttribute("MatchEndsAt", timed and (Workspace:GetServerTimeNow() + duration("GameTime")) or nil)
     if not toggle("TimerPreGame") then
@@ -867,7 +874,16 @@ local function runMatchLifecycle()
     if toggle("ProceduralMusic") then
         ArenaAudio.playInGameMusic(track("InGame", activeConfig.SelectedInTrack), 1.0, 1.5)
     end
-    while (not timed or os.clock() < phaseEndTime) and skipEpoch == epoch do
+    if mode == "LanternSiege" then
+        -- Rounds: the mode runs the field and the score (ServerScriptService.LanternSiege)
+        lanternResult = nil
+        local winnerTeam, why = LanternSiege.run({
+            isCancelled = function() return skipEpoch ~= epoch or currentPhase ~= "IN_GAME" end,
+            announce = ArenaScreen.displayAnnouncement,
+        })
+        lanternResult = { winnerTeam = winnerTeam, reason = why }
+    end
+    while mode ~= "LanternSiege" and (not timed or os.clock() < phaseEndTime) and skipEpoch == epoch do
         if not timed then
             phaseEndTime = os.clock() + phaseDuration -- (Solo: the clock holds; the match runs until the Quin falls or it is stopped / skipped)
         end

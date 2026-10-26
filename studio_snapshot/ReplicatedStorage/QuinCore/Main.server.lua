@@ -676,6 +676,25 @@ task.spawn(function()
 					Quin:SetAttribute("CurrentTarget", selectedTarget.Name)
 				end
 
+				-- A task with a place to go (Objectives: carry, guard, escort ...): IdleState walks
+				-- it there, and a chase after someone far off is dropped to get back to the job
+				local task = tacticalContext.Task
+				if task and task.point then
+					Quin:SetAttribute("ObjectiveGoTo", task.point)
+					Quin:SetAttribute("ObjectiveSpeed", task.speed or 40)
+					Quin:SetAttribute("ObjectiveEngage", task.engage or 16)
+					Quin:SetAttribute("ObjectiveUntil", workspace:GetServerTimeNow() + 1.0)
+					local sHRP = selectedTarget and selectedTarget:FindFirstChild("HumanoidRootPart")
+					local tDist = sHRP and (sHRP.Position - rootPart.Position).Magnitude or math.huge
+					local away = currentState.name == "Chase" or currentState.name == "Circling" or currentState.name == "Overwatch"
+						or (currentState.name == "Fight" and (task.engage or 16) <= 0)
+					if away and tDist > (task.engage or 16) * 1.4 then
+						Quin:SetAttribute("ForceState", "Idle")
+					end
+				elseif Quin:GetAttribute("ObjectiveGoTo") ~= nil then
+					Quin:SetAttribute("ObjectiveGoTo", nil)
+				end
+
 				-- What it knows of its target right now, from its own contact record (Cognition:
 				-- senses and memory), whatever state it is in: TargetHasLoS (it sees it) and
 				-- TargetKnownBy (sight, touch, hearing, memory, report, rumour). Written here and
