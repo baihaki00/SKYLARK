@@ -157,10 +157,12 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Execute unique opening action if available (unblocked by arena spawn distance)
 		if data.openingAction == "ProjectileJump" and CombatConfig.EnableProjectileJump and fighter:GetAttribute("EnableProjectileJump") ~= false then
 			data.openingAction = nil
+			fighter:SetAttribute("JumpWhy", "opening move") -- (JumpLog, team step 5)
 			return require(script.Parent:WaitForChild("ProjectileJumpState"))
 		elseif data.openingAction == "Dash" then
 			data.openingAction = nil
 			if targetHRP then
+				fighter:SetAttribute("JumpWhy", "opening dash") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 			end
 			return require(script.Parent:WaitForChild("ChaseState"))

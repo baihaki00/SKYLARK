@@ -729,6 +729,12 @@ RunService.Heartbeat:Connect(function()
 		local decision = model:GetAttribute("RecommendedAction") or "—"
 		local targetReason = model:GetAttribute("TargetReason") or ""
 		local teamRole = model:GetAttribute("TeamRole") or "Solo"
+		-- (the moment's job for the pack: TargetingModule PackIntent, with the ally it is for)
+		local packIntent = model:GetAttribute("PackIntent")
+		if packIntent then
+			local packAlly = model:GetAttribute("PackIntentAlly") or ""
+			teamRole = teamRole .. " / " .. packIntent .. (packAlly ~= "" and (" for " .. packAlly) or "") .. (model:GetAttribute("Flanking") and " (going round)" or "")
+		end
 		local temperament = model:GetAttribute("Temperament") or "—"
 		local curSpecial = model:GetAttribute("CurrentSpecial")
 

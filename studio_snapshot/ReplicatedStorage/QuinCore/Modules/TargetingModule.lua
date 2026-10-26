@@ -139,6 +139,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 	-- which enemy each is on (fighting, chasing or circling it, close to it), and which allies are
 	-- busy. Only what it perceives (NearbyAllies), never the whole team.
 	local takers, busyAllies = {}, {}
+	local takerName = {} -- enemy -> an ally on it (the one a flanker goes round)
 	local hurtOn = {} -- enemy -> an ally on it is in trouble
 	local engagedStates = { Fight = true, Chase = true, Circling = true }
 	local crowdRadius = CombatConfig.Targeting_CrowdRadius or 45
@@ -150,6 +151,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 			local aRoot, eRoot = am:FindFirstChild("HumanoidRootPart"), enemy and enemy:FindFirstChild("HumanoidRootPart")
 			if aRoot and eRoot and (aRoot.Position - eRoot.Position).Magnitude <= crowdRadius then
 				takers[aTarget] = (takers[aTarget] or 0) + 1
+				takerName[aTarget] = takerName[aTarget] or am.Name
 				busyAllies[am.Name] = aTarget
 				if (ally.healthRatio or 1) <= 0.35 then hurtOn[aTarget] = true end
 			end
@@ -383,6 +385,34 @@ function TargetingModule.selectTarget(quinModel, localState)
 		assign(quinModel, bestCandidate.Name, "Select")
 		quinModel:SetAttribute("LastTargetName", bestCandidate.Name)
 		DebugReadouts.set(quinModel, "TargetReason", bestReason)
+		-- Team coordination step 3: what this Quin is doing for the pack right now, from the
+		-- moment (PackIntent, PackIntentAlly). Leanings: an aware Quin goes round an enemy an ally
+		-- is already on (Flanker, ChaseState steers it to the far side); a less aware one just
+		-- joins head-on.
+		local intent, intentAlly = "Engager", ""
+		local theirs = bestCandidate:GetAttribute("CurrentTarget")
+		local onIt = takers[bestCandidate.Name] or 0
+		if selfHp < 0.3 and localState and localState.Outnumbered then
+			intent = "Breather"
+		elseif theirs and busyAllies[theirs] and hurtOn[busyAllies[theirs]] then
+			intent, intentAlly = "Rescuer", theirs
+		elseif theirs and busyAllies[theirs] and busyAllies[theirs] ~= bestCandidate.Name then
+			intent, intentAlly = "Interceptor", theirs
+		elseif onIt > 0 then
+			-- (decided once per ally on it, not re-rolled every tick)
+			local was = quinModel:GetAttribute("PackIntent")
+			intentAlly = takerName[bestCandidate.Name]
+			if (was == "Flanker" or was == "Joiner") and quinModel:GetAttribute("PackIntentAlly") == intentAlly then
+				intent = was
+			else
+				intent = math.random() < (quinModel:GetAttribute("Pers_Awareness") or 0.65) * (CombatConfig.Team_FlankLean or 1) and "Flanker" or "Joiner"
+			end
+		end
+		if quinModel:GetAttribute("PackIntent") ~= intent or quinModel:GetAttribute("PackIntentAlly") ~= intentAlly then
+			quinModel:SetAttribute("PackIntent", intent)
+			quinModel:SetAttribute("PackIntentAlly", intentAlly)
+			quinModel:SetAttribute("PackIntentAt", tick())
+		end
 		if bestHasLoS then
 			quinModel:SetAttribute("LastSeenTargetPosition", bestCandidate.HumanoidRootPart.Position)
 			-- (TimeLastSeen is no longer an attribute: nothing read it)

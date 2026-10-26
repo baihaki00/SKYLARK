@@ -704,6 +704,11 @@ CombatConfig.Targeting_HuntedScore = 60                -- target utility of the 
 CombatConfig.Targeting_CrowdRadius = 45               -- studs: an ally this close to its target counts as on it (team coordination)
 CombatConfig.Targeting_CrowdPenalty = 40              -- target utility off per ally already on that enemy (up to 3; leaned by temperament)
 CombatConfig.Targeting_CoverScore = 45                -- target utility of an enemy closing on a busy ally nobody covers (x 0.5 + protectiveness)
+-- Team coordination step 3 (2026-10-27): PackIntent per Quin (Engager / Flanker / Joiner / Interceptor / Rescuer / Breather, TargetingModule)
+CombatConfig.Team_Flank = true                       -- a Flanker curves round to the enemy's far side from the ally on it (ChaseState)
+CombatConfig.Team_FlankLean = 1.0                    -- x awareness = chance to flank instead of joining head-on
+CombatConfig.Team_FlankRadius = 12                   -- studs from the enemy the curve runs at
+CombatConfig.Team_FlankBehindDot = 0.55              -- this far round (cos of the angle from the enemy's back) counts as behind: go in
 
 -- === Circling ===
 CombatConfig.Circling_TiredEnergyRatio = 0.35          -- below this energy the Quin drags its strafe

@@ -63,6 +63,7 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 	stats.seen += 1
 	if roll < hop then
 		stats.hop += 1
+		defender:SetAttribute("JumpWhy", "hop a low strike") -- (JumpLog, team step 5)
 		LocomotionModule.jump(defender, humanoid, rootPart, cfg("HopHeight", 6), 0, "hop")
 		defender:SetAttribute("InstinctAt", os.clock())
 		defender:SetAttribute("Instinct", "hop")

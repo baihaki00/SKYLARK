@@ -855,6 +855,11 @@ task.spawn(function()
 				end
 			end
 		end
+		-- Every rocket jump says why (JumpLog, team coordination step 5): the reason its state gave
+		if newState and newState ~= currentState and newState.name == "ProjectileJump" then
+			local JumpLog = require(QuinCore.Modules.JumpLog)
+			JumpLog.mark(Quin, "ProjectileJump", JumpLog.why(Quin) or (forceState and ("forced (" .. tostring(forceStateStr) .. ")")) or ("? from " .. tostring(currentState and currentState.name)))
+		end
 		if newState and newState ~= currentState then
 			-- State Dwell Commitment Check: prevent rapid 100-300ms fluttering
 			local isInterrupt = (forceState ~= nil)

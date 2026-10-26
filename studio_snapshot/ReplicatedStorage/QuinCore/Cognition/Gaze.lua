@@ -96,6 +96,24 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 	end
 
 	local state = quinModel:GetAttribute("CurrentState") or ""
+	-- Team coordination step 4: a Quin that takes on a job for an ally (rescue, cut off, flank,
+	-- join) first glances at that ally, so the intent can be read (TargetingModule PackIntent)
+	local intentAt = quinModel:GetAttribute("PackIntentAt")
+	if intentAt and intentAt ~= gaze.intentAt then
+		gaze.intentAt = intentAt
+		local ally = not ENGAGED_STATES[state] and now >= gaze.glanceUntil and gcfg(cfg, "GazeIntentGlance", true)
+			and (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(quinModel:GetAttribute("PackIntentAlly") or "")
+		local aRoot = ally and ally:FindFirstChild("HumanoidRootPart")
+		if aRoot then
+			local offset = aRoot.Position - SpatialModule.getEyePosition(rootPart)
+			if offset.Magnitude > 1 then
+				gaze.glanceAt = ally
+				gaze.glancePitch = math.clamp(math.deg(math.asin(math.clamp(offset.Y / offset.Magnitude, -1, 1))), -cfg.GazeMaxPitch, cfg.GazeMaxPitch)
+				gaze.glanceUntil = now + cfg.GazeGlanceDuration
+				gaze.nextGlance = gaze.glanceUntil + gcfg(cfg, "GazeCueCheck", 0.4)
+			end
+		end
+	end
 	if ENGAGED_STATES[state] then
 		gaze.glanceUntil = 0 -- a fight takes the head back at once
 	elseif now >= gaze.nextGlance and now >= gaze.glanceUntil then
@@ -138,7 +156,7 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 	if quinModel:GetAttribute("GazeMode") ~= mode then
 		quinModel:SetAttribute("GazeMode", mode)
 	end
-	-- the Quin it glanced up at (the head looks at it, not just up)
+	-- the Quin it glanced at (up at one overhead, or at the ally it helps): the head looks at it
 	local at = mode == "glance" and gaze.glanceAt and gaze.glanceAt.Parent and gaze.glanceAt.Name or nil
 	if quinModel:GetAttribute("GazeAt") ~= at then
 		quinModel:SetAttribute("GazeAt", at)

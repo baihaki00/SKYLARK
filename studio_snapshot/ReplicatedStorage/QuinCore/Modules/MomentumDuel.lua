@@ -29,6 +29,7 @@ local Modules = QuinCore:WaitForChild("Modules")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SpatialModule = require(Modules:WaitForChild("SpatialModule"))
 local Momentum = require(Modules:WaitForChild("Momentum"))
+local JumpLog = require(Modules:WaitForChild("JumpLog"))
 
 local MomentumDuel = {}
 
@@ -157,7 +158,7 @@ end
 -- a leap at the other, aimed where it will be when this one comes down (audit 2026-10-27: aimed
 -- at where it stood, 13 of 14 leaps that missed landed 40-140 studs away). In reach it comes
 -- down at striking distance; from far it closes in and lands short.
-local function leapAt(me, other, apexMin, apexMax)
+local function leapAt(me, other, apexMin, apexMax, reason)
 	local root, oRoot = rootOf(me), rootOf(other)
 	if not (root and oRoot) then return false end
 	local apex = math.random(apexMin, apexMax)
@@ -176,6 +177,7 @@ local function leapAt(me, other, apexMin, apexMax)
 	if Momentum.leap(me, spot, apex) then
 		spend(me, cfg("LeapCost", 8))
 		stats.leaps += 1
+		JumpLog.mark(me, "DuelLeap", reason)
 		return true
 	end
 	return false
@@ -197,11 +199,12 @@ local function canCatch(me, other)
 	return gap.Magnitude / closing <= (mcfg.DashMaxTime or 1.2) * cfg("DashCatchShare", 0.85)
 end
 
-local function dashAt(me, other)
+local function dashAt(me, other, reason)
 	if not canCatch(me, other) then return false end
 	if Momentum.dash(me, other) then
 		spend(me, cfg("DashCost", 10))
 		stats.dashes += 1
+		JumpLog.mark(me, "DuelDash", reason)
 		return true
 	end
 	return false
@@ -220,7 +223,7 @@ local function startDuel(a, b)
 	a:SetAttribute("MomentumDuelAt", os.clock())
 	b:SetAttribute("MomentumDuelAt", os.clock())
 	stats.started += 1
-	leapAt(a, b, cfg("OpenerApexMin", 40), cfg("OpenerApexMax", 100))
+	leapAt(a, b, cfg("OpenerApexMin", 40), cfg("OpenerApexMax", 100), "open the duel")
 	publish()
 	return duel
 end
@@ -296,11 +299,12 @@ local function think(me, m, dt)
 		local r = math.random()
 		local meet = (cfg("MeetBase", 0.15) + cfg("MeetAggression", 0.45) * agg) * want
 		if e >= dashCost and d > 15 and r < meet then
-			dashAt(me, other)
+			dashAt(me, other, "meet its dash head-on")
 		elseif not myAir and r < meet + cfg("SidestepChance", 0.35) then
 			if Momentum.sidestep(me, oRoot.Position) then
 				spend(me, cfg("HopCost", 3))
 				stats.sidesteps += 1
+				JumpLog.mark(me, "DuelSidestep", "out of its dash")
 			end
 		end
 		return
@@ -311,7 +315,7 @@ local function think(me, m, dt)
 		-- (in a brawl the exchanges go on past the usual dashes per airtime)
 		if (m.airDashes < cfg("AirDashes", 2) or duel.brawl > 0) and d > 12 and d < cfg("AirDashRange", 220) and e >= dashCost then
 			local rate = (cfg("AirDashBase", 0.3) + cfg("AirDashPreference", 0.9) * dashPref) * want * (otherAir and 1.2 or 0.7)
-			if roll(rate, dt) and dashAt(me, other) then
+			if roll(rate, dt) and dashAt(me, other, otherAir and "air to air" or "down at it from the air") then
 				m.airDashes += 1
 			end
 		end
@@ -321,7 +325,7 @@ local function think(me, m, dt)
 
 	if otherAir then
 		if d < cfg("GroundDashRange", 170) and e >= dashCost and roll((cfg("DashUpBase", 0.2) + cfg("DashUpAggression", 0.6) * agg) * want, dt) then
-			dashAt(me, other)
+			dashAt(me, other, "up at it in the air")
 		elseif e >= cfg("LeapCost", 8) and roll((cfg("LeapUpBase", 0.2) + cfg("LeapUpMobility", 0.6) * mob) * want, dt) then
 			-- up after it, toward under where it is going
 			local ahead = oRoot.Position + flat(oRoot.AssemblyLinearVelocity) * 0.5
@@ -331,6 +335,7 @@ local function think(me, m, dt)
 				and Momentum.leap(me, spot, upApex) then
 				spend(me, cfg("LeapCost", 8))
 				stats.leaps += 1
+				JumpLog.mark(me, "DuelLeap", "up after it in the air")
 			end
 		end
 		return
@@ -342,14 +347,21 @@ local function think(me, m, dt)
 		return
 	end
 	if d < 70 then
-		if e >= cfg("HopCost", 3) and roll(cfg("HopMobility", 1.2) * mob * want, dt) and Momentum.hop(me, math.random(4, 9)) then
+		-- (step 5, owner: intentional, not obsessed with jumping) a hop only over something low
+		-- in the way; with a clear run it runs in (the hops here had no reason at all)
+		local toward = flat(oRoot.Position - root.Position)
+		local low = toward.Magnitude > 1 and blocked(root.Position - Vector3.new(0, 1.5, 0), toward.Unit * 10)
+			and not blocked(root.Position + Vector3.new(0, 5, 0), toward.Unit * 10)
+		if (low or cfg("HopWithoutReason", false)) and e >= cfg("HopCost", 3)
+			and roll(cfg("HopMobility", 1.2) * mob * want, dt) and Momentum.hop(me, math.random(4, 9)) then
 			spend(me, cfg("HopCost", 3))
 			stats.hops += 1
+			JumpLog.mark(me, "DuelHop", low and "over something low" or "?")
 		end
 		return
 	end
 	if e >= cfg("LeapCost", 8) and roll((cfg("LeapAtBase", 0.15) + cfg("LeapAtMobility", 0.5) * mob) * want, dt) then
-		leapAt(me, other, cfg("LeapApexMin", 25), cfg("LeapApexMax", 85))
+		leapAt(me, other, cfg("LeapApexMin", 25), cfg("LeapApexMax", 85), "close a far gap")
 	end
 end
 

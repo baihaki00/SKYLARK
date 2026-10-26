@@ -827,7 +827,26 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	local energy = fighter:GetAttribute("Energy") or 100
 	local pjChance = fighter:GetAttribute("ProjectileJumpChance") or CombatConfig.ProjectileJumpChance or 0.08
 
-	if not inShowdown and (forcedAction == "projectile_jump" or (pjEnabled and not isPJOnCooldown and energy >= minPJMana and distance >= minDist and distance <= maxDist and roll < pjChance)) then
+	-- (team coordination step 5, owner 2026-10-27: a Quin stood in its fight and then burst into a
+	-- rocket jump for no reason) the jump needs one: the target is up high, running off, or cannot
+	-- be reached on foot
+	local pjWhy = nil
+	local tRoot = target and target:FindFirstChild("HumanoidRootPart")
+	if tRoot and distance >= minDist and distance <= maxDist then
+		local gap = tRoot.Position - rootPart.Position
+		local flatGap = Vector3.new(gap.X, 0, gap.Z)
+		local away = flatGap.Magnitude > 0.1 and tRoot.AssemblyLinearVelocity:Dot(flatGap.Unit) or 0
+		if gap.Y > (CombatConfig.ProjectileJump_FightUpGap or 8) then
+			pjWhy = "rocket at it: it is up high"
+		elseif away > (CombatConfig.ProjectileJump_FightFleeSpeed or 14) then
+			pjWhy = "rocket at it: it is running off"
+		elseif not NavigationModule.isReachable(rootPart, tRoot) then
+			pjWhy = "rocket at it: no way on foot"
+		elseif CombatConfig.ProjectileJump_FightWithoutReason == true then
+			pjWhy = "?"
+		end
+	end
+	if not inShowdown and (forcedAction == "projectile_jump" or (pjEnabled and pjWhy and not isPJOnCooldown and energy >= minPJMana and roll < pjChance)) then
 		fighter:SetAttribute("LastProjectileJumpTime", now)
 		fighter:SetAttribute("ForceAction", nil)
 		data.currentAction = "projectile_jump"
@@ -844,6 +863,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 		targetVal.Value = target
 		
+		fighter:SetAttribute("JumpWhy", forcedAction == "projectile_jump" and "forced action" or pjWhy) -- (JumpLog, team step 5)
 		return require(script.Parent:WaitForChild("ProjectileJumpState"))
 	end
 	
@@ -1078,6 +1098,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		data.actionEndTime = now + (0.5 / speedMult)
 		data.attackFinishTime = now + (0.5 / speedMult)
 		if targetHRP then
+			fighter:SetAttribute("JumpWhy", "fight dash") -- (JumpLog, team step 5)
 			LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 		end
 		return FightState

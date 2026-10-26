@@ -11,6 +11,7 @@ local Debris = game:GetService("Debris")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local JumpLog = require(QuinCore:WaitForChild("Modules"):WaitForChild("JumpLog"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local KnockbackModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
@@ -1104,6 +1105,11 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		end
 	end
 
+	-- every jump says why (JumpLog, team coordination step 5)
+	if fighter and fighter:IsA("Model") then
+		JumpLog.mark(fighter, "Jump:" .. tostring(jumpType or "jump"), JumpLog.why(fighter))
+	end
+
 	if fighter and fighter:IsA("Instance") then
 		if not fighter:GetAttribute("TraversalVelocityX") then
 			fighter:SetAttribute("TraversalVelocityX", 0)
@@ -1408,6 +1414,7 @@ function LocomotionModule.checkAndJump(fighter, humanoid, rootPart, forwardImpul
 	local hasObstacle, height = LocomotionModule.detectObstacle(rootPart)
 	if hasObstacle then
 		local jumpType = (height <= 5.0) and "vault" or "jump"
+		fighter:SetAttribute("JumpWhy", "over an obstacle") -- (JumpLog, team step 5)
 		LocomotionModule.jump(fighter, humanoid, rootPart, math.max(3.5, height + 2), forwardImpulse, jumpType)
 		return true
 	end
@@ -1422,6 +1429,7 @@ function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
 	-- tick(): every reader of LastDashTime compares against tick(). Written with os.clock()
 	-- the cooldown never applied and dashes could chain back to back.
 	fighter:SetAttribute("LastDashTime", tick())
+	JumpLog.mark(fighter, "Dash", JumpLog.why(fighter)) -- (every dash says why: JumpLog)
 
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	local dist = distance or 35

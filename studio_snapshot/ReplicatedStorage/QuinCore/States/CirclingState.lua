@@ -307,6 +307,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 			local dashMin = CombatConfig.DashMinDistance or 10
 			local dashMax = CombatConfig.DashMaxDistance or 28
 			if math.random() > 0.5 and distance >= dashMin and distance <= dashMax and targetHRP then
+				fighter:SetAttribute("JumpWhy", "dash in: standoff snapped") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 			end
 			return require(script.Parent:WaitForChild("FightState"))
@@ -325,6 +326,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 			and math.random() < aggression * (CombatConfig.Circling_OpeningChancePerTick or 0.35) then
 			fighter:SetAttribute("ObstacleAwareness", "Opening: target's back is turned")
 			if distance >= (CombatConfig.DashMinDistance or 10) then
+				fighter:SetAttribute("JumpWhy", "dash in: its back is turned") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 			end
 			return require(script.Parent:WaitForChild("FightState"))

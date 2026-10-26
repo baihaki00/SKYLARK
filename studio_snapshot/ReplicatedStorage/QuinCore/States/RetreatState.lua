@@ -439,6 +439,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 			if canProjectileJump then
 				fighter:SetAttribute("ObstacleAwareness", "Projectile jump to high ground")
 				RuntimeTracer.checkpoint(fighter, "Retreat: projectile jump onto a platform")
+				fighter:SetAttribute("JumpWhy", "escape to high ground") -- (JumpLog, team step 5)
 				local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
 				ProjectileJumpState.aimAtPoint(fighter, result.targetPosition)
 				return ProjectileJumpState

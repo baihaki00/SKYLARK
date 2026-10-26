@@ -312,6 +312,7 @@ function PilotedState.update(fighter, humanoid, rootPart)
 		elseif not striking and not guarding and not clientMoves then
 			local dir = move.Magnitude > 0.1 and move.Unit or flat(rootPart.CFrame.LookVector).Unit
 			if action == "Dash" then
+				fighter:SetAttribute("JumpWhy", "player") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, rootPart.Position + dir * cfg("DashDistance", 35), cfg("DashDistance", 35))
 			elseif action == "Slide" then
 				LocomotionModule.slide(fighter, humanoid, rootPart, dir)
@@ -342,6 +343,7 @@ function PilotedState.update(fighter, humanoid, rootPart)
 			data.jumpAskedAt = nil
 		else
 			local hSpeed = flat(rootPart.AssemblyLinearVelocity).Magnitude
+			fighter:SetAttribute("JumpWhy", "player") -- (JumpLog, team step 5)
 			if LocomotionModule.jump(fighter, humanoid, rootPart, cfg("JumpHeight", 11), hSpeed > 2 and hSpeed or 0, "free") then
 				data.jumpAskedAt = nil
 				if data.jumpLetGo then

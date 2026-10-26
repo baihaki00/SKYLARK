@@ -314,6 +314,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		if jumper then
 			AirInterceptModule.commit(fighter, jumper)
 			RuntimeTracer.checkpoint(fighter, "Chase: going up after a jumper")
+			fighter:SetAttribute("JumpWhy", "after a jumper in the sky") -- (JumpLog, team step 5)
 			return require(script.Parent:WaitForChild("ProjectileJumpState"))
 		end
 	end
@@ -354,6 +355,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				local lined = toStone.Magnitude > 0.1 and rootPart.CFrame.LookVector:Dot(toStone.Unit) > 0.85
 				local jumpTo = wideTop and lined
 					and TraversalModule.solveJumpOnto(stone.rise, math.max(stone.hop - 3, 1), CombatConfig.Jump_MaxReach or 25.0, 3)
+				fighter:SetAttribute("JumpWhy", "climb to a stepping stone") -- (JumpLog, team step 5)
 				if jumpTo and LocomotionModule.jump(fighter, humanoid, rootPart, jumpTo.height, jumpTo.speed, "jump") then
 					fighter:SetAttribute("ObstacleAwareness", string.format("Jump to a stone: %.0f up, %.0f across", stone.rise, stone.hop))
 					fighter:SetAttribute("StoneJumps", (fighter:GetAttribute("StoneJumps") or 0) + 1) -- (probes)
@@ -361,6 +363,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 					return ChaseState
 				end
 				fighter:SetAttribute("LastProjectileJumpTime", tick())
+				fighter:SetAttribute("JumpWhy", "climb (stone too narrow to jump)") -- (JumpLog, team step 5)
 				local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
 				ProjectileJumpState.aimAtPoint(fighter, stone.point)
 				return ProjectileJumpState
@@ -393,6 +396,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			local facingEdge = toEdge.Magnitude > 0.1 and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85
 			if solution and facingEdge and energy >= climbEnergyCost and (tick() - lastPJ) >= 2.0 and canLeave then
 				fighter:SetAttribute("ObstacleAwareness", "High-Ground Intercept Jump")
+				fighter:SetAttribute("JumpWhy", "jump up to it on high ground") -- (JumpLog, team step 5)
 				if LocomotionModule.jump(fighter, humanoid, rootPart, solution.height, solution.speed, "jump") then
 					-- (where it means to land, so a jump coming down short can dash on to it)
 					require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).noteJump(fighter, edge + toEdge.Unit * (depth or 4))
@@ -424,6 +428,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				local stylePool = { 1, 1, 2, 3, 4, 5, 5, 6, 7 }
 				fighter:SetAttribute("JumpStyle", stylePool[math.random(1, #stylePool)])
 				TargetingModule.setTarget(fighter, target, "State")
+				fighter:SetAttribute("JumpWhy", "rocket to it on high ground") -- (JumpLog, team step 5)
 				return require(script.Parent:WaitForChild("ProjectileJumpState"))
 			end
 		end
@@ -738,6 +743,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			data.nextDashCheckTime = now + (((dashPref > 0.7 and math.random(10, 15) or math.random(15, 22))) / speedMult)
 			if recAction == "Dash" or math.random() < (dashPref * 0.25) then
 				TargetingModule.setTarget(fighter, target, "State")
+				fighter:SetAttribute("JumpWhy", "dash to close the gap") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 				return ChaseState
 			end
@@ -774,6 +780,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			fighter:SetAttribute("JumpStyle", chosenStyle)
 			TargetingModule.setTarget(fighter, target, "State")
 
+			fighter:SetAttribute("JumpWhy", "rocket to close a far gap") -- (JumpLog, team step 5)
 			return require(script.Parent:WaitForChild("ProjectileJumpState"))
 		end
 	end
@@ -1134,6 +1141,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				local solution, problem = TraversalModule.solveJumpOnto(rise, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 25.0, depth)
 				if solution and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85 then
 					fighter:SetAttribute("ObstacleAwareness", "Climbing High Ground")
+					fighter:SetAttribute("JumpWhy", "climb high ground") -- (JumpLog, team step 5)
 					if LocomotionModule.jump(fighter, humanoid, rootPart, solution.height, solution.speed, "jump") then
 						require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).noteJump(fighter, edge + toEdge.Unit * (depth or 4))
 						data.lastHighGroundJump, data.highGroundSince = now, nil
@@ -1212,6 +1220,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				fighter:SetAttribute("ObstacleAwareness", "Ledge Dive Down")
 				data.isDismountFalling = true
 				data.wasOnPlatform = false
+				fighter:SetAttribute("JumpWhy", "leap down after it") -- (JumpLog, team step 5)
 				LocomotionModule.jump(fighter, humanoid, rootPart, leap.height, leap.speed, "leap_down", leap.flightTime)
 				return ChaseState
 			end
@@ -1392,7 +1401,36 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 
-	if #sameTargetTeammates > 0 and hasLoS then
+	-- Team coordination step 3: a flanker goes round to the far side of the enemy from the ally
+	-- already on it (TargetingModule PackIntent), not in through the same side. It aims at a point
+	-- between where it is and the enemy's back, so the run curves round; once behind, it goes in.
+	local flanking = false
+	if hasLoS and fighter:GetAttribute("PackIntent") == "Flanker" and CombatConfig.Team_Flank ~= false then
+		local ally = (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(fighter:GetAttribute("PackIntentAlly") or "")
+		local aRoot = ally and ally:FindFirstChild("HumanoidRootPart")
+		local tPos = targetHRP.Position
+		if aRoot and (aRoot.Position - tPos).Magnitude <= (CombatConfig.Targeting_CrowdRadius or 45) then
+			local back = Vector3.new(tPos.X - aRoot.Position.X, 0, tPos.Z - aRoot.Position.Z)
+			local mine = Vector3.new(rootPart.Position.X - tPos.X, 0, rootPart.Position.Z - tPos.Z)
+			if back.Magnitude > 0.5 and mine.Magnitude > 0.5 then
+				back, mine = back.Unit, mine.Unit
+				if mine:Dot(back) < (CombatConfig.Team_FlankBehindDot or 0.55) then
+					local way = mine + back
+					if way.Magnitude < 0.3 then -- (straight through the enemy: go round one side)
+						way = Vector3.new(-back.Z, 0, back.X)
+					end
+					arcTarget = tPos + way.Unit * (CombatConfig.Team_FlankRadius or 12)
+					flanking = true
+					fighter:SetAttribute("Flanking", true)
+				end
+			end
+		end
+	end
+	if not flanking and fighter:GetAttribute("Flanking") then
+		fighter:SetAttribute("Flanking", nil)
+	end
+
+	if #sameTargetTeammates > 0 and hasLoS and not flanking then
 		local isTandemPair = false
 		for _, mate in ipairs(sameTargetTeammates) do
 			if (mate:GetAttribute("OwnerId") == myOwner and myOwner ~= "SERVER") or protectHabit >= 0.7 then -- (the protective pair up)

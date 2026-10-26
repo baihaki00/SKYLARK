@@ -200,6 +200,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 	if jumper then
 		AirInterceptModule.commit(fighter, jumper)
 		RuntimeTracer.checkpoint(fighter, "Overwatch: going up after a jumper")
+		fighter:SetAttribute("JumpWhy", "after a jumper in the sky") -- (JumpLog, team step 5)
 		return require(script.Parent:WaitForChild("ProjectileJumpState"))
 	end
 
@@ -221,6 +222,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 			fighter:SetAttribute("JumpStyle", nil) -- any style
 			TargetingModule.setTarget(fighter, prey.model, "Dive")
 			RuntimeTracer.checkpoint(fighter, "Overwatch: diving on " .. prey.model.Name)
+			fighter:SetAttribute("JumpWhy", "dive on prey below") -- (JumpLog, team step 5)
 			return require(script.Parent:WaitForChild("ProjectileJumpState"))
 		end
 	end
