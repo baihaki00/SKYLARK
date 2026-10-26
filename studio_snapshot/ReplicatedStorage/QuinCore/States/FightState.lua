@@ -368,7 +368,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- (out of a full run the strike takes the momentum: the stop-run plant is cut short)
 	LocomotionModule.cutStopRun(fighter, humanoid)
 	local energy = fighter:GetAttribute("Energy") or 100
-	local fatigueScale = energy < (CombatConfig.FatigueThreshold or 25) and 0.65 or 1.0
+	local fatigueScale = energy < (CombatConfig.FatigueThreshold or 25) and (CombatConfig.Fatigue_StrikeSpeed or 0.85) or 1.0 -- (owner 2026-10-27: 0.65 looked too slow and weak)
 	
 	-- Dynamic animation resolution: directly reads live hot-swapped configuration!
 	local punches, kicks = getLiveAttacks()
@@ -566,7 +566,9 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	task.delay(impactDelay, function()
 		if not fighter.Parent or (target and not target.Parent) then return end
 		-- Hit while winding up: the strike never comes out and the chain is broken
-		if fighter:GetAttribute("StrikeInterrupted") == windupUntil then
+		-- (also when the Quin was knocked or forced out of its fight before the blow: no strike
+		-- may land from a body showing a hit reaction)
+		if fighter:GetAttribute("StrikeInterrupted") == windupUntil or fighter:GetAttribute("CurrentState") ~= "Fight" then
 			ComboModule.resetCombo(fighter)
 			fighter:SetAttribute("StrikeResult", "Interrupted")
 			fighter:SetAttribute("StrikeSeq", (fighter:GetAttribute("StrikeSeq") or 0) + 1)
@@ -751,9 +753,12 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			fighter:SetAttribute("Attacking", true)
 			fighter:SetAttribute("AttackWindupUntil", now + impactDelay)
 			
+			local counterWindup = now + impactDelay
 			task.delay(impactDelay, function()
 				if not fighter.Parent or not counterTarget.Parent then return end
 				fighter:SetAttribute("Attacking", false)
+				-- (hit or knocked out of the fight while winding up: the riposte never comes out)
+				if fighter:GetAttribute("StrikeInterrupted") == counterWindup or fighter:GetAttribute("CurrentState") ~= "Fight" then return end
 				local hitModels = HitboxModule.castInFront(rootPart, Vector3.new(7, 6, 9), Vector3.new(0, 0, -4.5), fighter)
 				for _, hitModel in ipairs(hitModels) do
 					local damageInfo = DamageModule.calculate(fighter, hitModel, 1, 1.25)
@@ -1222,20 +1227,30 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		local lungeDir = rootPart.CFrame.LookVector
 		KnockbackModule.applySlide(fighter, Vector3.new(lungeDir.X, 0, lungeDir.Z), 30, 0.2)
 		
-		-- Apply hitbox for the counter-strike
-		local hitboxSize = Vector3.new(7, 5, 7) -- Wide arc
-		local hitboxOffset = Vector3.new(0, 0, -3.5)
-		local hitModels = HitboxModule.castInFront(rootPart, hitboxSize, hitboxOffset, fighter)
-		for _, hitModel in ipairs(hitModels) do
-			-- Counter-strike: 1.3x damage multiplier, step 1 (standalone hit)
-			local damageInfo = DamageModule.calculate(fighter, hitModel, 1, 1.3)
-			local applied, isKill, status = DamageModule.apply(fighter, hitModel, damageInfo)
-			if applied then
-				-- Carves breathing room like a finisher: knocks the victim back along the ground,
-				-- or launches it by the same chance
-				applyHitOutcome(rootPart, hitModel, DESPERATE_COUNTER_MOVE, DamageModule.resolveOutcome(fighter, hitModel, DESPERATE_COUNTER_MOVE, damageInfo))
+		-- Apply hitbox for the counter-strike at the punch's impact, not on its first frame (owner
+		-- 2026-10-27: Quins were knocked back with no strike seen: this hit landed the frame the clip
+		-- started). Hit or knocked out of the fight while winding up, the counter never comes out.
+		local windupUntil = fighter:GetAttribute("AttackWindupUntil")
+		task.delay(0.22 / speedMult, function()
+			if not fighter.Parent or humanoid.Health <= 0 or fighter:GetAttribute("CurrentState") ~= "Fight"
+				or fighter:GetAttribute("StrikeInterrupted") == windupUntil then
+				return
 			end
-		end
+			local hitboxSize = Vector3.new(7, 5, 7) -- Wide arc
+			local hitboxOffset = Vector3.new(0, 0, -3.5)
+			local hitModels = HitboxModule.castInFront(rootPart, hitboxSize, hitboxOffset, fighter)
+			for _, hitModel in ipairs(hitModels) do
+				-- Counter-strike: 1.3x damage multiplier, step 1 (standalone hit)
+				local damageInfo = DamageModule.calculate(fighter, hitModel, 1, 1.3)
+				local applied = DamageModule.apply(fighter, hitModel, damageInfo)
+				if applied then
+					-- Carves breathing room like a finisher: knocks the victim back along the ground,
+					-- or launches it by the same chance
+					applyHitOutcome(rootPart, hitModel, DESPERATE_COUNTER_MOVE, DamageModule.resolveOutcome(fighter, hitModel, DESPERATE_COUNTER_MOVE, damageInfo))
+				end
+			end
+			fighter:SetAttribute("StrikeEndAt", tick())
+		end)
 		
 		-- After counter, briefly guard
 		task.delay(0.3 / speedMult, function()

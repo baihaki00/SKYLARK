@@ -166,6 +166,23 @@ local function playClip(rec, path, speed, looped, priority)
 	return track
 end
 
+-- Whatever action clip the body still shows (a landing, a jump push-off, a hit) is cut when a
+-- move starts: the move's pose plays at the same priority and the two blended half and half
+-- (owner 2026-10-27: the duel dash "looks buggy and weird" - a dash pose mixed with a landing)
+local ACTION_PRIORITIES = {
+	[Enum.AnimationPriority.Action] = true, [Enum.AnimationPriority.Action2] = true,
+	[Enum.AnimationPriority.Action3] = true, [Enum.AnimationPriority.Action4] = true,
+}
+local function clearPose(rec)
+	local animator = rec.humanoid:FindFirstChildOfClass("Animator")
+	if not animator then return end
+	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+		if ACTION_PRIORITIES[track.Priority] then
+			track:Stop(0.08)
+		end
+	end
+end
+
 local function stopLoops(rec, except)
 	for path in pairs(rec.loops) do
 		if path ~= except then
@@ -268,6 +285,7 @@ function Momentum.leap(fighter, spot, apex)
 	local T = up / g + math.sqrt(2 * (topY - p1.Y) / g)
 	local rec = take(fighter, humanoid, root)
 	stopLoops(rec)
+	clearPose(rec)
 	setBallistic(rec, flat(p1 - p0) / T + Vector3.yAxis * up, "leap")
 	playClip(rec, "ProjectileJump.NinjaJump", cfg("LeapClipSpeed", 1.3), false)
 	playClip(rec, "Movement.Fall", 1, true, Enum.AnimationPriority.Action)
@@ -322,6 +340,7 @@ function Momentum.dash(fighter, target, speed)
 	-- (a dash out of a leap: the leap's push-off clip is cut, the dash pose shows)
 	AnimationModule.stopConfig(humanoid, "ProjectileJump.NinjaJump", 0.08)
 	AnimationModule.stopConfig(humanoid, "Movement.AirDash", 0.08)
+	clearPose(rec)
 	playClip(rec, "Movement.Dash", 1.4, true) -- the ground dash's pose (a 0.1 s clip), held for the flight
 	AudioModule.playDash(root) -- the ground dash's sound (the sonic boom stays ProjectileJump's own)
 	VfxModule.createVaporCone(root, 0.5)
@@ -346,6 +365,7 @@ local function bounce(rec, velocity, normal, at)
 	else
 		setBallistic(rec, unitOr(flat(out), normal) * speed + normal * cfg("BouncePush", 30) + Vector3.yAxis * cfg("BounceUp", 90), "bounce")
 	end
+	clearPose(rec)
 	playClip(rec, "Movement.AirDash", 1.4, false)
 	playClip(rec, "Movement.Fall", 1, true, Enum.AnimationPriority.Action)
 	AudioModule.playDash(rec.root)

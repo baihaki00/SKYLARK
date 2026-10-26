@@ -29,6 +29,8 @@ end
 -- === DATA & CONFIG ===
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+-- (hit reactions that fade once the Quin walks again: the leg rule in the state loop)
+local HIT_CLIPS = { "Reactions.HitHeavy", "Reactions.HitLight", "Reactions.Knockback", "Reactions.BlockFront" }
 local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 local QuinData = require(QuinCore:WaitForChild("QuinData"))
 local AudioModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AudioModule"))
@@ -791,6 +793,26 @@ task.spawn(function()
 				newState = States.Idle
 			end
 		end
+		-- A hit reaction owns the legs (owner 2026-10-27: Quins walked while the hit clip played).
+		-- While the flinch stun lasts, no state walks the body (Fight already stops; Circling, Retreat
+		-- and Chase kept going); once it is over and the Quin walks again, the flinch fades out so the
+		-- legs show the walk instead of a hit pose sliding over the ground.
+		if CombatConfig.Combat_HitOwnsLegs ~= false and not isPiloted() then
+			local shown = newState or currentState
+			local name = shown and shown.name
+			if name ~= "Knockback" and name ~= "Recovery" and name ~= "Death" and name ~= "ProjectileJump" then
+				if (Quin:GetAttribute("StunEndTime") or 0) > tick() then
+					if name ~= "Fight" then humanoid.WalkSpeed = 0 end
+				elseif humanoid.MoveDirection.Magnitude > 0.1
+					or (rootPart:FindFirstChild("ImpulseLV") and rootPart.ImpulseLV:GetAttribute("Priority") == 1) then
+					-- (a lunge or step of its own counts as moving again)
+					local anim = require(QuinCore.Modules.AnimationModule)
+					for _, path in ipairs(HIT_CLIPS) do
+						anim.stopConfig(humanoid, path, 0.2)
+					end
+				end
+			end
+		end
 
 		
 		if newState and isPiloted() and not PILOT_STATES[newState.name] then
@@ -826,6 +848,9 @@ task.spawn(function()
 				end
 				if ceiling and ceiling.Instance.CanCollide then
 					Quin:SetAttribute("JumpSkip", "ceiling")
+					-- (the refusal spends the jump's cooldown: a way in that does not set it asked again
+					-- every tick and the Quin stood still until it left the platform's shadow)
+					Quin:SetAttribute("LastProjectileJumpTime", tick())
 					newState = currentState
 				end
 			end

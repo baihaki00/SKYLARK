@@ -455,6 +455,7 @@ CombatConfig.Combat_StrikeTracking = true          -- re-aim the step-in halfway
 CombatConfig.Combat_WhiffRecovery = 0.2            -- seconds: a whiffed swing's follow-through is cut to this, then the Quin moves again
 CombatConfig.Combat_UseStrikeMarkers = true       -- strikes use the markers in their clips (HitStart-HitEnd window checked every frame, free at Recover); false: one check at impactRatio, free at cancelRatio
 CombatConfig.Combat_TradeWindow = 0.08               -- a strike this close to landing still comes out when its thrower is hit (a trade)
+CombatConfig.Combat_HitOwnsLegs = true                -- no walking during the flinch stun; a hit clip fades once the Quin walks again (Main)
 CombatConfig.Combat_LungeMaxSpeed = 60             -- studs/s ceiling of the step-in; its real speed is whatever closes the gap
 CombatConfig.Combat_LungeStopDistance = 4.8            -- an attack lunge stops this far from the target (outside Melee_SweetSpotMin; a jab reaches 6.5)
 CombatConfig.Combat_GuardStrength = 0.70               -- chance a raised guard holds against a frontal strike
@@ -497,6 +498,9 @@ CombatConfig.Nav_StoneJumpMinWidth = 10                 -- studs: a stepping sto
 CombatConfig.ProjectileJump_SlamSpeed = 480            -- studs/s of the dive onto the target (styles 3, 6 and 7 dive 15% faster)
 CombatConfig.ProjectileJump_HeadroomCheck = true      -- no projectile jump from under a platform (Main gate; false = off)
 CombatConfig.ProjectileJump_Headroom = 45             -- studs of clear air above the head it needs (and up the first climb toward the target)
+CombatConfig.ProjectileJump_AvoidPlatforms = true     -- in flight: no climbing into a platform's underside (swerves to its edge), side faces glided along
+CombatConfig.ProjectileJump_AvoidLookahead = 0.25     -- seconds of flight looked ahead
+CombatConfig.Fatigue_StrikeSpeed = 0.85                -- strike clip speed under FatigueThreshold energy (was 0.65: too slow, weak)
 -- Air dash (Modules/AirDash): a Quin already in the air may dash once per airtime - in at a target
 -- (a jump or a wall kick, then the dash), on to a ledge a jump is falling short of, or after a
 -- target that kept running off a wall. Shares LastDashTime with the ground dash.

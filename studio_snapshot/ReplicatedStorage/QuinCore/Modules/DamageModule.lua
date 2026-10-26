@@ -234,9 +234,9 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		targetModel:SetAttribute("ImpactType", isHeavy and "HEAVY" or "LIGHT")
 		
 		-- A strike the victim was still winding up is knocked out of its hands (a strike about
-		-- to land goes through: that is a trade)
+		-- to land goes through: that is a trade; a Quin knocked flying loses its strike either way)
 		local windupLeft = (targetModel:GetAttribute("AttackWindupUntil") or 0) - tick()
-		if not isKnocked and targetModel:GetAttribute("Attacking") == true and windupLeft > (CombatConfig.Combat_TradeWindow or 0.08) then
+		if targetModel:GetAttribute("Attacking") == true and (isKnocked or windupLeft > (CombatConfig.Combat_TradeWindow or 0.08)) then
 			targetModel:SetAttribute("StrikeInterrupted", targetModel:GetAttribute("AttackWindupUntil"))
 			AnimationModule.stopCategory(targetHum, "Attacks", 0.1)
 		end

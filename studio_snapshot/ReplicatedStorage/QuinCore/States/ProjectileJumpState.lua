@@ -209,6 +209,51 @@ local function containVelocity(position, velocity)
 	return Vector3.new(x, velocity.Y, z)
 end
 
+-- Platforms in the flight's way (owner 2026-10-27: jumps flew into the underside of floating
+-- platforms, 60-200 studs up). Looked for a quarter second ahead along the flight: under a
+-- platform the climb stops and the body swerves toward that platform's nearest edge; a side
+-- face ahead is glided along. Tops are landings and are left alone. (CombatConfig
+-- ProjectileJump_AvoidPlatforms = false switches it off.)
+local avoidParams
+local function avoidPlatforms(position, velocity)
+	if CombatConfig.ProjectileJump_AvoidPlatforms == false or velocity.Magnitude < 20 then return velocity end
+	local world = workspace:FindFirstChild("argoniaonion")
+	if not world then return velocity end
+	if not avoidParams then
+		avoidParams = RaycastParams.new()
+		avoidParams.FilterType = Enum.RaycastFilterType.Include
+	end
+	avoidParams.FilterDescendantsInstances = { world }
+	local ahead = velocity * (CombatConfig.ProjectileJump_AvoidLookahead or 0.25)
+	if ahead.Magnitude > 150 then ahead = ahead.Unit * 150 end
+	local hit = workspace:Spherecast(position + Vector3.new(0, 2, 0), 2.5, ahead, avoidParams)
+	if not hit or not hit.Instance.CanCollide then return velocity end
+	local n = hit.Normal
+	if n.Y > 0.5 then return velocity end -- a top: somewhere to land
+	if n.Y < -0.5 then
+		-- an underside: no more climbing, out toward the nearest edge of the part
+		local part = hit.Instance
+		local flatSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+		local escape = Vector3.zero
+		if part:IsA("BasePart") then
+			local localPos = part.CFrame:PointToObjectSpace(position)
+			local half = part.Size / 2
+			local toX = half.X - math.abs(localPos.X)
+			local toZ = half.Z - math.abs(localPos.Z)
+			local axis = toX < toZ and part.CFrame.RightVector * (localPos.X >= 0 and 1 or -1)
+				or part.CFrame.LookVector * (localPos.Z >= 0 and -1 or 1)
+			escape = Vector3.new(axis.X, 0, axis.Z)
+			escape = escape.Magnitude > 0.01 and escape.Unit or Vector3.zero
+		end
+		local push = math.max(flatSpeed, velocity.Magnitude * 0.6)
+		local flat = Vector3.new(velocity.X, 0, velocity.Z) + escape * push
+		if flat.Magnitude > push then flat = flat.Unit * push end
+		return Vector3.new(flat.X, math.min(velocity.Y, 0), flat.Z)
+	end
+	-- a side face: slide along it
+	return velocity - n * math.min(velocity:Dot(n), 0)
+end
+
 local stateData = {}
 
 local POINT_TARGET_NAME = "PJ_PointTarget"
@@ -653,9 +698,9 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		end
 
 		-- Hold the flight inside the arena (both the ballistic drift and the mover's target)
-		rootPart.AssemblyLinearVelocity = containVelocity(rootPart.Position, rootPart.AssemblyLinearVelocity)
+		rootPart.AssemblyLinearVelocity = containVelocity(rootPart.Position, avoidPlatforms(rootPart.Position, rootPart.AssemblyLinearVelocity))
 		if lv.MaxAxesForce.X > 0 then
-			lv.VectorVelocity = containVelocity(rootPart.Position, lv.VectorVelocity)
+			lv.VectorVelocity = containVelocity(rootPart.Position, avoidPlatforms(rootPart.Position, lv.VectorVelocity))
 		end
 
 		-- The body faces along its flight (it used to only turn about the vertical, staying
