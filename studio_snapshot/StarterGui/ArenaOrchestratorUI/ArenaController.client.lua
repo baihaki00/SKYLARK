@@ -493,7 +493,7 @@ togSecHeader.LayoutOrder = 1
 togSecHeader.Parent = rightCol
 
 local togglesContainer = Instance.new("Frame")
-togglesContainer.Size = UDim2.new(1, 0, 0, 198)
+togglesContainer.Size = UDim2.new(1, 0, 0, 290)
 togglesContainer.BackgroundColor3 = C_CARD
 togglesContainer.LayoutOrder = 2
 togglesContainer.Parent = rightCol
@@ -521,6 +521,9 @@ local toggleDefs = {
     { key = "Screen",            name = "3D Arena Screen Jumbotron" },
     { key = "TimerPreGame",      name = "Pre-Game 5s Countdown Timer" },
     { key = "InstantMatch",      name = "Instant Match (skip the lead-in, straight to the fight)" },
+    { key = "CrowdAvatars",      name = "Crowd in the Stands (1000 avatars)" },
+    { key = "Clothes",           name = "Clothes on the Fighters" },
+    { key = "RandomMusic",       name = "Randomize Music (a random track per playlist)" },
 }
 
 local checkboxWidgets = {}
@@ -1110,7 +1113,7 @@ applyCorner(bottomDock, 16)
 
 local liveStatusLbl = Instance.new("TextLabel")
 liveStatusLbl.Name = "LiveStatus"
-liveStatusLbl.Size = UDim2.new(0, 480, 0, 24)
+liveStatusLbl.Size = UDim2.new(0, 360, 0, 24)
 liveStatusLbl.Position = UDim2.new(0, 20, 0, 12)
 liveStatusLbl.BackgroundTransparency = 1
 liveStatusLbl.Font = Enum.Font.GothamBold
@@ -1122,7 +1125,7 @@ liveStatusLbl.Parent = bottomDock
 
 local liveSubStatus = Instance.new("TextLabel")
 liveSubStatus.Name = "LiveSubStatus"
-liveSubStatus.Size = UDim2.new(0, 480, 0, 18)
+liveSubStatus.Size = UDim2.new(0, 360, 0, 18)
 liveSubStatus.Position = UDim2.new(0, 20, 0, 36)
 liveSubStatus.BackgroundTransparency = 1
 liveSubStatus.Font = Enum.Font.Gotham
@@ -1194,6 +1197,50 @@ stopBtn.MouseButton1Click:Connect(function()
     StopMatchEvent:FireServer()
 end)
 
+-- DEBUG COMBAT: pure 16v16 to judge the fighting. Instant, no clothes, crowd, music, announcer,
+-- fireworks or drones (a running match is stopped first)
+local DEBUG_COMBAT_TOGGLES = {
+    Announcer = false, ProceduralMusic = false, RandomMusic = false, CrowdFX = false, CrowdAvatars = false,
+    Clothes = false, Fireworks = false, Drones = false, TimerPreGame = false,
+    Screen = true, ProceduralTerrain = true, InstantMatch = true,
+}
+local debugBtn = Instance.new("TextButton")
+debugBtn.Name = "DebugCombatBtn"
+debugBtn.Size = UDim2.new(0, 140, 0, 38)
+debugBtn.Position = UDim2.new(1, -530, 0, 16)
+debugBtn.BackgroundColor3 = C_AMBER
+debugBtn.TextColor3 = Color3.new(0, 0, 0)
+debugBtn.Font = Enum.Font.GothamBold
+debugBtn.TextSize = 12
+debugBtn.Text = "DEBUG COMBAT"
+debugBtn.Parent = bottomDock
+applyCorner(debugBtn, 8)
+
+local lastPhase = "IDLE"
+StateReplication.OnClientEvent:Connect(function(snap)
+    if snap and snap.Phase then
+        lastPhase = snap.Phase
+    end
+end)
+
+debugBtn.MouseButton1Click:Connect(function()
+    if debugBtn.Text ~= "DEBUG COMBAT" then return end
+    debugBtn.Text = "STARTING..."
+    task.spawn(function()
+        if lastPhase ~= "IDLE" then
+            StopMatchEvent:FireServer()
+            local deadline = os.clock() + 8
+            while lastPhase ~= "IDLE" and os.clock() < deadline do
+                task.wait(0.1)
+            end
+        end
+        pcall(function()
+            StartMatchFunc:InvokeServer({ Mode = "TeamBattle", TeamSize = 16, Toggles = DEBUG_COMBAT_TOGGLES, Durations = activeDurations })
+        end)
+        debugBtn.Text = "DEBUG COMBAT"
+    end)
+end)
+
 skipBtn.MouseButton1Click:Connect(function()
     SkipPhaseEvent:FireServer()
 end)
@@ -1221,6 +1268,11 @@ end)
 local function handleToggleAction(actionName, inputState, inputObj)
     if inputState == Enum.UserInputState.Begin then
         if UserInputService:GetFocusedTextBox() then
+            return Enum.ContextActionResult.Pass
+        end
+        -- (as a Player this screen is off: SkylarkRoleClient. O used to flip the hidden window
+        -- anyway, so after Play As Admin it was open or shut out of step with the key)
+        if not screenGui.Enabled then
             return Enum.ContextActionResult.Pass
         end
         toggleWindow()

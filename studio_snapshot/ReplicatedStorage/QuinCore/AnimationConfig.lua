@@ -77,6 +77,14 @@ AnimationConfig.Registry = {
 		DesperateCounter = { borrows = "Attacks.Punches.RightPunch", speed = 1.35, fadeTime = 0.06, priority = "Action4", looped = false, impactRatio = 0.40, cancelRatio = 0.75, name = "Cornered Desperate Counter" },
 		ProceduralEvade1 = { id = "rbxassetid://131563762426355", speed = 1.30, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Procedural Evade 01" },
 		ProceduralEvade2 = { id = "rbxassetid://135253684509200", speed = 1.30, fadeTime = 0.06, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Procedural Evade Enemy 02" },
+		-- Cascadeur (2026-10-26), in place: the body is driven along the authored path (Modules/Evasion)
+		FocusDashForward = { id = "rbxassetid://112774842700728", speed = 1.00, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 0.75, name = "Focused Dash Forward (locked on)" },
+		FocusDashLeft = { id = "rbxassetid://87637003424767", speed = 1.00, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 0.75, name = "Focused Dash Left (locked on)" },
+		FocusDashRight = { id = "rbxassetid://77346963731383", speed = 1.00, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 0.75, name = "Focused Dash Right (locked on)" },
+		FocusDashBackward = { id = "rbxassetid://121057574735103", speed = 1.00, fadeTime = 0.05, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 0.75, name = "Focused Dash Backward (locked on)" },
+		QuickEvadeBack = { id = "rbxassetid://81488919241277", speed = 1.00, fadeTime = 0.04, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 0.85, name = "Quick Evade Back" },
+		QuickEvadeLeft = { id = "rbxassetid://101384130533851", speed = 1.00, fadeTime = 0.04, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 0.85, name = "Quick Evade Left" },
+		QuickEvadeRight = { id = "rbxassetid://109917413249528", speed = 1.00, fadeTime = 0.04, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 0.85, name = "Quick Evade Right" },
 		RetreatBackstep = { borrows = "Strafe.StrafeLeftWalk", speed = 1.30, fadeTime = 0.08, priority = "Action3", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Tactical Backstep Hop" },
 	},
 	Parkour = {

@@ -71,6 +71,17 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 	roll -= hop
 	if roll < slip then
 		stats.slip += 1
+		-- the Cascadeur quick evade, aimed by which limb is coming (Modules/Evasion); a wrong
+		-- guess leans into it and the strike lands
+		local evaded = require(QuinCore.Modules.Evasion).evade(defender, humanoid, rootPart, attacker, attackerRoot, contactAt)
+		if evaded then
+			if evaded == "right" then
+				defender:SetAttribute("CounterUntil", tick() + (CombatConfig.Flow_CounterWindow or 0.7) + 0.3)
+			end
+			defender:SetAttribute("InstinctAt", os.clock())
+			defender:SetAttribute("Instinct", "evade")
+			return
+		end
 		local away = rootPart.Position - attackerRoot.Position
 		away = Vector3.new(away.X, 0, away.Z)
 		away = away.Magnitude > 0.01 and away.Unit or -rootPart.CFrame.LookVector

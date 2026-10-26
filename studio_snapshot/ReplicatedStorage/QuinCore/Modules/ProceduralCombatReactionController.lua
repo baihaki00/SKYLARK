@@ -1337,10 +1337,12 @@ function ProceduralCombatReactionController:update(dt)
 
 	-- 8. Secondary motion: the arms follow the clip with a little weight of their own
 	local smOn = Layers.isOn("SecondaryMotion", serverModel) -- live A/B switch
-	-- (not in a mid-air clash: that state places the body by CFrame every tick, and the arms
-	-- whipped after every jump)
-	if smOn and serverState ~= "MidAirClash" then
-		self:updateSecondaryMotion(dt)
+	-- (not in a mid-air clash placed by CFrame every tick: the arms whipped after every jump.
+	-- The clash's flight path is smooth and its own: then the arms and legs swing loose from
+	-- the flight's real jolts, Modules/ClashOrbit)
+	local airMotion = serverState == "MidAirClash" and require(script.Parent:WaitForChild("ClashOrbit")).motion[serverModel] or nil
+	if smOn and (serverState ~= "MidAirClash" or airMotion) then
+		self:updateSecondaryMotion(dt, airMotion)
 	else
 		self.smState = nil
 	end
@@ -1394,6 +1396,11 @@ local ARM_CHAIN = {
 	{ "RightForeArm", "RightHand", "fore" },
 	{ "LeftHand", nil, "hand", 0.6 }, -- the wrist gives: a point 0.6 studs along the hand (body layer LooseWrists)
 	{ "RightHand", nil, "hand", 0.6 },
+	-- the legs: only loose in the air (a mid-air clash's flight); on the ground the feet are planted
+	{ "LeftUpLeg", "LeftLeg", "thigh" },
+	{ "LeftLeg", "LeftFoot", "shin" },
+	{ "RightUpLeg", "RightLeg", "thigh" },
+	{ "RightLeg", "RightFoot", "shin" },
 }
 
 local function chainTip(entry)
@@ -1404,7 +1411,10 @@ local function chainTip(entry)
 	return w.Position + w.UpVector * entry.length
 end
 
-function ProceduralCombatReactionController:updateSecondaryMotion(dt)
+-- air: a mid-air clash body's flight ({ vel, acc, gNow } from Modules/ClashOrbit), or nil.
+-- In the air the springs feel only what pushes the body (a launch, a plant, a hit: free fall
+-- pulls the limbs along with it) plus a little air drag, and swing wider, legs too.
+function ProceduralCombatReactionController:updateSecondaryMotion(dt, air)
 	if not self.smBones then
 		self.smBones = {}
 		local spineOn = CombatConfig.SecondaryMotion_Spine ~= false
@@ -1426,6 +1436,13 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 	local maxSpine = math.rad(CombatConfig.SecondaryMotion_MaxSpineDegrees or 5)
 	local maxNeck = math.rad(CombatConfig.SecondaryMotion_MaxNeckDegrees or 7)
 	local caps = { upper = maxUpper, fore = maxFore, spine = maxSpine, neck = maxNeck, hand = math.rad(CombatConfig.ProceduralLayers.LooseWrists.MaxDegrees) }
+	if air then
+		caps.upper = math.rad(CombatConfig.SecondaryMotion_AirUpperArmDegrees or 35)
+		caps.fore = math.rad(CombatConfig.SecondaryMotion_AirForearmDegrees or 45)
+		caps.spine = math.rad(CombatConfig.SecondaryMotion_AirSpineDegrees or 10)
+		caps.thigh = math.rad(CombatConfig.SecondaryMotion_AirThighDegrees or 30)
+		caps.shin = math.rad(CombatConfig.SecondaryMotion_AirShinDegrees or 40)
+	end
 	local wristsOn = Layers.isOn("LooseWrists", self.aiModel)
 	local fastClip = CombatConfig.SecondaryMotion_FastClipSpeed or 12 -- studs/s of a tip relative to the body
 	local omega = 2 * math.pi * frequency
@@ -1441,12 +1458,16 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 	-- (its own, smoother copy of the body acceleration: the lean's copy follows the replicated
 	-- velocity, which arrives in ~20 Hz steps, and its ripple kept the spine twitching)
 	local rawBody = self.leanAcceleration or Vector3.zero
+	if air then
+		-- what pushes the body: its acceleration less the gravity it falls with, and the wind
+		rawBody = air.acc - Vector3.new(0, -(air.gNow or 0), 0) - air.vel * (CombatConfig.SecondaryMotion_AirDrag or 0.15)
+	end
 	self.smAcceleration = (self.smAcceleration or rawBody):Lerp(rawBody, 1 - math.exp(-(CombatConfig.SecondaryMotion_AccelerationResponse or 6) * dt))
 	local bodyAcceleration = rootCF:VectorToObjectSpace(self.smAcceleration) * inertia
 	-- Saturated: a running body's sway does not grow with a projectile jump's launch or a
 	-- knockback (thousands of studs/s^2 of horizontal acceleration pushed the springs past their
 	-- reset distance every other frame, and the torso flipped between bent and straight)
-	local maxAcceleration = CombatConfig.SecondaryMotion_MaxAcceleration or 80
+	local maxAcceleration = air and (CombatConfig.SecondaryMotion_AirMaxAcceleration or 400) or (CombatConfig.SecondaryMotion_MaxAcceleration or 80)
 	if bodyAcceleration.Magnitude > maxAcceleration then
 		bodyAcceleration = bodyAcceleration.Unit * maxAcceleration
 	end
@@ -1490,7 +1511,7 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 		end
 		-- A soft leash instead of a reset: past it the spring is held at the leash, so a hard
 		-- shove bends the bone to its cap and holds it rather than flicking it every frame
-		local leash = CombatConfig.SecondaryMotion_Leash or 1.5
+		local leash = air and (CombatConfig.SecondaryMotion_AirLeash or 3) or (CombatConfig.SecondaryMotion_Leash or 1.5)
 		local offset = s.x - tip
 		if offset.Magnitude > leash then
 			s.x = tip + offset.Unit * leash
@@ -1518,7 +1539,8 @@ function ProceduralCombatReactionController:updateSecondaryMotion(dt)
 	for i, entry in ipairs(self.smBones) do
 		local weight = weights[i]
 		if (entry.kind == "spine" and torso == "none") or (entry.kind == "neck" and torso ~= "all")
-			or (entry.kind == "hand" and not wristsOn) then
+			or (entry.kind == "hand" and not wristsOn)
+			or ((entry.kind == "thigh" or entry.kind == "shin") and not air) then
 			weight = 0
 		end
 		if weight > 0.01 then

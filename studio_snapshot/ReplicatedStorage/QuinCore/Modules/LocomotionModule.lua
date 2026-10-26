@@ -641,6 +641,14 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	local skidThreshold = CombatConfig.Locomotion_SkidSpeedThreshold or 13.0
 	local now = os.clock()
 
+	-- How long it has held its top speed (the stop-run plant needs a real run behind it)
+	local runVel = rootPart.AssemblyLinearVelocity
+	if Vector3.new(runVel.X, 0, runVel.Z).Magnitude >= (fighter:GetAttribute("Speed") or 40) * (CombatConfig.StopRun_TopSpeedShare or 0.9) then
+		data.topSpeedSince = data.topSpeedSince or now
+	else
+		data.topSpeedSince = nil
+	end
+
 	-- Reset braking single-shot latch when actively steering
 	data.stopRunTriggered = false
 	if data.stopRunEndTime and now < data.stopRunEndTime then
@@ -758,6 +766,21 @@ end
 -- 3. MELEE BRAKE & CONTINUITY (Slide into combat sweet spot; zero freeze-snaps)
 -- ============================================================================
 
+-- A strike thrown right as the stop-run plant starts cuts the plant short: the punch takes the
+-- run's momentum. (The plant leans the body forward; a punch over it read as a headbutt.) With no
+-- strike the plant plays out in full.
+function LocomotionModule.cutStopRun(fighter, humanoid, window)
+	local data = locoData[fighter]
+	if not data or not data.stopRunEndTime then return false end
+	local now = os.clock()
+	if now >= data.stopRunEndTime or now - (data.lastStopRunTime or 0) > (window or CombatConfig.StopRun_StrikeCutWindow or 0.35) then
+		return false
+	end
+	data.stopRunEndTime = nil
+	AnimationModule.stop(humanoid, "Movement.StopRun", 0.1)
+	return true
+end
+
 function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	if not fighter or not humanoid or not rootPart then return end
 	-- A committed slide carries its own deceleration and exit
@@ -790,6 +813,11 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	-- of them were from runs that never got to top speed, some at 60 % of it.)
 	local topSpeed = fighter:GetAttribute("Speed") or 40
 	local atTopSpeed = speed >= topSpeed * (CombatConfig.StopRun_TopSpeedShare or 0.9)
+	-- ...and held it a while: a short burst that touched top speed just slows down (2026-10-27:
+	-- short runs played the full plant)
+	local heldFor = data.topSpeedSince and (now - data.topSpeedSince) or 0
+	atTopSpeed = atTopSpeed and heldFor >= (CombatConfig.StopRun_MinTopSpeedTime or 0.45)
+	data.topSpeedSince = nil
 
 	-- Single-shot latch for braking transition
 	if not data.stopRunTriggered then

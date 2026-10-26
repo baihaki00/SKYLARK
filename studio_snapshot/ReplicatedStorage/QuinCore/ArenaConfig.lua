@@ -169,6 +169,9 @@ ArenaConfig.DefaultToggles = {
     CrowdFX             = true,  -- Procedural spatial crowd (ArenaCrowdManager, ArenaConfig.CrowdFX)
     ProceduralTerrain   = true,  -- Procedural arena layout (ArenaGenerator, ArenaConfig.ArenaGeneration); off = the edit-mode parts
     InstantMatch        = false, -- straight to the fight: no opening, preparation, anthem or countdown, fighters placed at once
+    CrowdAvatars        = true,  -- the 1000 avatars in the stands (Workspace CrowdNpcs, ArenaCrowdNpcs); CrowdFX is their sound
+    Clothes             = true,  -- clothes on the fighters (Workspace WardrobeOff, QuinWardrobe)
+    RandomMusic         = false, -- a random track of each playlist (pre-game, in-game, post-game) instead of the selected one
 }
 
 -- Deployment teleport (ArenaSystemOrchestrator, TELEPORTING_QUINS): fighters arrive one at a time

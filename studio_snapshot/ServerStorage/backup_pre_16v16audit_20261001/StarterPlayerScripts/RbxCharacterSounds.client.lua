@@ -1,0 +1,3 @@
+--// RbxCharacterSounds.client.lua
+-- Developer Override: Silences default Roblox character sound injection
+-- All character locomotion and combat audio is driven authoritatively by QuinCore.Modules.AudioModule

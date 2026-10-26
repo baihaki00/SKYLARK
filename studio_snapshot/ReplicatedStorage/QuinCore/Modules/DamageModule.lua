@@ -101,6 +101,11 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		return false, false, "GetUpProtected"
 	end
 	
+	-- QUICK EVADE: it read this strike and leaned out of its way (Modules/Evasion)
+	if require(script.Parent:WaitForChild("Evasion")).slips(targetModel, attackerModel) then
+		return false, false, "Dodged"
+	end
+
 	local isKnocked = targetModel:GetAttribute("CurrentState") == "Knockback" or targetModel:GetAttribute("CurrentState") == "Airborne"
 	local hrp = targetModel:FindFirstChild("HumanoidRootPart")
 	local attackerHRP = attackerModel:FindFirstChild("HumanoidRootPart")

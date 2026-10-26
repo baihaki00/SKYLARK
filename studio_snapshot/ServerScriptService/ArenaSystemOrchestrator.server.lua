@@ -32,6 +32,7 @@ local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
 local QuinDataStoreService = require(ReplicatedStorage.QuinCore.Modules.QuinDataStoreService)
 local Payouts = require(ServerScriptService:WaitForChild("SkylarkPayouts"))
 local QuinCare = require(ServerScriptService:WaitForChild("QuinCare"))
+local QuinWardrobe = require(ReplicatedStorage.QuinCore.Modules.QuinWardrobe)
 local Players = game:GetService("Players")
 
 local Orchestrator = {}
@@ -123,6 +124,47 @@ local function toggle(key)
         return false
     end
     return activeConfig.Toggles[key] == true
+end
+
+-- The crowd avatars and the fighters' clothes follow their toggles, through the Workspace attributes
+-- the crowd and the wardrobe already read (CrowdNpcs, WardrobeOff). Fighters already out are
+-- dressed (a random outfit) or undressed at once.
+local function applyWorldToggles()
+    local crowd = activeConfig.Toggles.CrowdAvatars ~= false
+    if (Workspace:GetAttribute("CrowdNpcs") ~= false) ~= crowd then
+        Workspace:SetAttribute("CrowdNpcs", if crowd then nil else false)
+    end
+    local clothes = activeConfig.Toggles.Clothes ~= false
+    if (Workspace:GetAttribute("WardrobeOff") == true) == clothes then
+        Workspace:SetAttribute("WardrobeOff", (not clothes) or nil)
+        local fight = Workspace:FindFirstChild("QuinServer")
+        for _, m in ipairs(fight and fight:GetChildren() or {}) do
+            if m:IsA("Model") and m:FindFirstChild("Alpha_Surface") and m:GetAttribute("IsCostume") ~= true then
+                if clothes then
+                    QuinWardrobe.dressSpawn(m, nil)
+                else
+                    QuinWardrobe.dress(m, {})
+                end
+            end
+        end
+    end
+end
+
+-- RandomMusic: a random track of that playlist (Music.<kind>Music) instead of the selected one
+local function track(kind, selected)
+    if not toggle("RandomMusic") then
+        return selected
+    end
+    local arena = Workspace:FindFirstChild("argoniaonion") and Workspace.argoniaonion:FindFirstChild("ArenaOne")
+    local music = arena and arena:FindFirstChild("Music")
+    local folder = music and music:FindFirstChild(kind .. "Music")
+    local names = {}
+    for _, s in ipairs(folder and folder:GetChildren() or {}) do
+        if s:IsA("Sound") then
+            table.insert(names, s.Name)
+        end
+    end
+    return #names > 0 and names[math.random(#names)] or selected
 end
 
 local function duration(key)
@@ -642,6 +684,7 @@ local function runMatchLifecycle()
     instantLeadIn = activeConfig.Toggles.InstantMatch == true
     ArenaCrowd.resetMatch(mode)
     ArenaCrowd.setEnabled(toggle("CrowdFX"))
+    applyWorldToggles()
 
     -- PHASE 1: ARENA OPEN. Globe + screen materialize at T+5s.
     Workspace:SetAttribute("ArenaHologramsActive", false)
@@ -652,7 +695,7 @@ local function runMatchLifecycle()
         ArenaFireworks.launchOpeningShow(openTime)
     end
     if toggle("ProceduralMusic") then
-        ArenaAudio.playPregameMusic(activeConfig.SelectedTrack or "365", 1.0, 2.0) -- runs through Prep Room
+        ArenaAudio.playPregameMusic(track("PreGame", activeConfig.SelectedTrack or "365"), 1.0, 2.0) -- runs through Prep Room
     end
     if toggle("Announcer") then
         ArenaAria.speak("ARIA_ArenaOpen")
@@ -822,7 +865,7 @@ local function runMatchLifecycle()
     ArenaScreen.displayAnnouncement("ENGAGEMENT COMMENCED // TOURNAMENT PROTOCOL LIVE", 4.0, "SYSTEM", Color3.fromRGB(0, 210, 255))
     ArenaAudio.stopPregameMusic(1.5) -- (if the anthem was skipped, the pre-game music is still on)
     if toggle("ProceduralMusic") then
-        ArenaAudio.playInGameMusic(activeConfig.SelectedInTrack, 1.0, 1.5)
+        ArenaAudio.playInGameMusic(track("InGame", activeConfig.SelectedInTrack), 1.0, 1.5)
     end
     while (not timed or os.clock() < phaseEndTime) and skipEpoch == epoch do
         if not timed then
@@ -869,7 +912,7 @@ local function runMatchLifecycle()
     epoch = beginPhase("POST_GAME", postTime, "ARENA CLOSURE", "SPECTATOR EXIT PROTOCOLS ACTIVE")
     pacifyAllQuins()
     if toggle("ProceduralMusic") then
-        ArenaAudio.playPostgameMusic(activeConfig.SelectedPostTrack, 1.0, 2.5)
+        ArenaAudio.playPostgameMusic(track("PostGame", activeConfig.SelectedPostTrack), 1.0, 2.5)
     end
     if toggle("Announcer") then
         ArenaAria.speak("ARIA_ArenaClosing")
@@ -1035,6 +1078,7 @@ remotes.UpdateToggles.OnServerEvent:Connect(function(player, newToggles)
             activeConfig.Toggles[k] = (v == true)
         end
         ArenaCrowd.setEnabled(toggle("CrowdFX") and currentPhase ~= "IDLE")
+        applyWorldToggles()
         replicateState()
     end
 end)

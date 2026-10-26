@@ -1,0 +1,1 @@
+-- [DEPRECATED / DISABLED]: SmoothLanding prototype disabled to preserve authentic QuinCore momentum retention.

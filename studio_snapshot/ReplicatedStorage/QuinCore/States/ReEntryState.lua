@@ -20,6 +20,28 @@ local ReEntryState = { name = "ReEntry" }
 
 local reEntryData = {}
 
+-- Faces the way back in through a constraint. The body's CFrame was written on every tick
+-- (10 Hz) while it walked, ran and flew: each write snapped it and broke the clients'
+-- interpolation, so a Quin coming back into the arena looked like it was lagging.
+local FACING_NAME = "ReEntryFacing"
+local function faceCenter(rootPart, dir)
+	local align = rootPart:FindFirstChild(FACING_NAME)
+	if not align then
+		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+		att.Name = "RootAttachment"
+		align = Instance.new("AlignOrientation")
+		align.Name = FACING_NAME
+		align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		align.Attachment0 = att
+		align.RigidityEnabled = false
+		align.Responsiveness = 30
+		align.MaxTorque = 400000
+		align.MaxAngularVelocity = 12
+		align.Parent = rootPart
+	end
+	align.CFrame = CFrame.lookAt(Vector3.zero, dir)
+end
+
 function ReEntryState.enter(fighter, humanoid, rootPart)
 	if not fighter or not humanoid or not rootPart then return end
 
@@ -79,6 +101,8 @@ function ReEntryState.exit(fighter, humanoid, rootPart)
 		if lv then lv:Destroy() end
 		local att = rootPart:FindFirstChild("ReEntryAtt")
 		if att then att:Destroy() end
+		local facing = rootPart:FindFirstChild(FACING_NAME)
+		if facing then facing:Destroy() end
 	end
 
 	reEntryData[fighter] = nil
@@ -138,7 +162,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 	if data.phase == "walk" then
 		humanoid.WalkSpeed = 14
 		humanoid:Move(data.dirToCenter)
-		rootPart.CFrame = CFrame.lookAt(currentPos, currentPos + data.dirToCenter)
+		faceCenter(rootPart, data.dirToCenter)
 		GaitModule.update(humanoid, rootPart, locoDt)
 
 		if now - data.lastFootstepTime > 0.4 then
@@ -160,7 +184,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 	elseif data.phase == "run" then
 		humanoid.WalkSpeed = 38
 		humanoid:Move(data.dirToCenter)
-		rootPart.CFrame = CFrame.lookAt(currentPos, currentPos + data.dirToCenter)
+		faceCenter(rootPart, data.dirToCenter)
 		GaitModule.update(humanoid, rootPart, locoDt)
 
 		if now - data.lastFootstepTime > 0.25 then
@@ -220,7 +244,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 		local yVel = rootPart.AssemblyLinearVelocity.Y
 
 		-- Maintain horizontal heading toward center while airborne
-		rootPart.CFrame = CFrame.lookAt(currentPos, currentPos + data.dirToCenter)
+		faceCenter(rootPart, data.dirToCenter)
 
 		-- Once vertical velocity becomes negative (descending after apex), switch to Fall animation
 		if yVel < -10 and not data.isFallingAnimPlaying then

@@ -1269,8 +1269,14 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		local shockRadius = data.precise and 0 or (CombatConfig.SlamShockwaveRadius or CombatConfig.SlamImpactRadius or 14)
 		local stumbleForce = CombatConfig.SlamStumbleForce or 90
 		local stumbleDuration = CombatConfig.SlamStumbleDuration or 0.35
+		-- Only the jumper's enemies feel it, and only those right under the landing are knocked
+		-- down: the rest are shoved. Every Quin within 14 studs, its own team too, used to go
+		-- into Knockback, so a landing in a crowd left the whole group down for 1-2 s.
+		local myTeam = fighter:GetAttribute("Team") or "None"
+		local knockRadius = CombatConfig.SlamKnockdownRadius or 6
 		for _, other in ipairs(QuinRoster.all()) do
-			if other ~= fighter and other.Parent then
+			local otherTeam = other:GetAttribute("Team") or "None"
+			if other ~= fighter and other.Parent and not (myTeam ~= "None" and otherTeam == myTeam) then
 				local oHRP = other:FindFirstChild("HumanoidRootPart")
 				local oHum = other:FindFirstChildOfClass("Humanoid")
 				if oHRP and oHum and oHum.Health > 0 then
@@ -1289,7 +1295,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 						other:SetAttribute("ImpactMag", math.clamp(0.4 + 0.6 * falloff, 0.3, 1.0))
 						other:SetAttribute("ImpactType", "SLAM")
 						local oState = other:GetAttribute("CurrentState")
-						if oState ~= "Knockback" and oState ~= "Death" and oState ~= "Airborne" then
+						if oDist <= knockRadius and oState ~= "Knockback" and oState ~= "Death" and oState ~= "Airborne" then
 							other:SetAttribute("ForceState", "Knockback")
 							other:SetAttribute("KnockbackType", "ground")
 						end

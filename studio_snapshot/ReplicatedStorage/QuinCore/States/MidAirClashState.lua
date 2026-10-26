@@ -16,6 +16,7 @@ local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitF
 local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local ClashOrbit = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ClashOrbit"))
 
 local MidAirClashState = { name = "MidAirClash" }
 
@@ -166,6 +167,10 @@ function MidAirClashState.exit(fighter, humanoid, rootPart)
 	if data and data.animTrack then
 		data.animTrack:Stop(0.1)
 	end
+	if data and data.orbit and not data.orbit.done then
+		data.orbit.stop()
+	end
+	rootPart.Anchored = false -- (the orbit anchors both bodies while it moves them)
 	
 	fighter:SetAttribute("MidAirClashRole", nil)
 	fighter:SetAttribute("MidAirClashPartner", nil)
@@ -220,8 +225,9 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 	local clashCenter = Vector3.new(centerX, centerY, centerZ)
 	
 	-- Continuous Face-off rotation
+	-- (not in the orbit: ClashOrbit turns them, toward where they fly)
 	local ao = rootPart:FindFirstChild("MidAir_Align")
-	if ao then
+	if ao and data.phase ~= "Orbit" then
 		ao.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
 	end
 	
@@ -242,6 +248,12 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 		if timeInPhase > 0.2 then
 			if fighter:GetAttribute("ClashResult") then
 				switchPhase(data, "Climax") -- decided on contact: no brawl
+			elseif CombatConfig.MidAirClash_Orbit ~= false then
+				-- the multi-dash orbit (Modules/ClashOrbit): the leader drives both bodies
+				switchPhase(data, "Orbit")
+				if data.role == "Leader" then
+					data.orbit = ClashOrbit.run(fighter, target, clashCenter)
+				end
 			else
 				switchPhase(data, "Flurry")
 				data.strikesDelivered = 0
@@ -249,6 +261,19 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 			end
 		end
 		
+	-- ============================================================
+	-- PHASE 2a: ORBIT (multi-dash passes, Modules/ClashOrbit)
+	-- ============================================================
+	elseif data.phase == "Orbit" then
+		if data.role == "Leader" then
+			if not data.orbit or data.orbit.done then
+				fighter:SetAttribute("ClashPhase", "Climax")
+				switchPhase(data, "Climax")
+			end
+		elseif fighter:GetAttribute("ClashResult") or target:GetAttribute("ClashPhase") == "Climax" then
+			switchPhase(data, "Climax")
+		end
+
 	-- ============================================================
 	-- PHASE 2: FLURRY (Rapid strike exchanges at current anchor)
 	-- ============================================================
@@ -456,8 +481,8 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 	end
 	
-	-- Global safety timeout: max 4.5s in air clash
-	if totalElapsed > 4.5 then
+	-- Global safety timeout: max 4.5s in air clash (the orbit's own limit, plus a beat)
+	if totalElapsed > math.max(4.5, math.max(CombatConfig.MidAirClash_OrbitMaxTime or 6, CombatConfig.MidAirClash_OrbitLeapMaxTime or 0) + 1.5) then
 		return require(script.Parent:WaitForChild("AirborneState"))
 	end
 	

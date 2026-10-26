@@ -16,6 +16,7 @@ local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("Qu
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
+local Evasion = require(QuinCore:WaitForChild("Modules"):WaitForChild("Evasion"))
 local AnimationIds = require(QuinCore:WaitForChild("AnimationIds"))
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
@@ -161,6 +162,8 @@ function CirclingState.enter(fighter, humanoid, rootPart)
 		currentAnim = nil,
 		idealRadius = idealRadius,
 		nextFeintTime = now + (1.2 + math.random() * 1.6),
+		-- (now and then it does turn its back and run off: most circlings it backs off facing)
+		mayTurnBack = math.random() < (CombatConfig.Circling_TurnBackChance or 0.25),
 	}
 
 	RuntimeTracer.checkpoint(fighter, string.format("Enter Circling (Tension=%s)", tension))
@@ -212,6 +215,10 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 
 	local data = circlingData[fighter]
 	if not data then return require(script.Parent:WaitForChild("FightState")) end
+	-- A focused dash or a quick evade has the body (Modules/Evasion): nothing else steers it
+	if Evasion.busy(fighter) then
+		return CirclingState
+	end
 
 	-- Respect-custom standoff: the gap and pace come from the ceremony (it closes in, a walk
 	-- becomes a prowl), and nothing here ends it: one of them breaks it (SocialRespect)
@@ -414,6 +421,21 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	moveDirection = flatUnit(moveDirection, tangent)
 
+	-- Backing away from a target this close, it would turn its back and run: often it dashes
+	-- instead, still facing it (Modules/Evasion). It may still turn and run now and then.
+	if targetHRP and distance < (CombatConfig.FocusDash_Range or 18) and Evasion.dashReady(fighter) then
+		local toT = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z)
+		if toT.Magnitude > 0.5 and moveDirection:Dot(toT.Unit) < -0.35 then
+			if math.random() < (CombatConfig.FocusDash_RepositionChance or 0.6) then
+				if Evasion.focusDash(fighter, humanoid, rootPart, targetHRP, moveDirection) then
+					return CirclingState
+				end
+			else
+				fighter:SetAttribute("FocusDashReadyAt", tick() + 1.0) -- (this time it runs: asked again in a moment)
+			end
+		end
+	end
+
 	-- === Locomotion form ===
 	-- side > 0: the motion is toward the Quin's right while it faces the target. The strafe
 	-- form applies while the motion is within Circling_MaxFacingBias of straight sideways.
@@ -469,6 +491,14 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		look = side > 0 and Vector3.new(motion.Z, 0, -motion.X) or Vector3.new(-motion.Z, 0, motion.X)
 	else
 		look = motion
+		-- Close to its target it does not show its back to it for every drift or step back: it
+		-- keeps facing it and the gait backpedals (Circling_TurnBackChance: sometimes it turns)
+		if not data.mayTurnBack and targetHRP and distance < (CombatConfig.FocusDash_Range or 18) then
+			local toT = flatUnit(targetHRP.Position - rootPart.Position, look)
+			if look:Dot(toT) < -0.3 then
+				look = toT
+			end
+		end
 	end
 	local gyro = ensureGyro(rootPart)
 	gyro.CFrame = CFrame.lookAt(Vector3.zero, look)

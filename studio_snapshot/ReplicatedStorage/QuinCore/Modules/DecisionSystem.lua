@@ -81,9 +81,17 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 
 	-- 3. RETREAT / DISENGAGE: Back off when low on health, outnumbered, or exhausted
 	local retreatBase = 15
-	if hpRatio < 0.40 then
+	-- Its opponent is as hurt as it is (or more), one on one: running saves nothing, the first
+	-- clean hit wins. Two nearly dead Quins used to flee from each other in turn at the end of a
+	-- match, closing and backing off for as long as the clock ran.
+	local evenlyHurt = hpRatio < 0.40 and targetHpRatio <= hpRatio + (CombatConfig.Retreat_EvenlyHurtMargin or 0.1)
+		and not isOutnumbered and not isSurrounded and not isBullied
+	if hpRatio < 0.40 and not evenlyHurt then
 		retreatBase = retreatBase + 55
 		because("HealthLow", "Health low")
+	elseif evenlyHurt then
+		scores["Attack"] = (scores["Attack"] or 50) + 30
+		because("EvenlyHurt", "It's as hurt as I am: finish it")
 	end
 	if isOutnumbered then
 		retreatBase = retreatBase + 40
@@ -319,7 +327,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	end
 
 	-- Survival instinct hard override: near-death Quins retreat ONLY if escape is feasible and NOT in Last Stand!
-	if not isLastStand and escapeFeasibility >= (CombatConfig.EscapeFeasibilityThreshold or 0.20) then
+	if not isLastStand and not evenlyHurt and escapeFeasibility >= (CombatConfig.EscapeFeasibilityThreshold or 0.20) then
 		local critical = CombatConfig.RetreatCriticalHealth or 0.20
 		if hunting then
 			critical = (CombatConfig.Social and CombatConfig.Social.Respect and CombatConfig.Social.Respect.HuntRetreatHealth) or 0.08

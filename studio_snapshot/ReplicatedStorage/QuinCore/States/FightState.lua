@@ -29,6 +29,7 @@ local Rhythm = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("
 local HitStop = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("HitStop"))
 local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 local StrikeMarkers = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StrikeMarkers"))
+local Evasion = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Evasion"))
 local RunService = game:GetService("RunService")
 
 -- Dynamic combat animation pools: directly hot-swappable via AnimationConfig!
@@ -364,6 +365,8 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- (target may be nil: a player's Quin can strike at the air; no step-in then)
 	local targetHRP = target and target:FindFirstChild("HumanoidRootPart")
 	if target and not targetHRP then return 0.5, 0.35 end
+	-- (out of a full run the strike takes the momentum: the stop-run plant is cut short)
+	LocomotionModule.cutStopRun(fighter, humanoid)
 	local energy = fighter:GetAttribute("Energy") or 100
 	local fatigueScale = energy < (CombatConfig.FatigueThreshold or 25) and 0.65 or 1.0
 	
@@ -414,6 +417,9 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	local tellDelay = (markers and markers.windup) and math.min(markers.windup / playSpeed, impactDelay) or impactDelay * 0.4
 	fighter:SetAttribute("StrikeTellAt", now + tellDelay)
 	fighter:SetAttribute("StrikeLow", animData.name and animData.name:find("Low") ~= nil or nil)
+	-- (which limb: a left is slipped to the right, a right to the left: Modules/Evasion)
+	local limbSide = animData.name and (animData.name:find("Left") and "Left" or animData.name:find("Right") and "Right") or nil
+	fighter:SetAttribute("StrikeSide", limbSide)
 	-- The strike is over at its finish: then Attacking goes false, unless a newer strike has begun
 	-- (its own AttackWindupUntil). A hit-stop moves the finish on (HitStop): the clear waits for it.
 	-- (It compared tick() with attackFinishTime once, at the original finish: after a hit-stop had
@@ -684,6 +690,11 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		if not Instinct.enabled() then -- (with Instinct on, the reflexes answer strikes: Modules/Instinct)
 			tryRaiseGuard(fighter, humanoid, data, now, findModelByName(fighter:GetAttribute("LastAttackerName")), comboBreakChance(fighter))
 		end
+		return FightState
+	end
+
+	-- A focused dash or a quick evade has the body (Modules/Evasion): nothing else steers it
+	if Evasion.busy(fighter) then
 		return FightState
 	end
 
@@ -965,6 +976,20 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 		-- (out of a dodge the counter does not wait for the cooldown)
 		if not ((fighter:GetAttribute("CounterUntil") or 0) > now) then
+			return FightState
+		end
+	end
+
+	-- Round a guard, or after a strike was stopped: a focused dash to its side, still facing it,
+	-- and the strike comes from the new angle (Modules/Evasion)
+	if distance < 12 and Evasion.dashReady(fighter) and currentComboStep == 0
+		and (target:GetAttribute("IsGuarding") == true or fighter:GetAttribute("StrikeResult") == "Blocked")
+		and math.random() < (CombatConfig.FocusDash_OpeningChance or 0.3) then
+		local toT = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z)
+		local side = Vector3.new(-toT.Z, 0, toT.X) * (math.random() < 0.5 and -1 or 1)
+		if Evasion.focusDash(fighter, humanoid, rootPart, targetHRP, side) then
+			fighter:SetAttribute("StrikeResult", nil)
+			fighter:SetAttribute("CounterUntil", now + 0.5 + 0.5)
 			return FightState
 		end
 	end

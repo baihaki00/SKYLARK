@@ -79,6 +79,24 @@ local function setRole(role)
 	end
 end
 
+-- Play As Admin (the button and P): become Admin first, then possess. The role comes back from
+-- the server a moment later, so wait for it (P used to need the role already: as a Player it did nothing)
+local function playAsAdmin()
+	if player:GetAttribute("SkylarkRole") ~= "Admin" then
+		if player:GetAttribute("SkylarkCanAdmin") ~= true then
+			return
+		end
+		setRole("Admin")
+		local deadline = os.clock() + 3
+		while player:GetAttribute("SkylarkRole") ~= "Admin" and os.clock() < deadline do
+			task.wait(0.05)
+		end
+	end
+	if toggleQuinControl then
+		toggleQuinControl()
+	end
+end
+
 local function updateButtonDisplay(isPiloting)
 	if not toggleBtn then return end
 	if isPiloting then
@@ -144,10 +162,7 @@ local function ensureButtonHierarchy()
 		end)
 
 		toggleBtn.MouseButton1Click:Connect(function()
-			setRole("Admin")
-			if toggleQuinControl then
-				toggleQuinControl()
-			end
+			task.spawn(playAsAdmin)
 		end)
 
 		toggleBtn.Parent = playAsQuinGui
@@ -581,8 +596,8 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	if UserInputService:GetFocusedTextBox() then return end
 
 	-- Hotkey P toggles Quin mode (not while piloting a match Quin: PilotClient)
-	if input.KeyCode == Enum.KeyCode.P and not gp and not shared.PilotedQuin and (shared.IsAdmin and shared.IsAdmin()) then
-		toggleQuinControl()
+	if input.KeyCode == Enum.KeyCode.P and not gp and not shared.PilotedQuin and player:GetAttribute("SkylarkCanAdmin") == true then
+		task.spawn(playAsAdmin)
 		return
 	end
 

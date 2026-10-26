@@ -337,6 +337,8 @@ require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChi
 
 -- The timing markers in every strike clip (HitStart, HitEnd, Recover) are read now, not mid-fight
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StrikeMarkers")).preload()
+-- ...and the focused dash / quick evade clips' markers (DashEnd, EvadeApex, Recover)
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Evasion")).preload()
 
 -- Every animation clip is fetched now, so none is first loaded in the middle of a move
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule")).preload()
