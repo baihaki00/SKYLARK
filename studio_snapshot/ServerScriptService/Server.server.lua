@@ -333,6 +333,8 @@ end
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Momentum")).start()
 -- ... and the duel brain that picks them
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("MomentumDuel")).start()
+-- the wind drone on a Quin that stays airborne (Modules/SkyWind)
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SkyWind")).start()
 
 -- Reflexes: every Quin answers a strike it sees coming, every frame (Modules/Instinct)
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Instinct")).start()

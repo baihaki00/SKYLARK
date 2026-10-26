@@ -1393,4 +1393,19 @@ CombatConfig.MomentumDuel = {
 	LeapCost = 8, DashCost = 10, HopCost = 3,
 }
 
+-- SkyWind (Modules/SkyWind): a subtle wind drone on a Quin that stays airborne
+CombatConfig.SkyWind = {
+	Enabled = true,
+	SoundId = "rbxassetid://81548846235276",
+	RegionStart = 1.5, RegionEnd = 34, -- s of the 35.75 s wav looped (its own fade in/out cut off)
+	PlaybackSpeed = 0.85,  -- a little slowed down
+	Volume = 0.25,
+	AirTime = 1,           -- s off the ground before it starts
+	HighUp = 40,           -- studs above the ground: starts at once
+	AirHeight = 6,         -- studs above the ground counted as airborne
+	DownHeight = 3,        -- studs: fades out
+	FadeIn = 0.4, FadeOut = 0.5,
+	RollOffMin = 20, RollOffMax = 250,
+}
+
 return CombatConfig

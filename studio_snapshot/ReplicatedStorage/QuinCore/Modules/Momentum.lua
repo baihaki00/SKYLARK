@@ -315,7 +315,7 @@ function Momentum.dash(fighter, target, speed)
 	fighter:SetAttribute("MomentumMove", "dash")
 	stopLoops(rec)
 	playClip(rec, "ProjectileJump.DiveFly", 1, true)
-	AudioModule.playSonicBoom(root.Position)
+	AudioModule.playDash(root) -- the ground dash's sound (the sonic boom stays ProjectileJump's own)
 	VfxModule.createVaporCone(root, 0.5)
 	return true
 end
