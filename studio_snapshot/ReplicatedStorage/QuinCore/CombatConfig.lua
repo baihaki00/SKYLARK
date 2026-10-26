@@ -695,6 +695,9 @@ CombatConfig.Targeting_MinHold = 2.0                   -- seconds a Quin stays o
 CombatConfig.Targeting_SwitchMargin = 30               -- target utility another enemy must lead by to be changed to
 CombatConfig.Targeting_UrgentMargin = 80               -- ... and the lead that cuts the hold short (it is being hit from behind)
 CombatConfig.Targeting_HuntedScore = 60                -- target utility of the enemy hunting this Quin (times awareness)
+CombatConfig.Targeting_CrowdRadius = 45               -- studs: an ally this close to its target counts as on it (team coordination)
+CombatConfig.Targeting_CrowdPenalty = 40              -- target utility off per ally already on that enemy (up to 3; leaned by temperament)
+CombatConfig.Targeting_CoverScore = 45                -- target utility of an enemy closing on a busy ally nobody covers (x 0.5 + protectiveness)
 
 -- === Circling ===
 CombatConfig.Circling_TiredEnergyRatio = 0.35          -- below this energy the Quin drags its strafe

@@ -135,6 +135,28 @@ function TargetingModule.selectTarget(quinModel, localState)
 		return nil, 0, "No targets available"
 	end
 
+	-- Team picture (owner 2026-10-27, team coordination step 1): from the allies it can see,
+	-- which enemy each is on (fighting, chasing or circling it, close to it), and which allies are
+	-- busy. Only what it perceives (NearbyAllies), never the whole team.
+	local takers, busyAllies = {}, {}
+	local hurtOn = {} -- enemy -> an ally on it is in trouble
+	local engagedStates = { Fight = true, Chase = true, Circling = true }
+	local crowdRadius = CombatConfig.Targeting_CrowdRadius or 45
+	for _, ally in ipairs(localState and localState.NearbyAllies or {}) do
+		local am = ally.model
+		local aTarget = am and am.Parent and am:GetAttribute("CurrentTarget")
+		if aTarget and aTarget ~= "" and engagedStates[am:GetAttribute("CurrentState") or ""] then
+			local enemy = (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(aTarget)
+			local aRoot, eRoot = am:FindFirstChild("HumanoidRootPart"), enemy and enemy:FindFirstChild("HumanoidRootPart")
+			if aRoot and eRoot and (aRoot.Position - eRoot.Position).Magnitude <= crowdRadius then
+				takers[aTarget] = (takers[aTarget] or 0) + 1
+				busyAllies[am.Name] = aTarget
+				if (ally.healthRatio or 1) <= 0.35 then hurtOn[aTarget] = true end
+			end
+		end
+	end
+	local protectiveness = quinModel:GetAttribute("Pers_Protectiveness") or 0.5
+
 	local bestCandidate = nil
 	local bestUtility = -math.huge
 	local bestReason = "None"
@@ -272,7 +294,26 @@ function TargetingModule.selectTarget(quinModel, localState)
 				planScore *= planFollow
 			end
 
-			local utility = distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + socialScore + planScore
+			-- 15. Team coordination step 2: an enemy allies are already on is less worth going for
+			-- (3-4 Quins piled on one while others fought alone). Leanings, not a rule: a confident
+			-- Quin wants its own fight; an aggressive one still joins to finish a weak enemy; a
+			-- protective one goes where an ally on it is in trouble.
+			local crowdScore = 0
+			local onIt = takers[model.Name] or 0
+			if onIt > 0 then
+				local lean = 1 + (confidence - 0.5) * 0.6
+				if targetHp < 0.3 then lean *= (1 - aggression * 0.7) end
+				if hurtOn[model.Name] then lean *= (1 - protectiveness * 0.8) end
+				crowdScore = -(CombatConfig.Targeting_CrowdPenalty or 40) * math.min(onIt, 3) * math.max(lean, 0)
+			end
+			-- ... and an enemy closing on an ally who is busy with someone else is worth cutting off
+			local coverScore = 0
+			local theirs = model:GetAttribute("CurrentTarget")
+			if theirs and busyAllies[theirs] and busyAllies[theirs] ~= model.Name and onIt == 0 then
+				coverScore = (CombatConfig.Targeting_CoverScore or 45) * (0.5 + protectiveness)
+			end
+
+			local utility = crowdScore + coverScore + distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + socialScore + planScore
 
 			if model.Name == heldName then
 				heldCandidate, heldUtility = model, utility
@@ -296,6 +337,8 @@ function TargetingModule.selectTarget(quinModel, localState)
 				if dist <= 15 then table.insert(reasons, string.format("Close range (%.1f studs)", dist)) end
 				if rearThreatScore > 15 then table.insert(reasons, "Immediate rear threat") end
 				if huntedScore > 0 then table.insert(reasons, "It is hunting me") end
+				if crowdScore < -15 then table.insert(reasons, string.format("%d allies already on it", onIt)) end
+				if coverScore > 0 then table.insert(reasons, "Cutting off one going for a busy ally") end
 				if riskScore > 15 then table.insert(reasons, "High risk penalty") end
 				if threatScore > 15 then table.insert(reasons, "High counter-threat") end
 				if #reasons == 0 then table.insert(reasons, "Optimal utility score") end

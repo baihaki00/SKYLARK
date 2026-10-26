@@ -106,7 +106,9 @@ function TeamCoordinationSystem.getTeamFocusTarget(quinModel)
 				end
 			end
 		end
-	elseif role == "Bodyguard" or role == "Wingman" then
+	-- (a Wingman no longer joins its ally's 1v1 - that made the 2-4 on 1 piles; it cuts off
+	-- others coming at the ally instead: TargetingModule's cover score. Owner 2026-10-27.)
+	elseif role == "Bodyguard" then
 		local guardedName = quinModel:GetAttribute("GuardedAlly")
 		if guardedName and guardedName ~= "" then
 			local guardedModel = workspace:FindFirstChild(guardedName) or (workspace:FindFirstChild("QuinServer") and workspace.QuinServer:FindFirstChild(guardedName))
