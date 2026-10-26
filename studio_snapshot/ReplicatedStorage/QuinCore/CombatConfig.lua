@@ -497,7 +497,7 @@ CombatConfig.BeamStruggle_MaxDuration = 5.5     -- seconds a beam struggle may l
 CombatConfig.ProjectileJump_TurnLegSlope = 0.2  -- how far downhill a turn leg of a dive runs (drop per stud across)
 CombatConfig.Nav_StoneJumpMinWidth = 10                 -- studs: a stepping stone's top at least this wide is jumped on to; a smaller one gets the spot hop
 CombatConfig.Nav_StoneHopCooldown = 2.5               -- seconds between stepping-stone hops (was 0.6; owner 2026-10-27: tone them down)
-CombatConfig.ProjectileJump_SoftSoundRise = 30         -- a spot hop to a point less than this far up plays the quiet jump sound, not the launch
+CombatConfig.ProjectileJump_LaunchFxHeight = 200       -- the launch sound + shockwave + shake only for a jump topping out this high above the ground; lower ones get the quiet jump sound
 
 -- === Projectile jump flight ===
 CombatConfig.ProjectileJump_SlamSpeed = 480            -- studs/s of the dive onto the target (styles 3, 6 and 7 dive 15% faster)

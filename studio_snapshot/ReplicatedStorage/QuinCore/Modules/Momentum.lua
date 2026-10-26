@@ -298,9 +298,13 @@ function Momentum.leap(fighter, spot, apex)
 	setBallistic(rec, flat(p1 - p0) / T + Vector3.yAxis * up, "leap")
 	playClip(rec, "ProjectileJump.NinjaJump", cfg("LeapClipSpeed", 1.3), false)
 	playClip(rec, "Movement.Fall", 1, true, Enum.AnimationPriority.Action)
-	AudioModule.playJumpUp(root.Position)
-	if (apex or 30) >= cfg("BigLeapApex", 30) then
+	-- the launch sound and shockwave only for a leap into the sky (owner 2026-10-27: 200+ studs up;
+	-- below that it is a jump, and sounds like one)
+	if topY - (p0.Y - standOffset(humanoid, root)) >= (CombatConfig.ProjectileJump_LaunchFxHeight or 200) then
+		AudioModule.playJumpUp(root.Position)
 		VfxModule.createLaunchShockwave(root)
+	else
+		AudioModule.playJumpSoft(root.Position)
 	end
 	return true
 end

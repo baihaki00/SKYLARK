@@ -418,6 +418,31 @@ local function diveDirection(offset, fallback)
 	return dir.Magnitude > 0.001 and dir.Unit or fallback
 end
 
+-- The launch's sound and shockwave are for a jump into the sky (owner 2026-10-27: "that sound is
+-- for a Quin staying airborne for quite a while"): only when the jump tops out at least
+-- ProjectileJump_LaunchFxHeight studs above the ground under it. A lower one sounds like a jump,
+-- quietly, with no shockwave or shake. vy: the launch's upward speed.
+local launchFxParams = RaycastParams.new()
+launchFxParams.FilterType = Enum.RaycastFilterType.Exclude
+local function launchFx(rootPart, vy, shake, untilT)
+	local qs = workspace:FindFirstChild("QuinServer")
+	launchFxParams.FilterDescendantsInstances = qs and { qs } or {}
+	local hit = workspace:Raycast(rootPart.Position, Vector3.new(0, -1000, 0), launchFxParams)
+	local above = hit and (rootPart.Position.Y - hit.Position.Y) or 0
+	-- (the rise it really makes: a dash or dive that starts before the top cuts it short - untilT)
+	local g = workspace.Gravity
+	local t = math.max(vy, 0) / g
+	if untilT then t = math.min(t, math.max(untilT, 0)) end
+	local peak = above + math.max(vy, 0) * t - 0.5 * g * t * t
+	if peak >= (CombatConfig.ProjectileJump_LaunchFxHeight or 200) then
+		AudioModule.playJumpUp(rootPart.Position)
+		VfxModule.createLaunchShockwave(rootPart)
+		if shake then VfxModule.shakeScreen(rootPart.Position, 500, 8) end
+	else
+		AudioModule.playJumpSoft(rootPart.Position)
+	end
+end
+
 local function switchPhase(data, newPhase)
 	data.phase = newPhase
 	data.phaseTime = tick()
@@ -510,8 +535,7 @@ local function comboNext(data, humanoid, rootPart, lv)
 
 		rootPart.AssemblyLinearVelocity = Vector3.new(driftVelocity.X, jumpPower, driftVelocity.Z)
 
-		AudioModule.playJumpUp(rootPart.Position)
-		VfxModule.createLaunchShockwave(rootPart)
+		launchFx(rootPart, jumpPower, false, Config.ComboGapTimeMax)
 		if data.comboIndex == 1 then
 			VfxModule.createRocketTrail(rootPart)
 			VfxModule.shakeScreen(rootPart.Position, 500, 8)
@@ -606,8 +630,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	end
 
 	-- (a spot hop to a point is a low jump: the quiet jump sound; the launch sound is for the sky)
-	local marker = starting.precise and target:FindFirstChildWhichIsA("BasePart")
-	if marker and marker.Position.Y - rootPart.Position.Y < (CombatConfig.ProjectileJump_SoftSoundRise or 30) then AudioModule.playJumpSoft(rootPart.Position) else AudioModule.playJumpUp(rootPart.Position) end
+	-- (the jump's sound plays at the launch, by how high it goes: launchFx)
 
 	local att = Instance.new("Attachment")
 	att.Name = "PJ_Att"
@@ -953,8 +976,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			end
 
 			VfxModule.createRocketTrail(rootPart)
-			VfxModule.createLaunchShockwave(rootPart)
-			VfxModule.shakeScreen(rootPart.Position, 500, 8)
+			launchFx(rootPart, rootPart.AssemblyLinearVelocity.Y, true)
 
 			switchPhase(data, "Arcing")
 
@@ -1018,8 +1040,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			rootPart.AssemblyLinearVelocity = Vector3.new(driftVelocity.X, jumpPower, driftVelocity.Z)
 
 			VfxModule.createRocketTrail(rootPart)
-			VfxModule.createLaunchShockwave(rootPart)
-			VfxModule.shakeScreen(rootPart.Position, 500, 8) 
+			launchFx(rootPart, jumpPower, true, data.dashExactTime)
 			switchPhase(data, "AirborneTimer")
 		end
 
@@ -1107,8 +1128,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			local driftVelocity = (forwardVec * forwardSpeed) + (rightVec * sideSpeed)
 
 			rootPart.AssemblyLinearVelocity = Vector3.new(driftVelocity.X, midAirJumpPower, driftVelocity.Z)
-			AudioModule.playJumpUp(rootPart.Position)
-			VfxModule.createLaunchShockwave(rootPart)
+			launchFx(rootPart, midAirJumpPower, false, data.multiJumpDashTime)
 		end
 
 		if timeSinceJump >= data.dashExactTime or (isFalling and heightAboveTarget <= 60) then
