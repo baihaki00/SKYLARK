@@ -305,18 +305,9 @@ local function wireTrackAudio(humanoid, track, animId)
 		end
 	end)
 
-	-- Projectile jump marker
-	track:GetMarkerReachedSignal("ProjectileJump"):Connect(function()
-		local audio = getAudioModule()
-		-- (only in a projectile jump: the air dash borrows the ninja jump's push-off, and its
-		-- launch sound played on every dash off a wall)
-		if audio and audio.playJumpUp and fighter and fighter.Parent and fighter:GetAttribute("CurrentState") == "ProjectileJump" then
-			local hrp = fighter:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				audio.playJumpUp(hrp.Position)
-			end
-		end
-	end)
+	-- Projectile jump marker: no sound here any more (owner 2026-10-27: the launch sound played on
+	-- every projectile jump, even ones barely off the ground). ProjectileJumpState.launchFx plays
+	-- it at the launch, only for a jump that really goes 200+ studs up.
 end
 
 -- Get or create an Animator on the humanoid
