@@ -67,6 +67,7 @@ local function score(quinModel, rootPart, context, board)
 				pinned = true
 			end
 		end
+		tasks.pinned = pinned
 		tasks.Fight = {
 			score = cfg("Task_FightBase", 60) + (pinned and cfg("Task_PinnedBonus", 60) or 0) + 20 * (aggression - 0.5),
 			why = pinned and "one is on me" or "enemies right here",
@@ -149,6 +150,8 @@ function TaskChoice.choose(quinModel, rootPart, context)
 	local now = os.clock()
 
 	local tasks = score(quinModel, rootPart, context, board)
+	local pinned = tasks.pinned
+	tasks.pinned = nil
 	local bestName, best = "Fight", tasks.Fight
 	for name, t in pairs(tasks) do
 		if t.score > best.score then bestName, best = name, t end
@@ -156,7 +159,8 @@ function TaskChoice.choose(quinModel, rootPart, context)
 
 	-- Keep the task it has for a moment unless another is clearly better
 	local held = board.task
-	if held and held.name ~= bestName and tasks[held.name] and tasks[held.name].score > -math.huge then
+	-- (an enemy on it, close, ends any hold: nobody walks off with one hitting its back)
+	if held and held.name ~= bestName and not (pinned and bestName == "Fight") and tasks[held.name] and tasks[held.name].score > -math.huge then
 		local heldScore = tasks[held.name].score
 		if now - held.since < cfg("Task_MinHold", 2.5) or best.score - heldScore < cfg("Task_SwitchMargin", 20) then
 			bestName, best = held.name, tasks[held.name]

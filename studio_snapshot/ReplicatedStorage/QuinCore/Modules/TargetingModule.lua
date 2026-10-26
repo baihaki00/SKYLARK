@@ -299,7 +299,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 			-- last moment, still within reach, pulls hard; aggressive Quins answer it hardest.
 			local struckScore = 0
 			if struckName == model.Name and not isCurrent and dist <= (CombatConfig.Targeting_StruckRange or 12) then
-				struckScore = (CombatConfig.Targeting_StruckScore or 90) * (0.6 + 0.4 * aggression)
+				struckScore = (CombatConfig.Targeting_StruckScore or 120) * (0.6 + 0.4 * aggression)
 			end
 
 			-- 13. Social layer (SocialSystem): a leader's attack signal this Quin chose to follow, an
@@ -391,10 +391,10 @@ function TargetingModule.selectTarget(quinModel, localState)
 	end
 
 	-- Commitment (see above): the target it has is kept unless the best is clearly better
-	if heldCandidate and bestCandidate and bestCandidate ~= heldCandidate then
+	if heldCandidate and bestCandidate and bestCandidate ~= heldCandidate and bestCandidate.Name ~= struckName then
 		local lead = bestUtility - heldUtility
-		-- (the one that just hit it is urgent by itself: the hold does not keep it facing away)
-		local holding = isHolding(quinModel) and bestCandidate.Name ~= struckName
+		-- (the one that just hit it skips this: if it comes out best it is turned on at once)
+		local holding = isHolding(quinModel)
 		if lead < (CombatConfig.Targeting_UrgentMargin or 80)
 			and (holding or lead < (CombatConfig.Targeting_SwitchMargin or 30)) then
 			bestCandidate, bestUtility = heldCandidate, heldUtility
