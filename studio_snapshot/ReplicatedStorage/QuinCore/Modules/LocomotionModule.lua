@@ -12,6 +12,8 @@ local Debris = game:GetService("Debris")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local JumpLog = require(QuinCore:WaitForChild("Modules"):WaitForChild("JumpLog"))
+-- (a traversal jump is its own reason: something in the way, or a ledge to come down)
+local TRAVERSAL_WHY = { vault = "over an obstacle", hurdle = "over an obstacle", skidover = "over an obstacle", dismount = "down off a ledge", leap_down = "down off a ledge" }
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local KnockbackModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
@@ -1107,7 +1109,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 
 	-- every jump says why (JumpLog, team coordination step 5)
 	if fighter and fighter:IsA("Model") then
-		JumpLog.mark(fighter, "Jump:" .. tostring(jumpType or "jump"), JumpLog.why(fighter))
+		JumpLog.mark(fighter, "Jump:" .. tostring(jumpType or "jump"), JumpLog.why(fighter) or TRAVERSAL_WHY[jumpType])
 	end
 
 	if fighter and fighter:IsA("Instance") then

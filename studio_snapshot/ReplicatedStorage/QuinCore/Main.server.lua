@@ -860,6 +860,8 @@ task.spawn(function()
 			local JumpLog = require(QuinCore.Modules.JumpLog)
 			JumpLog.mark(Quin, "ProjectileJump", JumpLog.why(Quin) or (forceState and ("forced (" .. tostring(forceStateStr) .. ")")) or ("? from " .. tostring(currentState and currentState.name)))
 		end
+		-- (a reason given for a jump that did not happen this beat is dropped, not left for a later one)
+		if Quin:GetAttribute("JumpWhy") then Quin:SetAttribute("JumpWhy", nil) end
 		if newState and newState ~= currentState then
 			-- State Dwell Commitment Check: prevent rapid 100-300ms fluttering
 			local isInterrupt = (forceState ~= nil)

@@ -355,7 +355,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				local lined = toStone.Magnitude > 0.1 and rootPart.CFrame.LookVector:Dot(toStone.Unit) > 0.85
 				local jumpTo = wideTop and lined
 					and TraversalModule.solveJumpOnto(stone.rise, math.max(stone.hop - 3, 1), CombatConfig.Jump_MaxReach or 25.0, 3)
-				fighter:SetAttribute("JumpWhy", "climb to a stepping stone") -- (JumpLog, team step 5)
+				fighter:SetAttribute("JumpWhy", "jump to a stepping stone (it is up high)") -- (JumpLog, team step 5)
 				if jumpTo and LocomotionModule.jump(fighter, humanoid, rootPart, jumpTo.height, jumpTo.speed, "jump") then
 					fighter:SetAttribute("ObstacleAwareness", string.format("Jump to a stone: %.0f up, %.0f across", stone.rise, stone.hop))
 					fighter:SetAttribute("StoneJumps", (fighter:GetAttribute("StoneJumps") or 0) + 1) -- (probes)
@@ -363,7 +363,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 					return ChaseState
 				end
 				fighter:SetAttribute("LastProjectileJumpTime", tick())
-				fighter:SetAttribute("JumpWhy", "climb (stone too narrow to jump)") -- (JumpLog, team step 5)
+				fighter:SetAttribute("JumpWhy", "spot hop to a stepping stone (it is up high)") -- (JumpLog, team step 5)
 				local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
 				ProjectileJumpState.aimAtPoint(fighter, stone.point)
 				return ProjectileJumpState
@@ -821,6 +821,11 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	if reachNow then Reach.publish(fighter, reachNow) end
 	local inRange = distance <= (CombatConfig.CombatRange or 7) * 1.5
 		or (reachNow ~= nil and reachNow.time <= (CombatConfig.Reach_FightEnterTime or 0.15) and distance <= (CombatConfig.CombatRange or 7) * 3)
+	-- (a flanker still going round does not stop to fight at the side: it gets behind first,
+	-- unless the enemy comes right at it; team coordination step 3)
+	if inRange and fighter:GetAttribute("Flanking") and distance > (CombatConfig.CombatRange or 7) * (CombatConfig.Team_FlankCommitRange or 0.9) then
+		inRange = false
+	end
 	if reachable and inRange then
 		if math.random() > 0.7 then
 			return require(script.Parent:WaitForChild("CirclingState"))
