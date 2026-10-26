@@ -16,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Blackboard = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Blackboard"))
+local FightMaths = require(QuinCore:WaitForChild("Modules"):WaitForChild("FightMaths"))
 
 local TaskChoice = {}
 
@@ -131,6 +132,7 @@ local function score(quinModel, rootPart, context, board)
 					+ (contact.confidence or 1) * 20
 					+ (contact.model.Name == quinModel:GetAttribute("CurrentTarget") and cfg("Task_HuntKeepValue", 25) or 0)
 					- dist * cfg("Task_HuntDistanceCost", 0.15)
+					- FightMaths.cost(quinModel, rootPart, contact.position, confidence)
 					- (selfHp < 0.35 and 30 or 0)
 				if not bestHunt or s > bestHunt.score then
 					local how = contact.visible and "I see it"
@@ -163,10 +165,10 @@ function TaskChoice.choose(quinModel, rootPart, context)
 	if held and tasks[held.name] and tasks[held.name].score > -math.huge and not (pinned and held.name ~= "Fight") then
 		local keep = cfg("Task_KeepValue", 25)
 		if held.name == "Rescue" then
-			-- on its way to a hurt ally: a devoted Quin (protective, persistent) runs past the
-			-- enemies in its path; a hot-headed one takes the first fight it passes
-			local devotion = (pers(quinModel, "Pers_Protectiveness", 0.5) + pers(quinModel, "Pers_TargetPersistence", 0.7)) / 2
-			keep += cfg("Task_RescueDevotion", 70) * devotion - cfg("Task_RescueDistraction", 40) * pers(quinModel, "Pers_Aggression", 0.6)
+			-- on its way to a hurt ally: a protective Quin runs past the enemies in its path; an
+			-- aggressive one takes the first fight it passes (habits, so the temperament shows:
+			-- Guardian and Friendly push through, Hothead and Jester take the bait)
+			keep += cfg("Task_RescueDevotion", 70) * pers(quinModel, "Pers_Protectiveness", 0.5) - cfg("Task_RescueDistraction", 40) * pers(quinModel, "Pers_Aggression", 0.6)
 		end
 		tasks[held.name].score += keep
 	end

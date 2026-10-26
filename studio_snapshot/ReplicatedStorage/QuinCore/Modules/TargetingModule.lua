@@ -10,6 +10,7 @@ local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local Cognition = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Cognition"))
 local DebugReadouts = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 
+local FightMaths = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("FightMaths"))
 local SocialSystem = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SocialSystem"))
 local TargetingModule = {}
 
@@ -302,6 +303,13 @@ function TargetingModule.selectTarget(quinModel, localState)
 				struckScore = (CombatConfig.Targeting_StruckScore or 120) * (0.6 + 0.4 * aggression)
 			end
 
+			-- 12c. Fight maths (FightMaths): who it believes is around that enemy. Walking into a
+			-- 1v3 costs, the more so for a cautious Quin; the one that just hit it is answered anyway.
+			local oddsCost, oddsWhy = 0, nil
+			if struckScore == 0 then
+				oddsCost, oddsWhy = FightMaths.cost(quinModel, rootPart, cand.position or model.HumanoidRootPart.Position, confidence)
+			end
+
 			-- 13. Social layer (SocialSystem): a leader's attack signal this Quin chose to follow, an
 			-- enemy going for the leader it trusts, a Quin it holds off (respect custom)
 			local socialScore = SocialSystem.targetScore(quinModel, model)
@@ -354,7 +362,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				coverScore = (CombatConfig.Targeting_CoverScore or 45) * (0.5 + protectiveness)
 			end
 
-			local utility = crowdScore + coverScore + distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + struckScore + socialScore + planScore
+			local utility = crowdScore + coverScore + distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + struckScore + socialScore + planScore - oddsCost
 
 			if model.Name == heldName then
 				heldCandidate, heldUtility = model, utility
@@ -379,6 +387,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				if rearThreatScore > 15 then table.insert(reasons, "Immediate rear threat") end
 				if huntedScore > 0 then table.insert(reasons, "It is hunting me") end
 				if struckScore > 0 then table.insert(reasons, "It just hit me") end
+				if oddsCost > 15 then table.insert(reasons, oddsWhy) end
 				if crowdScore < -15 then table.insert(reasons, string.format("%d allies already on it", onIt)) end
 				if coverScore > 0 then table.insert(reasons, "Cutting off one going for a busy ally") end
 				if riskScore > 15 then table.insert(reasons, "High risk penalty") end

@@ -722,8 +722,13 @@ CombatConfig.Task_Enabled = true                     -- off: always Fight (the o
 CombatConfig.Task_MinHold = 2.5                      -- seconds a task is kept before another may take over...
 CombatConfig.Task_SwitchMargin = 20                  -- ...and after that, only for one this much better
 CombatConfig.Task_KeepValue = 25                     -- the task it already has scores this much more (finish what it started)
+-- Fight maths (Modules/FightMaths): count the believed sides around an enemy before taking it on
+CombatConfig.FightMaths_Enabled = true               -- off: no counting (live A/B: Workspace attribute FightMathsOff)
+CombatConfig.FightMaths_Radius = 25                  -- studs around the enemy that count as "there"
+CombatConfig.FightMaths_Weight = 40                  -- utility off per Quin it is short there (health-weighted, up to 3)...
+CombatConfig.FightMaths_Slack = 0.25                 -- ...past this much (a near-even fight costs nothing)
 CombatConfig.Task_RescueFollowFactor = 1.5           -- the ally it is already going to is followed this much further (and its last attacker counts)
-CombatConfig.Task_RescueDevotion = 70                -- on a rescue: + this x (protectiveness + persistence)/2 (runs past enemies in its path)
+CombatConfig.Task_RescueDevotion = 70                -- on a rescue: + this x protectiveness (runs past enemies in its path)
 CombatConfig.Task_RescueDistraction = 40             -- ...- this x aggression (takes the first fight it passes)
 CombatConfig.Task_FightBase = 60                     -- enemies right here (+ 20 x (aggression - 0.5))
 CombatConfig.Task_PinnedRange = 20                   -- an enemy on it this close pins it to the fight...
