@@ -331,6 +331,8 @@ end
 
 -- Momentum moves (leaps, air dashes, bounces, rolls): their loop is owned here too
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Momentum")).start()
+-- ... and the duel brain that picks them
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("MomentumDuel")).start()
 
 -- Reflexes: every Quin answers a strike it sees coming, every frame (Modules/Instinct)
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Instinct")).start()

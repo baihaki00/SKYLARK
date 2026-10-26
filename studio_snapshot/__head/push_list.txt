@@ -1,0 +1,17 @@
+M ReplicatedStorage/QuinCore/Modules/DecisionSystem.lua
+M ReplicatedStorage/QuinCore/Modules/PersonalitySystem.lua
+M ReplicatedStorage/QuinCore/Modules/QuinInstance.lua
+M ReplicatedStorage/QuinCore/Modules/RetreatTacticsModule.lua
+M ReplicatedStorage/QuinCore/Modules/TargetingModule.lua
+M ReplicatedStorage/QuinCore/Modules/ThoughtVoice.lua
+M ReplicatedStorage/QuinCore/States/ChaseState.lua
+M ServerScriptService/ArenaPrepRoom.lua
+M ServerScriptService/ArenaSystemOrchestrator.server.lua
+M StarterPlayer/StarterPlayerScripts/ArenaDroneClientController.client.lua
+M StarterPlayer/StarterPlayerScripts/ArenaEntry.client.lua
+M StarterPlayer/StarterPlayerScripts/QuinDebugHUD.client.lua
+M StarterPlayer/StarterPlayerScripts/SkylarkRoleClient.client.lua
+M StarterPlayer/StarterPlayerScripts/SmoothCamera.client.lua
+A ServerScriptService/SkylarkSpectate.server.lua
+A ServerScriptService/SkylarkWallet.lua
+A StarterPlayer/StarterPlayerScripts/SpectateClient.client.lua

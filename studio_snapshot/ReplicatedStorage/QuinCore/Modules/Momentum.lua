@@ -65,6 +65,36 @@ function Momentum.busy(fighter)
 	return moves[fighter] ~= nil
 end
 
+-- What the move is doing ("leap", "dash", "thrown", "bounce", "air"), nil when none
+function Momentum.kind(fighter)
+	local rec = moves[fighter]
+	return rec and rec.kind or nil
+end
+
+-- The Quin a dash is going at (nil: none, or not a dash)
+function Momentum.targetOf(fighter)
+	local rec = moves[fighter]
+	return rec and rec.kind == "dash" and rec.target or nil
+end
+
+-- Seconds since the move's current part began (a leap, a dash, a throw)
+function Momentum.phaseAge(fighter)
+	local rec = moves[fighter]
+	return rec and os.clock() - (rec.phaseAt or rec.started) or math.huge
+end
+
+-- Off the ground: in a move, or falling or jumping on its own
+function Momentum.inAir(fighter)
+	if moves[fighter] then return true end
+	local humanoid = fighter:FindFirstChildOfClass("Humanoid")
+	return humanoid ~= nil and humanoid.FloorMaterial == Enum.Material.Air
+end
+
+-- Contact outcomes are asked of this, when set (MomentumDuel): hook(dasher, other) ->
+-- nil (thrown apart) or { throw = x, up = x } (scaled throws: a brawl's small ones) or
+-- { ground = true } (the dasher lands beside a standing Quin: the fight goes on on the ground)
+Momentum.contactHook = nil
+
 local function flat(v)
 	return Vector3.new(v.X, 0, v.Z)
 end
@@ -257,6 +287,17 @@ function Momentum.hop(fighter, apex)
 	return Momentum.leap(fighter, spot, apex)
 end
 
+-- A quick low leap to one side, out of the line of something coming at it from threat
+function Momentum.sidestep(fighter, threat)
+	local humanoid, root = bodyOf(fighter)
+	if not humanoid then return false end
+	local toward = unitOr(flat(threat - root.Position), flat(root.CFrame.LookVector))
+	local side = Vector3.new(-toward.Z, 0, toward.X) * (math.random() < 0.5 and -1 or 1)
+	local spot = groundBelow(fighter, root.Position + side * math.random(cfg("SidestepMin", 20), cfg("SidestepMax", 35)))
+	if not spot then return false end
+	return Momentum.leap(fighter, spot, cfg("SidestepApex", 5))
+end
+
 -- A burst at a target (a Quin: led and re-aimed every frame) or at a spot (a Vector3)
 function Momentum.dash(fighter, target, speed)
 	local humanoid, root = bodyOf(fighter)
@@ -296,6 +337,8 @@ local function bounce(rec, velocity, normal, at)
 	end
 end
 
+local land -- (below)
+
 -- A dash reached its target: both strike and are thrown apart, each on its own arc
 local function contact(rec, other)
 	local oHum, oRoot = bodyOf(other)
@@ -320,11 +363,32 @@ local function contact(rec, other)
 	VfxModule.shakeScreen(mid, 250, 6)
 	local victim = math.random() < 0.5 and rec.humanoid or oHum
 	victim:TakeDamage(cfg("ContactDamage", 2))
+	rec.fighter:SetAttribute("MomentumContactAt", os.clock())
+	other:SetAttribute("MomentumContactAt", os.clock())
+
+	local outcome = Momentum.contactHook and Momentum.contactHook(rec.fighter, other) or nil
+	if outcome and outcome.ground then
+		-- into a Quin on its feet: the dasher comes down beside it, and the fight goes on there
+		local dir = unitOr(flat(oRoot.Position - root.Position), unitOr(flat(root.CFrame.LookVector), Vector3.zAxis))
+		local spot = groundBelow(rec.fighter, oRoot.Position - dir * cfg("GroundContactGap", 5))
+		if spot then
+			land(rec, dir * 20, spot + Vector3.new(0, standOffset(rec.humanoid, root), 0))
+		else
+			setBallistic(rec, dir * 20)
+		end
+		if not moves[other] then
+			ImpulseModule.push(other, "momentum_hit", dir, cfg("GroundHitPush", 70), 0.3, {
+				profile = "decay", priority = ImpulseModule.Priority.Reaction,
+			})
+		end
+		return
+	end
+	local throwScale, upScale = outcome and outcome.throw or 1, outcome and outcome.up or 1
 
 	local function throw()
 		local side = math.rad(math.random(-35, 35))
 		local c, s = math.cos(side), math.sin(side)
-		return math.random(cfg("ThrowMin", 70), cfg("ThrowMax", 140)), math.random(cfg("ThrowUpMin", 50), cfg("ThrowUpMax", 110)), c, s
+		return math.random(cfg("ThrowMin", 70), cfg("ThrowMax", 140)) * throwScale, math.random(cfg("ThrowUpMin", 50), cfg("ThrowUpMax", 110)) * upScale, c, s
 	end
 	local function turned(v, c, s)
 		return Vector3.new(v.X * c + v.Z * s, 0, -v.X * s + v.Z * c)
@@ -343,12 +407,10 @@ local function contact(rec, other)
 		orec.face = rec.fighter
 		playClip(orec, "Movement.FallAirKnockback", 1, true)
 	end
-	rec.fighter:SetAttribute("MomentumContactAt", os.clock())
-	other:SetAttribute("MomentumContactAt", os.clock())
 end
 
 -- Touchdown: on its feet; with speed, a roll that carries it on
-local function land(rec, velocity, standPos)
+land = function(rec, velocity, standPos)
 	local h = flat(velocity)
 	local look = unitOr(h, unitOr(flat(rec.root.CFrame.LookVector), Vector3.zAxis))
 	rec.root.CFrame = CFrame.lookAt(standPos, standPos + look)
@@ -444,6 +506,7 @@ local function step(rec, dt)
 				root.CFrame = root.CFrame.Rotation + at
 			end
 			contact(rec, rec.target)
+			return
 		elseif now - rec.phaseAt > cfg("DashMaxTime", 1.2) then
 			setBallistic(rec, lv.VectorVelocity * 0.4)
 		else

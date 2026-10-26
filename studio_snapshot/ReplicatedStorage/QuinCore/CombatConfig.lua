@@ -847,7 +847,8 @@ CombatConfig.MidAirClash_Cooldown = 3.0              -- seconds after a clash be
 CombatConfig.MidAirClash_Orbit = true                 -- false: the old static flurry at an anchor
 CombatConfig.MidAirClash_OrbitCyclesMin = 1           -- passes before the clash is resolved (random)
 CombatConfig.MidAirClash_OrbitCyclesMax = 10
-CombatConfig.MidAirClash_OrbitMaxTime = 7             -- seconds the whole clash lasts at most
+CombatConfig.MidAirClash_OrbitMaxTimeMin = 1          -- seconds a clash lasts: random between this and MaxTime (owner, 2026-10-27: 1-2 s)
+CombatConfig.MidAirClash_OrbitMaxTime = 2
 CombatConfig.MidAirClash_OrbitShiftMin = 10           -- degrees the axis the next crossing is set off on turns per hit
 CombatConfig.MidAirClash_OrbitShiftMax = 120
 CombatConfig.MidAirClash_OrbitBpmMin = 100            -- passes per minute (clash cadence)
@@ -879,7 +880,7 @@ CombatConfig.MidAirClash_OrbitBrawlMaxRadiusLow = 1.5
 CombatConfig.MidAirClash_OrbitBrawlMaxRadius = 3.0
 CombatConfig.MidAirClash_OrbitBrawlEaseMax = 2.5
 -- Two clash styles: the crossing dogfight (main) and the leap (blow apart, plant, kick back in)
-CombatConfig.MidAirClash_OrbitLeapChance = 0.25        -- share of clashes that are leaps (the rest: dogfight)
+CombatConfig.MidAirClash_OrbitLeapChance = 0           -- share of clashes that are leaps (off 2026-10-27: no hit fits in 1-2 s; Momentum takes it over)
 -- Dogfight: each flies its own curve, the curves keep crossing (a hit at each crossing)
 CombatConfig.MidAirClash_OrbitDogfightTimeScale = 0.68 -- a leg lasts 60/cadence x Tempo x this s (toned down from 0.577, 2026-10-27)
 CombatConfig.MidAirClash_OrbitDogfightGravity = 2.5    -- x workspace gravity: speed follows height (slowest at the top of a loop, fastest diving)
@@ -913,7 +914,7 @@ CombatConfig.MidAirClash_OrbitDogfightTempoMax = 1.3
 CombatConfig.MidAirClash_OrbitDogfightAltitudeMin = 4  -- studs a crossing is over what is under it: skimming low to high up
 CombatConfig.MidAirClash_OrbitDogfightAltitudeMax = 90
 -- Leap: blown apart on their own arcs, down at different times; then one leaps and the other intercepts it mid-flight, or one pounces
-CombatConfig.MidAirClash_OrbitLeapMaxTime = 9          -- s (high jumps take longer)
+CombatConfig.MidAirClash_OrbitLeapMaxTime = 2          -- s, the leap style's MaxTime
 CombatConfig.MidAirClash_OrbitLeapScale = 1.5          -- a hit blows each MaxRadius x StudsPerUnit x this away (x 0.6-1.2 each)
 CombatConfig.MidAirClash_OrbitLeapApexMin = 15         -- studs a blown-away arc tops out over its higher end (each its own)
 CombatConfig.MidAirClash_OrbitLeapApexMax = 80
@@ -1358,6 +1359,38 @@ CombatConfig.Momentum = {
 	RollMaxSpeed = 160, RollTime = 0.5, RollEndRatio = 0.3, RollClipSpeed = 1.7,
 	HardLandingSpeed = 150, -- studs/s falling: superhero landing and a shockwave
 	DemoRounds = 3,
+}
+
+-- === MomentumDuel (Modules/MomentumDuel): the duel brain - two Quins reading each other and ===
+-- picking momentum moves beat by beat. Enabled = false switches the brain off (the moves stay).
+CombatConfig.MomentumDuel = {
+	Enabled = true,
+	MaxDuels = 3,               -- at once in an arena
+	ScanInterval = 0.5,         -- s between looks for an opener
+	OpenerChance = 0.05,        -- per look, x (0.5 + aggression) x (0.5 + mobility)
+	OpenerMinRange = 50, OpenerMaxRange = 260, OpenerMinEnergy = 45,
+	OpenerApexMin = 40, OpenerApexMax = 100,
+	Cooldown = 10,              -- s after a duel before a Quin opens another
+	ReactMin = 0.12, ReactMax = 0.35, -- s to answer what it sees (slower when less aware)
+	BeatMin = 12, BeatMax = 30, -- hundredths of a s between thoughts
+	MeetBase = 0.15, MeetAggression = 0.45, -- dashing first to meet a dash at it
+	SidestepChance = 0.35,
+	AirDashes = 2,              -- per airtime (a brawl goes past it)
+	-- rates: times per second, x the duel's intensity (a choice per beat was near certain in half a second)
+	AirDashBase = 0.3, AirDashPreference = 0.9, AirDashRange = 220,
+	DashUpBase = 0.2, DashUpAggression = 0.6, LeapUpBase = 0.2, LeapUpMobility = 0.6,
+	HopMobility = 1.2, LeapAtBase = 0.15, LeapAtMobility = 0.5,
+	ReflexShare = 0.5,          -- a dash coming at it is answered in this share of its reaction time
+	GroundDashRange = 170,      -- studs: a Quin on the ground dashes up at one in the air
+	LeapApexMin = 25, LeapApexMax = 85, LeapSide = 45,
+	GroundFightRange = 20,      -- studs: both on the ground this close, the fight goes on on foot
+	GroundFightChance = 0.5,    -- a dash into a Quin on its feet ends in a fight on the ground
+	BrawlChance = 0.3, BrawlMin = 2, BrawlMax = 4, BrawlThrow = 0.35, BrawlUp = 0.5,
+	ContactsMin = 2, ContactsMax = 7,
+	FadeMin = 70, FadeMax = 92, -- percent of the intensity left after a contact
+	MinIntensity = 0.3, MinEnergy = 12, BreakDistance = 320, MaxTime = 20,
+	ThrownRecover = 0.35,       -- s thrown before it can act again
+	LeapCost = 8, DashCost = 10, HopCost = 3,
 }
 
 return CombatConfig
