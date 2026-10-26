@@ -721,6 +721,7 @@ CombatConfig.Team_FlankBehindDot = 0.55              -- this far round (cos of t
 CombatConfig.Task_Enabled = true                     -- off: always Fight (the old behaviour)
 CombatConfig.Task_MinHold = 2.5                      -- seconds a task is kept before another may take over...
 CombatConfig.Task_SwitchMargin = 20                  -- ...and after that, only for one this much better
+CombatConfig.Task_KeepValue = 25                     -- the task it already has scores this much more (finish what it started)
 CombatConfig.Task_FightBase = 60                     -- enemies right here (+ 20 x (aggression - 0.5))
 CombatConfig.Task_PinnedRange = 20                   -- an enemy on it this close pins it to the fight...
 CombatConfig.Task_PinnedBonus = 60                   -- ...worth this much more

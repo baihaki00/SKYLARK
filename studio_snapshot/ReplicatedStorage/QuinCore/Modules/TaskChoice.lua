@@ -152,13 +152,18 @@ function TaskChoice.choose(quinModel, rootPart, context)
 	local tasks = score(quinModel, rootPart, context, board)
 	local pinned = tasks.pinned
 	tasks.pinned = nil
+	-- what it set out to do pulls a little: it finishes a rescue or a hunt unless something is
+	-- clearly better (measured: without it, rescues gave up for an equal fight or hunt at 2.5 s)
+	local held = board.task
+	if held and tasks[held.name] and tasks[held.name].score > -math.huge and not (pinned and held.name ~= "Fight") then
+		tasks[held.name].score += cfg("Task_KeepValue", 25)
+	end
 	local bestName, best = "Fight", tasks.Fight
 	for name, t in pairs(tasks) do
 		if t.score > best.score then bestName, best = name, t end
 	end
 
 	-- Keep the task it has for a moment unless another is clearly better
-	local held = board.task
 	-- (an enemy on it, close, ends any hold: nobody walks off with one hitting its back)
 	if held and held.name ~= bestName and not (pinned and bestName == "Fight") and tasks[held.name] and tasks[held.name].score > -math.huge then
 		local heldScore = tasks[held.name].score
