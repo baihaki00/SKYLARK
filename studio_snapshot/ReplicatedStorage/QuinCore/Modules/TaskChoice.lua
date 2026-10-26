@@ -78,11 +78,16 @@ local function score(quinModel, rootPart, context, board)
 
 	-- Rescue: an ally beyond its own fight radius in trouble. Allies are always known (team).
 	local bestRescue = nil
+	-- the ally it is already going to: followed further, and through moments nobody is on it
+	-- (thrown clear of its attacker) - it is still hurt
+	local going = board.task and board.task.name == "Rescue" and board.task.ally
 	for _, ally in ipairs(board.contacts.allies or {}) do
 		local am, aRoot = ally.model, rootOf(ally.model)
 		local hp = ally.healthRatio or 1
 		local dist = aRoot and flat(aRoot.Position, myPos)
-		if aRoot and hp <= cfg("Task_RescueHealth", 0.45) and dist > cfg("Task_RescueMinRange", 45) and dist <= cfg("Task_RescueRange", 140) then
+		local mine = going == am.Name
+		local reach = cfg("Task_RescueRange", 140) * (mine and cfg("Task_RescueFollowFactor", 1.5) or 1)
+		if aRoot and hp <= cfg("Task_RescueHealth", 0.45) and dist > cfg("Task_RescueMinRange", 45) and dist <= reach then
 			-- who is hurting it: an enemy this Quin knows near it, else the one that hit it last
 			local attacker, danger = nil, 0
 			for _, contact in ipairs(board.contacts.enemies or {}) do
@@ -96,7 +101,7 @@ local function score(quinModel, rootPart, context, board)
 				local last = am:GetAttribute("LastAttackerName")
 				local lm = last and (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(last)
 				local lRoot = rootOf(lm)
-				if lRoot and flat(lRoot.Position, aRoot.Position) <= cfg("Task_RescueDangerRadius", 30) then
+				if lRoot and (mine or flat(lRoot.Position, aRoot.Position) <= cfg("Task_RescueDangerRadius", 30)) then
 					attacker, danger = lm, 1
 				end
 			end
@@ -156,7 +161,14 @@ function TaskChoice.choose(quinModel, rootPart, context)
 	-- clearly better (measured: without it, rescues gave up for an equal fight or hunt at 2.5 s)
 	local held = board.task
 	if held and tasks[held.name] and tasks[held.name].score > -math.huge and not (pinned and held.name ~= "Fight") then
-		tasks[held.name].score += cfg("Task_KeepValue", 25)
+		local keep = cfg("Task_KeepValue", 25)
+		if held.name == "Rescue" then
+			-- on its way to a hurt ally: a devoted Quin (protective, persistent) runs past the
+			-- enemies in its path; a hot-headed one takes the first fight it passes
+			local devotion = (pers(quinModel, "Pers_Protectiveness", 0.5) + pers(quinModel, "Pers_TargetPersistence", 0.7)) / 2
+			keep += cfg("Task_RescueDevotion", 70) * devotion - cfg("Task_RescueDistraction", 40) * pers(quinModel, "Pers_Aggression", 0.6)
+		end
+		tasks[held.name].score += keep
 	end
 	local bestName, best = "Fight", tasks.Fight
 	for name, t in pairs(tasks) do
