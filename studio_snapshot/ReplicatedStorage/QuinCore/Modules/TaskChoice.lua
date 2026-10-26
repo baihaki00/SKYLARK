@@ -100,8 +100,8 @@ local function score(quinModel, rootPart, context, board)
 				end
 			end
 			if attacker then
-				local s = (1 - hp) * cfg("Task_RescueValue", 130) * (0.4 + protect)
-					- dist * cfg("Task_RescueDistanceCost", 0.35)
+				local s = (1 - hp) * cfg("Task_RescueValue", 170) * (0.4 + protect)
+					- dist * cfg("Task_RescueDistanceCost", 0.25)
 					- math.max(0, danger - 1) * cfg("Task_RescueDangerCost", 18) * (1.2 - risk)
 					- rescuersOf(am.Name, quinModel) * cfg("Task_RescueTakenCost", 45)
 					- (selfHp < 0.35 and 40 or 0)

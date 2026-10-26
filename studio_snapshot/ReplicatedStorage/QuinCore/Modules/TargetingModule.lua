@@ -184,6 +184,12 @@ function TargetingModule.selectTarget(quinModel, localState)
 	end
 	local protectiveness = quinModel:GetAttribute("Pers_Protectiveness") or 0.5
 
+	-- who struck it a moment ago (DamageModule: LastAttackerName, ImpactTime)
+	local struckName = nil
+	if workspace:GetServerTimeNow() - (quinModel:GetAttribute("ImpactTime") or 0) <= (CombatConfig.Targeting_StruckMemory or 1.5) then
+		struckName = quinModel:GetAttribute("LastAttackerName")
+	end
+
 	local bestCandidate = nil
 	local bestUtility = -math.huge
 	local bestReason = "None"
@@ -288,6 +294,14 @@ function TargetingModule.selectTarget(quinModel, localState)
 				huntedScore = (CombatConfig.Targeting_HuntedScore or 60) * (quinModel:GetAttribute("Pers_Awareness") or 0.65)
 			end
 
+			-- 12b. It just hit me (owner 2026-10-27: Quins punched in the back of the head kept
+			-- punching the air in front). A blow is felt, not guessed: the one that struck it in the
+			-- last moment, still within reach, pulls hard; aggressive Quins answer it hardest.
+			local struckScore = 0
+			if struckName == model.Name and not isCurrent and dist <= (CombatConfig.Targeting_StruckRange or 12) then
+				struckScore = (CombatConfig.Targeting_StruckScore or 90) * (0.6 + 0.4 * aggression)
+			end
+
 			-- 13. Social layer (SocialSystem): a leader's attack signal this Quin chose to follow, an
 			-- enemy going for the leader it trusts, a Quin it holds off (respect custom)
 			local socialScore = SocialSystem.targetScore(quinModel, model)
@@ -340,7 +354,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				coverScore = (CombatConfig.Targeting_CoverScore or 45) * (0.5 + protectiveness)
 			end
 
-			local utility = crowdScore + coverScore + distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + socialScore + planScore
+			local utility = crowdScore + coverScore + distScore + vulnScore + isoScore + persistBias - riskScore - threatScore + rearThreatScore + teamRoleScore + grudgeScore + rivalryScore + tauntScore + losScore + huntedScore + struckScore + socialScore + planScore
 
 			if model.Name == heldName then
 				heldCandidate, heldUtility = model, utility
@@ -364,6 +378,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				if dist <= 15 then table.insert(reasons, string.format("Close range (%.1f studs)", dist)) end
 				if rearThreatScore > 15 then table.insert(reasons, "Immediate rear threat") end
 				if huntedScore > 0 then table.insert(reasons, "It is hunting me") end
+				if struckScore > 0 then table.insert(reasons, "It just hit me") end
 				if crowdScore < -15 then table.insert(reasons, string.format("%d allies already on it", onIt)) end
 				if coverScore > 0 then table.insert(reasons, "Cutting off one going for a busy ally") end
 				if riskScore > 15 then table.insert(reasons, "High risk penalty") end
@@ -378,7 +393,8 @@ function TargetingModule.selectTarget(quinModel, localState)
 	-- Commitment (see above): the target it has is kept unless the best is clearly better
 	if heldCandidate and bestCandidate and bestCandidate ~= heldCandidate then
 		local lead = bestUtility - heldUtility
-		local holding = isHolding(quinModel)
+		-- (the one that just hit it is urgent by itself: the hold does not keep it facing away)
+		local holding = isHolding(quinModel) and bestCandidate.Name ~= struckName
 		if lead < (CombatConfig.Targeting_UrgentMargin or 80)
 			and (holding or lead < (CombatConfig.Targeting_SwitchMargin or 30)) then
 			bestCandidate, bestUtility = heldCandidate, heldUtility
