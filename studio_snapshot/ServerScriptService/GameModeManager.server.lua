@@ -625,6 +625,18 @@ function GameModeManager.startIKLab()
 	broadcastStatus("IK Lab: animation only vs IK layers, side by side")
 end
 
+-- Test mode: the performance benchmark (ServerScriptService.PerfBenchmark): a 16v16 nobody dies
+-- in, crowd on or off, measured over a start and a steady window by the server and each client.
+-- variant = "full" | "nocrowd" | "noclothes" | "bare".
+function GameModeManager.startBenchmark(variant)
+	local PerfBenchmark = require(game:GetService("ServerScriptService"):WaitForChild("PerfBenchmark"))
+	PerfBenchmark.start(variant, function(teamSize)
+		GameModeManager.startTeamBattle(teamSize)
+		currentMode = "Benchmark"
+	end)
+	broadcastStatus("Performance benchmark: " .. tostring(variant or "full") .. " (32 s, nobody dies)")
+end
+
 function GameModeManager.startMovementTestInArena()
 	currentMode = "MovementTestArena"
 	roundActive = true
@@ -813,7 +825,8 @@ task.delay(3, function()
 end)
 
 -- Studio testing: tools that cannot fire GameCommand from a client (the Studio MCP) set
--- Workspace attribute DevCommand = "movement_test" | "team:16" | "ffa:8" | "pose_viewer:Male" | "ik_lab". Studio only.
+-- Workspace attribute DevCommand = "movement_test" | "team:16" | "ffa:8" | "pose_viewer:Male" | "ik_lab"
+-- | "bench:full" (or nocrowd / noclothes / bare). Studio only.
 if game:GetService("RunService"):IsStudio() then
 	Workspace:GetAttributeChangedSignal("DevCommand"):Connect(function()
 		local raw = Workspace:GetAttribute("DevCommand")
@@ -830,6 +843,8 @@ if game:GetService("RunService"):IsStudio() then
 			GameModeManager.startPoseViewer(arg)
 		elseif command == "ik_lab" then
 			GameModeManager.startIKLab()
+		elseif command == "bench" then
+			GameModeManager.startBenchmark(arg ~= "" and arg or "full")
 		end
 	end)
 end

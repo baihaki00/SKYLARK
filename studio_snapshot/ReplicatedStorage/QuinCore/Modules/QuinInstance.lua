@@ -95,6 +95,8 @@ function QuinInstance.create(spec)
 		Busy = spec.Busy,
 		Bond = spec.Bond or 0,
 		Appraisal = spec.Appraisal,
+		-- what it wears (QuinWardrobe): { [slot] = "SKU" or "SKU:V" }; nil = a random outfit each spawn
+		Outfit = spec.Outfit,
 
 		BattleRecord = {
 			Battles       = spec.BattleRecord and spec.BattleRecord.Battles or 0,
@@ -346,6 +348,7 @@ function QuinInstance.serialize(instance)
 		Busy = instance.Busy,
 		Bond = instance.Bond,
 		Appraisal = instance.Appraisal,
+		Outfit = instance.Outfit,
 		BattleRecord = instance.BattleRecord,
 		Rivalries = instance.Rivalries,
 		Titles = instance.Titles,

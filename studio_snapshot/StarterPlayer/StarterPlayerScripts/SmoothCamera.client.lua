@@ -1011,7 +1011,7 @@ end)
 task.spawn(function()
 	while true do
 		task.wait(0.5)
-		if cameraMode == "FREEFLY" and not ((shared.IsAdmin and shared.IsAdmin()) or shared.VipAccess == true) then
+		if cameraMode == "FREEFLY" and not ((shared.IsAdmin and shared.IsAdmin()) or shared.VipAccess == true or shared.DebugFlyActive == true) then
 			cameraMode = "AVATAR"
 			avatarEnterPending = true
 			shared.SpectatorState.Mode = cameraMode

@@ -524,6 +524,15 @@ local function handleLabAction(player, action, data)
 				GMM.startIKLab()
 			end
 			labEvent:FireAllClients("TestModeChanged", { mode = "IKLab", active = true })
+		elseif testMode == "Benchmark" then
+			-- (ServerScriptService.PerfBenchmark; admins and Studio only: it starts a 16v16)
+			if player:GetAttribute("SkylarkCanAdmin") == true or game:GetService("RunService"):IsStudio() then
+				Workspace:SetAttribute("InfiniteStrafeTest", false)
+				if GMM and GMM.startBenchmark then
+					GMM.startBenchmark(data.variant)
+				end
+				labEvent:FireAllClients("TestModeChanged", { mode = "Benchmark", active = true, variant = data.variant })
+			end
 		elseif testMode == "PoseViewer" then
 			Workspace:SetAttribute("InfiniteStrafeTest", false)
 			if GMM and GMM.startPoseViewer then

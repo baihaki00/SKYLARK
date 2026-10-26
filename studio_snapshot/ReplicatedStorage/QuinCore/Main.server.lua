@@ -2,6 +2,7 @@
 -- Server-side: Handles FSM logic, AI death, state sync, and health display
 
 local CollectionService = game:GetService("CollectionService")
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
@@ -28,6 +29,7 @@ end
 -- === DATA & CONFIG ===
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 local QuinData = require(QuinCore:WaitForChild("QuinData"))
 local AudioModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AudioModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
@@ -606,7 +608,7 @@ task.spawn(function()
 		-- === De-stacking: prevent Quins from piling on top of each other like bricks ===
 		do
 			local myPos = rootPart.Position
-			for _, other in ipairs(CollectionService:GetTagged("Quin")) do
+			for _, other in ipairs(QuinRoster.all()) do
 				if other ~= Quin and other.Parent then
 					local oHRP = other:FindFirstChild("HumanoidRootPart")
 					if oHRP then
@@ -653,7 +655,7 @@ task.spawn(function()
 					selectedTarget, targetScore, targetReason = TargetingModule.selectTarget(Quin, tacticalContext)
 				end
 				if targetReason then
-					Quin:SetAttribute("TargetReason", targetReason)
+					DebugReadouts.set(Quin, "TargetReason", targetReason)
 				end
 				if selectedTarget then
 					-- If target changed while actively in Fight state and next target is distant,

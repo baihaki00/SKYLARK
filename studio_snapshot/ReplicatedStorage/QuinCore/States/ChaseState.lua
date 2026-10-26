@@ -7,10 +7,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
 local CollectionService = game:GetService("CollectionService")
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+local DebugReadouts = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 local AnimationConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationConfig"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local Cognition = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Cognition"))
@@ -32,7 +34,7 @@ local function findModelByName(name)
 	if m and m:IsA("Model") and m:FindFirstChild("HumanoidRootPart") then
 		return m
 	end
-	for _, tag in ipairs(CollectionService:GetTagged("Quin")) do
+	for _, tag in ipairs(QuinRoster.all()) do
 		if tag.Name == name and tag:FindFirstChild("HumanoidRootPart") then
 			return tag
 		end
@@ -268,7 +270,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local myTeam = fighter:GetAttribute("Team")
 		local enemies = {}
 		local allies = {}
-		for _, quin in ipairs(CollectionService:GetTagged("Quin")) do
+		for _, quin in ipairs(QuinRoster.all()) do
 			if quin ~= fighter and quin.Parent and quin:FindFirstChild("HumanoidRootPart") then
 				local qTeam = quin:GetAttribute("Team")
 				local qHum = quin:FindFirstChildOfClass("Humanoid")
@@ -283,7 +285,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 
 		local retreatResult = SpatialModule.getSafeRetreatDirection(rootPart, enemies, allies, CombatConfig)
-		fighter:SetAttribute("RetreatScore", math.round(retreatResult.score * 100) / 100)
+		DebugReadouts.set(fighter, "RetreatScore", math.round(retreatResult.score * 100) / 100)
 		fighter:SetAttribute("IsCornered", retreatResult.isCornered)
 
 		if retreatResult.isCornered then
@@ -476,7 +478,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		data.surveyingAtLKP = nil
 		data.searchLeg = nil
 		fighter:SetAttribute("LastSeenTargetPosition", targetHRP.Position)
-		fighter:SetAttribute("TimeLastSeen", now)
+		-- (TimeLastSeen is no longer an attribute: nothing read it, ~200 writes a second)
 	else
 		local savedLKP = fighter:GetAttribute("LastSeenTargetPosition")
 		data.targetLKP = data.targetLKP or savedLKP or targetHRP.Position
@@ -553,7 +555,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local myTeam = fighter:GetAttribute("Team") or "None"
 		local nearestDistraction = nil
 		local nearestDistractionDist = 13.0
-		for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+		for _, q in ipairs(QuinRoster.all()) do
 			if q ~= fighter and q ~= target and q.Parent and q:FindFirstChild("HumanoidRootPart") then
 				local qHum = q:FindFirstChildOfClass("Humanoid")
 				if qHum and qHum.Health > 0 and q:GetAttribute("Team") ~= myTeam then
@@ -587,7 +589,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local myTeam = fighter:GetAttribute("Team")
 		local targetAllies = 0
 		local myAllies = 0
-		for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+		for _, q in ipairs(QuinRoster.all()) do
 			if q.Parent and q:FindFirstChild("HumanoidRootPart") then
 				local qHum = q:FindFirstChildOfClass("Humanoid")
 				if qHum and qHum.Health > 0 then
@@ -1382,7 +1384,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local myOwner = fighter:GetAttribute("OwnerId") or "SERVER"
 	local protectHabit = fighter:GetAttribute("Pers_Protectiveness") or 0.4
 	local sameTargetTeammates = {}
-	for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+	for _, q in ipairs(QuinRoster.all()) do
 		if q ~= fighter and q.Parent and q:FindFirstChild("HumanoidRootPart") then
 			if q:GetAttribute("Team") == fighter:GetAttribute("Team") and q:GetAttribute("TargetQuin") == target.Name then
 				table.insert(sameTargetTeammates, q)

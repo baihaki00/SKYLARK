@@ -15,6 +15,7 @@ local QuinInstance = require(QuinCore:WaitForChild("Modules"):WaitForChild("Quin
 local FXService = require(QuinCore:WaitForChild("Modules"):WaitForChild("FXService"))
 local QuinCare = require(game:GetService("ServerScriptService"):WaitForChild("QuinCare"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
+local QuinWardrobe = require(QuinCore:WaitForChild("Modules"):WaitForChild("QuinWardrobe"))
 
 local QuinSpawner = {}
 
@@ -323,6 +324,13 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 			mainClone.Parent = clone
 			mainClone.Disabled = false
 		end
+	end
+
+	-- Clothes: its saved outfit or a random one, and the team band (QuinWardrobe; Workspace
+	-- attribute WardrobeOff = true spawns them bare)
+	local okWear, wearErr = pcall(QuinWardrobe.dressSpawn, clone, quinInstance)
+	if not okWear then
+		warn("[QuinSpawner] wardrobe: " .. tostring(wearErr))
 	end
 
 	-- Parent last (after all setup)

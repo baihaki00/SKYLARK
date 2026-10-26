@@ -19,6 +19,9 @@ local camera = Workspace.CurrentCamera
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local RuntimeVisualizer = nil
+-- (the server writes the debug-only attributes - trace, retreat score, target reason - only while
+-- this screen is open; DebugReadouts)
+local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugReadouts"))
 pcall(function()
 	RuntimeVisualizer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeVisualizer"))
 end)
@@ -650,6 +653,7 @@ RunService.Heartbeat:Connect(function()
 	local count = 0
 	frameCounter += 1
 	local cardsOpen = isHudVisible and Workspace:GetAttribute("HideSpectatorHUD") ~= true
+	DebugReadouts.report(cardsOpen) -- (the 3D visualizer draws only while the HUD is open too)
 
 	local quins = getAllAliveQuins()
 	local curSpectated = shared.SpectatedQuin or _G.SpectatedQuin

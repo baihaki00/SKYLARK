@@ -6,6 +6,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 local CollectionService = game:GetService("CollectionService")
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
@@ -54,7 +55,7 @@ local function findModelByName(name)
 	if m and m:IsA("Model") and m:FindFirstChild("HumanoidRootPart") then
 		return m
 	end
-	for _, tag in ipairs(CollectionService:GetTagged("Quin")) do
+	for _, tag in ipairs(QuinRoster.all()) do
 		if tag.Name == name and tag:FindFirstChild("HumanoidRootPart") then
 			return tag
 		end

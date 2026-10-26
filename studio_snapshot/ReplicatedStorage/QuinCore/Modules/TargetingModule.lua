@@ -3,10 +3,12 @@
 -- Implements explainable utility-based target selection biased by personality & local battlefield state
 
 local CollectionService = game:GetService("CollectionService")
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local Cognition = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Cognition"))
+local DebugReadouts = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 
 local SocialSystem = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SocialSystem"))
 local TargetingModule = {}
@@ -71,7 +73,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 	local showdownRole = quinModel:GetAttribute("RespectRole")
 	if SocialSystem.standsDown(quinModel) then
 		quinModel:SetAttribute("CurrentTarget", "")
-		quinModel:SetAttribute("TargetReason", "Perimeter Spectator (Respect & Tradition)")
+		DebugReadouts.set(quinModel, "TargetReason", "Perimeter Spectator (Respect & Tradition)")
 		return nil, 0, "Perimeter Spectator (Respect & Tradition)"
 	end
 
@@ -84,7 +86,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				local d = (opp.HumanoidRootPart.Position - rootPart.Position).Magnitude
 				assign(quinModel, opp.Name, "Duel")
 				quinModel:SetAttribute("LastTargetName", opp.Name)
-				quinModel:SetAttribute("TargetReason", "Respect custom 1v1 Duelist")
+				DebugReadouts.set(quinModel, "TargetReason", "Respect custom 1v1 Duelist")
 				return opp, 2000, "Respect custom 1v1 Duelist"
 			end
 		end
@@ -127,7 +129,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 			local fallbackReason = string.format("Nearest enemy fallback (%.1f studs)", nearestDist)
 			assign(quinModel, nearest.Name, "Nearest")
 			quinModel:SetAttribute("LastTargetName", nearest.Name)
-			quinModel:SetAttribute("TargetReason", fallbackReason)
+			DebugReadouts.set(quinModel, "TargetReason", fallbackReason)
 			return nearest, 50, fallbackReason
 		end
 		return nil, 0, "No targets available"
@@ -337,10 +339,10 @@ function TargetingModule.selectTarget(quinModel, localState)
 		end
 		assign(quinModel, bestCandidate.Name, "Select")
 		quinModel:SetAttribute("LastTargetName", bestCandidate.Name)
-		quinModel:SetAttribute("TargetReason", bestReason)
+		DebugReadouts.set(quinModel, "TargetReason", bestReason)
 		if bestHasLoS then
 			quinModel:SetAttribute("LastSeenTargetPosition", bestCandidate.HumanoidRootPart.Position)
-			quinModel:SetAttribute("TimeLastSeen", os.clock())
+			-- (TimeLastSeen is no longer an attribute: nothing read it)
 		end
 	end
 
@@ -434,7 +436,7 @@ function TargetingModule.getNearest(rootPart, maxRange)
 			table.insert(enemies, contact.model)
 		end
 	else
-		enemies = CollectionService:GetTagged("Quin")
+		enemies = QuinRoster.all()
 	end
 	if not known and #enemies == 0 then
 		local quinServer = workspace:FindFirstChild("QuinServer") or workspace
@@ -543,7 +545,7 @@ function TargetingModule.getEnemiesInRange(rootPart, range)
 	local myTeam = myModel:GetAttribute("Team") or "None"
 	local results = {}
 	
-	for _, enemy in ipairs(CollectionService:GetTagged("Quin")) do
+	for _, enemy in ipairs(QuinRoster.all()) do
 		if enemy ~= myModel and enemy.Parent then
 			local eHum = enemy:FindFirstChildOfClass("Humanoid")
 			local eRoot = enemy:FindFirstChild("HumanoidRootPart")

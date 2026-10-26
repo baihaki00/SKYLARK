@@ -167,6 +167,10 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		end
 	end
 	
+	-- (performance benchmark: nobody dies, the load stays a full 32; ServerScriptService.PerfBenchmark)
+	if game.Workspace:GetAttribute("BenchImmortal") then
+		targetHum.Health = targetHum.MaxHealth
+	end
 	targetHum:TakeDamage(damageInfo.damage)
 	
 	local isHeavy = damageInfo.damage > (attackerModel:GetAttribute("Damage") or 10) * 1.5

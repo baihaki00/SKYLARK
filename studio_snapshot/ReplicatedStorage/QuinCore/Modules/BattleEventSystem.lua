@@ -20,22 +20,25 @@ function BattleEventSystem.emit(eventName, data)
 	end
 	eventCooldowns[key] = now
 
-	-- Format structured debug output
-	local lines = {
-		string.format("[BattleEvent] %s", eventName),
-		string.format("  Entity: %s (Type: %s | Elem: %s)", tostring(quinId), tostring(data.Type or "N/A"), tostring(data.Element or "N/A")),
-	}
-	if data.TargetName then
-		table.insert(lines, string.format("  Target: %s", tostring(data.TargetName)))
-	end
-	if data.EnemiesCount ~= nil and data.AlliesCount ~= nil then
-		table.insert(lines, string.format("  Local Density: %d Enemies vs %d Allies (Advantage: %.2f)", data.EnemiesCount, data.AlliesCount, data.Advantage or 1.0))
-	end
-	if data.Extra then
-		table.insert(lines, string.format("  Context: %s", tostring(data.Extra)))
-	end
+	-- Printed only while Workspace attribute BattleEventLog = true: a 16v16 printed about 10 of these
+	-- a second (40+ lines), flooding Output (performance plan step B, 2026-10-26). Listeners always hear them.
+	if workspace:GetAttribute("BattleEventLog") == true then
+		local lines = {
+			string.format("[BattleEvent] %s", eventName),
+			string.format("  Entity: %s (Type: %s | Elem: %s)", tostring(quinId), tostring(data.Type or "N/A"), tostring(data.Element or "N/A")),
+		}
+		if data.TargetName then
+			table.insert(lines, string.format("  Target: %s", tostring(data.TargetName)))
+		end
+		if data.EnemiesCount ~= nil and data.AlliesCount ~= nil then
+			table.insert(lines, string.format("  Local Density: %d Enemies vs %d Allies (Advantage: %.2f)", data.EnemiesCount, data.AlliesCount, data.Advantage or 1.0))
+		end
+		if data.Extra then
+			table.insert(lines, string.format("  Context: %s", tostring(data.Extra)))
+		end
 
-	print(table.concat(lines, "\n"))
+		print(table.concat(lines, "\n"))
+	end
 
 	-- Notify registered listeners
 	for _, cb in ipairs(listeners) do

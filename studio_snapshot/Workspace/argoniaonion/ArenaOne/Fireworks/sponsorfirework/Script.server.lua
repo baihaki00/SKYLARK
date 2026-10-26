@@ -9,7 +9,7 @@ local WHISTLE_DURATION = 8.0
 local WHISTLE_PITCH_START = 1.0
 local WHISTLE_PITCH_END = 1.2
 local FIRE_INTERVAL = 6 -- seconds between launches
-local BOOM_VOLUME = 8
+local BOOM_VOLUME = 1
 local SOUND_MAX_RANGE = 1500 -- studs (~10 km audible radius)
 local SOUND_MIN_RANGE = 50    -- full-volume zone near listener
 

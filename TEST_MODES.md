@@ -13,6 +13,7 @@ One-click diagnostic scenes for Quin movement and animation. They live in the in
 | Deterministic Test | scripted face-off with a forced state | `startTestMode` |
 | **IK Lab** (first card) | animation only against IK layers, any clip, close-up camera | `startIKLab()` (scene is client-side) |
 | **Pose Viewer** | is a bad pose the clip or a game layer? | `startPoseViewer(gender, player)` |
+| **Performance Benchmark** (last card) | fps before/after every performance change: same 16v16 + crowd load, measured | `startBenchmark(variant)` (`ServerScriptService.PerfBenchmark`) |
 
 ## Pose Viewer
 
@@ -101,6 +102,79 @@ The buttons only write attributes on `Workspace.IKLab` (`Clip`, `Focus`, `TimeSc
 **Starting it:** Quin Manager > TEST MODES > IK Lab; or `GameCommand:FireServer("ik_lab")`; or (Studio tools) `workspace:SetAttribute("DevCommand", "ik_lab")`. It ends when `CurrentMode` changes; the client removes its rigs, bar and camera.
 
 Results so far: `audits/2026-10-03_iklab_ikcontrol_experiment.md`.
+
+## Performance Benchmark
+
+What it's for: the same load every time, measured, so every performance change can be judged before and after. It is step A of `SKYLARK_PERFORMANCE_PLAN.md` (repo root of SKYLARK LOCAL REPO).
+
+**The scene**
+- A 16v16 that nobody dies in, so the load stays a full 32 for the whole run:
+  - while `Workspace.BenchImmortal` is set, `DamageModule.apply` tops the target up before each hit;
+  - `PerfBenchmark` also tops every Quin up 5 times a second.
+- The stands are full (`CrowdAlwaysOn`), unless the variant says otherwise.
+- The camera is fixed at (0,140,-178) looking at (0,0,-438), the arena centre.
+
+**The windows**
+- START, 0–12 s: spawn, dressing, countdown.
+- STEADY, 12–32 s: the fight.
+
+**The variants** (buttons on the results panel)
+
+| Variant | Crowd | Clothes |
+|---|---|---|
+| `full` | on | on |
+| `nocrowd` | off | on |
+| `noclothes` | on | wraps off for the run |
+| `bare` | off | wraps off |
+
+**Results**
+- The panel `PerfBenchmarkUI` (from `StarterPlayerScripts.PerfBenchmarkClient`) shows, per window:
+  - client fps, 1% low, p95 and worst frame, render CPU and GPU;
+  - server Hz, p95, Lua (Heartbeat) ms and physics ms;
+  - the last 4 runs.
+- The same numbers go to Output as `[Benchmark] client ...` and `[Benchmark] server ...`, and to the player attribute `BenchResult` (JSON).
+
+**Starting it**
+- Menu: Quin Manager > TEST MODES > Performance Benchmark. Admins (`SkylarkCanAdmin`) or Studio only.
+- From the Studio tools: `workspace:SetAttribute("DevCommand", "bench:full")` (or `nocrowd` / `noclothes` / `bare`).
+- After the run, Quins can die again and the crowd setting is restored.
+
+**Reading the numbers**
+- In Studio Play the server steps in the same process as the client. Server Hz simply follows the client fps, and the fps include the server's cost.
+  - Judge the server by its Lua ms.
+  - Use Team Test for a real player's fps.
+- Keep Studio focused. It throttles otherwise, and the panel marks the run UNRELIABLE.
+- Triangle counts (`Stats.RenderBreakdown`) and the script profiler (`ScriptProfilerService`) need Plugin capability, so the game can't read them. For the heaviest server scripts, use:
+  - F9 > Script Profiler; or
+  - the Studio MCP: `ScriptProfilerService:ServerStart(1000)` / `ServerStop` / `ServerRequestData` from the Client VM, with `OnNewData` then `DeserializeJSON`. `TotalDuration` is in seconds.
+
+**Baseline** (2026-10-26, Studio Play, owner's PC, focused, before any optimisation)
+
+| Variant | START fps (1% low) | STEADY fps (1% low) | p95 | render CPU | GPU |
+|---|---|---|---|---|---|
+| full | 28 (4) | 33 (9) | 51 ms | 19.9 ms | 4.4 ms |
+| nocrowd | 43 (9) | 36 (8) | 48 ms | 18.5 ms | 2.9 ms |
+| noclothes | 49 (6) | 51 (12) | 28 ms | 10.0 ms | 3.8 ms |
+| bare | 82 (10) | 74 (38) | 21 ms | 6.7 ms | 3.1 ms |
+
+- Server Lua was 6.5–7.1 ms a step and physics 2.7–3.2 ms, with 32 alive.
+- Heaviest server functions (ms per second, full run):
+
+| ms per second | Function |
+|---|---|
+| 145 | Main:451 (each Quin's loop) |
+| 75 | TacticalPerception.evaluate |
+| 75 | Cognition.update |
+| 30 | Senses.sense |
+| 22 | ArenaTerminalQueue.terminalsOf (during the fight) |
+| 21 | Raycast |
+| 18 | DebugDraw.raycast |
+| 17 | GetAttribute |
+| 17 | GaitModule:666 |
+| 16 | SpatialModule.checkLineOfSight |
+| 15 | EnvironmentAwareness.survey |
+| 13 | SetAttribute |
+| 10 | GetTagged |
 
 ## Adding a test mode
 

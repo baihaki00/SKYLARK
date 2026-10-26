@@ -10,12 +10,14 @@
 -- Tuning: CombatConfig.Cognition.
 
 local CollectionService = game:GetService("CollectionService")
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local DebugDraw = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugDraw"))
+local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 local PlatformCatalogue = require(QuinCore:WaitForChild("Modules"):WaitForChild("PlatformCatalogue"))
 
 local Layers = require(script:WaitForChild("Layers"))
@@ -54,7 +56,7 @@ local PLATFORM_COLOR = {
 -- Every other living Quin this one may deal with (a showdown duelist only deals with duelists;
 -- showdown spectators are nobody's business)
 local function livingOthers(quinModel)
-	local all = CollectionService:GetTagged("Quin")
+	local all = QuinRoster.all()
 	if #all == 0 then
 		all = (workspace:FindFirstChild("QuinServer") or workspace):GetChildren()
 	end
@@ -86,7 +88,7 @@ local function publish(quinModel, board)
 		if contact.model.Name == targetName then targetChannel = contact.channel end
 	end
 	quinModel:SetAttribute("KnownEnemies", #board.contacts.enemies)
-	quinModel:SetAttribute("NoticedEnemies", seen)
+	DebugReadouts.set(quinModel, "NoticedEnemies", seen)
 	quinModel:SetAttribute("AttentionCapacity", board.attention.capacity)
 	quinModel:SetAttribute("TargetContact", targetName and targetName ~= "" and (targetChannel == "none" and "unknown" or targetChannel) or "none")
 end

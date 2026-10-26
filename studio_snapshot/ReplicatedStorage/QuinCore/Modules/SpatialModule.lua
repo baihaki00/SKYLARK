@@ -4,6 +4,7 @@
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 local SpatialModule = {}
 
@@ -1023,7 +1024,7 @@ function SpatialModule.checkLineOfSight(posA, posB, ignoreInstances)
 	if qg then table.insert(exclude, qg) end
 
 	local CollectionService = game:GetService("CollectionService")
-	for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+	for _, q in ipairs(QuinRoster.all()) do
 		table.insert(exclude, q)
 	end
 

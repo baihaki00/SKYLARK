@@ -9,7 +9,7 @@ local Debris = game:GetService("Debris")
 local WHISTLE_DURATION = 1.67
 local WHISTLE_PITCH_START = 0.6
 local WHISTLE_PITCH_END = 2.0
-local BOOM_VOLUME = 6
+local BOOM_VOLUME = 1
 local BOOM_RADIUS = 400
 
 -- === CREATE SOUNDS ===

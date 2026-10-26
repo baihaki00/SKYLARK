@@ -269,7 +269,7 @@ function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAl
 	quinModel:SetAttribute("IsSoleSurvivor", isSoleSurvivor)
 	quinModel:SetAttribute("TotalLivingAllies", totalLivingAllies)
 	quinModel:SetAttribute("TotalLivingEnemies", totalLivingEnemies)
-	quinModel:SetAttribute("NearestGlobalAllyDist", nearestAllyDist < math.huge and math.round(nearestAllyDist * 10) / 10 or 999)
+	-- (NearestGlobalAllyDist is no longer an attribute: nothing read it, ~260 writes a second in a 16v16; it is in the table returned below)
 	quinModel:SetAttribute("ReinforcingAllyApproaching", reinforcingAllyApproaching)
 
 	return {

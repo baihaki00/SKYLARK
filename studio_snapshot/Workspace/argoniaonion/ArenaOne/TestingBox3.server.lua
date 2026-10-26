@@ -2,13 +2,14 @@ local RunService = game:GetService("RunService")
 
 -- The "true" tells Roblox to search inside ALL folders and subfolders in workspace
 local TestingBox5 = workspace:FindFirstChild("MOVINGPLATFORM", true)
+local arenaGround = workspace:FindFirstChild('arenaGround')
 
 TestingBox5.Anchored = false
 
 local centerPos = TestingBox5.Position
-local radius = 10 -- Distance from center (in studs)
-local speed = 1.5 -- Radians per second (lower = slower)
-local angle = 0
+local radius = 300 -- Distance from center (in studs)
+local speed = 0.1 -- Radians per second (lower = slower)
+local angle = 20
 
 local attachment = Instance.new("Attachment", TestingBox5)
 

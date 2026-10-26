@@ -339,6 +339,7 @@ local function list(player)
                 Title = q.Titles and q.Titles.Current or nil,
                 Habits = habitView(q),
                 AppraisedAt = q.Appraisal and q.Appraisal.At or nil,
+                Outfit = q.Outfit, -- (QuinWardrobe; nil = random each spawn)
             })
         end
     end

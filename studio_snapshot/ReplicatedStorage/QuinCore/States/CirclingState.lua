@@ -11,12 +11,14 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local AnimationIds = require(QuinCore:WaitForChild("AnimationIds"))
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
@@ -107,7 +109,7 @@ end
 local function livingSides(fighter)
 	local myTeam = fighter:GetAttribute("Team")
 	local enemies, allies = {}, {}
-	for _, quin in ipairs(CollectionService:GetTagged("Quin")) do
+	for _, quin in ipairs(QuinRoster.all()) do
 		if quin ~= fighter and quin.Parent and quin:FindFirstChild("HumanoidRootPart") then
 			local hum = quin:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
@@ -352,7 +354,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		local toMe = flatUnit(rootPart.Position - targetHRP.Position, -targetDir)
 		if targetLook:Dot(toMe) > 0.2 then
 			local allyInFront = false
-			for _, other in ipairs(CollectionService:GetTagged("Quin")) do
+			for _, other in ipairs(QuinRoster.all()) do
 				if other ~= fighter and other:GetAttribute("Team") == myTeam and other.Parent then
 					local oHRP = other:FindFirstChild("HumanoidRootPart")
 					if oHRP and (oHRP.Position - targetHRP.Position).Magnitude < 20
@@ -377,7 +379,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Intelligent Safe Haven Retreat using radial evaluation
 		local enemies, allies = livingSides(fighter)
 		local retreatResult = SpatialModule.getSafeRetreatDirection(rootPart, enemies, allies, CombatConfig)
-		fighter:SetAttribute("RetreatScore", math.round(retreatResult.score * 100) / 100)
+		DebugReadouts.set(fighter, "RetreatScore", math.round(retreatResult.score * 100) / 100)
 		fighter:SetAttribute("IsCornered", retreatResult.isCornered)
 
 		if retreatResult.isCornered then

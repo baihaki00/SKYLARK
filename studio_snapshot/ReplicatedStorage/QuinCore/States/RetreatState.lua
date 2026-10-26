@@ -9,6 +9,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
 
@@ -17,6 +18,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local KnockbackModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("KnockbackModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local RetreatTacticsModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("RetreatTacticsModule"))
@@ -41,7 +43,7 @@ local function gatherSides(fighter)
 	local enemies, allies = {}, {}
 	if not myHRP then return enemies, allies end
 	local myPos = myHRP.Position
-	for _, q in ipairs(CollectionService:GetTagged("Quin")) do
+	for _, q in ipairs(QuinRoster.all()) do
 		if q ~= fighter and q.Parent and q:FindFirstChild("HumanoidRootPart") then
 			local hum = q:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
@@ -185,7 +187,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	})
 	data.plan = result.plan
 	fighter:SetAttribute("RetreatObjective", result.objective)
-	fighter:SetAttribute("RetreatScore", math.round(result.score * 100) / 100)
+	DebugReadouts.set(fighter, "RetreatScore", math.round(result.score * 100) / 100)
 	fighter:SetAttribute("IsCornered", result.isCornered)
 	fighter:SetAttribute("DistanceThreatPhase", result.distanceThreatPhase or "SAFE_LEAD")
 	fighter:SetAttribute("ClosingSpeed", math.round((result.closingSpeed or 0) * 10) / 10)

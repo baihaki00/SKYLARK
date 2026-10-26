@@ -5,6 +5,7 @@
 -- Single Source of Truth: ReplicatedStorage.QuinCore.Modules.RuntimeTracer
 
 local Workspace = game:GetService("Workspace")
+local DebugReadouts = require(script.Parent:WaitForChild("DebugReadouts"))
 
 local RuntimeTracer = {}
 
@@ -84,6 +85,9 @@ end
 -- @param stackLevel: Optional caller stack depth (default: 2)
 function RuntimeTracer.checkpoint(fighter, eventDesc, stackLevel)
 	if not RuntimeTracer.ENABLED then return end
+	-- (the trace is only for the debug HUD: ~580 attribute writes a second in a 16v16, sent to
+	-- every player. Recorded only while a debug screen is open: DebugReadouts)
+	if not DebugReadouts.on() then return end
 
 	local model = resolveModel(fighter)
 	if not model then return end
@@ -140,7 +144,6 @@ function RuntimeTracer.checkpoint(fighter, eventDesc, stackLevel)
 	-- Replicate efficiently via model attributes
 	model:SetAttribute("TraceBreadcrumb", breadcrumbStr)
 	model:SetAttribute("TraceLog", logStr)
-	model:SetAttribute("LastTraceTime", timestamp)
 end
 
 -- Clear trace buffer for a fighter

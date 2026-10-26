@@ -20,6 +20,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
 local CollectionService = game:GetService("CollectionService")
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 local AudioModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AudioModule"))
 local VfxModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("VfxModule"))
@@ -1268,7 +1269,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		local shockRadius = data.precise and 0 or (CombatConfig.SlamShockwaveRadius or CombatConfig.SlamImpactRadius or 14)
 		local stumbleForce = CombatConfig.SlamStumbleForce or 90
 		local stumbleDuration = CombatConfig.SlamStumbleDuration or 0.35
-		for _, other in ipairs(CollectionService:GetTagged("Quin")) do
+		for _, other in ipairs(QuinRoster.all()) do
 			if other ~= fighter and other.Parent then
 				local oHRP = other:FindFirstChild("HumanoidRootPart")
 				local oHum = other:FindFirstChildOfClass("Humanoid")

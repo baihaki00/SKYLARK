@@ -4,7 +4,7 @@
 --   MY QUINS   a card per slot, left to right: the Quin itself standing in its idle (QuinPreview:
 --              drag to turn it), tag, temperament, gender, title, W/L and streak, condition, Bond,
 --              status (Ready / In repair / Training / Entered / Fighting now), the habits revealed
---              (QuinCare "list"); empty and locked slots greyed. Cards update in place.
+--              (QuinCare "list"); empty and locked slots greyed. Cards update in place. The Quin wears its saved outfit; WARDROBE dresses it (WardrobeClient, shared.OpenWardrobe).
 --   SCHEDULE   a section per arena (SkylarkArenas): what it runs now and next, your entry there
 --              (shared.ArenaEntryStatus from ArenaEntry), its day strip, today and tomorrow in SST
 --              with your entry or prebook marked, and the week's events. The HUD clock shows only
@@ -259,7 +259,13 @@ local function quinCard(slot)
     c.big = label(c.frame, { Position = UDim2.fromOffset(8, 8), Size = UDim2.fromOffset(CARD_W - 16, VIEW_H), Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = C_MUTED, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 3, Text = "" })
     local strip = new("Frame", { Parent = c.frame, Position = UDim2.fromOffset(CARD_W - 140, 14), Size = UDim2.fromOffset(126, 22), BackgroundColor3 = C_BG, BackgroundTransparency = 0.25, BorderSizePixel = 0, ZIndex = 3 })
     corner(strip, 11)
-    c.strip = strip
+    c.strip = strip; c.wardrobe = new("TextButton", { Name = "Wardrobe", Parent = c.frame, Position = UDim2.fromOffset(CARD_W - 124, VIEW_H - 30), Size = UDim2.fromOffset(108, 28), Text = "WARDROBE", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C_BG, BackgroundColor3 = C_AMBER, ZIndex = 4 })
+    corner(c.wardrobe, 7)
+    c.wardrobe.MouseButton1Click:Connect(function()
+        if shared.OpenWardrobe then
+            shared.OpenWardrobe(slot)
+        end
+    end)
     c.status = label(strip, { Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBold, TextSize = 11, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 4, Text = "" })
     local y = VIEW_H + 16
     c.name = label(c.frame, { Position = UDim2.fromOffset(14, y), Size = UDim2.fromOffset(CARD_W - 28, 22), Font = Enum.Font.GothamBold, TextSize = 18, Text = "" })
@@ -306,8 +312,17 @@ local function quinCard(slot)
     return c
 end
 
+local function outfitKey(outfit)
+    local parts = {}
+    for slot, entry in pairs(type(outfit) == "table" and outfit or {}) do
+        table.insert(parts, slot .. "=" .. tostring(entry))
+    end
+    table.sort(parts)
+    return table.concat(parts, ",")
+end
+
 local function setPreview(c, q)
-    local key = q and (q.Tag .. ":" .. tostring(q.Gender)) or nil
+    local key = q and (q.Tag .. ":" .. tostring(q.Gender) .. ":" .. outfitKey(q.Outfit)) or nil
     if c.previewKey == key then
         return
     end
@@ -318,7 +333,8 @@ local function setPreview(c, q)
     c.previewKey = key
     if q then
         c.yaw = 200
-        c.preview = QuinPreview.mount(c.view, { Gender = q.Gender })
+        c.preview = QuinPreview.mount(c.view, { Gender = q.Gender, Outfit = q.Outfit })
+        c.preview.setYaw(c.yaw)
     end
 end
 
@@ -339,7 +355,7 @@ local function drawQuins()
         local locked = slot > (care.Unlocked or 2)
         setPreview(c, (not locked) and q or nil)
         local shown = q ~= nil and not locked
-        for _, part in ipairs({ c.name, c.temper, c.info, c.record, c.habits, c.strip, c.cond.text, c.cond.track, c.bond.text, c.bond.track }) do
+        for _, part in ipairs({ c.name, c.temper, c.info, c.record, c.habits, c.strip, c.cond.text, c.cond.track, c.bond.text, c.bond.track, c.wardrobe }) do
             part.Visible = shown
         end
         c.frame.BackgroundTransparency = shown and 0 or 0.5

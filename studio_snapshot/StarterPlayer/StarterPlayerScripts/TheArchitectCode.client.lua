@@ -1,5 +1,5 @@
--- 🔹 Silver Surfer Fly Script (Smooth Hover + Levitate + Animate Override) for Sir Bai
--- ✅ Place this in: StarterPlayer > StarterPlayerScripts
+-- 🔹 Silver Surfer Fly Script (Smooth Hover + Levitate + Animate Override)
+-- ✅ Debug Fly: available to all players (toggle with F key)
 
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -18,11 +18,6 @@ local function bindCharacter(newCharacter)
 	humanoid = newCharacter:WaitForChild("Humanoid")
 	animateScript = nil
 	customWalkTrack = nil
-end
-
--- ✅ Admin Whitelist
-if player.Name ~= "Bai" and player.Name ~= "baiyyaki00" then
-	return
 end
 
 -- ===== SETTINGS =====
@@ -119,6 +114,7 @@ local function startFlying()
 	currentVelocity = Vector3.zero
 	-- QuinCore reads this to stand down its own locomotion and jump / slide / dash inputs
 	character:SetAttribute("IsFlying", true)
+	shared.DebugFlyActive = true
 
 	-- A Quin body keeps its own animation (QuinCore shows the airborne pose); the avatar
 	-- gets the levitate clips
@@ -195,6 +191,7 @@ local function stopFlying()
 	flyEnabled = false
 	if character then
 		character:SetAttribute("IsFlying", nil)
+	shared.DebugFlyActive = false
 	end
 
 	if hoverConnection then
@@ -216,6 +213,16 @@ local function stopFlying()
 	enableAnimate()
 end
 
+
+shared.ResetFlyVelocity = function()
+	currentVelocity = Vector3.zero
+	move = Vector3.zero
+	if hoverVelocity then hoverVelocity.Velocity = Vector3.zero end
+end
+shared.StartFlying = startFlying
+shared.StopFlying = stopFlying
+shared.IsFlying = function() return flyEnabled end
+
 -- A new body (respawn, Play As Quin on / off) always starts on the ground
 bindCharacter(player.Character or player.CharacterAdded:Wait())
 player.CharacterAdded:Connect(function(newCharacter)
@@ -227,7 +234,7 @@ end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed or UserInputService:GetFocusedTextBox() then return end
 
-	if not (shared.IsAdmin and shared.IsAdmin()) and not flyEnabled then return end -- (admins only: SkylarkRoles)
+	-- Debug fly: no admin check needed (F toggles for everyone)
 
 	-- 🪽 Fly Toggle (F)
 	if input.KeyCode == Enum.KeyCode.F then
@@ -311,3 +318,175 @@ RunService.RenderStepped:Connect(function()
 		if customWalkTrack and customWalkTrack.IsPlaying then customWalkTrack:Stop(0.2) end
 	end
 end)
+-- ============================================================
+-- DEBUG FLY SPEED SLIDER (visible when flying)
+-- ============================================================
+do
+	local playerGui = player:WaitForChild("PlayerGui")
+
+	-- Create ScreenGui
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "DebugFlySpeedGUI"
+	gui.IgnoreGuiInset = true
+	gui.ResetOnSpawn = false
+	gui.DisplayOrder = 50
+	gui.Enabled = false
+	gui.Parent = playerGui
+
+	-- Container frame (bottom-center)
+	local container = Instance.new("Frame")
+	container.Name = "Container"
+	container.AnchorPoint = Vector2.new(0.5, 1)
+	container.Position = UDim2.new(0.5, 0, 1, -40)
+	container.Size = UDim2.new(0, 340, 0, 56)
+	container.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+	container.BackgroundTransparency = 0.25
+	container.BorderSizePixel = 0
+	container.Parent = gui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = container
+
+	-- Label: "FLY SPEED"
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.AnchorPoint = Vector2.new(0, 0.5)
+	label.Position = UDim2.new(0, 12, 0.5, 0)
+	label.Size = UDim2.new(0, 72, 0, 20)
+	label.BackgroundTransparency = 1
+	label.Text = "FLY"
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 13
+	label.TextColor3 = Color3.fromRGB(180, 220, 255)
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = container
+
+	-- Slider track
+	local track = Instance.new("Frame")
+	track.Name = "Track"
+	track.AnchorPoint = Vector2.new(0, 0.5)
+	track.Position = UDim2.new(0, 52, 0.5, 0)
+	track.Size = UDim2.new(0, 200, 0, 6)
+	track.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+	track.BorderSizePixel = 0
+	track.Parent = container
+
+	local trackCorner = Instance.new("UICorner")
+	trackCorner.CornerRadius = UDim.new(1, 0)
+	trackCorner.Parent = track
+
+	-- Fill bar
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.new(0.3, 0, 1, 0)
+	fill.BackgroundColor3 = Color3.fromRGB(80, 180, 255)
+	fill.BorderSizePixel = 0
+	fill.Parent = track
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(1, 0)
+	fillCorner.Parent = fill
+
+	-- Thumb
+	local thumb = Instance.new("Frame")
+	thumb.Name = "Thumb"
+	thumb.AnchorPoint = Vector2.new(0.5, 0.5)
+	thumb.Position = UDim2.new(0.3, 0, 0.5, 0)
+	thumb.Size = UDim2.new(0, 16, 0, 16)
+	thumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	thumb.BorderSizePixel = 0
+	thumb.Parent = track
+
+	local thumbCorner = Instance.new("UICorner")
+	thumbCorner.CornerRadius = UDim.new(1, 0)
+	thumbCorner.Parent = thumb
+
+	-- Speed readout
+	local readout = Instance.new("TextLabel")
+	readout.Name = "Readout"
+	readout.AnchorPoint = Vector2.new(1, 0.5)
+	readout.Position = UDim2.new(1, -10, 0.5, 0)
+	readout.Size = UDim2.new(0, 60, 0, 20)
+	readout.BackgroundTransparency = 1
+	readout.Text = "180"
+	readout.Font = Enum.Font.GothamBold
+	readout.TextSize = 14
+	readout.TextColor3 = Color3.fromRGB(255, 255, 255)
+	readout.TextXAlignment = Enum.TextXAlignment.Right
+	readout.Parent = container
+
+	-- Slider logic
+	local MIN_SPEED = 50
+	local MAX_SPEED = 3000
+	local LOG_MIN = math.log(MIN_SPEED)
+	local LOG_MAX = math.log(MAX_SPEED)
+	local dragging = false
+
+	local function speedToAlpha(spd)
+		return math.clamp((math.log(spd) - LOG_MIN) / (LOG_MAX - LOG_MIN), 0, 1)
+	end
+
+	local function alphaToSpeed(a)
+		return math.clamp(math.exp(LOG_MIN + a * (LOG_MAX - LOG_MIN)), MIN_SPEED, MAX_SPEED)
+	end
+
+	local function updateSlider(alpha)
+		alpha = math.clamp(alpha, 0, 1)
+		fill.Size = UDim2.new(alpha, 0, 1, 0)
+		thumb.Position = UDim2.new(alpha, 0, 0.5, 0)
+		local spd = alphaToSpeed(alpha)
+		flySpeed = math.floor(spd)
+		normalSpeed = flySpeed
+		readout.Text = tostring(flySpeed)
+	end
+
+	-- Initial position from current flySpeed
+	updateSlider(speedToAlpha(flySpeed))
+
+	local function getAlphaFromInput(inputPos)
+		local trackAbsPos = track.AbsolutePosition.X
+		local trackAbsSize = track.AbsoluteSize.X
+		return math.clamp((inputPos.X - trackAbsPos) / trackAbsSize, 0, 1)
+	end
+
+	track.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			updateSlider(getAlphaFromInput(input.Position))
+		end
+	end)
+
+	thumb.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			updateSlider(getAlphaFromInput(input.Position))
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	-- Show/hide with fly state
+	local function onFlyStateChanged()
+		gui.Enabled = flyEnabled
+		if gui.Enabled then
+			updateSlider(speedToAlpha(flySpeed))
+		end
+	end
+
+	-- Poll fly state (flyEnabled is a local upvalue in this script)
+	RunService.Heartbeat:Connect(function()
+		if gui.Enabled ~= flyEnabled then
+			onFlyStateChanged()
+		end
+	end)
+end

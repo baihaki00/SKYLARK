@@ -5025,7 +5025,7 @@ tmGrid.BackgroundTransparency = 1
 tmGrid.BorderSizePixel = 0
 tmGrid.ScrollBarThickness = 6
 tmGrid.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 180)
-tmGrid.CanvasSize = UDim2.new(0, 2200, 0, 0)
+tmGrid.CanvasSize = UDim2.new(0, 2440, 0, 0)
 tmGrid.Parent = testModesView
 
 -- First card: IK Lab (Workspace.IKLab.IKLabDemo): the same Quin four times over an obstacle
@@ -5159,6 +5159,19 @@ createModeCard(
 	function(btn)
 		labEvent:FireServer("SetTestMode", { mode = "DeterministicTest" })
 		statusToast.Text = "ðŸ§ª Launched Deterministic Test Mode."
+		statusToast.TextColor3 = C_SUCCESS
+	end
+)
+
+-- Card 9: Performance Benchmark (ServerScriptService.PerfBenchmark + StarterPlayerScripts.
+-- PerfBenchmarkClient): the same 16v16 load every time, measured, for every performance change
+createModeCard(
+	tmGrid, 2160, "Performance Benchmark", "FPS: 16v16 + Crowd",
+	"A 16v16 nobody dies in, the stands full, the camera fixed over the arena: 32 s, measured in two windows (START: spawn and dressing; STEADY: the fight).\n\nShows this machine's fps, 1% low, worst frame, render CPU/GPU, the server's tick rate and its heaviest scripts. Run again as No crowd / No clothes / Bare from the results panel to see what costs what.\n\nKeep Studio focused while it runs.",
+	Color3.fromRGB(255, 120, 60),
+	function(btn)
+		labEvent:FireServer("SetTestMode", { mode = "Benchmark", variant = "full" })
+		statusToast.Text = "Performance benchmark running (32 s): keep Studio focused"
 		statusToast.TextColor3 = C_SUCCESS
 	end
 )

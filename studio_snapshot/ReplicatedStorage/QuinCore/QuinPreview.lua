@@ -4,19 +4,21 @@
 -- its idle. One place builds the look, so accessories and colours added to Quins later show here
 -- too: extend QuinPreview.build.
 --
---   QuinPreview.build(info)           -> Model (info: { Gender = "Male" | "Female", ... })
---   QuinPreview.mount(viewport, info) -> handle { model, setYaw(degrees), destroy() }
+--   QuinPreview.build(info)           -> Model (info: { Gender = "Male" | "Female", Outfit = {...}, ... })
+--   (Outfit: a QuinWardrobe outfit, worn as in the arena; handle.dress(outfit) changes it)
+--   QuinPreview.mount(viewport, info) -> handle { model, setYaw(degrees), dress(outfit), destroy() }
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
+local QuinWardrobe = require(QuinCore:WaitForChild("Modules"):WaitForChild("QuinWardrobe"))
 
 local QuinPreview = {}
 
 local FOV = 30
-local DISTANCE = 17 -- studs from the body, looking at its middle
-local LOOK_HEIGHT = -0.9 -- (the root stands at hip height: the body's middle is a little lower)
+local DISTANCE = 18.5 -- studs from the body, looking at its middle (17 cut off the shoes)
+local LOOK_HEIGHT = -1.4 -- (the root stands at hip height: the body's middle is a little lower)
 local YAW = 200 -- degrees: turned a little, not square to the camera
 
 local function idleId()
@@ -50,7 +52,11 @@ function QuinPreview.build(info)
     if hrp then
         model.PrimaryPart = hrp
     end
-    -- (accessories, paint and team bands go here once Quins carry them)
+    model:SetAttribute("Gender", info.Gender == "Female" and "Female" or "Male")
+    if type(info.Outfit) == "table" then
+        QuinWardrobe.dress(model, info.Outfit, true) -- (layered here: the owner's choice for previews)
+    end
+    -- (paint and team bands go here once the menu shows them)
     return model
 end
 
@@ -62,9 +68,11 @@ function QuinPreview.mount(viewport, info)
     camera.CFrame = CFrame.lookAt(Vector3.new(0, LOOK_HEIGHT + 0.6, DISTANCE), Vector3.new(0, LOOK_HEIGHT, 0))
     camera.Parent = viewport
     viewport.CurrentCamera = camera
-    viewport.LightDirection = Vector3.new(-0.6, -1, -0.8)
-    viewport.Ambient = Color3.fromRGB(150, 155, 170)
-    viewport.LightColor = Color3.fromRGB(255, 250, 240)
+    -- soft studio light: a warm key from the front left and above, a cool, bright ambient so the
+    -- shadow side isn't muddy
+    viewport.LightDirection = Vector3.new(0.45, -0.9, -0.75)
+    viewport.LightColor = Color3.fromRGB(255, 246, 232)
+    viewport.Ambient = Color3.fromRGB(168, 174, 190)
 
     local handle = { model = nil }
     local model = QuinPreview.build(info)
@@ -92,6 +100,12 @@ function QuinPreview.mount(viewport, info)
     function handle.setYaw(degrees)
         if handle.model then
             handle.model:PivotTo(CFrame.Angles(0, math.rad(degrees), 0))
+        end
+    end
+
+    function handle.dress(outfit)
+        if handle.model then
+            QuinWardrobe.dress(handle.model, outfit or {}, true)
         end
     end
 

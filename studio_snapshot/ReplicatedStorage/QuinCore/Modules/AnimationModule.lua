@@ -238,13 +238,27 @@ local function getVfxModule()
 end
 
 local FOOTSTEP_MIN_WEIGHT = 0.35 -- blend weight below which a clip's Footstep markers are silent
+AnimationModule.FOOTSTEP_MIN_WEIGHT = FOOTSTEP_MIN_WEIGHT
+
+-- Footsteps (sound) and footprints (decal) are made on each client, never on the server: a sound
+-- clone and a decal part per step, sent to every player, was server and network work for nothing
+-- (performance plan step B, 2026-10-26). On a client this module wires the tracks it plays itself
+-- (a piloted Quin); StarterPlayerScripts.QuinFootstepsClient wires every other Quin's tracks and
+-- skips the ones listed here.
+local FOOTSTEPS_HERE = not game:GetService("RunService"):IsServer()
+local footstepsWired = setmetatable({}, { __mode = "k" }) -- [track] = true (tracks are held in animationTracks)
+function AnimationModule.isWiredHere(track)
+	return footstepsWired[track] == true
+end
 
 -- Wire animation marker reached signals to AudioModule exactly once per loaded track instance
 local function wireTrackAudio(humanoid, track, animId)
 	if not humanoid or not track then return end
 	local fighter = humanoid.Parent
 
-	-- Footstep marker (Run, Walk, Strafe, ArcRun, etc.)
+	-- Footstep marker (Run, Walk, Strafe, ArcRun, etc.): on a client only (see FOOTSTEPS_HERE)
+	if FOOTSTEPS_HERE then
+	footstepsWired[track] = true
 	track:GetMarkerReachedSignal("Footstep"):Connect(function(side)
 		-- Only a clip that is carrying the legs speaks. The gait keeps its other clips (jog,
 		-- run, strafes) running in step at near-zero weight for blending, and their markers
@@ -270,6 +284,7 @@ local function wireTrackAudio(humanoid, track, animId)
 			audio.playFootstep(fighter, 0.40)
 		end
 	end)
+	end
 
 	-- Landing impact marker (LandingSoft, LandingHard, LandingSuperHero, etc.)
 	track:GetMarkerReachedSignal("Landing"):Connect(function()

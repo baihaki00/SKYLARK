@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 
 local EnvironmentAwareness = {}
 
@@ -16,7 +17,7 @@ function EnvironmentAwareness.survey(quinModel, rootPart, nearbyEnemies, nearbyA
 	local overheadPlatform = SpatialModule.findReachableOverheadPlatform(rootPart, CombatConfig.HighGroundJumpReach or 14)
 	local isOnElevatedPlatform = SpatialModule.isOnElevatedPlatform(rootPart, CombatConfig.ElevatedPlatformThreshold or 6.0)
 
-	quinModel:SetAttribute("RetreatScore", math.round(retreat.score * 100) / 100)
+	DebugReadouts.set(quinModel, "RetreatScore", math.round(retreat.score * 100) / 100)
 	quinModel:SetAttribute("IsCornered", retreat.isCornered)
 	quinModel:SetAttribute("HasOverheadPlatform", overheadPlatform ~= nil)
 	quinModel:SetAttribute("IsOnElevatedPlatform", isOnElevatedPlatform)
