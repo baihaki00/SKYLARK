@@ -736,6 +736,7 @@ CombatConfig.Objective_RetakeValue = 150             -- + up to 80 as the burn r
 CombatConfig.Objective_IgniteTime = 20               -- (same as LanternSiege.IgniteTime)
 CombatConfig.Objective_GuardValue = 70               -- + 20 x awareness; spread: - 35 per teammate on that Shrine
 CombatConfig.Objective_GuardTakenCost = 35
+CombatConfig.Objective_HuntCost = 30                 -- Hunt scores this much less while a mode has objectives out
 CombatConfig.Objective_CarrierTargetBonus = 70       -- target utility of an enemy carrying the Lantern
 -- Lantern Siege rounds (ServerScriptService.LanternSiege)
 CombatConfig.LanternSiege = {

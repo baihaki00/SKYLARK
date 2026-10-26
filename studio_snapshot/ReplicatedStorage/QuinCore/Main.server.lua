@@ -741,7 +741,10 @@ task.spawn(function()
 				elseif bestAction == "Pursue" and currentState.name == "Idle" then
 					-- Recovery is not interrupted: it finishes the get-up and then picks its own next
 					-- state. Forcing Chase from here cut the get-up clip after ~0.1s (prone -> sprint pop).
-					if distToTgt > (CombatConfig.PursueEngageDistance or 20.0) then
+					-- (a Quin walking to its task's spot - IdleState - is not pulled off after someone
+					-- outside the job's reach)
+					local onJob = task and task.point and distToTgt > (task.engage or 16) * 1.4
+					if distToTgt > (CombatConfig.PursueEngageDistance or 20.0) and not onJob then
 						Quin:SetAttribute("ForceState", "Chase")
 						RuntimeTracer.checkpoint(Quin, "Decision: Pursue (chase target)")
 					end

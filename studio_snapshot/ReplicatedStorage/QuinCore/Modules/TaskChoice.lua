@@ -158,6 +158,8 @@ local function score(quinModel, rootPart, context, board)
 
 	local view = Objectives.view(quinModel)
 	if view then
+		-- with a job on the field, wandering off after someone is a bigger step
+		if tasks.Hunt.score > -math.huge then tasks.Hunt.score -= cfg("Objective_HuntCost", 30) end
 		TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggression, protect)
 	end
 	return tasks
