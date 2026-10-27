@@ -231,4 +231,22 @@ function Cognition.knownEnemies(quinModel)
 	return board and board.contacts.enemies or nil
 end
 
+-- The same, as a set (model -> contact) for "do I know about this one?" checks. Rumours do not
+-- count: a Quin only reacts to what it has seen, heard, felt, remembers or was told. nil (switch
+-- SensesRouteOff, or no board yet) means "callers keep the old all-knowing behaviour".
+function Cognition.knownEnemyModels(quinModel)
+	if workspace:GetAttribute("SensesRouteOff") == true or quinModel:GetAttribute("SensesRouteOff") == true then
+		return nil
+	end
+	local board = Blackboard.peek(quinModel)
+	if not board then return nil end
+	local set = {}
+	for _, contact in ipairs(board.contacts.enemies) do
+		if contact.channel ~= "rumour" and contact.model then
+			set[contact.model] = contact
+		end
+	end
+	return set
+end
+
 return Cognition

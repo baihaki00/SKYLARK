@@ -28,6 +28,7 @@ local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild(
 local NavigationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
+local Cognition = require(QuinCore:WaitForChild("Cognition"))
 local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (the turner a state holds: body claim)
 
 local CirclingState = { name = "Circling" }
@@ -97,11 +98,15 @@ end
 local function livingSides(fighter)
 	local myTeam = fighter:GetAttribute("Team")
 	local enemies, allies = {}, {}
+	local known = Cognition.knownEnemyModels(fighter) -- (enemies from the senses; allies all known, the team talks)
 	for _, quin in ipairs(QuinRoster.all()) do
 		if quin ~= fighter and quin.Parent and quin:FindFirstChild("HumanoidRootPart") then
 			local hum = quin:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
-				table.insert(quin:GetAttribute("Team") ~= myTeam and enemies or allies, quin)
+				local isEnemy = quin:GetAttribute("Team") ~= myTeam
+				if not isEnemy or not known or known[quin] then
+					table.insert(isEnemy and enemies or allies, quin)
+				end
 			end
 		end
 	end

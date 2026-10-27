@@ -130,6 +130,15 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 	stats.none += 1
 end
 
+-- It answers a strike only when it can see or feel the striker (senses, not the roster): a
+-- strike from behind, unseen, lands. nil from Cognition (switch off / no board) keeps the old way.
+local function perceives(defender, attacker)
+	local known = require(QuinCore:WaitForChild("Cognition")).knownEnemyModels(defender)
+	if not known then return true end
+	local contact = known[attacker]
+	return contact ~= nil and (contact.channel == "sight" or contact.channel == "touch")
+end
+
 local function step()
 	local folder = Workspace:FindFirstChild("QuinServer")
 	if not folder or not Instinct.enabled() then return end
@@ -155,7 +164,8 @@ local function step()
 					local humanoid = defender:FindFirstChildOfClass("Humanoid")
 					local rootPart = defender:FindFirstChild("HumanoidRootPart")
 					if humanoid and rootPart and humanoid.Health > 0
-						and (attackerRoot.Position - rootPart.Position).Magnitude <= cfg("Range", 14) then
+						and (attackerRoot.Position - rootPart.Position).Magnitude <= cfg("Range", 14)
+						and perceives(defender, attacker) then
 						answer(defender, humanoid, rootPart, attacker, attackerRoot, contactAt, now)
 					end
 				end

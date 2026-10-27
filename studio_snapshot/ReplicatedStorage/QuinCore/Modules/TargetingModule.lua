@@ -682,9 +682,10 @@ function TargetingModule.getEnemiesInRange(rootPart, range)
 	local myModel = rootPart.Parent
 	local myTeam = myModel:GetAttribute("Team") or "None"
 	local results = {}
+	local known = Cognition.knownEnemyModels(myModel) -- (only enemies it knows about)
 	
 	for _, enemy in ipairs(QuinRoster.all()) do
-		if enemy ~= myModel and enemy.Parent then
+		if enemy ~= myModel and enemy.Parent and (not known or known[enemy]) then
 			local eHum = enemy:FindFirstChildOfClass("Humanoid")
 			local eRoot = enemy:FindFirstChild("HumanoidRootPart")
 			if eRoot and eHum and eHum.Health > 0 then

@@ -267,13 +267,14 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local myTeam = fighter:GetAttribute("Team")
 		local enemies = {}
 		local allies = {}
+		local known = Cognition.knownEnemyModels(fighter) -- (only enemies it knows about: senses, not the roster)
 		for _, quin in ipairs(QuinRoster.all()) do
 			if quin ~= fighter and quin.Parent and quin:FindFirstChild("HumanoidRootPart") then
 				local qTeam = quin:GetAttribute("Team")
 				local qHum = quin:FindFirstChildOfClass("Humanoid")
 				if qHum and qHum.Health > 0 then
 					if qTeam ~= myTeam then
-						table.insert(enemies, quin)
+						if not known or known[quin] then table.insert(enemies, quin) end
 					else
 						table.insert(allies, quin)
 					end
@@ -402,10 +403,11 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local myTeam = fighter:GetAttribute("Team") or "None"
 		local nearestDistraction = nil
 		local nearestDistractionDist = 13.0
+		local known = Cognition.knownEnemyModels(fighter) -- (a passer-by it has not noticed cannot distract it)
 		for _, q in ipairs(QuinRoster.all()) do
 			if q ~= fighter and q ~= target and q.Parent and q:FindFirstChild("HumanoidRootPart") then
 				local qHum = q:FindFirstChildOfClass("Humanoid")
-				if qHum and qHum.Health > 0 and q:GetAttribute("Team") ~= myTeam then
+				if qHum and qHum.Health > 0 and q:GetAttribute("Team") ~= myTeam and (not known or known[q]) then
 					local d = (q.HumanoidRootPart.Position - rootPart.Position).Magnitude
 					local afterMe = (q:GetAttribute("CurrentTarget") or q:GetAttribute("TargetQuin")) == fighter.Name
 					if d < nearestDistractionDist and (looselyCommitted or afterMe) then
@@ -436,13 +438,14 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		local myTeam = fighter:GetAttribute("Team")
 		local targetAllies = 0
 		local myAllies = 0
+		local known = Cognition.knownEnemyModels(fighter) -- (an ambush it has not seen does not scare it off)
 		for _, q in ipairs(QuinRoster.all()) do
 			if q.Parent and q:FindFirstChild("HumanoidRootPart") then
 				local qHum = q:FindFirstChildOfClass("Humanoid")
 				if qHum and qHum.Health > 0 then
 					local qDist = (q.HumanoidRootPart.Position - targetHRP.Position).Magnitude
 					if qDist <= 24 then
-						if q:GetAttribute("Team") == targetTeam and q ~= target then
+						if q:GetAttribute("Team") == targetTeam and q ~= target and (not known or known[q]) then
 							targetAllies = targetAllies + 1
 						elseif q:GetAttribute("Team") == myTeam and q ~= fighter then
 							myAllies = myAllies + 1

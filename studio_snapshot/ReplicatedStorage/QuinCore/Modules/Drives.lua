@@ -74,6 +74,15 @@ function Drives.onKnockdown(quin)
 	f.fury = clamp01(f.fury + cfg("FuryPerKnockdown", 0.25))
 end
 
+-- It feels a fall it saw (line of sight) or that was right beside it; a fall behind a wall
+-- passes it by. Workspace/Quin SensesRouteOff: every ally in range (the old way).
+function Drives.witnesses(ally, allyRoot, fallen, fallenRoot)
+	if Workspace:GetAttribute("SensesRouteOff") == true or ally:GetAttribute("SensesRouteOff") == true then return true end
+	if (allyRoot.Position - fallenRoot.Position).Magnitude <= (CombatConfig.ProximityRange or 10) then return true end
+	local Spatial = require(ReplicatedStorage.QuinCore.Modules.SpatialModule)
+	return Spatial.checkLineOfSight(Spatial.getEyePosition(allyRoot), Spatial.getEyePosition(fallenRoot), { ally, fallen })
+end
+
 function Drives.onAllyDown(fallen)
 	if not Drives.enabled() then return end
 	local folder = Workspace:FindFirstChild("QuinServer")
@@ -83,7 +92,8 @@ function Drives.onAllyDown(fallen)
 	for _, ally in ipairs(folder:GetChildren()) do
 		local allyRoot = ally:FindFirstChild("HumanoidRootPart")
 		if ally ~= fallen and team and ally:GetAttribute("Team") == team and allyRoot
-			and (allyRoot.Position - root.Position).Magnitude <= cfg("AllyDownRange", 60) then
+			and (allyRoot.Position - root.Position).Magnitude <= cfg("AllyDownRange", 60)
+			and Drives.witnesses(ally, allyRoot, fallen, root) then
 			local f = of(ally)
 			f.fury = clamp01(f.fury + cfg("FuryPerAllyDown", 0.4))
 		end
