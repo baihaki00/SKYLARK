@@ -46,6 +46,16 @@ function NavigationModule.isReachable(rootPart, targetRoot)
 	return true
 end
 
+-- Nothing in the way on a straight walk to a point (at the Quin's own height)
+function NavigationModule.isClearTo(rootPart, point)
+	if not rootPart then return true end
+	local lift = Vector3.new(0, CombatConfig.Nav_SweepHeight or SWEEP_HEIGHT, 0)
+	local from = rootPart.Position + lift
+	local offset = Vector3.new(point.X, rootPart.Position.Y, point.Z) + lift - from
+	if offset.Magnitude < 0.5 then return true end
+	return Workspace:Spherecast(from, SWEEP_RADIUS, offset, sweepParams(rootPart.Parent)) == nil
+end
+
 local paths = setmetatable({}, { __mode = "k" }) -- fighter -> { waypoints, index, time, goal, computing }
 
 local function requestPath(fighter, rootPart, goal)

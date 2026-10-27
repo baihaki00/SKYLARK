@@ -10,6 +10,7 @@ local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):Wait
 local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 local Cognition = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Cognition"))
 local Pace = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pace"))
+local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
 
 local IdleState = { name = "Idle" }
 
@@ -184,7 +185,14 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 						speed = Pace.arrive(speed, flat.Magnitude - settle)
 					end
 				end
-				LocomotionModule.steer(fighter, humanoid, rootPart, Vector3.new(goTo.X, rootPart.Position.Y, goTo.Z), speed, 0.1)
+				-- a wall between it and its spot: the way round (owner 2026-10-27, "why they just
+				-- stands there": a Lantern carrier walked straight into a block, its escort behind it)
+				local steerTo = Vector3.new(goTo.X, rootPart.Position.Y, goTo.Z)
+				if not NavigationModule.isClearTo(rootPart, steerTo) then
+					local waypoint = NavigationModule.detourWaypoint(fighter, rootPart, goTo)
+					if waypoint then steerTo = Vector3.new(waypoint.X, rootPart.Position.Y, waypoint.Z) end
+				end
+				LocomotionModule.steer(fighter, humanoid, rootPart, steerTo, speed, 0.1)
 			end
 			GaitModule.update(humanoid, rootPart, 0.1)
 			return IdleState
