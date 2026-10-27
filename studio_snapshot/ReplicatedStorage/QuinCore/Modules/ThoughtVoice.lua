@@ -104,6 +104,7 @@ local PHRASES = {
 	["Target:Distraction"] = { any = { "%s is right here. Him first.", "Can't run past %s." } },
 	["Target:Nearest"] = { any = { "%s is closest.", "Nobody else near. %s." } },
 	["Target:Pointed"] = { any = { "%s. Where they pointed.", "Pointed at %s. Going." } },
+	["Target:Interest"] = { any = { "That brawl. %s.", "Going in. %s." } },
 	["Target:Dive"] = { any = { "%s, down there. Mine.", "Drop on %s." } },
 	["Target:Intercept"] = { any = { "%s is in the air. Meet him up there." } },
 	["Target:Duel"] = { any = { "%s. Just the two of us." } },

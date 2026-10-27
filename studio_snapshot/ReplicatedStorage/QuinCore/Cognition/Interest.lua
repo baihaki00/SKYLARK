@@ -13,7 +13,11 @@
 -- How strongly it is drawn is a leaning: aware Quins notice more, aggressive Quins are pulled
 -- by fights. Published for probes as InterestKind / InterestPos; Workspace InterestDebug shows a
 -- label. Workspace or Quin InterestOff: nothing is noticed (as before this layer).
--- What it does with it (a glance now; curving toward / round it next) is up to the readers.
+-- What it does with it (owner 2026-10-28, "3"): it glances at it; and while a brawl holds its eye, a Quin
+-- with no fight of its own (no target, or one far off that is not after it) may act on it, a
+-- leaning: a pressing one joins (takes an enemy from the brawl, "Interest"), a careful one goes to
+-- the edge and circles it, watching. Most stay on their own business (InterestActChance).
+-- Watching stops when the brawl is old news or over, or an enemy comes near or hits it.
 
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,6 +27,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Pers = require(QuinCore:WaitForChild("Modules"):WaitForChild("Pers"))
 
 local Interest = {}
+local act -- (below)
 
 local FIGHTING = { Fight = true, Knockback = true, Recovery = true, MidAirClash = true, Special = true }
 local ENGAGED = { Fight = true, Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, Special = true }
@@ -122,9 +127,100 @@ local function events(quinModel, percepts)
 	return found
 end
 
+-- Acting on a brawl it just noticed: join it, or watch it from the edge (see the top)
+local function lazy(name)
+	return require(QuinCore:WaitForChild("Modules"):WaitForChild(name))
+end
+local function nearestEnemy(quinModel, rootPart, members)
+	local team = quinModel:GetAttribute("Team")
+	local best, bestD = nil, math.huge
+	for m in pairs(members) do
+		local r = m.Parent and m:FindFirstChild("HumanoidRootPart")
+		local h = m.Parent and m:FindFirstChildOfClass("Humanoid")
+		if r and h and h.Health > 0 and m:GetAttribute("Team") ~= team then
+			local d = (r.Position - rootPart.Position).Magnitude
+			if d < bestD then best, bestD = m, d end
+		end
+	end
+	return best
+end
+local function stopWatching(board, quinModel)
+	if board.interestWatch then
+		board.interestWatch = nil
+		quinModel:SetAttribute("InterestAct", nil)
+		lazy("SocialSystem").clearMoveIntent(quinModel)
+	end
+end
+act = function(board, quinModel, rootPart, cur, now, aggression)
+	-- watching: circle the edge, head on it, until it is over or something comes for it
+	local watch = board.interestWatch
+	if watch then
+		local threat = (quinModel:GetAttribute("ImpactTime") or 0) > Workspace:GetServerTimeNow() - 1
+		if not threat then
+			local board2 = board.contacts and board.contacts.enemies or {}
+			for _, c in ipairs(board2) do
+				if c.visible and c.distance and c.distance < cfg("InterestWatchBreak", 20) then threat = true break end
+			end
+		end
+		if not cur or cur ~= watch.event or threat or now - watch.startedAt > cfg("InterestWatchMax", 20)
+			or not ({ Idle = true, Chase = true })[quinModel:GetAttribute("CurrentState") or ""] then
+			stopWatching(board, quinModel)
+		else
+			local radius = cfg("InterestWatchRadius", 28)
+			local here = Vector3.new(rootPart.Position.X - cur.pos.X, 0, rootPart.Position.Z - cur.pos.Z)
+			local angle = math.atan2(here.Z, here.X)
+			if here.Magnitude < radius * 1.4 then
+				angle += watch.sign * math.rad(30) -- (there: it walks round)
+			elseif here.Magnitude > radius * 1.6 then
+				cur.since = now -- (on its way it is not getting used to it yet: that starts at the edge)
+			end
+			local spot = cur.pos + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+			lazy("SocialSystem").setMoveIntent(quinModel, spot, here.Magnitude > radius * 1.6 and "jog" or "walk", 1.5)
+			local serverNow = Workspace:GetServerTimeNow()
+			if (quinModel:GetAttribute("SocialLookUntil") or 0) <= serverNow then
+				quinModel:SetAttribute("LookPoint", cur.pos + Vector3.new(0, 2, 0))
+				quinModel:SetAttribute("LookUntil", serverNow + 0.6)
+			end
+		end
+		return
+	end
+	-- it weighs it up on noticing, and again every few seconds while it lasts (a Quin comes
+	-- free after a knockout, or its target runs off)
+	if not cur or cur.kind ~= "brawl" or now < (cur.nextDecide or 0) then return end
+	cur.nextDecide = now + cfg("InterestDecideEvery", 3)
+	-- only a Quin with no fight of its own: no target, or one far off that is not after it
+	local state = quinModel:GetAttribute("CurrentState") or ""
+	if state ~= "Idle" and state ~= "Chase" then return end
+	local targetName = quinModel:GetAttribute("CurrentTarget")
+	local folder = Workspace:FindFirstChild("QuinServer")
+	local target = targetName and folder and folder:FindFirstChild(targetName)
+	local tRoot = target and target:FindFirstChild("HumanoidRootPart")
+	if tRoot and ((tRoot.Position - rootPart.Position).Magnitude < cfg("InterestOwnFight", 60)
+		or target:GetAttribute("CurrentTarget") == quinModel.Name) then
+		return
+	end
+	if math.random() >= cfg("InterestActChance", 0.2) then return end
+	if math.random() < 0.15 + 0.6 * aggression then
+		local enemy = nearestEnemy(quinModel, rootPart, cur.memberSet)
+		if enemy and lazy("TargetingModule").setTarget(quinModel, enemy, "Interest") then
+			quinModel:SetAttribute("InterestAct", "join")
+			quinModel:SetAttribute("InterestActAt", Workspace:GetServerTimeNow())
+		end
+	elseif (Vector3.new(cur.pos.X - rootPart.Position.X, 0, cur.pos.Z - rootPart.Position.Z)).Magnitude <= cfg("InterestWatchFar", 120) then
+		-- (only a brawl near enough to reach while it lasts: one far off just gets its glances)
+		board.interestWatch = { event = cur, sign = math.random() < 0.5 and -1 or 1, startedAt = now }
+		quinModel:SetAttribute("InterestAct", "watch")
+		quinModel:SetAttribute("InterestActAt", Workspace:GetServerTimeNow())
+	end
+end
+
 -- Run once per reasoning tick (Cognition.update); keeps board.interest
 function Interest.update(board, quinModel, rootPart, now)
 	if Interest.off(quinModel) then
+		if board.interestWatch then
+			board.interestWatch = nil
+			quinModel:SetAttribute("InterestAct", nil)
+		end
 		if board.interest then
 			board.interest = nil
 			quinModel:SetAttribute("InterestKind", nil)
@@ -230,6 +326,7 @@ function Interest.update(board, quinModel, rootPart, now)
 		quinModel:SetAttribute("InterestSince", cur and Workspace:GetServerTimeNow() or nil) -- (probes: a new event)
 		tag(quinModel, cur and ("! " .. cur.kind .. (cur.size > 1 and (" x" .. cur.size) or "")) or nil, Color3.fromRGB(255, 170, 60))
 	end
+	act(board, quinModel, rootPart, cur, now, aggression)
 	if cur then
 		quinModel:SetAttribute("InterestPos", cur.pos)
 		-- a glance at it: on noticing, then now and then while it is free to look round
