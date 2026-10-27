@@ -431,7 +431,7 @@ local function contact(rec, other)
 	VfxModule.createShockwave(mid, 7, 0.18)
 	VfxModule.shakeScreen(mid, 250, 6)
 	local victim = math.random() < 0.5 and rec.humanoid or oHum
-	victim:TakeDamage(cfg("ContactDamage", 2))
+	require(script.Parent:WaitForChild("DamageModule")).chip(victim == oHum and rec.fighter or other, victim.Parent, cfg("ContactDamage", 2))
 	rec.fighter:SetAttribute("MomentumContactAt", os.clock())
 	other:SetAttribute("MomentumContactAt", os.clock())
 

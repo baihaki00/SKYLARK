@@ -313,9 +313,9 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 			
 			-- Chip damage
 			if data.role == "Leader" and targetHum then
-				targetHum:TakeDamage(4)
+				DamageModule.chip(fighter, target, 4)
 			elseif data.role == "Follower" and humanoid then
-				humanoid:TakeDamage(4)
+				DamageModule.chip(target, fighter, 4)
 			end
 		end
 		
@@ -474,7 +474,7 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 				fighter:SetAttribute("ForceState", "Knockback")
 				fighter:SetAttribute("LaunchedAt", tick() + 0.1)
 				
-				humanoid:TakeDamage(20) -- the one smashed down takes it (this used to hit the winner)
+				DamageModule.chip(target, fighter, 20) -- the one smashed down takes it (this used to hit the winner)
 				
 				return require(script.Parent:WaitForChild("KnockbackState"))
 			end

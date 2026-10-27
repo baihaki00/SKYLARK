@@ -80,6 +80,34 @@ function DamageModule.resolveOutcome(attackerModel, targetModel, moveData, damag
 end
 
 -- Apply damage to target
+-- Damage without a strike's reactions (no block, flinch or knockback): the knocks traded in a
+-- mid-air clash or a momentum contact. Still a blow from someone: the victim knows who hit it
+-- (LastAttackerName: its senses, guards), the attacker gets the damage and the kill, and both
+-- feel it (Drives). (These used to call Humanoid:TakeDamage directly: no one had hit anyone.)
+function DamageModule.chip(attackerModel, targetModel, amount)
+	local targetHum = targetModel and targetModel:FindFirstChildOfClass("Humanoid")
+	if not targetHum or targetHum.Health <= 0 or not attackerModel then return false end
+	local attackerRole = attackerModel:GetAttribute("RespectRole")
+	local targetRole = targetModel:GetAttribute("RespectRole")
+	if attackerRole == "Spectator" or attackerRole == "Watching" or targetRole == "Spectator" or targetRole == "Watching" then
+		return false
+	end
+	targetHum:TakeDamage(amount)
+	targetModel:SetAttribute("LastAttackerName", attackerModel.Name)
+	local attackerQuinId = attackerModel:GetAttribute("QuinId")
+	if attackerQuinId then
+		targetModel:SetAttribute("LastAttackerQuinId", attackerQuinId)
+		attackerModel:SetAttribute("MatchDamageDealt", (attackerModel:GetAttribute("MatchDamageDealt") or 0) + amount)
+	end
+	local isKill = targetHum.Health <= 0
+	if isKill and attackerQuinId then
+		attackerModel:SetAttribute("MatchKills", (attackerModel:GetAttribute("MatchKills") or 0) + 1)
+		require(ReplicatedStorage.QuinCore.Modules.PersonalitySystem).recordCombatOutcome(attackerModel, "Kill", { TargetName = targetModel.Name })
+	end
+	require(ReplicatedStorage.QuinCore.Modules.Drives).onExchange(attackerModel, targetModel, amount, "Hit", false)
+	return true, isKill
+end
+
 function DamageModule.apply(attackerModel, targetModel, damageInfo)
 	local targetHum = targetModel:FindFirstChildOfClass("Humanoid")
 	local attackerHum = attackerModel:FindFirstChildOfClass("Humanoid")

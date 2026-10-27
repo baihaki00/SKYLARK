@@ -86,11 +86,13 @@ end
 -- AI Decision Engine
 local function decideAction(fighter, target, distance, data)
 	local isLastStand = fighter:GetAttribute("LastStandMode") == true
-	local aggression = fighter:GetAttribute("Aggression") or 0.7
+	-- (its own personality: this read "Aggression" / "SpecialPreference", which nothing writes,
+	-- so every Quin fought at 0.7 and 0.3 whatever it was like)
+	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
 	if isLastStand then
 		aggression = math.min(1.0, aggression + (CombatConfig.LastStandAggressionBonus or 0.50))
 	end
-	local specialPref = fighter:GetAttribute("SpecialPreference") or 0.3
+	local specialPref = fighter:GetAttribute("Pers_SpecialPreference") or 0.35
 	local specialCooldown = fighter:GetAttribute("SpecialCooldown") or 8
 	local now = tick()
 	

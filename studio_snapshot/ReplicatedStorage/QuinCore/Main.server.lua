@@ -64,6 +64,14 @@ local STANDING_STATES = { Idle = true, Fight = true, Circling = true, Chase = tr
 local PILOT_STATES = { Piloted = true, Knockback = true, Recovery = true, Death = true, ReEntry = true,
 	ProjectileJump = true, MidAirClash = true } -- (a jump it chose; a clash it met in the air)
 local function isPiloted() return Quin:GetAttribute("PilotedBy") ~= nil end
+-- The brain's own orders (go idle, retreat, chase) never overwrite a state already waiting: a
+-- Knockback or a clash another Quin set on this one between ticks wins (the brain wrote over
+-- them, and a Quin that had been hit walked on instead of flying back)
+local function order(stateName)
+	if Quin:GetAttribute("ForceState") == nil then
+		Quin:SetAttribute("ForceState", stateName)
+	end
+end
 SocialSystem.start() -- the social layer (pack leaders, respect customs, arena events)
 
 -- === STATE MODULES ===
@@ -671,7 +679,7 @@ task.spawn(function()
 						local sHRP = selectedTarget:FindFirstChild("HumanoidRootPart")
 						local dist = sHRP and (sHRP.Position - rootPart.Position).Magnitude or 50
 						if dist > (CombatConfig.CombatRange or 8) * 1.5 then
-							Quin:SetAttribute("ForceState", "Idle")
+							order("Idle")
 						end
 					end
 					Quin:SetAttribute("CurrentTarget", selectedTarget.Name)
@@ -693,7 +701,7 @@ task.spawn(function()
 					local away = currentState.name == "Chase" or currentState.name == "Circling" or currentState.name == "Overwatch"
 						or (currentState.name == "Fight" and (task.engage or 16) <= 0)
 					if away and tDist > (task.engage or 16) * 1.4 then
-						Quin:SetAttribute("ForceState", "Idle")
+						order("Idle")
 					end
 				elseif Quin:GetAttribute("ObjectiveGoTo") ~= nil then
 					Quin:SetAttribute("ObjectiveGoTo", nil)
@@ -739,7 +747,7 @@ task.spawn(function()
 					local lastBreakoff = Quin:GetAttribute("LastRetreatBreakoff") or 0
 					if (nowClock - lastBreakoff) >= (CombatConfig.RetreatBreakoffCooldown or 3.0) then
 						Quin:SetAttribute("LastRetreatBreakoff", nowClock)
-						Quin:SetAttribute("ForceState", "Retreat")
+						order("Retreat")
 						RuntimeTracer.checkpoint(Quin, "Decision: Retreat (break off melee)")
 					end
 				elseif bestAction == "Pursue" and currentState.name == "Idle" then
@@ -749,7 +757,7 @@ task.spawn(function()
 					-- outside the job's reach)
 					local onJob = task and task.point and distToTgt > (task.engage or 16) * 1.4
 					if distToTgt > (CombatConfig.PursueEngageDistance or 20.0) and not onJob then
-						Quin:SetAttribute("ForceState", "Chase")
+						order("Chase")
 						RuntimeTracer.checkpoint(Quin, "Decision: Pursue (chase target)")
 					end
 				end

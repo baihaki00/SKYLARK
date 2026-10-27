@@ -923,7 +923,8 @@ function ClashOrbit.run(leader, follower, center)
 					VfxModule.shakeScreen(mid, 250, e.brawl and 3 or 6)
 					-- chip damage: whoever got the better of this exchange
 					local victim = math.random() < 0.5 and lHum or fHum
-					victim:TakeDamage(cfg("ContactDamage", 4))
+					local DamageModule = require(script.Parent:WaitForChild("DamageModule"))
+					DamageModule.chip(victim == lHum and follower or leader, victim.Parent, cfg("ContactDamage", 4))
 				elseif e.kind == "plant" then
 					-- a crouch while it is down (a landing clip: fast for an instant, slower for a wait)
 					local humanoid = hums[e.who]

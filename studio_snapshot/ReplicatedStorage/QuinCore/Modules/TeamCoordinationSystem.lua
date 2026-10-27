@@ -114,7 +114,7 @@ function TeamCoordinationSystem.getTeamFocusTarget(quinModel)
 			local guardedModel = workspace:FindFirstChild(guardedName) or (workspace:FindFirstChild("QuinServer") and workspace.QuinServer:FindFirstChild(guardedName))
 			if guardedModel and guardedModel.Parent then
 				-- Intercept the enemy targeting our guarded ally
-				local enemyAttackingAlly = guardedModel:GetAttribute("LastAttacker") or guardedModel:GetAttribute("CurrentTarget")
+				local enemyAttackingAlly = guardedModel:GetAttribute("LastAttackerName") or guardedModel:GetAttribute("CurrentTarget")
 				if enemyAttackingAlly and enemyAttackingAlly ~= "" then
 					return enemyAttackingAlly
 				end
