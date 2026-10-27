@@ -497,8 +497,12 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- the real motion is sideways to the real body. Until then (the body still turning to its
 	-- target, a reversal passing through a stop) the shared gait steps what the body does.
 	local lateralSpeed = math.abs(planar:Dot(rootPart.CFrame.RightVector))
+	-- (10 degrees of hysteresis: at one line the legs flipped between the strafe clips and the gait
+	-- every frame or two while the motion hovered about it, each flip a restart of the clips)
+	local maxOff = (CombatConfig.Circling_StrafeClipMaxOff or 30) + (data.strafeLegs and 10 or 0)
 	local movingSideways = planar.Magnitude < 1
-		or lateralSpeed >= planar.Magnitude * math.cos(math.rad(CombatConfig.Circling_StrafeClipMaxOff or 30))
+		or lateralSpeed >= planar.Magnitude * math.cos(math.rad(maxOff))
+	data.strafeLegs = strafing and movingSideways
 	if strafing and movingSideways then
 		if GaitModule.isActive(humanoid) then
 			GaitModule.stop(humanoid, 0.2)

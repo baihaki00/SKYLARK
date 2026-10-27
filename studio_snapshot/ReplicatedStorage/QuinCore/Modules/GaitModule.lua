@@ -87,6 +87,23 @@ local function isActive(track)
 	return track ~= nil and track.IsPlaying and track.WeightTarget > 0
 end
 
+-- Keeps a clip on the group's phase. It used to be set straight onto it whenever it drifted past
+-- PHASE_TOLERANCE: 633 jumps in 30 s of a 16v16 (288 on the run), each one a visible hitch of the
+-- legs and hips. Now a clip that is seen is pulled back a little each update; only one too faint
+-- to see, or one far out (a fresh start, a reversal), is set at once.
+local PHASE_PULL = 0.015 -- of a cycle per update, at most
+local function pullPhase(track, clipPhase)
+	if not isActive(track) or track.Length <= 0 then return end
+	local current = (track.TimePosition % track.Length) / track.Length
+	local d = wrappedPhaseDelta(clipPhase, current)
+	if math.abs(d) <= PHASE_TOLERANCE * 0.5 then return end
+	if track.WeightCurrent < 0.1 or math.abs(d) > 0.3 then
+		track.TimePosition = clipPhase * track.Length
+	else
+		track.TimePosition = ((current + math.clamp(d, -PHASE_PULL, PHASE_PULL)) % 1) * track.Length
+	end
+end
+
 local function getState(humanoid)
 	local st = states[humanoid]
 	if not st then
@@ -261,7 +278,10 @@ local function driveDiagonal(humanoid, st, tracks, weights, lens, plants, cycleD
 
 	-- Side with a little hysteresis so a straight run does not flip left/right on noise
 	local side = st.side
-	local flip = CombatConfig.Gait_DiagonalSideHysteresis or 0.75
+	-- (scaled with speed: at a flat 0.75 studs/s the noise of a straight run flipped the side, and
+	-- with it stopped and restarted the strafe clips, 600 times in 25 s of a 16v16. Under ~14
+	-- degrees off the facing the side layer carries no weight anyway)
+	local flip = math.max(CombatConfig.Gait_DiagonalSideHysteresis or 0.75, speed * 0.25)
 	if side == nil or (side == "Right" and lateral < -flip) or (side == "Left" and lateral > flip) then
 		side = lateral >= 0 and "Right" or "Left"
 	end
@@ -342,14 +362,7 @@ local function driveDiagonal(humanoid, st, tracks, weights, lens, plants, cycleD
 	end
 	st.entryPhase = nil
 
-	local function sync(track, clipPhase)
-		if isActive(track) and track.Length > 0 then
-			local current = (track.TimePosition % track.Length) / track.Length
-			if math.abs(wrappedPhaseDelta(clipPhase, current)) > PHASE_TOLERANCE then
-				track.TimePosition = clipPhase * track.Length
-			end
-		end
-	end
+	local sync = pullPhase
 
 	for i, track in ipairs(tracks) do
 		local clipPhase = (plants[i] + direction * phase) % 1
@@ -567,11 +580,8 @@ function GaitModule.update(humanoid, rootPart, dt)
 	for i, track in ipairs(tracks) do
 		local clipPhase = (phase + plants[i]) % 1
 		drive(track, weights[i] * locoWeight, direction * cadence * lens[i], st, i, clipPhase)
-		if i ~= lead and isActive(track) and track.Length > 0 then
-			local current = (track.TimePosition % track.Length) / track.Length
-			if math.abs(wrappedPhaseDelta(clipPhase, current)) > PHASE_TOLERANCE then
-				track.TimePosition = clipPhase * track.Length
-			end
+		if i ~= lead then
+			pullPhase(track, clipPhase)
 		end
 	end
 

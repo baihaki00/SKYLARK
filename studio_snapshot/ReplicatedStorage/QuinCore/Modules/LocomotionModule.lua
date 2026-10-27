@@ -887,7 +887,10 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 		-- Feet keep cycling while the humanoid is still decelerating under its own drive
 		-- (no skating slide into idle). Once the drive has decayed, any leftover velocity
 		-- is external (pushes, uneven footing) and the Quin stands in idle.
-		if speed > 1.2 and humanoid.WalkSpeed > 0.5 then
+		-- (a gait already stepping follows the body down to a stop even once the drive is cut: cut
+		-- at WalkSpeed 0 it dropped to idle with the body still sliding at 6+ studs/s - 40 times in
+		-- 25 s of a 16v16, mostly Quins pulling up to fight)
+		if speed > 1.2 and (humanoid.WalkSpeed > 0.5 or GaitModule.isActive(humanoid)) then
 			GaitModule.update(humanoid, rootPart, dt or 0.1)
 		elseif GaitModule.isActive(humanoid) then
 			GaitModule.stop(humanoid, 0.2)
