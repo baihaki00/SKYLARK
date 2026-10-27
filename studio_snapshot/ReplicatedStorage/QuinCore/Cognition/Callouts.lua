@@ -153,7 +153,7 @@ local function seesCaller(quinModel, rootPart, call)
 	local flat = Vector3.new(offset.X, 0, offset.Z)
 	local look = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
 	if flat.Magnitude > 1 and look.Magnitude > 0.01
-		and look.Unit:Dot(flat.Unit) < math.cos(math.rad(cog.VisionHalfAngle or 100)) then
+		and look.Unit:Dot(flat.Unit) < math.cos(math.rad(cfg("PointSeeHalfAngle", 60))) then
 		return false
 	end
 	return SpatialModule.checkLineOfSight(SpatialModule.getEyePosition(rootPart), SpatialModule.getEyePosition(callerRoot), { quinModel, call.caller })

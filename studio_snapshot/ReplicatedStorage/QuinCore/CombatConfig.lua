@@ -1184,7 +1184,10 @@ CombatConfig.Cognition = {
 	-- enemy; only an ally that sees the caller's point takes it in. Workspace PointOff = the old
 	-- shout (heard by everyone in CalloutRange). Workspace PointDebug = labels over the heads.
 	PointDuration = 1.1,           -- seconds the arm is up (an ally has this long to see it)
-	PointMaxAngle = 115,           -- degrees off its facing it will point (behind it, it does not)
+	PointMaxAngle = 115,
+	PointSeeHalfAngle = 60,        -- degrees each side of its facing it notices a point (a gesture needs
+	                               -- to be in front of it: the 200 degree sight cone let a Quin "see" a
+	                               -- point from behind it, owner 2026-10-28)           -- degrees off its facing it will point (behind it, it does not)
 	PointBusyNotice = 0.15,        -- chance a busy Quin (fighting, hit) notices a point, + awareness x
 	PointBusyNoticeAwareness = 0.4,
 	CalloutKeep = 3,               -- seconds a call stays in the air for allies to hear
