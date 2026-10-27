@@ -142,13 +142,4 @@ function ElementData.getRandomElement(rng)
 	return ELEMENT_LIST[idx]
 end
 
--- Helper: Get all element names
-function ElementData.getAllElements()
-	local copy = {}
-	for i, name in ipairs(ELEMENT_LIST) do
-		copy[i] = name
-	end
-	return copy
-end
-
 return ElementData

@@ -46,11 +46,6 @@ function BattleEventSystem.emit(eventName, data)
 	end
 end
 
--- Subscribe to battle events
-function BattleEventSystem.onEvent(callback)
-	table.insert(listeners, callback)
-end
-
 -- Check and evaluate battle events from a Quin's tactical perception
 function BattleEventSystem.checkEvents(quinModel, tacticalContext)
 	if not tacticalContext then return end

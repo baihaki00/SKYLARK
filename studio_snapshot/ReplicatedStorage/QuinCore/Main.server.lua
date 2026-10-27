@@ -35,7 +35,6 @@ local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("Deb
 local QuinData = require(QuinCore:WaitForChild("QuinData"))
 local AudioModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AudioModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
-local TacticalPerception = require(QuinCore:WaitForChild("Modules"):WaitForChild("TacticalPerception"))
 local DecisionSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("DecisionSystem"))
 local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
@@ -454,11 +453,6 @@ end)
 -- //////////////////////////////////////////////////////////////////////
 -- === FSM LOOP
 -- //////////////////////////////////////////////////////////////////////
-local function broadcastStateChange(Quin, newState)
-	if not Quin or not newState then return end
-	StateSyncEvent:FireAllClients(Quin, newState.name)
-end
-
 task.spawn(function()
 	-- (every Quin of a match is spawned in the same frame: without this they all think on the
 	-- same tick, ten times a second, and act on news on the same frame - start, stop, turn)
@@ -655,7 +649,7 @@ task.spawn(function()
 		local isShowdownPerimeter = SocialSystem.standsDown(Quin) -- (stepped back for the respect custom: plans no fights)
 
 		if not isShowdownPerimeter and rootPart and humanoid.Health > 0 and not isPiloted() then
-			local tacticalContext = TacticalPerception.evaluate(Quin)
+			local tacticalContext = Cognition.update(Quin) -- (senses -> attention -> memory -> self / environment / situation)
 			if tacticalContext then
 				-- 1. Utility-based target selection & switching
 				local oldTargetName = Quin:GetAttribute("CurrentTarget")

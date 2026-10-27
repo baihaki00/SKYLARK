@@ -101,11 +101,6 @@ local function estimateLanding(rootPart, dir, startGroundY, distance, bodyHeight
     }
 end
 
-function TraversalModule.getBodyMetrics(rootPart)
-    local height, width, radius = bodyMetrics(rootPart)
-    return {height = height, width = width, radius = radius}
-end
-
 function TraversalModule.probe(rootPart, desiredDirection, requestedDistance)
     if not rootPart or not rootPart.Parent then
         return {kind = "Blocked", reason = "MissingRoot"}

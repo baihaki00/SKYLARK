@@ -1,7 +1,7 @@
 --// MidAirClashState.lua
 -- Dragon Ball Z / Anime Style Mid-Air Aerial Brawling State Machine
--- Features: Anti-gravity suspension, rapid strike flurries, dynamic XYZ mid-air flash-step relocations,
--- and two dramatic climax resolutions: Mutual Tie blast-back OR Meteor Downward Smash into ground recovery.
+-- Two fighters meet in the air, fly the multi-dash orbit together (Modules/ClashOrbit), then one of
+-- two climaxes: Mutual Tie blast-back OR Meteor Downward Smash into ground recovery.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -15,7 +15,6 @@ local DamageModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
-local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local ClashOrbit = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ClashOrbit"))
 
 local MidAirClashState = { name = "MidAirClash" }
@@ -147,10 +146,6 @@ function MidAirClashState.enter(fighter, humanoid, rootPart)
 		role = role,
 		phase = "Init",
 		phaseStart = tick(),
-		strikesDelivered = 0,
-		relocationsDone = 0,
-		maxRelocations = 2, -- 2 dynamic XYZ jumps during brawl
-		nextStrikeTime = tick() + 0.15,
 		winnerName = nil,
 		animTrack = nil
 	}
@@ -248,21 +243,17 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 		if timeInPhase > 0.2 then
 			if fighter:GetAttribute("ClashResult") then
 				switchPhase(data, "Climax") -- decided on contact: no brawl
-			elseif CombatConfig.MidAirClash_Orbit ~= false then
+			else
 				-- the multi-dash orbit (Modules/ClashOrbit): the leader drives both bodies
 				switchPhase(data, "Orbit")
 				if data.role == "Leader" then
 					data.orbit = ClashOrbit.run(fighter, target, clashCenter)
 				end
-			else
-				switchPhase(data, "Flurry")
-				data.strikesDelivered = 0
-				data.nextStrikeTime = now + 0.05
 			end
 		end
 		
 	-- ============================================================
-	-- PHASE 2a: ORBIT (multi-dash passes, Modules/ClashOrbit)
+	-- PHASE 2: ORBIT (multi-dash passes, Modules/ClashOrbit)
 	-- ============================================================
 	elseif data.phase == "Orbit" then
 		if data.role == "Leader" then
@@ -275,105 +266,7 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 
 	-- ============================================================
-	-- PHASE 2: FLURRY (Rapid strike exchanges at current anchor)
-	-- ============================================================
-	elseif data.phase == "Flurry" then
-		-- Keep anchored at combat spacing
-		local dist = (rootPart.Position - targetHRP.Position).Magnitude
-		if dist > 5.0 or dist < 2.5 then
-			local toTarget = (targetHRP.Position - rootPart.Position)
-			local flatToTarget = Vector3.new(toTarget.X, 0, toTarget.Z)
-			if flatToTarget.Magnitude > 0.01 then
-				local desiredPos = targetHRP.Position - (flatToTarget.Unit * 3.8)
-				rootPart.CFrame = CFrame.lookAt(Vector3.new(desiredPos.X, clashCenter.Y, desiredPos.Z), targetHRP.Position)
-			end
-		end
-		
-		-- Strike delivery loop
-		if now >= data.nextStrikeTime then
-			data.nextStrikeTime = now + math.random(18, 26) / 100 -- every 0.18 - 0.26s
-			data.strikesDelivered = data.strikesDelivered + 1
-			
-			-- Alternate punches and kicks
-			local punchList = AnimationIds.Punches or {}
-			local kickList = AnimationIds.Kicks or {}
-			local animId = (data.strikesDelivered % 2 == 1 and #punchList > 0)
-				and punchList[math.random(1, #punchList)]
-				or kickList[math.random(1, math.max(1, #kickList))]
-			
-			if animId then
-				AnimationModule.play(humanoid, animId, Enum.AnimationPriority.Action4, false, 1.4)
-			end
-			
-			-- Sound & micro impact
-			local midPoint = (rootPart.Position + targetHRP.Position) / 2
-			AudioModule.playSlam(midPoint)
-			VfxModule.createShockwave(midPoint, 5, 0.15)
-			VfxModule.shakeScreen(rootPart.Position, 200, 4)
-			
-			-- Chip damage
-			if data.role == "Leader" and targetHum then
-				DamageModule.chip(fighter, target, 4)
-			elseif data.role == "Follower" and humanoid then
-				DamageModule.chip(target, fighter, 4)
-			end
-		end
-		
-		-- After 4-5 rapid strikes at this anchor point:
-		if data.strikesDelivered >= 4 then
-			if data.relocationsDone < data.maxRelocations then
-				switchPhase(data, "Relocate")
-			else
-				switchPhase(data, "Climax")
-			end
-		end
-		
-	-- ============================================================
-	-- PHASE 3: RELOCATE (Anime Flash-Step / Z-Burst to new XYZ)
-	-- ============================================================
-	elseif data.phase == "Relocate" then
-		if data.role == "Leader" then
-			-- Calculate dynamic 3D offset: jumps 15 to 25 studs in mid-air
-			local angle = math.random() * math.pi * 2
-			local horizDist = math.random(16, 26)
-			-- Clamp around the real arena centre (it is not at the world origin)
-			local bounds = SpatialModule.getArenaBounds()
-			local reachX, reachZ = bounds.halfX * 0.6, bounds.halfZ * 0.6
-			local newX = math.clamp(clashCenter.X + math.cos(angle) * horizDist, bounds.center.X - reachX, bounds.center.X + reachX)
-			local newZ = math.clamp(clashCenter.Z + math.sin(angle) * horizDist, bounds.center.Z - reachZ, bounds.center.Z + reachZ)
-			local newY = math.clamp(clashCenter.Y + math.random(-6, 14), 28, 70)
-			local newCenter = Vector3.new(newX, newY, newZ)
-			
-			fighter:SetAttribute("ClashCenterX", newCenter.X)
-			fighter:SetAttribute("ClashCenterY", newCenter.Y)
-			fighter:SetAttribute("ClashCenterZ", newCenter.Z)
-		end
-		
-		-- Audio & VFX for the mid-air flash-step
-		AudioModule.playSonicBoom(rootPart.Position)
-		AudioModule.playMidairSwoosh(rootPart.Position)
-		VfxModule.createVaporCone(rootPart, 0.25)
-		
-		-- Reposition to new anchor
-		local updatedCenter = Vector3.new(
-			leaderModel:GetAttribute("ClashCenterX") or clashCenter.X,
-			leaderModel:GetAttribute("ClashCenterY") or clashCenter.Y,
-			leaderModel:GetAttribute("ClashCenterZ") or clashCenter.Z
-		)
-		
-		local flatDir = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5).Unit
-		local offsetDir = (data.role == "Leader") and -flatDir or flatDir
-		local newPos = updatedCenter + (offsetDir * 1.9)
-		rootPart.CFrame = CFrame.lookAt(newPos, updatedCenter)
-		rootPart.AssemblyLinearVelocity = Vector3.zero
-		
-		data.relocationsDone = data.relocationsDone + 1
-		data.strikesDelivered = 0
-		data.nextStrikeTime = now + 0.1
-		switchPhase(data, "Flurry")
-		
-	-- ============================================================
-	-- PHASE 4: CLIMAX (Tie Blast-back OR Meteor Downward Smash)
+	-- PHASE 3: CLIMAX (Tie Blast-back OR Meteor Downward Smash)
 	-- ============================================================
 	elseif data.phase == "Climax" then
 		-- The leader decides and writes the result on both fighters. (The follower used to read

@@ -864,16 +864,6 @@ function AnimationModule.getExistingTrack(humanoid, animIdOrPath)
 	return animationTracks[humanoid] and animationTracks[humanoid][animId] or nil
 end
 
--- Adjust playback speed of a currently playing track safely
-function AnimationModule.adjustSpeed(humanoid, animIdOrPath, newSpeed)
-	local track = AnimationModule.getExistingTrack(humanoid, animIdOrPath)
-	if track and track.IsPlaying then
-		local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-		track:SetAttribute("BaseTrackSpeed", newSpeed)
-		track:AdjustSpeed(newSpeed * speedMult)
-	end
-end
-
 -- Cleanup when a humanoid is destroyed
 function AnimationModule.cleanup(humanoid)
 	if animationTracks[humanoid] then

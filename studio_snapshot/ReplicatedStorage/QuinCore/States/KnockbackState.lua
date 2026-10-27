@@ -350,14 +350,4 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 	return KnockbackState
 end
 
--- Set stun parameters from outside (called by FightState when applying knockback)
-function KnockbackState.setStunParams(fighter, duration, isHeavy)
-	local data = knockbackData[fighter]
-	if data then
-		if isHeavy then
-			data.stunDuration = (CombatConfig.HeavyStunDuration or 3.5) * (1 - (fighter:GetAttribute("StunResist") or 0))
-		end
-	end
-end
-
 return KnockbackState

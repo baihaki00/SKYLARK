@@ -640,11 +640,6 @@ function GaitModule.hasForeignLocomotion(humanoid)
 	return false
 end
 
-function GaitModule.isAirborne(humanoid)
-	local st = humanoid and states[humanoid]
-	return st ~= nil and st.airTime >= AIR_GRACE
-end
-
 -- Enforce the ground contract every frame for one Quin, on the side that owns its
 -- animation (server for AI, owning client for a piloted Quin). `shouldHandle` returns
 -- false while the other side owns the Quin. Returns the connection.

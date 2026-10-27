@@ -60,8 +60,4 @@ function QuinData.getStats(typeName)
 	return QuinData.Standard
 end
 
-function QuinData.getBaseStats()
-	return QuinData.Standard
-end
-
 return QuinData

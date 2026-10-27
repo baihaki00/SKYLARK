@@ -176,11 +176,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 	data.lastUpdate = now
 	local watched = now - data.enterTime
 
-	-- Getting its breath back
-	if CombatConfig.Body_StaminaByEffort == false then -- (otherwise the body does it: BodyStamina)
-		local energy = fighter:GetAttribute("Energy") or 100
-		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + (CombatConfig.EnergyRecovery_Idle or 16) * 0.1))
-	end
+	-- (it gets its breath back in the body: BodyStamina)
 
 	-- An enemy up here with it
 	local intruder = nearestEnemy(fighter, function(contact)

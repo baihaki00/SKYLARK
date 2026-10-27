@@ -102,16 +102,6 @@ function ComboModule.getComboStep(fighter)
 	return state.currentStep
 end
 
--- Check if combo is at the launch finisher
-function ComboModule.isAtLaunchFinisher(fighter)
-	local state = getState(fighter)
-	if not state.currentSequence then return false end
-	local sequence = COMBO_SEQUENCES[state.currentSequence]
-	if not sequence then return false end
-	local move = sequence[state.currentStep]
-	return move and move.launch == true
-end
-
 -- Cleanup
 function ComboModule.cleanup(fighter)
 	comboStates[fighter] = nil

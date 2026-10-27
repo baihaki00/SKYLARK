@@ -5,8 +5,8 @@
 --   moving at less than that                                           EnergyRecovery_Walk per second
 --   standing (under 2 studs/s)                                         EnergyRecovery_Idle per second
 --   in the air, knocked down, or mid-strike                            nothing either way
--- Strikes, dashes and jumps keep their own costs where they happen. With Body_StaminaByEffort off,
--- the states do it as before (Chase drains and recovers; Idle, Circling and Overwatch recover).
+-- Strikes, dashes and jumps keep their own costs where they happen. (The old per-state version -
+-- Chase drained, Idle / Circling / Overwatch recovered - and its Body_StaminaByEffort switch are gone.)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
@@ -15,12 +15,8 @@ local BodyStamina = {}
 
 local pending = setmetatable({}, { __mode = "k" }) -- Quin -> change not yet written
 
-function BodyStamina.enabled()
-	return CombatConfig.Body_StaminaByEffort ~= false
-end
-
 function BodyStamina.update(quin, humanoid, rootPart, dt)
-	if not BodyStamina.enabled() or not rootPart or humanoid.Health <= 0 then return end
+	if not rootPart or humanoid.Health <= 0 then return end
 	if humanoid.PlatformStand or humanoid.FloorMaterial == Enum.Material.Air then return end
 	if quin:GetAttribute("Attacking") == true then return end
 	local v = rootPart.AssemblyLinearVelocity

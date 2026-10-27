@@ -61,11 +61,6 @@ function SocialSystem.lookAt(quin, other, seconds)
 	quin:SetAttribute("SocialLookUntil", serverNow() + (seconds or CFG.LookTime or 1.2))
 end
 
-function SocialSystem.clearLook(quin)
-	quin:SetAttribute("SocialLookAt", nil)
-	quin:SetAttribute("SocialLookUntil", nil)
-end
-
 -- A nod (two quick dips of the head, procedural on the client), optionally after a delay
 function SocialSystem.nod(quin, delay)
 	if not quin then return end
@@ -165,11 +160,6 @@ function SocialSystem.watch(quin, humanoid, rootPart, dt)
 	gyro.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
 end
 
--- A respect-custom standoff: the gap the duellist keeps while circling (nil when none)
-function SocialSystem.standoffGap(quin)
-	return quin and quin:GetAttribute("SocialStandoff") or nil
-end
-
 -- ============================================================================
 -- Animation slots (AnimationConfig.Registry.Social, blank until the owner adds clips)
 -- ============================================================================
@@ -189,11 +179,6 @@ end
 
 function SocialSystem.respectRole(quin)
 	return quin and quin:GetAttribute("RespectRole") or nil
-end
-
--- A respect-custom duel is on and this Quin is one of its duelists
-function SocialSystem.isDuelist(quin)
-	return SocialSystem.respectRole(quin) == "Duelist"
 end
 
 -- Spectators of a respect custom (they watch; they neither hit nor get hit)

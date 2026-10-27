@@ -176,10 +176,6 @@ function AudioModule.playJumpUp(position)
 	playSoundAt(AudioIds.JumpUp, position, 0.1, math.random(90, 110)/100, 5)
 end
 
-function AudioModule.playChargeup(position)
-	playSoundAt(AudioIds.HitChargeup, position, 0.5, 1, 10)
-end
-
 function AudioModule.playMidairSwoosh(position)
 	playSoundAt(AudioIds.MidairSwoosh, position, 1.1, math.random(95, 105)/100, 5)
 end
@@ -190,17 +186,6 @@ end
 
 function AudioModule.playFallOnGround(position)
 	playSoundAt(AudioIds.FallOnGround, position, 0.01, math.random(70, 100)/100, 15)
-end
-
-function AudioModule.playFallOnGroundAfterMidAir(position)
-	playSoundAt(AudioIds.FallOnGroundMidAir, position, 0.05, math.random(70, 100)/100, 15)
-end
-
-function AudioModule.playLanding(targetOrPos, volume)
-	local pos = typeof(targetOrPos) == "Vector3" and targetOrPos
-		or (typeof(targetOrPos) == "Instance" and (targetOrPos:IsA("BasePart") and targetOrPos.Position or (targetOrPos:FindFirstChild("HumanoidRootPart") and targetOrPos.HumanoidRootPart.Position)))
-		or workspace.CurrentCamera.CFrame.Position
-	AudioModule.playFallOnGround(pos)
 end
 
 local lastFootstep = setmetatable({}, { __mode = "k" })
@@ -244,14 +229,6 @@ function AudioModule.playFootstep(fighter, volume)
 		clone:Play()
 		Debris:AddItem(clone, 0.6)
 	end
-end
-
-function AudioModule.playClash(position)
-	playSoundAt(AudioIds.SonicBoom, position, 0.8, 1.2, 20)
-end
-
-function AudioModule.playDodge(position)
-	playSoundAt(AudioIds.Dash, position, 0.6, 1.2, 10)
 end
 
 return AudioModule

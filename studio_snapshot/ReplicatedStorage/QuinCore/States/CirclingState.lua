@@ -235,13 +235,8 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		return require(script.Parent:WaitForChild("RecoveryState"))
 	end
 
-	-- Mana / Energy recovery while pacing & circling (two terms, as before: one scales with game speed)
+	-- (mana comes back in the body while it paces: BodyStamina)
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-	local recoveryRate = CombatConfig.EnergyRecovery_Walk or 10
-	if CombatConfig.Body_StaminaByEffort == false then -- (otherwise the body does it: BodyStamina)
-		local energy = fighter:GetAttribute("Energy") or 100
-		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recoveryRate * 0.1 * speedMult + recoveryRate * 0.1))
-	end
 
 	local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 800) * 1.5)
 	if not target then

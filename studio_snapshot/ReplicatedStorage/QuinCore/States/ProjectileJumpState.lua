@@ -349,17 +349,6 @@ local function setDownSnapOn()
 	return switch == true or (switch == nil and CombatConfig.ProjectileJump_SetDownSnap ~= false)
 end
 
--- Tracks come from the shared per-humanoid cache (a fresh LoadAnimation per jump leaked a
--- track on the Animator every time)
-local function playAnim(humanoid, id)
-	if not id then return nil end
-	local track = AnimationModule.getTrack(humanoid, id)
-	if track then
-		track:Play(0.1)
-	end
-	return track
-end
-
 local function stopAnim(track)
 	if track then track:Stop(0.2) end
 end

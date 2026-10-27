@@ -922,7 +922,7 @@ CombatConfig.MidAirClash_HelplessSmashChance = 0.75 -- an intercepted Quin that 
 CombatConfig.MidAirClash_Cooldown = 3.0              -- seconds after a clash before either Quin can clash again
 -- Mid-air clash as a multi-dash orbit (Modules/ClashOrbit; the owner's Combat Gods 2 engine, 2026-10-27).
 -- Each cycle (one pass: ease in to contact, ease out) draws its own values between these.
-CombatConfig.MidAirClash_Orbit = true                 -- false: the old static flurry at an anchor
+
 CombatConfig.MidAirClash_OrbitCyclesMin = 1           -- passes before the clash is resolved (random)
 CombatConfig.MidAirClash_OrbitCyclesMax = 10
 CombatConfig.MidAirClash_OrbitMaxTimeMin = 1          -- seconds a clash lasts: random between this and MaxTime (owner, 2026-10-27: 1-2 s)
@@ -1343,7 +1343,6 @@ CombatConfig.PlayerQuin = {
 
 -- The body (QUIN_CREATURE_DESIGN.md phase 1). Every switch here is for every Quin, AI and player.
 CombatConfig.Body_Agile = true            -- superhuman grip and quick reversals (the *_Agile values); false: the earlier, heavier body
-CombatConfig.Body_StaminaByEffort = true  -- mana is spent by effort (running, from any state) and recovered when slow; false: per state (Chase / Idle / Circling / Overwatch)
 CombatConfig.Body_RunEffortShare = 0.8    -- share of its top speed above which a Quin is running hard (EnergyDrain_Sprint per second)
 CombatConfig.Body_RestSpeed = 10          -- studs/s under which it recovers (EnergyRecovery_Idle standing, EnergyRecovery_Walk moving)
 CombatConfig.Body_HeadLeadsTurn = true    -- the head and chest turn toward where the body means to go before the body does (SteerIntent)

@@ -908,10 +908,6 @@ end
 -- (MAX_JUMP_HEIGHT is the one at the top: Jump_MaxReach + 2. A second definition here, 14,
 -- shadowed it for every jump below, so Pass 63's reach of 25 never reached a jump.)
 
-function LocomotionModule.getTraversalProbe(rootPart, desiredDirection)
-	return TraversalModule.probe(rootPart, desiredDirection)
-end
-
 function LocomotionModule.detectObstacle(rootPart)
 	local candidate = TraversalModule.probe(rootPart, rootPart and rootPart.CFrame.LookVector or nil)
 	local traversable = candidate and candidate.kind ~= "None" and candidate.kind ~= "Blocked"
@@ -1410,17 +1406,6 @@ function LocomotionModule.cutJump(fighter, humanoid, rootPart)
 	if v.Y <= 0 or not isHumanoidAirborne(humanoid) then return false end
 	rootPart.AssemblyLinearVelocity = Vector3.new(v.X, v.Y * (CombatConfig.Locomotion_JumpCutKeep or 0.45), v.Z)
 	return true
-end
-
-function LocomotionModule.checkAndJump(fighter, humanoid, rootPart, forwardImpulse)
-	local hasObstacle, height = LocomotionModule.detectObstacle(rootPart)
-	if hasObstacle then
-		local jumpType = (height <= 5.0) and "vault" or "jump"
-		fighter:SetAttribute("JumpWhy", "over an obstacle") -- (JumpLog, team step 5)
-		LocomotionModule.jump(fighter, humanoid, rootPart, math.max(3.5, height + 2), forwardImpulse, jumpType)
-		return true
-	end
-	return false
 end
 
 -- ============================================================================

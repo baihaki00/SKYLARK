@@ -1380,17 +1380,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		AnimationModule.playConfig(humanoid, data.currentAnim)
 	end
 	
-	-- Energy drain and recovery scaled with speedMult (the body does it when Body_StaminaByEffort
-	-- is on: BodyStamina)
-	if CombatConfig.Body_StaminaByEffort ~= false then
-		-- (nothing here)
-	elseif not shouldWalk then
-		local drain = (CombatConfig.EnergyDrain_Sprint or 2) * 0.1 * speedMult
-		fighter:SetAttribute("Energy", math.max(0, energy - drain))
-	else
-		local recovery = (CombatConfig.EnergyRecovery_Walk or 10) * 0.1 * speedMult
-		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recovery))
-	end
+	-- (running costs mana and slowing down gives it back in the body, whatever the state: BodyStamina)
 	
 	-- Predictive Lead Interception (Angle cutting rather than tail chasing)
 	local interceptPos = targetHRP.Position

@@ -92,11 +92,6 @@ function FXService.play(quinModel, eventType, target)
 	end
 end
 
--- Backward compatibility alias
-function FXService.playElementFX(quinModel, eventType, target)
-	return FXService.play(quinModel, eventType, target)
-end
-
 -- --- Elemental Emitter Implementations (Restrained, Lightweight Presentation Layer) ---
 
 -- Helper: Create a lightweight temporary attachment at a position

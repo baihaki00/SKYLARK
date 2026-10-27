@@ -25,21 +25,6 @@ function SpatialModule.raycastForward(rootPart, distance)
 	return false
 end
 
--- Raycast down to check ground distance and detect edges
-function SpatialModule.raycastDown(rootPart, maxDistance)
-	maxDistance = maxDistance or 50
-	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = {rootPart.Parent}
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	
-	local result = DebugDraw.raycast(rootPart, rootPart.Position, Vector3.new(0, -maxDistance, 0), params)
-	if result then
-		local groundDist = (rootPart.Position - result.Position).Magnitude
-		return true, groundDist, result.Position, result.Normal
-	end
-	return false, maxDistance, nil, nil
-end
-
 -- Check if near a true lethal arena edge or void boundary.
 -- If allowPlatformDrop is true (e.g. Quin wants to leap down toward a target below),
 -- drops with valid ground/baseplate below within 250 studs are permitted.
@@ -417,23 +402,6 @@ function SpatialModule.analyzeObstacleAhead(rootPart, targetPos, checkDistance)
 		steerDirection = bestSteerDir,
 		topSurfaceY = topY,
 	}
-end
-
--- Detect if target is elevated on an OB floating platform
-function SpatialModule.detectElevatedPlatform(rootPart, targetPos)
-	if not rootPart or not targetPos then return { isElevated = false } end
-	local yDiff = targetPos.Y - rootPart.Position.Y
-	if yDiff > 6.0 then
-		local hit = DebugDraw.raycast(rootPart, targetPos + Vector3.new(0, 2, 0), Vector3.new(0, -10, 0))
-		local onOB = hit and (hit.Instance.Name == "OB" or hit.Instance.Name:find("OB") ~= nil)
-		return {
-			isElevated = true,
-			heightDiff = yDiff,
-			isOB = onOB,
-			platform = hit and hit.Instance or nil
-		}
-	end
-	return { isElevated = false }
 end
 
 -- Find a floating OB platform above the Quin whose top surface is within jump reach.
@@ -1044,49 +1012,6 @@ function SpatialModule.checkLineOfSight(posA, posB, ignoreInstances)
 		end
 	end
 	return true
-end
-
-function SpatialModule.findNearbyPlatforms(rootPart, maxDist, minHeight, maxHeight)
-	maxDist = maxDist or 45
-	minHeight = minHeight or 4
-	maxHeight = maxHeight or 25
-	local pos = rootPart.Position
-	local platforms = {}
-
-	local params = RaycastParams.new()
-	local exclude = { rootPart.Parent }
-	local qs = Workspace:FindFirstChild("QuinServer")
-	if qs then table.insert(exclude, qs) end
-	local qg = Workspace:FindFirstChild("QuinGhost")
-	if qg then table.insert(exclude, qg) end
-	params.FilterDescendantsInstances = exclude
-	params.FilterType = Enum.RaycastFilterType.Exclude
-
-	local NUM_RAYS = 12
-	local seenInstances = {}
-	for i = 0, NUM_RAYS - 1 do
-		local angle = (i / NUM_RAYS) * math.pi * 2
-		local dir = Vector3.new(math.sin(angle), 0, math.cos(angle))
-		for d = 12, maxDist, 14 do
-			local probe = pos + dir * d
-			local rayOrigin = Vector3.new(probe.X, pos.Y + maxHeight + 4, probe.Z)
-			local hit = DebugDraw.raycast(rootPart, rayOrigin, Vector3.new(0, -(maxHeight + 8), 0), params)
-			if hit and hit.Instance and hit.Instance.CanCollide and not seenInstances[hit.Instance] then
-				local heightDiff = hit.Position.Y - pos.Y
-				if heightDiff >= minHeight and heightDiff <= maxHeight and hit.Normal.Y > 0.7 then
-					seenInstances[hit.Instance] = true
-					table.insert(platforms, {
-						position = hit.Position,
-						normal = hit.Normal,
-						heightDiff = heightDiff,
-						distance = (hit.Position - pos).Magnitude,
-						instance = hit.Instance,
-					})
-				end
-			end
-		end
-	end
-	return platforms
 end
 
 function SpatialModule.findCoverPositions(rootPart, enemyPos, maxDist)
