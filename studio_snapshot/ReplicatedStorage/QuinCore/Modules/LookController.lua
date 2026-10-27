@@ -60,16 +60,14 @@ local function between(a, b)
 	return axis.Unit, math.acos(math.clamp(a:Dot(b), -1, 1))
 end
 
-function LookController.new(ghostModel, aiModel)
-	local self = setmetatable({}, LookController)
-
-	self.ghostModel = ghostModel
-	self.aiModel = aiModel
-	self.enabled = true
-
-	-- Bones
+-- Finds the bones. Again later when they were missing or replaced: a controller built before
+-- the body finished loading held no arm (or no head) bones, and its Quin never pointed (owner
+-- 2026-10-28: "sometimes they point it doesnt work")
+function LookController:bindBones()
+	local ghostModel = self.ghostModel
 	self.headBone = ghostModel:FindFirstChild("mixamorig:Head", true)
 	self.arms = {}
+
 	for _, side in ipairs({ "Right", "Left" }) do
 		local upper = ghostModel:FindFirstChild("mixamorig:" .. side .. "Arm", true)
 		local fore = ghostModel:FindFirstChild("mixamorig:" .. side .. "ForeArm", true)
@@ -85,9 +83,18 @@ function LookController.new(ghostModel, aiModel)
 			self.arms[side] = { upper = upper, fore = fore, hand = hand, fingers = fingers }
 		end
 	end
-	self.pointW, self.pointChestYaw = 0, 0
 	self.neckBone = ghostModel:FindFirstChild("mixamorig:Neck", true)
 	self.spine2Bone = ghostModel:FindFirstChild("mixamorig:Spine2", true)
+end
+
+function LookController.new(ghostModel, aiModel)
+	local self = setmetatable({}, LookController)
+
+	self.ghostModel = ghostModel
+	self.aiModel = aiModel
+	self.enabled = true
+	self:bindBones()
+	self.pointW, self.pointChestYaw = 0, 0
 	self.rootPart = ghostModel:FindFirstChild("HumanoidRootPart") or (aiModel and aiModel:FindFirstChild("HumanoidRootPart"))
 
 	-- State
@@ -449,11 +456,24 @@ end
 
 -- Update procedural look-at on top of animation, then the pointing arm
 function LookController:update(dt)
+	local stale = not self.headBone or not self.headBone:IsDescendantOf(self.ghostModel)
+		or not self.arms.Right or not self.arms.Right.upper:IsDescendantOf(self.ghostModel)
+	if stale and os.clock() >= (self.rebindAt or 0) then
+		self.rebindAt = os.clock() + 1
+		self:bindBones()
+		self.boneWrites = nil
+	end
+	if Workspace:GetAttribute("PointProbe") and self.aiModel then
+		self.aiModel:SetAttribute("PointDbg", string.format("head=%s arms=%s stale=%s", tostring(self.headBone ~= nil), tostring(self.arms.Right ~= nil), tostring(stale)))
+	end
 	if not self.enabled or not self.headBone or not self.rootPart then return end
 	if self.aiModel and self.aiModel:GetAttribute("CurrentState") == "Death" then return end
 	self:preparePoint()
 	self:updateLook(dt)
 	self:applyPoint()
+	if Workspace:GetAttribute("PointProbe") and self.aiModel then
+		self.aiModel:SetAttribute("PointW", math.round(self.pointW * 100) / 100)
+	end
 end
 
 function LookController:updateLook(dt)
