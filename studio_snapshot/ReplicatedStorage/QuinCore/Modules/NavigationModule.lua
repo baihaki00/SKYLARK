@@ -56,6 +56,22 @@ function NavigationModule.isClearTo(rootPart, point)
 	return Workspace:Spherecast(from, SWEEP_RADIUS, offset, sweepParams(rootPart.Parent)) == nil
 end
 
+-- Something low right ahead that the sweep above passes over (waist-high cover, a low
+-- platform): how high its top is over the feet, or nil. A low wall stopped a walking Quin dead.
+function NavigationModule.lowObstacle(rootPart, humanoid, direction, distance)
+	if not rootPart or direction.Magnitude < 0.1 then return nil end
+	local dir = Vector3.new(direction.X, 0, direction.Z).Unit
+	local feetY = rootPart.Position.Y - (humanoid and humanoid.HipHeight or 2) - rootPart.Size.Y / 2
+	local from = Vector3.new(rootPart.Position.X, feetY + 3.2, rootPart.Position.Z)
+	local params = sweepParams(rootPart.Parent)
+	local hit = Workspace:Spherecast(from, 1.2, dir * distance, params)
+	if not hit or hit.Normal.Y > 0.5 then return nil end
+	local probe = hit.Position + dir * 0.8
+	local top = Workspace:Raycast(Vector3.new(probe.X, feetY + 16, probe.Z), Vector3.new(0, -16, 0), params)
+	if not top then return nil end
+	return top.Position.Y - feetY
+end
+
 local paths = setmetatable({}, { __mode = "k" }) -- fighter -> { waypoints, index, time, goal, computing }
 
 local function requestPath(fighter, rootPart, goal)

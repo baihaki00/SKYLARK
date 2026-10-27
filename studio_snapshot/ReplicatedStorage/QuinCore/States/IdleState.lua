@@ -188,9 +188,34 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 				-- a wall between it and its spot: the way round (owner 2026-10-27, "why they just
 				-- stands there": a Lantern carrier walked straight into a block, its escort behind it)
 				local steerTo = Vector3.new(goTo.X, rootPart.Position.Y, goTo.Z)
-				if not NavigationModule.isClearTo(rootPart, steerTo) then
-					local waypoint = NavigationModule.detourWaypoint(fighter, rootPart, goTo)
-					if waypoint then steerTo = Vector3.new(waypoint.X, rootPart.Position.Y, waypoint.Z) end
+				local jumpHere = false
+				if now < (job.detourUntil or 0) or not NavigationModule.isClearTo(rootPart, steerTo) then
+					local waypoint, jumpPoint = NavigationModule.detourWaypoint(fighter, rootPart, goTo)
+					if waypoint then
+						steerTo = Vector3.new(waypoint.X, rootPart.Position.Y, waypoint.Z)
+						jumpHere = jumpPoint
+					end
+				end
+				-- low cover across the way (waist high, the sweep above passes over it): hop it, and
+				-- pushing on the spot a moment means something is in the way all the same: hop, and
+				-- still stuck, the way round (a carrier stood against a low wall, owner 2026-10-27)
+				local flatVel = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Magnitude
+				local hopHeight = nil
+				local rise = NavigationModule.lowObstacle(rootPart, humanoid, steerTo - rootPart.Position, 3 + flatVel * 0.25)
+				if rise and rise >= (CombatConfig.Locomotion_StepHeight or 1.5) and rise <= (CombatConfig.Hurdle_MaxRise or 11) then
+					hopHeight = rise + 2.5
+				end
+				if flatVel < 1.5 and humanoid.MoveDirection.Magnitude > 0.5 then
+					job.pushSince = job.pushSince or now
+					if now - job.pushSince > 0.8 then hopHeight = hopHeight or 8 end
+					if now - job.pushSince > 2 then job.detourUntil, job.pushSince = now + 4, nil end
+				else
+					job.pushSince = nil
+				end
+				if jumpHere then hopHeight = hopHeight or 7 end
+				if hopHeight and now - (job.hopAt or 0) > 0.8 and LocomotionModule.isOnGround(rootPart, humanoid) then
+					job.hopAt = now
+					LocomotionModule.jump(fighter, humanoid, rootPart, hopHeight, math.max(flatVel, 14), "jump")
 				end
 				LocomotionModule.steer(fighter, humanoid, rootPart, steerTo, speed, 0.1)
 			end
