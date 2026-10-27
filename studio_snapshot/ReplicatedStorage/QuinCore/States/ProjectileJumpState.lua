@@ -35,226 +35,35 @@ local ImpulseModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local RunService = game:GetService("RunService")
 local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
+-- Its parts (child modules): what a jump looks and sounds like, and its flight geometry
+local Clips = require(script:WaitForChild("Clips"))
+local stopAnim = Clips.stopAnim
+local KITS = Clips.KITS
+local playClip = Clips.playClip
+local SMACK_PATH = Clips.SMACK_PATH
+local SMACK_TAKEOFF = Clips.SMACK_TAKEOFF
+local SMACK_LANDING = Clips.SMACK_LANDING
+local playSmackDown = Clips.playSmackDown
+local playDiveAnim = Clips.playDiveAnim
+local diveDirection = Clips.diveDirection
+local launchFx = Clips.launchFx
+local Flight = require(script:WaitForChild("Flight"))
+local Config = Flight.Config
+local getFloat = Flight.getFloat
+local calculateLowestY = Flight.calculateLowestY
+local isCurveSafe = Flight.isCurveSafe
+local calculateCombatAimPoint = Flight.calculateCombatAimPoint
+local pickStrafe = Flight.pickStrafe
+local containVelocity = Flight.containVelocity
+local avoidPlatforms = Flight.avoidPlatforms
 
 local ProjectileJumpState = { name = "ProjectileJump" }
-
-local Config = {
-	JumpPowerMin = 350,
-	JumpPowerMax = 400,
-	DashExecuteTimeMin = 2.0,
-	DashExecuteTimeMax = 2.5,
-
-	MultiJumpPowerMin = 200,
-	MultiJumpPowerMax = 250,
-	MultiJumpGapTimeMin = 0.75,
-	MultiJumpGapTimeMax = 1.25,
-	MultiJumpDashTimeMin = 0.75,
-	MultiJumpDashTimeMax = 1.25,
-
-	SlamSpeed = CombatConfig.ProjectileJump_SlamSpeed or 480,
-	StrafeDistanceMin = 150,
-	StrafeDistanceMax = 300,
-	CurveAggressiveness = 1,
-	ArcSpeedXZ = 100,
-
-	MultiJumpForwardSpeedMin = 100,
-	MultiJumpForwardSpeedMax = 200,
-	MultiJumpSideSpeedMin = -200,
-	MultiJumpSideSpeedMax = 200,
-
-	ComboGapTimeMin = 0.3,
-	ComboGapTimeMax = 0.6,
-
-	-- New Bezier Settings
-	BezierArcHeightBase = 50,
-	BezierLateralBendBase = 40,
-	SlamSpeedMultiplier = 1.15
-}
 
 local INTERCEPT_STYLE = 8
 local INTERCEPT_TIMEOUT = 2.5 -- seconds of pursuit in the air before it dives instead
 
 -- Styles whose dive gets the SlamSpeedMultiplier
 local FAST_DIVE_STYLES = { [3] = true, [6] = true, [7] = true }
-
-local function getFloat(min, max)
-	return min + math.random() * (max - min)
-end
-
--- Math Helpers for Style 5
-local function calculateLowestY(Y0, Y2, ArcHeight)
-	if ArcHeight == 0 then return math.min(Y0, Y2) end
-	local tLowest = 0.5 - (Y0 - Y2) / (4 * ArcHeight)
-	if tLowest >= 0.0 and tLowest <= 1.0 then
-		local midY = (Y0 + Y2) / 2
-		local P1Y = midY + ArcHeight
-		return ((1 - tLowest)^2 * Y0) + (2 * (1 - tLowest) * tLowest * P1Y) + (tLowest^2 * Y2)
-	else
-		return math.min(Y0, Y2)
-	end
-end
-
-local function isCurveSafe(P0, P1, P2, fighter, target)
-	local segments = 10
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = {fighter, target}
-
-	local prevPoint = P0
-	for i = 1, segments do
-		local t = i / segments
-		local nextPoint = ((1 - t)^2 * P0) + (2 * (1 - t) * t * P1) + (t^2 * P2)
-		local dir = nextPoint - prevPoint
-		local dist = dir.Magnitude
-		if dist > 0.01 then
-			local hit = workspace:Spherecast(prevPoint, 2, dir.Unit * dist, params)
-			if hit then return false end
-		end
-		prevPoint = nextPoint
-	end
-	return true
-end
-
--- scatterAngle is rolled once per jump: re-rolling it on every update moved the landing spot
--- 5-25 studs each tick, so a diving Quin kept re-aiming between scattered points near the ground.
-local function calculateCombatAimPoint(rootPart, targetHRP, dashSpeed, humanoid, scatterAngle, precise)
-	local targetPos = targetHRP.Position
-	local targetVel = targetHRP.AssemblyLinearVelocity
-	local flatTargetVel = Vector3.new(targetVel.X, 0, targetVel.Z)
-
-	-- Dynamic arrival time for lead interception
-	local currentDist = (targetPos - rootPart.Position).Magnitude
-	local speed = dashSpeed or Config.SlamSpeed or 500
-	local tArrival = math.clamp(currentDist / speed, 0.04, 0.40)
-
-	-- First-order lead position (where the moving target will be upon dive arrival)
-	local leadPos = targetPos + (flatTargetVel * tArrival)
-
-	-- Approach vector on XZ plane
-	local toLeadFlat = Vector3.new(leadPos.X - rootPart.Position.X, 0, leadPos.Z - rootPart.Position.Z)
-	local approachDir = toLeadFlat.Magnitude > 0.01 and toLeadFlat.Unit or rootPart.CFrame.LookVector
-
-	-- Arena floor altitude at the landing point
-	local groundY = targetPos.Y
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = {rootPart.Parent, targetHRP.Parent}
-	-- (all the way down: a 35-stud ray found nothing under an airborne target or a tall
-	-- platform, the aim fell back to the target's own height and the dive went up at it)
-	rayParams.FilterDescendantsInstances = {rootPart.Parent, targetHRP.Parent, Workspace:FindFirstChild("QuinServer")}
-	rayParams.RespectCanCollide = true
-	local floorRay = DebugDraw.raycast(rootPart, leadPos + Vector3.new(0, 10, 0), Vector3.new(0, -1000, 0), rayParams)
-	if floorRay then
-		groundY = floorRay.Position.Y + (humanoid and humanoid.HipHeight or 2.0) + (rootPart.Size.Y / 2)
-	end
-
-	-- Striking landing spot with organic clamped trajectory scatter (Sections 42 & 43)
-	-- smashes are not 100% laser-guided; landing has a 5 to 25 studs scatter (clamped strictly <= 30)
-	local jumpDist = (leadPos - rootPart.Position).Magnitude
-	local scatterDist = math.clamp(jumpDist * 0.12, 5.0, 25.0)
-	local randAngle = scatterAngle or (math.random() * math.pi * 2)
-	local scatterOffset = Vector3.new(math.cos(randAngle), 0, math.sin(randAngle)) * scatterDist
-
-	local landingSpot = leadPos - (approachDir * 4.5) + scatterOffset
-	if precise then
-		landingSpot = leadPos -- a jump to a spot (a platform) lands on the spot
-	end
-	landingSpot = Vector3.new(landingSpot.X, groundY, landingSpot.Z)
-
-	return landingSpot, approachDir, groundY
-end
-
--- Arena containment. Mid-air strafes cover 150-300 studs and the jump drifts another couple of
--- hundred; from most of the arena that carried the jumper over the wall, where the out-of-bounds
--- safety net teleported it back to the centre.
-local ARENA_MARGIN = 30
-
--- Distance available along flatDir before the arena margin
-local function arenaRoom(position, flatDir)
-	local bounds = SpatialModule.getArenaBounds()
-	local room = math.huge
-	local function limit(p, d, center, half)
-		if d > 0.001 then
-			room = math.min(room, (center + half - ARENA_MARGIN - p) / d)
-		elseif d < -0.001 then
-			room = math.min(room, (center - half + ARENA_MARGIN - p) / d)
-		end
-	end
-	limit(position.X, flatDir.X, bounds.center.X, bounds.halfX)
-	limit(position.Z, flatDir.Z, bounds.center.Z, bounds.halfZ)
-	return math.max(room, 0)
-end
-
--- Sideways strafe: a random side, flipped and shortened as needed to stay inside the arena
-local function pickStrafe(rootPart)
-	local right = rootPart.CFrame.RightVector
-	local dir = Vector3.new(right.X, 0, right.Z)
-	dir = (dir.Magnitude > 0.01 and dir.Unit or Vector3.new(1, 0, 0)) * (math.random() > 0.5 and 1 or -1)
-	local dist = getFloat(Config.StrafeDistanceMin, Config.StrafeDistanceMax)
-	local room = arenaRoom(rootPart.Position, dir)
-	if room < dist then
-		local otherRoom = arenaRoom(rootPart.Position, -dir)
-		if otherRoom > room then
-			dir, room = -dir, otherRoom
-		end
-	end
-	return dir, math.min(dist, room)
-end
-
--- Removes the outward part of a horizontal velocity once the position is past the margin
-local function containVelocity(position, velocity)
-	local bounds = SpatialModule.getArenaBounds()
-	local x, z = velocity.X, velocity.Z
-	local dx, dz = position.X - bounds.center.X, position.Z - bounds.center.Z
-	if math.abs(dx) > bounds.halfX - ARENA_MARGIN and dx * x > 0 then x = 0 end
-	if math.abs(dz) > bounds.halfZ - ARENA_MARGIN and dz * z > 0 then z = 0 end
-	return Vector3.new(x, velocity.Y, z)
-end
-
--- Platforms in the flight's way (owner 2026-10-27: jumps flew into the underside of floating
--- platforms, 60-200 studs up). Looked for a quarter second ahead along the flight: under a
--- platform the climb stops and the body swerves toward that platform's nearest edge; a side
--- face ahead is glided along. Tops are landings and are left alone. (CombatConfig
--- ProjectileJump_AvoidPlatforms = false switches it off.)
-local avoidParams
-local function avoidPlatforms(position, velocity)
-	if CombatConfig.ProjectileJump_AvoidPlatforms == false or velocity.Magnitude < 20 then return velocity end
-	local world = workspace:FindFirstChild("argoniaonion")
-	if not world then return velocity end
-	if not avoidParams then
-		avoidParams = RaycastParams.new()
-		avoidParams.FilterType = Enum.RaycastFilterType.Include
-	end
-	avoidParams.FilterDescendantsInstances = { world }
-	local ahead = velocity * (CombatConfig.ProjectileJump_AvoidLookahead or 0.25)
-	if ahead.Magnitude > 150 then ahead = ahead.Unit * 150 end
-	local hit = workspace:Spherecast(position + Vector3.new(0, 2, 0), 2.5, ahead, avoidParams)
-	if not hit or not hit.Instance.CanCollide then return velocity end
-	local n = hit.Normal
-	if n.Y > 0.5 then return velocity end -- a top: somewhere to land
-	if n.Y < -0.5 then
-		-- an underside: no more climbing, out toward the nearest edge of the part
-		local part = hit.Instance
-		local flatSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
-		local escape = Vector3.zero
-		if part:IsA("BasePart") then
-			local localPos = part.CFrame:PointToObjectSpace(position)
-			local half = part.Size / 2
-			local toX = half.X - math.abs(localPos.X)
-			local toZ = half.Z - math.abs(localPos.Z)
-			local axis = toX < toZ and part.CFrame.RightVector * (localPos.X >= 0 and 1 or -1)
-				or part.CFrame.LookVector * (localPos.Z >= 0 and -1 or 1)
-			escape = Vector3.new(axis.X, 0, axis.Z)
-			escape = escape.Magnitude > 0.01 and escape.Unit or Vector3.zero
-		end
-		local push = math.max(flatSpeed, velocity.Magnitude * 0.6)
-		local flat = Vector3.new(velocity.X, 0, velocity.Z) + escape * push
-		if flat.Magnitude > push then flat = flat.Unit * push end
-		return Vector3.new(flat.X, math.min(velocity.Y, 0), flat.Z)
-	end
-	-- a side face: slide along it
-	return velocity - n * math.min(velocity:Dot(n), 0)
-end
 
 local stateData = {}
 
@@ -349,89 +158,6 @@ end
 local function setDownSnapOn()
 	local switch = Workspace:GetAttribute("PJSetDownSnap")
 	return switch == true or (switch == nil and CombatConfig.ProjectileJump_SetDownSnap ~= false)
-end
-
-local function stopAnim(track)
-	if track then track:Stop(0.2) end
-end
-
--- Projectile jump kits (AnimationConfig.Registry.ProjectileJump): a jump picks one
-local KITS = {
-	{ name = "Ninja", jump = "ProjectileJump.NinjaJump", loop = "ProjectileJump.NinjaAirLoop" },
-	{ name = "Standard", jump = "ProjectileJump.StandardJump", loop = "ProjectileJump.StandardAirLoop" },
-}
-
-local function playClip(humanoid, path, looped)
-	local entry = AnimationConfig.get(path)
-	local track = entry and AnimationModule.getTrack(humanoid, entry.id)
-	if track then
-		track.Priority = Enum.AnimationPriority.Action3
-		track.Looped = looped == true
-		track:Play(entry.fadeTime or 0.1, 1, entry.speed or 1)
-	end
-	return track
-end
-
--- The arc jump's other look: one smack-down clip over the whole jump (AnimationConfig
--- Attacks.Special.ProceduralSmackDown, in place). Its markers: ProjectileJump (takeoff) 0.53 s,
--- BodyLanding 1.20 s, end 2.73 s. It starts at the takeoff; the airborne part is stretched or
--- squeezed every frame so the BodyLanding frame meets the touchdown, and the rest plays at normal
--- speed as the landing (RecoveryState carries it on instead of a landing clip).
-local SMACK_PATH = "Attacks.Special.ProceduralSmackDown"
-local SMACK_TAKEOFF = 0.53
-local SMACK_LANDING = 1.2
-
-local function playSmackDown(humanoid)
-	local entry = AnimationConfig.get(SMACK_PATH)
-	local track = entry and AnimationModule.getTrack(humanoid, entry.id)
-	if track then
-		track.Priority = Enum.AnimationPriority.Action3
-		track.Looped = false
-		track:Play(0.08, 1, 1)
-		if track.Length > 0 then
-			track.TimePosition = SMACK_TAKEOFF
-		end
-	end
-	return track
-end
-
--- The dive: the flying clip, head first along the path
-local function playDiveAnim(humanoid)
-	return playClip(humanoid, "ProjectileJump.DiveFly", true)
-end
-
--- A dive only ever goes down. Re-aimed at 480+ studs/s toward a target above (one in the air, on
--- a higher platform) it went up past it, then down, then up again.
-local function diveDirection(offset, fallback)
-	local flat = Vector3.new(offset.X, 0, offset.Z)
-	local y = math.min(offset.Y, -0.3 * math.max(flat.Magnitude, 1))
-	local dir = Vector3.new(offset.X, y, offset.Z)
-	return dir.Magnitude > 0.001 and dir.Unit or fallback
-end
-
--- The launch's sound and shockwave are for a jump into the sky (owner 2026-10-27: "that sound is
--- for a Quin staying airborne for quite a while"): only when the jump tops out at least
--- ProjectileJump_LaunchFxHeight studs above the ground under it. A lower one sounds like a jump,
--- quietly, with no shockwave or shake. vy: the launch's upward speed.
-local launchFxParams = RaycastParams.new()
-launchFxParams.FilterType = Enum.RaycastFilterType.Exclude
-local function launchFx(rootPart, vy, shake, untilT)
-	local qs = workspace:FindFirstChild("QuinServer")
-	launchFxParams.FilterDescendantsInstances = qs and { qs } or {}
-	local hit = workspace:Raycast(rootPart.Position, Vector3.new(0, -1000, 0), launchFxParams)
-	local above = hit and (rootPart.Position.Y - hit.Position.Y) or 0
-	-- (the rise it really makes: a dash or dive that starts before the top cuts it short - untilT)
-	local g = workspace.Gravity
-	local t = math.max(vy, 0) / g
-	if untilT then t = math.min(t, math.max(untilT, 0)) end
-	local peak = above + math.max(vy, 0) * t - 0.5 * g * t * t
-	if peak >= (CombatConfig.ProjectileJump_LaunchFxHeight or 200) then
-		AudioModule.playJumpUp(rootPart.Position)
-		VfxModule.createLaunchShockwave(rootPart)
-		if shake then VfxModule.shakeScreen(rootPart.Position, 500, 8) end
-	else
-		AudioModule.playJumpSoft(rootPart.Position)
-	end
 end
 
 local function switchPhase(data, newPhase)
