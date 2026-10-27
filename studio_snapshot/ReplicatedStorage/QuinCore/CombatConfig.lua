@@ -766,6 +766,9 @@ CombatConfig.Objective_PatrolRestless = 0.55 -- Pers_MobilityPreference from whi
 CombatConfig.Objective_PatrolSwing = 30   -- degrees it moves round the Shrine when it does
 
 CombatConfig.Objective_DetonateTime = 40            -- (same as LanternSiege.DetonateTime)
+CombatConfig.Objective_DefuseTime = 7               -- (same as LanternSiege.DefuseTime)
+CombatConfig.Objective_BlastRadius = 40             -- (same as LanternSiege.BlastRadius)
+CombatConfig.Objective_DefuseCommit = 15            -- seconds of slack below which a defuser stops being drawn into fights
 CombatConfig.Objective_HurryFrom = 35               -- round seconds left (past the last 10) where attackers start to hurry
 CombatConfig.LanternSiege = {
 	HuddleTime = 10, LiveTime = 100, RoundOverTime = 4,
@@ -776,6 +779,8 @@ CombatConfig.LanternSiege = {
 	DetonateTime = 40,  -- seconds from the plant until it goes off
 	DefuseTime = 7,     -- seconds kneeling on it to defuse (past half way, a stop keeps that half)
 	DefuseRange = 5,
+	BlastRadius = 40,   -- studs: caught in it when it goes off, knocked out
+	ShakenEnergy = 0.5, -- knocked out in a round (or blasted): starts the next with this share of its mana
 	BenchHeight = 3000,
 }
 

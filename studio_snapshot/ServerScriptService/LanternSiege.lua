@@ -12,6 +12,10 @@
 --            it up again -> Planting: on a Shrine the carrier kneels PlantTime seconds (a blow stops
 --            it and the orb falls) -> Planted: it goes off after DetonateTime; a defender kneels on
 --            it DefuseTime seconds to defuse it (a blow stops it; past half way that half is kept).
+--            Going off it blasts everything within BlastRadius (a red ring on the ground from the
+--            plant; the orb glows brighter to the end): caught in it, a Quin is knocked out.
+--   Carry-over  a Quin knocked out in a round (or caught in the blast) starts the next one shaken:
+--            ShakenEnergy of its mana (dash, projectile jump). Getting clear is worth something.
 --            Attackers win: it goes off, or every defender is out.
 --            Defenders win: it is defused, the round clock runs out before a plant, or every
 --            attacker is out before a plant (after a plant they must still defuse it).
@@ -166,7 +170,7 @@ end
 ----------------------------------------------------------------------------------------
 -- Quins: knockouts sit the round out (the same Quin comes back)
 ----------------------------------------------------------------------------------------
-local roster = {} -- [quin] = { team, parked }
+local roster = {} -- [quin] = { team, parked, shaken (knocked out last round: starts low on mana) }
 
 local function parked(q) return roster[q] and roster[q].parked end
 
@@ -258,8 +262,10 @@ local function placeLantern(pos, state)
 	lantern.CFrame = CFrame.new(pos)
 	if state ~= "Planted" then
 		lantern.Transparency = 0
+		lantern.Size = Vector3.new(1.3, 1.3, 1.3)
 		lantern.PointLight.Enabled = true
 		lantern.PointLight.Range = 14
+		lantern.PointLight.Brightness = 3
 	end
 	lantern:SetAttribute("State", state)
 	lantern:SetAttribute("Carrier", nil)
@@ -342,6 +348,13 @@ local function placeTeams(attackers)
 			unpark(q, CFrame.lookAt(p, Vector3.new(look.X, p.Y, look.Z)))
 			q:SetAttribute("IsInert", true)
 			q:SetAttribute("InCombat", false)
+			-- knocked out last round: it starts this one low on mana
+			local rec = roster[q]
+			q:SetAttribute("Shaken", rec.shaken or nil)
+			if rec.shaken then
+				q:SetAttribute("Energy", (CombatConfig.MaxEnergy or 100) * cfg("ShakenEnergy", 0.5))
+				rec.shaken = nil
+			end
 		end
 	end
 end
@@ -407,6 +420,7 @@ local function playRound(attackers, isCancelled, announce)
 	local planter, plantAt, plantHit, plantShrine = nil, 0, 0, nil
 	local detonateAt = nil
 	local defuser, defuseHit, defuse, defuseLand = nil, 0, 0, 0
+	local zone = nil -- the blast ring on the ground
 	local last = os.clock()
 
 	local function drop(at, why)
@@ -483,6 +497,18 @@ local function playRound(attackers, isCancelled, announce)
 					folder:SetAttribute("PlantedShrine", plantShrine)
 					detonateAt = clock + cfg("DetonateTime", 40)
 					folder:SetAttribute("DetonateAt", now() + cfg("DetonateTime", 40))
+					folder:SetAttribute("BlastRadius", cfg("BlastRadius", 40))
+					-- the blast area, on the ground from the start: everyone can see where safe is
+					zone = Instance.new("Part")
+					zone.Name = "BlastZone"
+					zone.Shape = Enum.PartType.Cylinder
+					zone.Size = Vector3.new(0.3, cfg("BlastRadius", 40) * 2, cfg("BlastRadius", 40) * 2)
+					zone.CFrame = CFrame.new(groundAt(ring.Position) + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, 0, math.rad(90))
+					zone.Material = Enum.Material.Neon
+					zone.Color = Color3.fromRGB(255, 60, 40)
+					zone.Transparency = 0.88
+					zone.Anchored, zone.CanCollide, zone.CanQuery, zone.CanTouch, zone.CastShadow = true, false, false, false, false
+					zone.Parent = folder
 					setPhase("Planted", cfg("DetonateTime", 40))
 					announce(string.format("ORB PLANTED AT %s  //  %ds TO DEFUSE", plantShrine, cfg("DetonateTime", 40)), 3, "LANTERN SIEGE", LANTERN_COLOR)
 				end
@@ -521,11 +547,33 @@ local function playRound(attackers, isCancelled, announce)
 				heroLandRelease(defuser)
 				lantern.PointLight.Enabled = false
 				lantern.Transparency = 0.7
+				if zone then zone:Destroy() end
 				VfxModule.createShockwave(lantern.Position, 30, 0.8)
 				return defenders, "Defused"
 			end
+			-- it glows brighter toward the end, and in the last seconds it throbs
+			local frac = 1 - math.max(0, detonateAt - clock) / cfg("DetonateTime", 40)
+			local throb = (detonateAt - clock < 10) and (0.5 + 0.5 * math.sin(clock * (8 + 12 * frac))) or 0
+			lantern.PointLight.Range = 20 + 40 * frac * frac
+			lantern.PointLight.Brightness = 3 + 5 * frac + 4 * throb
+			lantern.Size = Vector3.new(1.3, 1.3, 1.3) * (1 + 0.6 * frac + 0.5 * throb)
+			if zone then zone.Transparency = 0.88 - 0.25 * frac - 0.15 * throb end
 			if clock >= detonateAt then
-				VfxModule.createShockwave(lantern.Position, 50, 1.0)
+				-- the blast: everyone inside is knocked out (and starts the next round shaken)
+				local radius = cfg("BlastRadius", 40)
+				for q in pairs(roster) do
+					local root = q:FindFirstChild("HumanoidRootPart")
+					if onField(q) and root and (root.Position - lantern.Position).Magnitude <= radius then
+						park(q)
+					end
+				end
+				VfxModule.createShockwave(lantern.Position, radius * 1.6, 1.2)
+				VfxModule.createShockwave(lantern.Position, radius, 0.6)
+				AudioModule.playSlam(lantern.Position)
+				lantern.Transparency = 1
+				lantern.PointLight.Range = 80
+				lantern.PointLight.Brightness = 20
+				if zone then zone:Destroy() end
 				return attackers, "The orb went off"
 			end
 		end
@@ -573,6 +621,12 @@ function LanternSiege.run(hooks)
 		if not winner then
 			LanternSiege.cleanup()
 			return nil, "Stopped"
+		end
+		-- the knocked out (and those the blast caught) start the next round shaken
+		local blastZone = folder:FindFirstChild("BlastZone")
+		if blastZone then blastZone:Destroy() end
+		for q, rec in pairs(roster) do
+			rec.shaken = rec.parked or nil
 		end
 		score[winner] += 1
 		folder:SetAttribute("ScoreTeamAlpha", score.TeamAlpha)

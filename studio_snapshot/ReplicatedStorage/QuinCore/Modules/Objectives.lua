@@ -31,7 +31,7 @@ end
 --   lantern = { state, position (nil when it can't know) },
 --   shrines = { { name, position } },
 --   planting = { shrine, position, planter } | nil  (an attacker kneeling on a Shrine),
---   planted = { shrine, position, endsAt (it goes off), defuser } | nil,
+--   planted = { shrine, position, endsAt (it goes off), defuser, defuse 0..1, blast radius } | nil,
 --   roundLeft = seconds on the round clock (before a plant) }
 function Objectives.view(quin)
 	local f = folder()
@@ -71,7 +71,8 @@ function Objectives.view(quin)
 	end
 	if state == "Planted" then
 		planted = { shrine = f:GetAttribute("PlantedShrine"), position = lanternPart.Position,
-			endsAt = f:GetAttribute("DetonateAt") or 0, defuser = f:GetAttribute("Defuser") }
+			endsAt = f:GetAttribute("DetonateAt") or 0, defuser = f:GetAttribute("Defuser"),
+			defuse = f:GetAttribute("DefuseProgress") or 0, blast = f:GetAttribute("BlastRadius") or 40 }
 	elseif state == "Planting" then
 		-- (a kneeling Quin on a Shrine is plain to see: no need to have spotted it)
 		local name = f:GetAttribute("PlantedShrine")

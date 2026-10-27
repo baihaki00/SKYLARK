@@ -38,7 +38,7 @@ local PIECE = Color3.fromRGB(70, 80, 100)
 
 local TASK_LABEL = {
 	Carry = "PLANT", PickUp = "GRAB ORB", Escort = "ESCORT", HoldPlant = "HOLD SITE", Guard = "GUARD",
-	Retake = "RETAKE", Fight = "FIGHT", Hunt = "HUNT", Rescue = "RESCUE",
+	Retake = "RETAKE", Fight = "FIGHT", Hunt = "HUNT", Rescue = "RESCUE", Escape = "GET CLEAR",
 }
 
 local PANEL_WIDTH = 0.36 -- of the screen's width (between 320 and 700 pixels)
@@ -283,7 +283,8 @@ local function siegeStatus(folder)
 	elseif state == "Planted" then
 		local left = (folder:GetAttribute("DetonateAt") or 0) - t
 		status.clockWhat, status.clock, status.accent = "GOES OFF", left, RED
-		status.text = string.format("%s AT %s   ·   %s: DEFUSE IT   ·   %s: GUARD IT", G("ORB PLANTED"), site, D, A)
+		status.text = left > 8 and string.format("%s AT %s   ·   %s: DEFUSE IT   ·   %s: GUARD IT", G("ORB PLANTED"), site, D, A)
+			or string.format("%s   ·   GET OUT OF THE RED OR BE KNOCKED OUT", G("ABOUT TO GO OFF"))
 		local p = folder:GetAttribute("DefuseProgress")
 		if p then
 			local who = folder:GetAttribute("Defuser")
@@ -394,6 +395,22 @@ local function update()
 			local p = lit and (0.5 + 0.5 * math.sin(os.clock() * 8)) or 0
 			view.lantern.Size = UDim2.fromOffset(26 + p * 16, 26 + p * 16)
 			view.lantern.Visible = state ~= "Carried" and state ~= "Planting"
+			-- the blast area once it is planted (safe is outside the red)
+			if lit then
+				if not view.blast then
+					view.blast = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = RED, BackgroundTransparency = 0.8, BorderSizePixel = 0, ZIndex = 8 }, view.layer)
+					corner(view.blast, 999)
+					new("UIStroke", { Color = RED, Thickness = 3 }, view.blast)
+				end
+				local _, _, scale = toMap(center, center, hx, hz)
+				local r = (folder:GetAttribute("BlastRadius") or 40) * 2 * scale
+				view.blast.Position = UDim2.fromOffset(x, y)
+				view.blast.Size = UDim2.fromOffset(r, r)
+				view.blast.BackgroundTransparency = 0.8 - 0.15 * p
+			elseif view.blast then
+				view.blast:Destroy()
+				view.blast = nil
+			end
 			for name, ring in pairs(view.shrines) do
 				local onIt = (lit or state == "Planting") and folder:GetAttribute("PlantedShrine") == name
 				ring.BackgroundTransparency = onIt and (0.35 + 0.3 * p) or 0.75
@@ -456,7 +473,7 @@ local function update()
 				local m = members[r]
 				row.frame.Visible = m ~= nil
 				if m then
-					row.name.Text = m.q.Name:gsub("^Quin_", "")
+					row.name.Text = (m.q.Name:gsub("^Quin_", "")) .. (m.q:GetAttribute("Shaken") and "  ·  SHAKEN" or "")
 					row.name.TextColor3 = m.out and DIM or TEXT
 					row.job.Text = m.out and "OUT" or jobText(m.q)
 					row.job.TextColor3 = m.out and DIM or (m.q:GetAttribute("LanternCarrier") and GOLD or Color3.fromRGB(200, 210, 230))

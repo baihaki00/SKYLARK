@@ -210,8 +210,33 @@ local function enemyNear(board, point, range)
 	return nil
 end
 
+-- Get clear of a planted orb that will go off before anything can be done about it (caught, a
+-- Quin is knocked out and starts the next round shaken). Seconds it needs to run clear, at a run.
+local function clearTime(view, myPos)
+	local d = (myPos - view.planted.position).Magnitude
+	return math.max(0, view.planted.blast + 6 - d) / 30 + 1
+end
+
 function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggression, protect)
 	local myPos = rootPart.Position
+	if view.planted then
+		local left = math.max(0, view.planted.endsAt - workspace:GetServerTimeNow())
+		local inside = (myPos - view.planted.position).Magnitude <= view.planted.blast + 4
+		-- (a defender still defusing stays: it may yet make it; the rest go when it is time)
+		local defusing = view.planted.defuser == quinModel.Name
+		local need = cfg("Objective_DefuseTime", 7) * (1 - view.planted.defuse)
+		local hopeless = view.role == "Defend" and left < need
+		if inside and (left < clearTime(view, myPos) + 1.5 or hopeless) and not (defusing and not hopeless) then
+			local away = (myPos - view.planted.position) * Vector3.new(1, 0, 1)
+			away = away.Magnitude > 0.1 and away.Unit or Vector3.xAxis
+			tasks.Escape = {
+				score = 400, point = view.planted.position + away * (view.planted.blast + 10), speed = 40, engage = 0,
+				urgency = 1, paceWhy = "it is going off",
+				why = hopeless and "no time to defuse, get clear" or string.format("get clear (%ds)", math.ceil(left)),
+			}
+			return
+		end
+	end
 	local awareness = pers(quinModel, "Pers_Awareness", 0.65)
 	local run = cfg("Objective_RunSpeed", 40)
 	local engage = cfg("Objective_EngageRange", 16)
@@ -307,10 +332,14 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			local someone = view.planted.defuser and not mine
 			local away = (myPos - view.planted.position) * Vector3.new(1, 0, 1)
 			away = away.Magnitude > 0.1 and away.Unit or Vector3.xAxis
+			-- the less time to spare, the less it lets itself be drawn into a fight on the way: at
+			-- the end it walks past the guards and kneels (it brawled on top of the orb till too late)
+			local slack = left - cfg("Objective_DefuseTime", 7) * (1 - view.planted.defuse)
+			local commit = math.clamp(slack / cfg("Objective_DefuseCommit", 15), 0, 1) * (0.5 + 0.5 * aggression)
 			tasks.Retake = {
 				score = cfg("Objective_RetakeValue", 150) + (1 - left / cfg("Objective_DetonateTime", 40)) * 80 - flat(view.planted.position, myPos) * 0.2,
 				point = someone and view.planted.position + away * 8 or view.planted.position,
-				speed = run, engage = someone and engage * 1.5 or engage * 0.6, urgency = 1, paceWhy = "it will go off",
+				speed = run, engage = someone and engage * 1.5 or engage * 0.6 * commit, urgency = 1, paceWhy = "it will go off",
 				why = someone and string.format("cover the defuse at %s (%s)", tostring(view.planted.shrine), clock(left))
 					or string.format("defuse at %s (%s left)", tostring(view.planted.shrine), clock(left)),
 			}
