@@ -28,6 +28,7 @@ local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild(
 local NavigationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
+local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (the turner a state holds: body claim)
 
 local CirclingState = { name = "Circling" }
 
@@ -74,7 +75,6 @@ local STANDING_SPEED_RATIO = 0.25
 local CARRY_ENTER_RATIO = 1.5
 local CARRY_EXIT_RATIO = 1.1
 
-local GYRO_NAME = "CirclingGyro"
 
 local circlingData = {}
 
@@ -84,22 +84,7 @@ local function flatUnit(v, fallback)
 end
 
 local function ensureGyro(rootPart)
-	local gyro = rootPart:FindFirstChild(GYRO_NAME)
-	if not gyro then
-		gyro = Instance.new("AlignOrientation")
-		gyro.Name = GYRO_NAME
-		gyro.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
-		att.Name = "RootAttachment"
-		gyro.Attachment0 = att
-		gyro.RigidityEnabled = false
-		gyro.Responsiveness = CombatConfig.Circling_GyroResponsiveness or 35
-		gyro.MaxTorque = 100000
-		gyro.MaxAngularVelocity = CombatConfig.Combat_FacingMaxTurnRate or 14 -- (uncapped it whipped round at 18-26 rad/s)
-		gyro.CFrame = rootPart.CFrame
-		gyro.Parent = rootPart
-	end
-	return gyro
+	return Facing.hold(rootPart, "Circling")
 end
 
 local function stopStrafeClip(humanoid, data, fade)
@@ -188,10 +173,7 @@ function CirclingState.exit(fighter, humanoid, rootPart)
 		stopStrafeClip(humanoid, data, 0.15)
 	end
 	humanoid.AutoRotate = true
-	local gyro = rootPart:FindFirstChild(GYRO_NAME)
-	if gyro then
-		gyro:Destroy()
-	end
+	Facing.drop(rootPart, "Circling")
 	circlingData[fighter] = nil
 end
 

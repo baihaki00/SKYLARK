@@ -20,6 +20,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (the turner a state holds: body claim)
 local Modules = QuinCore:WaitForChild("Modules")
 
 local SocialSystem = {}
@@ -118,8 +119,7 @@ function SocialSystem.followMoveIntent(quin, humanoid, rootPart, dt)
 	local point, speed = SocialSystem.getMoveIntent(quin, rootPart)
 	if not point then return false end
 	-- (walking: the locomotion owns facing, not a watcher's gyro)
-	local gyro = rootPart:FindFirstChild("IdleGyro")
-	if gyro then gyro:Destroy() end
+	Facing.drop(rootPart, "Watch", "Idle", "IdlePost")
 	local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
 	local GaitModule = require(Modules:WaitForChild("GaitModule"))
 	LocomotionModule.steer(quin, humanoid, rootPart, Vector3.new(point.X, rootPart.Position.Y, point.Z), speed, dt or 0.1)
@@ -141,22 +141,8 @@ function SocialSystem.watch(quin, humanoid, rootPart, dt)
 	if typeof(point) ~= "Vector3" then return end
 	local flat = Vector3.new(point.X - rootPart.Position.X, 0, point.Z - rootPart.Position.Z)
 	if flat.Magnitude < 1 then return end
-	local gyro = rootPart:FindFirstChild("IdleGyro") -- (IdleState.exit removes it)
-	if not gyro then
-		gyro = Instance.new("AlignOrientation")
-		gyro.Name = "IdleGyro"
-		gyro.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
-		att.Name = "RootAttachment"
-		gyro.Attachment0 = att
-		gyro.RigidityEnabled = false
-		gyro.Responsiveness = CFG.WatchTurnResponsiveness or 6
-		gyro.MaxTorque = 100000
-		gyro.MaxAngularVelocity = CFG.WatchTurnRate or 3
-		gyro.CFrame = rootPart.CFrame
-		gyro.Parent = rootPart
-		humanoid.AutoRotate = false
-	end
+	local gyro = Facing.hold(rootPart, "Watch") -- (dropped when its state ends: Main)
+	if humanoid.AutoRotate then humanoid.AutoRotate = false end
 	gyro.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
 end
 

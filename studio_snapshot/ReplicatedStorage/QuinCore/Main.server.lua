@@ -74,6 +74,7 @@ SocialSystem.start() -- the social layer (pack leaders, respect customs, arena e
 -- === STATE MODULES ===
 -- (one registry for all of QuinCore: Modules/States; every state is loaded here, up front)
 local States = require(QuinCore:WaitForChild("Modules"):WaitForChild("States"))
+local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (the turner a state holds: body claim)
 for _, module in ipairs(QuinCore:WaitForChild("States"):GetChildren()) do
 	local name = module:IsA("ModuleScript") and module.Name:match("^(.+)State$")
 	if name then local _ = States[name] end
@@ -416,6 +417,7 @@ humanoid.Died:Connect(function()
 	if currentState.exit then
 		currentState.exit(Quin, humanoid, rootPart)
 	end
+	Facing.drop(rootPart)
 	currentState = States.Death
 	Quin:SetAttribute("CurrentState", currentState.name)
 	
@@ -891,8 +893,10 @@ task.spawn(function()
 				if currentState.exit then
 					currentState.exit(Quin, humanoid, rootPart)
 				end
-				-- The outgoing state's steer goal must not keep driving the body into the new state
+				-- The outgoing state's steer goal must not keep driving the body into the new state,
+				-- nor its facing turn it (Modules/Facing)
 				LocomotionModule.cancelSteer(Quin)
+				Facing.drop(rootPart)
 				
 				if newState.enter then
 					newState.enter(Quin, humanoid, rootPart)

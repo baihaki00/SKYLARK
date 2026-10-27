@@ -34,6 +34,7 @@ local RunService = game:GetService("RunService")
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
+local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (the turner a state holds: body claim)
 
 -- Dynamic combat animation pools: directly hot-swappable via AnimationConfig!
 local function getLiveAttacks()
@@ -259,30 +260,14 @@ local function reactiveGuardChance(fighter)
 	return (fighter:GetAttribute("BlockChance") or 0.25) * (1.2 - aggression * 0.5)
 end
 
--- Turn the body to face a target with the fight's facing gyro (FightGyro: torque, capped turn rate).
+-- Turn the body to face a target with the fight's facing (Modules/Facing, held as "Fight").
 -- Used by the fight loop and by a player's Quin (PilotedState). Not across a height difference of
 -- 5 studs or more.
 function FightState.faceTarget(rootPart, targetHRP, data)
 	local yDiff = math.abs(targetHRP.Position.Y - rootPart.Position.Y)
 	if yDiff >= 5 then return end
 	local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
-	local alignOri = rootPart:FindFirstChild("FightGyro")
-	if not alignOri then
-		alignOri = Instance.new("AlignOrientation")
-		alignOri.Name = "FightGyro"
-		alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-		local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
-		att.Name = "RootAttachment"
-		alignOri.Attachment0 = att
-		alignOri.RigidityEnabled = false
-		alignOri.Responsiveness = 22
-		alignOri.MaxTorque = 60000
-		-- Without a cap the body whipped round at 18-26 rad/s (over 1000 degrees/s) whenever
-		-- the target changed or passed close by
-		alignOri.MaxAngularVelocity = CombatConfig.Combat_FacingMaxTurnRate or 14
-		alignOri.CFrame = rootPart.CFrame
-		alignOri.Parent = rootPart
-	end
+	local alignOri = Facing.hold(rootPart, "Fight")
 	-- The rear-turn counter stiffens the gyro for its turn; it used to stay stiff for the
 	-- rest of the fight
 	if data and data.currentAction ~= "rear_turn_counter" and alignOri.Responsiveness ~= 22 then
@@ -631,8 +616,7 @@ function FightState.exit(fighter, humanoid, rootPart)
 	-- Cleanly stop any attack or hit reaction tracks so they do not linger into subsequent states (e.g. CirclingState)
 	AnimationModule.stopCategory(humanoid, "Attacks", 0.1)
 	AnimationModule.stopCategory(humanoid, "Reactions", 0.1)
-	local gyro = rootPart and rootPart:FindFirstChild("FightGyro")
-	if gyro then gyro:Destroy() end
+	Facing.drop(rootPart, "Fight")
 	-- Do NOT hard stop Idle; let Idle blend smoothly with whichever state takes over
 end
 
@@ -704,7 +688,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			local cTargetHRP = counterTarget.HumanoidRootPart
 			local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(cTargetHRP.Position.X, rootPart.Position.Y, cTargetHRP.Position.Z))
 			-- Turned by the facing gyro (as the rear-turn counter is), not flipped in one frame
-			local facingGyro = rootPart:FindFirstChild("FightGyro")
+			local facingGyro = Facing.get(rootPart, "Fight")
 			if facingGyro then
 				facingGyro.CFrame = lookCF
 			else
@@ -1177,7 +1161,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			local rHRP = rearThreatModel.HumanoidRootPart
 			local turnLook = CFrame.lookAt(rootPart.Position, Vector3.new(rHRP.Position.X, rootPart.Position.Y, rHRP.Position.Z))
 			-- Fast turn through the facing gyro instead of an instant 180 degree CFrame flip.
-			local facingGyro = rootPart:FindFirstChild("FightGyro")
+			local facingGyro = Facing.get(rootPart, "Fight")
 			if facingGyro then
 				facingGyro.Responsiveness = 45
 				facingGyro.CFrame = turnLook

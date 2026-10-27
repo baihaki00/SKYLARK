@@ -28,6 +28,7 @@ local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
 local Modules = QuinCore:WaitForChild("Modules")
 local ImpulseModule = require(Modules:WaitForChild("ImpulseModule"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (the turner a state holds: body claim)
 
 local Evasion = {}
 
@@ -145,10 +146,8 @@ end
 
 -- The facing that holds the body on its target: the state's own gyro
 local function faceGyro(rootPart)
-	for _, name in ipairs({ "CirclingGyro", "FightGyro" }) do
-		local g = rootPart:FindFirstChild(name)
-		if g and g:IsA("AlignOrientation") and g.Enabled then return g end
-	end
+	local g = Facing.get(rootPart, "Circling", "Fight")
+	if g and g.Enabled then return g end
 end
 
 local function stillFree(fighter, humanoid)

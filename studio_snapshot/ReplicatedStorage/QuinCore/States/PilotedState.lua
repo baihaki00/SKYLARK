@@ -40,6 +40,7 @@ local PilotInput = require(Modules:WaitForChild("PilotInput"))
 local RuntimeTracer = require(Modules:WaitForChild("RuntimeTracer"))
 local SpatialModule = require(Modules:WaitForChild("SpatialModule"))
 local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
+local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (the turner a state holds: body claim)
 
 local PilotedState = { name = "Piloted", tickInterval = 1 / 30 }
 
@@ -265,8 +266,7 @@ function PilotedState.exit(fighter, humanoid, rootPart)
 	fighter:SetAttribute("IsStrafing", nil)
 	fighter:SetAttribute("PilotFocus", nil)
 	fighter:SetAttribute("PilotLocked", nil)
-	local gyro = rootPart and rootPart:FindFirstChild("FightGyro")
-	if gyro then gyro:Destroy() end
+	Facing.drop(rootPart, "Fight")
 	PilotInput.reclaimBody(fighter) -- (the states after this one are the server's to move)
 	pilotData[fighter] = nil
 end
@@ -408,8 +408,7 @@ function PilotedState.update(fighter, humanoid, rootPart)
 		else
 			if fighter:GetAttribute("IsStrafing") then fighter:SetAttribute("IsStrafing", nil) end
 			if not striking then
-				local gyro = rootPart:FindFirstChild("FightGyro")
-				if gyro then gyro:Destroy() end
+				Facing.drop(rootPart, "Fight")
 			end
 		end
 		fighter:SetAttribute("IsMoving", move.Magnitude > 0.1)
@@ -420,7 +419,7 @@ function PilotedState.update(fighter, humanoid, rootPart)
 		-- squared up to it, whether moving or not
 		fightState().faceTarget(rootPart, focusRoot, data)
 		fighter:SetAttribute("IsStrafing", true)
-		if humanoid.AutoRotate then humanoid.AutoRotate = false end -- (its facing is the fight gyro's)
+		if humanoid.AutoRotate then humanoid.AutoRotate = false end -- (its facing is the fight's: Facing "Fight")
 	elseif fighter:GetAttribute("IsStrafing") then
 		fighter:SetAttribute("IsStrafing", nil)
 	end
@@ -431,8 +430,7 @@ function PilotedState.update(fighter, humanoid, rootPart)
 	elseif move.Magnitude > 0.1 then
 		if not engaged then
 			-- free: the body turns with its run, not with the strike's facing gyro
-			local gyro = rootPart:FindFirstChild("FightGyro")
-			if gyro then gyro:Destroy() end
+			Facing.drop(rootPart, "Fight")
 			-- (the steer owns the facing while it moves the body: it turns AutoRotate off for its
 			-- own facing and back on when it lets go. Turning it on here every tick made the two fight)
 		end

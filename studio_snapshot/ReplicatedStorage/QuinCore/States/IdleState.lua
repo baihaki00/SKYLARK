@@ -13,6 +13,7 @@ local Pace = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Mo
 local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
+local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (the turner a state holds: body claim)
 
 local IdleState = { name = "Idle" }
 
@@ -79,8 +80,7 @@ end
 function IdleState.exit(fighter, humanoid, rootPart)
 	-- The base idle is the permanent pose floor and is never stopped here: stopping it left
 	-- the rig with no pose underneath for a few frames on every Idle -> Chase.
-	local gyro = rootPart and rootPart:FindFirstChild("IdleGyro")
-	if gyro then gyro:Destroy() end
+	Facing.drop(rootPart, "Idle", "IdlePost", "Watch")
 	if humanoid then humanoid.AutoRotate = true end
 	idleData[fighter] = nil
 end
@@ -148,7 +148,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 			if not job.arrived and flat.Magnitude <= settle and not movingSpot then job.arrived = true end
 
 			local face = fighter:GetAttribute("ObjectiveFace")
-			local gyro = rootPart:FindFirstChild("IdleGyro")
+			local gyro = Facing.get(rootPart, "Idle", "IdlePost", "Watch")
 			if job.arrived or now < job.goAt then
 				LocomotionModule.brake(fighter, humanoid, rootPart, 0.1)
 				AnimationModule.ensureBaseIdle(humanoid)
@@ -159,18 +159,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 					face = turnTo
 				end
 				if job.arrived and typeof(face) == "Vector3" and rootPart.AssemblyLinearVelocity.Magnitude < 3 then
-					if not gyro then
-						gyro = Instance.new("AlignOrientation")
-						gyro.Name = "IdleGyro"
-						gyro.Mode = Enum.OrientationAlignmentMode.OneAttachment
-						gyro.Attachment0 = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
-						gyro.RigidityEnabled = false
-						gyro.Responsiveness = 8
-						gyro.MaxTorque = 100000
-						gyro.MaxAngularVelocity = 4
-						gyro.CFrame = rootPart.CFrame
-						gyro.Parent = rootPart
-					end
+					gyro = Facing.hold(rootPart, "IdlePost") -- (on its post it turns slowly)
 					gyro.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(face.X, rootPart.Position.Y, face.Z))
 				elseif gyro then
 					gyro:Destroy()
@@ -259,21 +248,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		if targetHRP then
 			-- Smooth face target via AlignOrientation (Authoritative physics torque, zero CFrame snapping)
 			local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
-			local gyro = rootPart:FindFirstChild("IdleGyro")
-			if not gyro then
-				gyro = Instance.new("AlignOrientation")
-				gyro.Name = "IdleGyro"
-				gyro.Mode = Enum.OrientationAlignmentMode.OneAttachment
-				local att = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
-				att.Name = "RootAttachment"
-				gyro.Attachment0 = att
-				gyro.RigidityEnabled = false
-				gyro.Responsiveness = 15
-				gyro.MaxTorque = 100000
-				gyro.MaxAngularVelocity = CombatConfig.Combat_FacingMaxTurnRate or 14 -- same cap as the Fight and Circling facing
-				gyro.CFrame = rootPart.CFrame
-				gyro.Parent = rootPart
-			end
+			local gyro = Facing.hold(rootPart, "Idle")
 			gyro.CFrame = lookCF
 		end
 		
