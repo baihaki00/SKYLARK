@@ -20,9 +20,9 @@ Verdicts: **MERGE** (same job twice, one owner), **DELETE** (dead), **FIX** (a b
 | B5 | Main dwell check | ForceState counts as an interrupt, so the brain's Retreat/Chase orders skip the minimum dwell while a state's own Chase->Fight (not an interrupt) waits 0.8 s | FIX with B4 |
 | B6 | SituationAwareness | target info was the nearest enemy with its true health | fixed (5d4d813) |
 | B7 | NavigationModule.lowObstacle / IdleState | 2-stud step missed; stuck check fooled by written velocity | fixed (f03f76b) |
-| B8 | TeamFocusTarget, IsAuraFarming, LockedCombatTarget, AnticipatedReaction, ComboStep | read, never written: features dead | DELETE or wire |
-| B9 | KnockbackState:51 | "Adrenaline Surge": every knockback refills mana to full. Cancels Shaken carry-over and every mana cost | ASK |
-| B10 | Defense, CriticalHitChance, DodgeChance | never set: 0 defence, flat 10% crit, dodge 0.15 vs 0.08 in two places | ASK |
+| B8 | IsAuraFarming, LockedCombatTarget, AnticipatedReaction, ComboStep | read, never written: features dead (TeamFocusTarget is live: it travels in the situation table) | DELETE or wire |
+| B9 | KnockbackState:51 | "Adrenaline Surge": every knockback refilled mana to full | removed (owner) |
+| B10 | Defense, CriticalHitChance, DodgeChance | CORRECTION: set by QuinSpawner.applyStats from QuinData (a loop the name search missed): same fair values for every Quin. Not a bug. Same loop also sets Aggression 0.65 / SpecialPreference 0.35, so B1 was 0.65 for everyone, not 0.7 | per-Quin variation is a design call |
 | B11 | ProjectileFightState header | "only transitions to ... TestEndState": no such state | DELETE the claim / test state |
 
 ## 2. Duplicates: merge or keep

@@ -47,8 +47,8 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 	local stunResist = fighter:GetAttribute("StunResist") or 0
 	stunDuration = stunDuration * (1 - stunResist)
 	
-	-- Adrenaline Surge: full energy reset upon taking a hit
-	fighter:SetAttribute("Energy", CombatConfig.MaxEnergy or 100)
+	-- (no mana back for being knocked down: owner 2026-10-27. It used to refill to full, which
+	-- undid every dash and jump cost and the Lantern Siege's shaken carry-over)
 	
 	local kbType = fighter:GetAttribute("KnockbackType") or "air"
 	-- Recovery reads the same attribute but defaults to "ground": publish the resolved type so a

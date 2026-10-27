@@ -39,9 +39,7 @@ local QuinData = {
 		SuperGainPerHit = 5,
 		SuperGainOnTakeDamage = 8,
 
-		-- AI Personality Defaults
-		Aggression = 0.65,
-		SpecialPreference = 0.35,
+		-- (personality is not a stat: Pers_* attributes, QuinInstance / PersonalitySystem)
 	},
 }
 
