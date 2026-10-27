@@ -40,6 +40,15 @@ local SHOW_RANGE = 160              -- studs from the camera
 local WHITE = Color3.fromRGB(255, 255, 255)
 local INK = Color3.fromRGB(15, 15, 22)
 
+-- Anime irises: one per Quin, picked from its name (the same on every screen, every match);
+-- a Quin's own EyeColor attribute (Color3) wins
+local IRIS = {
+	Color3.fromRGB(40, 90, 200), Color3.fromRGB(30, 160, 120), Color3.fromRGB(200, 50, 60),
+	Color3.fromRGB(150, 60, 200), Color3.fromRGB(230, 150, 30), Color3.fromRGB(40, 170, 210),
+	Color3.fromRGB(220, 80, 150), Color3.fromRGB(120, 180, 40), Color3.fromRGB(150, 90, 50),
+	Color3.fromRGB(90, 100, 120),
+}
+
 local entries = {} -- model -> entry
 
 local function new(class, props, parent)
@@ -67,7 +76,7 @@ local function styleFor(model)
 end
 
 -- One eye: { frame (scaled for the lids), pupil (moved), w, h, slant }
-local function buildEye(canvas, style, side)
+local function buildEye(canvas, style, side, iris)
 	local cx = PLATE.X * PX / 2
 	local cy = PLATE.Y * PX / 2
 	local eye = { pupil = nil, glow = false }
@@ -105,9 +114,14 @@ local function buildEye(canvas, style, side)
 		eye.frame, eye.w, eye.h = frame(48, 70, WHITE), 48, 70
 		eye.frame.ClipsDescendants = true
 		eye.pupil = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.55), Size = UDim2.fromOffset(32, 44),
-			BackgroundColor3 = Color3.fromRGB(30, 40, 70), BorderSizePixel = 0 }, eye.frame)
+			BackgroundColor3 = iris, BorderSizePixel = 0 }, eye.frame)
 		round(eye.pupil)
-		local shine = new("Frame", { Position = UDim2.fromScale(0.18, 0.12), Size = UDim2.fromOffset(10, 10), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, eye.pupil)
+		-- a dark centre and a lighter lower rim, so the colour reads as an iris
+		new("UIGradient", { Rotation = 90, Color = ColorSequence.new(iris:Lerp(INK, 0.35), iris:Lerp(WHITE, 0.25)) }, eye.pupil)
+		local core = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(16, 22),
+			BackgroundColor3 = INK, BorderSizePixel = 0 }, eye.pupil)
+		round(core)
+		local shine = new("Frame", { Position = UDim2.fromScale(0.18, 0.12), Size = UDim2.fromOffset(10, 10), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3 }, eye.pupil)
 		round(shine)
 		eye.shift = 9
 	else
@@ -143,7 +157,9 @@ local function build(model, style)
 			LightInfluence = 0.3, AlwaysOnTop = false, ZOffset = 1,
 		}, plate)
 		local canvas = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, gui)
-		local eye = buildEye(canvas, style, side)
+		local iris = model:GetAttribute("EyeColor")
+		if typeof(iris) ~= "Color3" then iris = IRIS[hash(model.Name .. "iris") % #IRIS + 1] end
+		local eye = buildEye(canvas, style, side, iris)
 		if eye then
 			table.insert(eyes, eye)
 			glow = glow or eye.glow

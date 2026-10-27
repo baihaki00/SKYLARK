@@ -771,8 +771,25 @@ local function refreshCatalogue()
 end
 
 -- Hologram -> solid, swept from the ground up
+-- The mode's own colours (Lantern Siege: dusk stone, a sand floor); nil = the grass arena
+local function look()
+	local L = purpose == "LanternSiege" and CFG.LanternSiege
+	return L and L.PieceColors and L or nil
+end
+
+-- The floor's colour for this layout, its own colour kept to put back
+local function tintGround(color)
+	local g = ground()
+	if not g or (not color and g:GetAttribute("HomeColor") == nil) then return end
+	if g:GetAttribute("HomeColor") == nil then g:SetAttribute("HomeColor", g.Color) end
+	g.Color = color or g:GetAttribute("HomeColor")
+	if not color then g:SetAttribute("HomeColor", nil) end
+end
+
 local function materialize(layout, seconds)
 	local floorY = layout.floorY
+	local L = look()
+	tintGround(L and L.GroundColor)
 	local topMost = 1
 	for _, p in ipairs(layout.pieces) do
 		topMost = math.max(topMost, p.cf.Position.Y + p.size.Y / 2 - floorY)
@@ -784,7 +801,8 @@ local function materialize(layout, seconds)
 		part.Size = p.size
 		local height = p.cf.Position.Y + p.size.Y / 2 - floorY
 		local delay = seconds * 0.8 * (height / topMost)
-		local shade = CFG.GrassColors[1]:Lerp(CFG.GrassColors[2], rng:NextNumber())
+		local colors = L and (p.kind == "Cover" and L.CoverColors or L.PieceColors) or CFG.GrassColors
+		local shade = colors[1]:Lerp(colors[2], rng:NextNumber())
 		task.delay(delay, function()
 			if not part.Parent then return end
 			-- (a short glitch flicker, then solid)
@@ -795,7 +813,7 @@ local function materialize(layout, seconds)
 			local static = part:FindFirstChild("Static")
 			if static then static:Destroy() end
 			part.Name = "OB"
-			part.Material = CFG.SolidMaterial
+			part.Material = L and L.PieceMaterial or CFG.SolidMaterial
 			part.Color = shade
 			part.CanCollide = true
 			part.CanQuery = true
@@ -1044,6 +1062,7 @@ end
 -- Back to the edit-mode arena
 function Gen.restore()
 	clearPool()
+	tintGround(nil)
 	unstashEditLayout()
 	restoreSpawnPads()
 	active = false

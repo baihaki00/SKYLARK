@@ -1,11 +1,12 @@
 --// LanternMapClient.client.lua
--- The arena screen during a Lantern Siege match, broadcast style (owner 2026-10-27: "map out the
+-- A panel on the player's screen during a Lantern Siege match, broadcast style (owner 2026-10-27: "map out the
 -- arena from top view, like a map"): a top-down map of the generated arena with the Shrines, the
 -- Lantern and every Quin as a dot in its team's colour, a top bar with round / score / phase /
 -- clock, and a column per team with each Quin's health and its job right now (TaskChoice's Task),
 -- so a viewer can read who is doing what.
--- Drawn on this client only, over the server's screen scenes (ArenaScreenManager), while
--- Workspace.LanternSiege exists. Reads only what the server already publishes.
+-- Top right of the player's screen (owner 2026-10-27: off the arena screen, which shows its usual
+-- scenes again), with a minimise button: minimised it is a small pill that opens it again. Drawn
+-- on this client only while Workspace.LanternSiege exists. Reads only what the server publishes.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -29,7 +30,10 @@ local TASK_LABEL = {
 	Retake = "RETAKE", Fight = "FIGHT", Hunt = "HUNT", Rescue = "RESCUE",
 }
 
-local guis = {}      -- one SurfaceGui per face of the screen
+local PANEL_WIDTH = 0.36 -- of the screen's width (between 320 and 700 pixels)
+local minimised = false  -- (kept between matches)
+
+local guis = {}      -- the one ScreenGui
 local views = {}     -- per gui: { root, map, dots = {}, lantern, shrines = {}, top, cols = {} }
 local drawnRound = nil
 
@@ -78,30 +82,39 @@ end
 
 local function buildViews()
 	destroyViews()
-	local a = arena()
-	local screen = a and a:FindFirstChild("ArenaScreen")
-	if not screen then return end
-	local faces = {}
-	for _, c in ipairs(screen:GetChildren()) do
-		if c:IsA("SurfaceGui") then faces[c.Face] = true end
-	end
-	if not next(faces) then faces[Enum.NormalId.Front] = true end
-	for face in pairs(faces) do
-		local gui = new("SurfaceGui", {
-			Name = "LanternMap", Adornee = screen, Face = face, SizingMode = Enum.SurfaceGuiSizingMode.FixedSize,
-			CanvasSize = CANVAS, LightInfluence = 0, ZOffset = 5, ResetOnSpawn = false, ClipsDescendants = true,
-		}, player:WaitForChild("PlayerGui"))
+	do
+		local gui = new("ScreenGui", { Name = "LanternMap", ResetOnSpawn = false, DisplayOrder = 30 }, player:WaitForChild("PlayerGui"))
 		table.insert(guis, gui)
-		local root = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = BG, BorderSizePixel = 0 }, gui)
+		-- the canvas is laid out at 1920 wide and scaled down to the panel's width
+		local holder = new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 16), Size = UDim2.fromOffset(CANVAS.X, CANVAS.Y), BackgroundTransparency = 1, Visible = not minimised }, gui)
+		local scaler = new("UIScale", { Scale = 0.3 }, holder)
+		local root = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = BG, BackgroundTransparency = 0.08, BorderSizePixel = 0 }, holder)
 		corner(root, 24)
 		new("UIStroke", { Color = GOLD, Thickness = 5 }, root)
+		local pill = new("TextButton", {
+			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 16), Size = UDim2.fromOffset(150, 34), BackgroundColor3 = BG,
+			BackgroundTransparency = 0.1, Text = "SIEGE MAP", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = GOLD, Visible = minimised, AutoButtonColor = true,
+		}, gui)
+		corner(pill, 17)
+		new("UIStroke", { Color = GOLD, Thickness = 1.5, Transparency = 0.3 }, pill)
+		local function setMinimised(on)
+			minimised = on
+			holder.Visible, pill.Visible = not on, on
+		end
+		pill.MouseButton1Click:Connect(function() setMinimised(false) end)
 
 		-- top bar
 		local top = new("Frame", { Position = UDim2.fromOffset(40, 24), Size = UDim2.fromOffset(1840, 80), BackgroundColor3 = PANEL, BorderSizePixel = 0 }, root)
 		corner(top, 14)
 		local title = label(top, "LANTERN SIEGE", 34, GOLD, { Position = UDim2.fromOffset(24, 0), Size = UDim2.fromOffset(420, 80) })
 		local score = label(top, "", 46, TEXT, { Position = UDim2.fromOffset(560, 0), Size = UDim2.fromOffset(720, 80), TextXAlignment = Enum.TextXAlignment.Center, RichText = true })
-		local phase = label(top, "", 32, TEXT, { Position = UDim2.fromOffset(1300, 0), Size = UDim2.fromOffset(520, 80), TextXAlignment = Enum.TextXAlignment.Right, RichText = true })
+		local phase = label(top, "", 32, TEXT, { Position = UDim2.fromOffset(1220, 0), Size = UDim2.fromOffset(500, 80), TextXAlignment = Enum.TextXAlignment.Right, RichText = true })
+		local minBtn = new("TextButton", {
+			Position = UDim2.fromOffset(1752, 10), Size = UDim2.fromOffset(76, 60), BackgroundColor3 = Color3.fromRGB(45, 55, 75),
+			Text = "—", Font = Enum.Font.GothamBold, TextSize = 40, TextColor3 = TEXT, AutoButtonColor = true,
+		}, top)
+		corner(minBtn, 10)
+		minBtn.MouseButton1Click:Connect(function() setMinimised(true) end)
 
 		-- map panel
 		local mapFrame = new("Frame", { Position = UDim2.fromOffset(MAP.x, MAP.y), Size = UDim2.fromOffset(MAP.w, MAP.h), BackgroundColor3 = PANEL, BorderSizePixel = 0, ClipsDescendants = true }, root)
@@ -136,7 +149,7 @@ local function buildViews()
 			cols[team] = { head = head, rows = rows }
 		end
 
-		views[gui] = { root = root, layer = layer, top = { title = title, score = score, phase = phase }, cols = cols,
+		views[gui] = { scaler = scaler, root = root, layer = layer, top = { title = title, score = score, phase = phase }, cols = cols,
 			stamp = { back = stampBack, fill = stampFill, text = stampText }, dots = {}, shrines = {}, lantern = nil, static = {} }
 	end
 end
@@ -231,7 +244,10 @@ local function update()
 	local qServer = Workspace:FindFirstChild("QuinServer")
 	local quins = qServer and qServer:GetChildren() or {}
 
+	local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+	local width = math.clamp(viewport.X * PANEL_WIDTH, 320, math.min(700, viewport.X - 32))
 	for _, view in pairs(views) do
+		view.scaler.Scale = width / CANVAS.X
 		if redraw then drawStatic(view, folder) end
 		local a, b = folder:GetAttribute("ScoreTeamAlpha") or 0, folder:GetAttribute("ScoreTeamBeta") or 0
 		view.top.score.Text = string.format('<font color="#50A0FF">ALPHA %d</font>   <font color="#8C96AA">ROUND %s</font>   <font color="#FF5A5A">%d BETA</font>', a, tostring(round or 1), b)

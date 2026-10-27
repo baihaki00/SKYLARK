@@ -313,6 +313,12 @@ ArenaConfig.ArenaGeneration = {
     LanternSiege = {
         SiteForward = 0.35, SiteSide = 0.55, SiteClear = 12,
         CoverPieces = 4, CoverRing = { 17, 23 }, CoverWidth = { 8, 16 }, CoverHeight = { 4, 6 }, CoverDepth = { 3, 6 },
+        -- its own look (owner 2026-10-27: "go entirely with new color, ArenaGround color"): dusk
+        -- stone instead of grass, darker slate cover round the sites, a sand floor
+        PieceColors = { Color3.fromRGB(150, 116, 86), Color3.fromRGB(118, 90, 70) },
+        CoverColors = { Color3.fromRGB(70, 66, 74), Color3.fromRGB(54, 50, 60) },
+        PieceMaterial = Enum.Material.Slate,
+        GroundColor = Color3.fromRGB(186, 160, 120),
     },
     -- Trees: clones of the edit-mode Workspace model named Template, on the ground and on the
     -- tops of wide platforms (mirrored like everything else)
