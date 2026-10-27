@@ -160,6 +160,17 @@ local function setDownSnapOn()
 	return switch == true or (switch == nil and CombatConfig.ProjectileJump_SetDownSnap ~= false)
 end
 
+-- A climb: a jump that lands well above where it took off (onto a platform, a stepping stone).
+-- Its landing is kept physical (owner 2026-10-28: "that landing looks snappy"): no set-down snap
+-- and no placing / turning the body on exit. A server CFrame write on a moving body is a teleport
+-- on the client: it drops its ~0.25 s smoothing and the drawn body jumped 80-100 studs down and
+-- turned 50-170 degrees in one frame on every landing on a top. Dives keep their landing as it
+-- was (owner rule 2026-10-27). Workspace PJClimbSoftOff = true: climbs land like dives.
+local function climbing(data, rootPart)
+	return Workspace:GetAttribute("PJClimbSoftOff") ~= true and data.startY ~= nil
+		and rootPart.Position.Y > data.startY + 4
+end
+
 local function switchPhase(data, newPhase)
 	data.phase = newPhase
 	data.phaseTime = tick()
@@ -320,6 +331,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	fighter:SetAttribute("Energy", math.max(0, energy - drain))
 
 	stateData[fighter] = {
+		startY = rootPart.Position.Y, -- (a climb lands well above this: climbing())
 		phase = "Init",
 		style = style,
 		target = target,
@@ -488,7 +500,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		-- Touchdown: the body used to hit the floor first and lie sliding on it until the next
 		-- update noticed. On contact the mover is held still and Impact follows.
 		local fallSpeed = -rootPart.AssemblyLinearVelocity.Y
-		if setDownSnapOn() then
+		if setDownSnapOn() and not climbing(data, rootPart) then
 			-- Set-down snap: once the floor is within the next frame's travel the body is placed
 			-- on it at standing height and touchdown is taken there and then. Velocity set-downs
 			-- ("cover exactly the rest of the way") overshot whenever the next physics frame ran
@@ -981,6 +993,9 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			finalY = targetPosPart.Position.Y
 		end
 
+		-- (a climb that has touched down stays where physics put it: see climbing())
+		local soft = climbing(data, rootPart) and standGap <= 1.5
+
 		-- 2. Spatial de-penetration: ensure clean 4.5 studs combat separation
 		local targetHRP = target:FindFirstChild("HumanoidRootPart")
 		local jumperPos = Vector3.new(rootPart.Position.X, finalY, rootPart.Position.Z)
@@ -991,17 +1006,24 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 			if flatDist < 4.0 then
 				-- Jumper is too close / overlapping: resolve along approach angle to 4.5 studs
 				local pushDir = flatDist > 0.01 and flatDiff.Unit or -targetHRP.CFrame.LookVector
-				jumperPos = Vector3.new(targetHRP.Position.X + pushDir.X * 4.5, finalY, targetHRP.Position.Z + pushDir.Z * 4.5)
+				if soft then
+					-- (stepped clear instead of placed)
+					KnockbackModule.applySlide(fighter, pushDir, ImpulseModule.speedForDistance(4.5 - flatDist, 0.25, "hold"), 0.25)
+				else
+					jumperPos = Vector3.new(targetHRP.Position.X + pushDir.X * 4.5, finalY, targetHRP.Position.Z + pushDir.Z * 4.5)
+				end
 				-- Apply light arrival wind-pressure micro-push on target (4 studs)
 				KnockbackModule.applyMicroKnockback(target, -pushDir, 4.0)
 			end
 			
 			-- 3. Eye-to-eye alignment: both face each other horizontally
-			rootPart.CFrame = CFrame.lookAt(jumperPos, Vector3.new(targetHRP.Position.X, finalY, targetHRP.Position.Z))
+			if not soft then
+				rootPart.CFrame = CFrame.lookAt(jumperPos, Vector3.new(targetHRP.Position.X, finalY, targetHRP.Position.Z))
+			end
 			-- The target is not rotated from here any more: writing its CFrame from another Quin's
 			-- state flipped it up to 180 degrees in one frame, whatever it was doing (mid-swing,
 			-- knocked down, airborne). Its own state turns it to face the new threat.
-		else
+		elseif not soft then
 			rootPart.CFrame = CFrame.new(jumperPos)
 		end
 
