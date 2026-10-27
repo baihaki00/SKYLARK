@@ -206,6 +206,14 @@ function Cognition.update(quinModel, targetModel)
 	return board.situation
 end
 
+-- Its situation's target facts, redone for the target the brain has just picked (Modules/Brain)
+function Cognition.retarget(quinModel, targetModel)
+	local board = Blackboard.peek(quinModel)
+	if board and board.situation and board.contacts then
+		SituationAwareness.retarget(board.situation, board.contacts, targetModel)
+	end
+end
+
 -- What this Quin believes about one enemy (position, velocity, confidence, channel), or nil
 -- when it does not know about it
 function Cognition.contactFor(quinModel, enemyModel)

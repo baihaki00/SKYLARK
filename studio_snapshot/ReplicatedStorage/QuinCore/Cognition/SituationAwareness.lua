@@ -79,6 +79,45 @@ local function quadrants(rootPart, myPos, nearbyEnemies)
 end
 
 -- census: { totalLivingAllies, totalLivingEnemies } (the team always knows the score)
+-- What it knows of one enemy as a target: where, how hurt, alone or not (nil if it knows nothing)
+local function targetFacts(contacts, targetContact)
+	local target = targetContact and targetContact.model
+	if not target or not target.Parent then return nil end
+	local targetPos = targetContact.position
+	local targetAlliesCount = 0
+	for _, enemy in ipairs(contacts.enemies) do
+		if enemy.model ~= target and (enemy.position - targetPos).Magnitude <= SituationAwareness.LOCAL_RADIUS then
+			targetAlliesCount += 1
+		end
+	end
+	return {
+		model = target,
+		distance = targetContact.distance,
+		healthRatio = targetContact.healthRatio or 1,
+		isIsolated = targetAlliesCount == 0,
+		alliesCount = targetAlliesCount,
+		confidence = targetContact.confidence or 1,
+		knownBy = targetContact.channel,
+	}
+end
+
+-- The situation's target facts redone for another target (the brain picked a new one this tick).
+-- An enemy it knows nothing about leaves them as they were.
+function SituationAwareness.retarget(situation, contacts, targetModel)
+	for _, enemy in ipairs(contacts.enemies) do
+		if enemy.model == targetModel then
+			local info = targetFacts(contacts, enemy)
+			if info then
+				situation.targetInfo = info
+				situation.BestTarget = info.model
+				situation.TargetHealthPercent = info.healthRatio
+				situation.TargetIsolated = info.isIsolated
+			end
+			return
+		end
+	end
+end
+
 function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAllies, nearbyEnemies, environment, census, targetModel)
 	local myPos = rootPart.Position
 	local myTeam = quinModel:GetAttribute("Team") or "None"
@@ -159,39 +198,17 @@ function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAl
 	-- else the nearest it knows of), where and how hurt it believes it is. (This used to be the
 	-- nearest enemy whatever the target was, with its true health read off the body: "finish it,
 	-- it is nearly down" was about somebody else, or about a Quin it had not seen for ten seconds.)
-	local targetInfo = nil
-	local isTargetIsolated = false
-	local targetHealthRatio = 1.0
-	local targetName = self.targetName
 	local targetContact = nil
 	for _, enemy in ipairs(contacts.enemies) do
-		if (targetModel and enemy.model == targetModel) or (not targetModel and enemy.model.Name == targetName) then
+		if (targetModel and enemy.model == targetModel) or (not targetModel and enemy.model.Name == self.targetName) then
 			targetContact = enemy
 			break
 		end
 	end
-	targetContact = targetContact or nearestEnemy
-	local activeTarget = targetContact and targetContact.model
-	if targetContact and activeTarget.Parent then
-		local targetPos = targetContact.position
-		local targetAlliesCount = 0
-		for _, enemy in ipairs(contacts.enemies) do
-			if enemy.model ~= activeTarget and (enemy.position - targetPos).Magnitude <= SituationAwareness.LOCAL_RADIUS then
-				targetAlliesCount += 1
-			end
-		end
-		isTargetIsolated = targetAlliesCount == 0
-		targetHealthRatio = targetContact.healthRatio or 1
-		targetInfo = {
-			model = activeTarget,
-			distance = targetContact.distance,
-			healthRatio = targetHealthRatio,
-			isIsolated = isTargetIsolated,
-			alliesCount = targetAlliesCount,
-			confidence = targetContact.confidence or 1,
-			knownBy = targetContact.channel,
-		}
-	end
+	local targetInfo = targetFacts(contacts, targetContact or nearestEnemy)
+	local activeTarget = targetInfo and targetInfo.model
+	local isTargetIsolated = targetInfo ~= nil and targetInfo.isIsolated
+	local targetHealthRatio = targetInfo and targetInfo.healthRatio or 1.0
 
 	local baseConfidence = Pers.get(quinModel, "Confidence")
 	local currentConfidence = PersonalitySystem.computeEffectiveConfidence(baseConfidence, self.healthRatio, localAdvantageRatio)

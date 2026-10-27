@@ -31,15 +31,11 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 -- (hit reactions that fade once the Quin walks again: the leg rule in the state loop)
 local HIT_CLIPS = { "Reactions.HitHeavy", "Reactions.HitLight", "Reactions.Knockback", "Reactions.BlockFront" }
-local DebugReadouts = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugReadouts")) -- (debug-only attributes)
 local QuinData = require(QuinCore:WaitForChild("QuinData"))
 local AudioModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AudioModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
-local DecisionSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("DecisionSystem"))
-local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
-local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
-local TaskChoice = require(QuinCore:WaitForChild("Modules"):WaitForChild("TaskChoice"))
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local Brain = require(QuinCore:WaitForChild("Modules"):WaitForChild("Brain")) -- (task -> target -> action, one tick)
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local SocialSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("SocialSystem"))
@@ -50,25 +46,15 @@ local BodyStamina = require(QuinCore:WaitForChild("Modules"):WaitForChild("BodyS
 local Drives = require(QuinCore:WaitForChild("Modules"):WaitForChild("Drives"))
 local Momentum = require(QuinCore:WaitForChild("Modules"):WaitForChild("Momentum"))
 local lastBodyTick = os.clock()
-local Cognition = require(QuinCore:WaitForChild("Cognition"))
 local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 -- States in which a Quin stands on the ground by its own choice (and so needs room to stand)
--- States in which a Quin is not in control of itself: it does not pick a new target in them
--- (measured: 22 % of all target changes happened knocked down or in mid-jump, where it cannot act
--- on the choice and comes out of it turned to someone else)
-local NO_RETARGET_STATES = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, Airborne = true, WallRun = true }
 local STANDING_STATES = { Idle = true, Fight = true, Circling = true, Chase = true, Retreat = true, Overwatch = true }
 -- A Quin piloted by a player (PilotedBy, Player Quin match mode) takes its decisions from the
 -- player (PilotedState); only what happens to its body is left to the states every Quin has
 local PILOT_STATES = { Piloted = true, Knockback = true, Recovery = true, Death = true, ReEntry = true,
 	ProjectileJump = true, MidAirClash = true } -- (a jump it chose; a clash it met in the air)
 local function isPiloted() return Quin:GetAttribute("PilotedBy") ~= nil end
--- The brain's own orders (go idle, retreat, chase): the lowest request, so a Knockback or a clash
--- another Quin set on this one between ticks wins (Modules/StateRequest)
-local function order(stateName, why)
-	StateRequest.ask(Quin, stateName, StateRequest.BRAIN, why or "brain")
-end
 SocialSystem.start() -- the social layer (pack leaders, respect customs, arena events)
 
 -- === STATE MODULES ===
@@ -620,119 +606,10 @@ task.spawn(function()
 		end
 
 
-		-- === Tactical Perception & Emergent Decision Layer ===
-		local showdownRole = Quin:GetAttribute("RespectRole")
-		local isShowdownPerimeter = SocialSystem.standsDown(Quin) -- (stepped back for the respect custom: plans no fights)
-
-		if not isShowdownPerimeter and rootPart and humanoid.Health > 0 and not isPiloted() then
-			local tacticalContext = Cognition.update(Quin) -- (senses -> attention -> memory -> self / environment / situation)
-			if tacticalContext then
-				-- 1. Utility-based target selection & switching
-				local oldTargetName = Quin:GetAttribute("CurrentTarget")
-				local selectedTarget, targetScore, targetReason
-				if NO_RETARGET_STATES[currentState.name] then
-					selectedTarget = TargetingModule.getCommittedTarget(Quin, rootPart) -- (the one it has)
-				else
-					-- what it sets out to do first (fight, rescue, hunt), then whom
-					tacticalContext.Task = TaskChoice.choose(Quin, rootPart, tacticalContext)
-					selectedTarget, targetScore, targetReason = TargetingModule.selectTarget(Quin, tacticalContext)
-				end
-				if targetReason then
-					DebugReadouts.set(Quin, "TargetReason", targetReason)
-				end
-				if selectedTarget then
-					-- If target changed while actively in Fight state and next target is distant,
-					-- enter TargetTransition to breathe, survey, and reset rather than robotic snapping
-					if oldTargetName and oldTargetName ~= "" and oldTargetName ~= selectedTarget.Name and currentState.name == "Fight" then
-						local sHRP = selectedTarget:FindFirstChild("HumanoidRootPart")
-						local dist = sHRP and (sHRP.Position - rootPart.Position).Magnitude or 50
-						if dist > (CombatConfig.CombatRange or 8.2) * 1.5 then
-							order("Idle")
-						end
-					end
-					Quin:SetAttribute("CurrentTarget", selectedTarget.Name)
-				end
-
-				-- A task with a place to go (Objectives: carry, guard, escort ...): IdleState walks
-				-- it there, and a chase after someone far off is dropped to get back to the job
-				local task = tacticalContext.Task
-				if task and task.point then
-					Quin:SetAttribute("ObjectiveGoTo", task.point)
-					Quin:SetAttribute("ObjectiveSpeed", task.speed or 40)
-					Quin:SetAttribute("ObjectiveUrgency", task.urgency or 1)
-					Quin:SetAttribute("ObjectivePaceWhy", task.paceWhy)
-					Quin:SetAttribute("ObjectiveFace", task.face)
-					Quin:SetAttribute("ObjectiveEngage", task.engage or 16)
-					Quin:SetAttribute("ObjectiveUntil", workspace:GetServerTimeNow() + 1.0)
-					local sHRP = selectedTarget and selectedTarget:FindFirstChild("HumanoidRootPart")
-					local tDist = sHRP and (sHRP.Position - rootPart.Position).Magnitude or math.huge
-					local away = currentState.name == "Chase" or currentState.name == "Circling" or currentState.name == "Overwatch"
-						or (currentState.name == "Fight" and (task.engage or 16) <= 0)
-					if away and tDist > (task.engage or 16) * 1.4 then
-						order("Idle")
-					end
-				elseif Quin:GetAttribute("ObjectiveGoTo") ~= nil then
-					Quin:SetAttribute("ObjectiveGoTo", nil)
-				end
-
-				-- What it knows of its target right now, from its own contact record (Cognition:
-				-- senses and memory), whatever state it is in: TargetHasLoS (it sees it) and
-				-- TargetKnownBy (sight, touch, hearing, memory, report, rumour). Written here and
-				-- nowhere else. (Target selection and ChaseState each wrote TargetHasLoS, and only
-				-- on some paths: half the time a target was behind an obstacle it still said "seen".)
-				local contact = selectedTarget and Cognition.contactFor(Quin, selectedTarget)
-				local seen = contact ~= nil and contact.visible == true and contact.hasLineOfSight == true
-				local knownBy = contact and (seen and "sight" or contact.channel or "memory") or nil
-				if Quin:GetAttribute("TargetHasLoS") ~= seen then
-					Quin:SetAttribute("TargetHasLoS", seen)
-				end
-				if Quin:GetAttribute("TargetKnownBy") ~= knownBy then
-					Quin:SetAttribute("TargetKnownBy", knownBy)
-				end
-				
-				-- 2. Track distressed ally for emergent rescue
-				if tacticalContext.DistressedAlly then
-					Quin:SetAttribute("DistressedAllyName", tacticalContext.DistressedAlly.Name)
-				else
-					Quin:SetAttribute("DistressedAllyName", "")
-				end
-
-				-- 3. Evaluate candidate action utilities biased by personality
-				local distToTgt = (selectedTarget and selectedTarget:FindFirstChild("HumanoidRootPart"))
-					and (selectedTarget.HumanoidRootPart.Position - rootPart.Position).Magnitude or 15
-
-				local bestAction, tacticalState = DecisionSystem.evaluateAction(Quin, tacticalContext, distToTgt)
-				Quin:SetAttribute("RecommendedAction", bestAction)
-				Quin:SetAttribute("TacticalDecision", bestAction)
-
-				-- 4. Decision-driven behavior override: wire the tactical decision into the FSM
-				-- States a decision to retreat pulls the Quin out of: a fight, and a chase back
-				-- into one (a Quin at 5% health used to flee, turn round and chase, eight times over)
-				local isMeleeCommitted = (currentState.name == "Fight" or currentState.name == "Special" or currentState.name == "Chase")
-				local nowClock = os.clock()
-
-				if bestAction == "Retreat" and isMeleeCommitted and showdownRole ~= "Duelist" then
-					local lastBreakoff = Quin:GetAttribute("LastRetreatBreakoff") or 0
-					if (nowClock - lastBreakoff) >= (CombatConfig.RetreatBreakoffCooldown or 3.0) then
-						Quin:SetAttribute("LastRetreatBreakoff", nowClock)
-						order("Retreat")
-						RuntimeTracer.checkpoint(Quin, "Decision: Retreat (break off melee)")
-					end
-				elseif bestAction == "Pursue" and currentState.name == "Idle" then
-					-- Recovery is not interrupted: it finishes the get-up and then picks its own next
-					-- state. Forcing Chase from here cut the get-up clip after ~0.1s (prone -> sprint pop).
-					-- (a Quin walking to its task's spot - IdleState - is not pulled off after someone
-					-- outside the job's reach)
-					local onJob = task and task.point and distToTgt > (task.engage or 16) * 1.4
-					if distToTgt > (CombatConfig.PursueEngageDistance or 20.0) and not onJob then
-						order("Chase")
-						RuntimeTracer.checkpoint(Quin, "Decision: Pursue (chase target)")
-					end
-				end
-
-				-- 4. Emit emergent battle events telemetry
-				BattleEventSystem.checkEvents(Quin, tacticalContext)
-			end
+		-- === The brain: what it sets out to do, whom, and how (Modules/Brain) ===
+		-- (a Quin stepped back for the respect custom plans no fights; a piloted one is the player's)
+		if not SocialSystem.standsDown(Quin) and rootPart and humanoid.Health > 0 and not isPiloted() then
+			Brain.tick(Quin, rootPart, currentState.name)
 		end
 
 		-- Handle forced states from external forces (e.g., getting hit)
