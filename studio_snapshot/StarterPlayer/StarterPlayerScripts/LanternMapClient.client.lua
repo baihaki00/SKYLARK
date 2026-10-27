@@ -251,7 +251,7 @@ local function update()
 		if redraw then drawStatic(view, folder) end
 		local a, b = folder:GetAttribute("ScoreTeamAlpha") or 0, folder:GetAttribute("ScoreTeamBeta") or 0
 		view.top.score.Text = string.format('<font color="#50A0FF">ALPHA %d</font>   <font color="#8C96AA">ROUND %s</font>   <font color="#FF5A5A">%d BETA</font>', a, tostring(round or 1), b)
-		local phaseLabel = ({ Huddle = "HUDDLE", Live = "LIVE", Ignition = "LANTERN LIT", RoundOver = "ROUND OVER" })[phaseName] or phaseName:upper()
+		local phaseLabel = ({ Huddle = "HUDDLE", Live = "LIVE", Activating = "ACTIVATING", RoundOver = "ROUND OVER" })[phaseName] or phaseName:upper()
 		view.top.phase.Text = string.format('<font color="#%s">%s ATTACKS</font>   %s   %s', TEAM_COLOR[attackers]:ToHex(), TEAM_NAME[attackers], phaseLabel, left > 0 and fmtTime(left) or "")
 
 		-- the Lantern
@@ -320,13 +320,15 @@ local function update()
 			end
 		end
 
-		-- stamping
-		local progress = folder:GetAttribute("StampProgress") or 0
-		local burning = phaseName == "Ignition"
+		-- the activation bar (the attackers' colour; grey while a defender holds it)
+		local progress = folder:GetAttribute("ActivateProgress") or 0
+		local burning = phaseName == "Activating"
 		view.stamp.back.Visible = burning
 		if burning then
 			view.stamp.fill.Size = UDim2.fromScale(math.clamp(progress, 0, 1), 1)
-			view.stamp.text.Text = progress > 0.02 and string.format("STAMPING OUT  %d%%", progress * 100) or string.format("LANTERN BURNING AT %s", tostring(folder:GetAttribute("PlantedShrine")))
+			local contested = folder:GetAttribute("Contested") == true
+			view.stamp.fill.BackgroundColor3 = contested and DIM or TEAM_COLOR[attackers]
+			view.stamp.text.Text = string.format("%s SHRINE %s  %d%%", contested and "CONTESTED" or "ACTIVATING", tostring(folder:GetAttribute("PlantedShrine")), progress * 100)
 		end
 	end
 end

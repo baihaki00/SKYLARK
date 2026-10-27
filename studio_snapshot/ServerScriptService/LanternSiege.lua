@@ -4,19 +4,22 @@
 -- It only puts things on the field and keeps the score; what the Quins do about them comes from
 -- their own brain (QuinCore Modules/Objectives -> TaskChoice), nothing here tells a Quin what to do.
 --
---   Field    two Shrines (A, B) on the defenders' half; one Lantern at the attackers' start.
---   Round    Huddle (everyone still) -> Live: the attackers carry the Lantern to a Shrine (the
---            carrier is slower and can't dash or projectile-jump; it drops the Lantern when
---            knocked out, and any attacker can pick it up) -> Ignition: it burns; defenders stamp
---            it out by standing on it.
---            Attackers win: it burns out, or every defender is out.
---            Defenders win: it is stamped out, time runs out before a plant, or every attacker is
---            out before a plant.
+--   Field    two Shrines (A, B) on the defenders' half; the Lantern on a pedestal in the centre.
+--   Round    Huddle (everyone still) -> Live: the attackers take the Lantern from the centre and
+--            carry it to a Shrine (the carrier is slower and can't dash or projectile-jump; it
+--            drops the Lantern when knocked out, and any attacker can pick it up) -> Activating:
+--            set down on the Shrine, a bar fills while attackers stand on the site; any defender
+--            on the site holds it (contested); with no attacker on it the bar drains, and empty,
+--            the Lantern lies there for the taking again.
+--            Attackers win: the bar fills.
+--            Defenders win: time runs out (it runs on while attackers fill the bar), or every
+--            attacker is out. Every defender out wins nothing by itself: the Shrine must still be
+--            activated.
 --   Knockout a Quin at 0 health is not removed: it glitches out and sits the round out, and the
 --            same Quin comes back for the next one.
 --   Match    first to RoundsToWin; sides swap after SwapAfter rounds.
 -- Published for brains and screens: Workspace.LanternSiege (attributes Live, Phase, Round,
--- Attackers, ScoreTeamAlpha/Beta, PhaseEndsAt, PlantedShrine, IgniteEndsAt; the Lantern part's
+-- Attackers, ScoreTeamAlpha/Beta, PhaseEndsAt, PlantedShrine, ActivateProgress, Contested; the Lantern part's
 -- State / Carrier; Shrines/A, Shrines/B). Tuning: CombatConfig.LanternSiege.
 
 local CollectionService = game:GetService("CollectionService")
@@ -155,7 +158,7 @@ local function buildField()
 	lantern.Parent = folder
 	folder.Parent = Workspace
 
-	field = { folder = folder, lantern = lantern, shrines = shrines, bench = bench, attackAnchor = attackAnchor, center = center }
+	field = { folder = folder, lantern = lantern, shrines = shrines, bench = bench, attackAnchor = attackAnchor, center = center, pedestal = layout.pedestal }
 	return field
 end
 
@@ -284,8 +287,8 @@ local function carry(q)
 	lantern:SetAttribute("Carrier", q.Name)
 end
 
--- The superhero landing (Parkour.LandingSuperHero) for lighting the Lantern and for stamping it
--- out: the Quin goes down on one knee, still, for `hold` seconds; the ground shakes.
+-- The superhero landing (Parkour.LandingSuperHero) for setting the Lantern on a Shrine: the Quin
+-- goes down on one knee, still, for `hold` seconds; the ground shakes.
 local function heroLand(q, hold, position)
 	local h = q:FindFirstChildOfClass("Humanoid")
 	local root = q:FindFirstChild("HumanoidRootPart")
@@ -303,13 +306,6 @@ local function heroLand(q, hold, position)
 			q:SetAttribute("IsInert", false)
 		end
 	end)
-end
-
-local function heroLandRelease(q)
-	q:SetAttribute("HeroLandToken", nil)
-	if onField(q) and field and field.folder:GetAttribute("Live") then
-		q:SetAttribute("IsInert", false)
-	end
 end
 
 ----------------------------------------------------------------------------------------
@@ -376,12 +372,13 @@ local function playRound(attackers, isCancelled, announce)
 	local folder = field.folder
 	folder:SetAttribute("Attackers", attackers)
 	folder:SetAttribute("PlantedShrine", nil)
-	folder:SetAttribute("IgniteEndsAt", nil)
+	folder:SetAttribute("ActivateProgress", nil)
+	folder:SetAttribute("Contested", nil)
 	folder:SetAttribute("Live", false)
 
 	placeTeams(attackers)
-	-- the Lantern waits a little in front of the attackers' start
-	local base = field.attackAnchor + (Vector3.new(field.center.X, 0, field.center.Z) - Vector3.new(field.attackAnchor.X, 0, field.attackAnchor.Z)).Unit * cfg("LanternAhead", 14)
+	-- the Lantern waits on its pedestal in the centre (the round opens with the fight for it)
+	local base = field.pedestal or field.center
 	placeLantern(groundAt(base) + Vector3.new(0, 2, 0), "Base")
 
 	setPhase("Huddle", cfg("HuddleTime", 10))
@@ -397,8 +394,7 @@ local function playRound(attackers, isCancelled, announce)
 	warhorn()
 	release()
 	local liveEnds = os.clock() + cfg("LiveTime", 100)
-	local igniteEnds, stamp = nil, 0
-	local stamper, stamperHitAt, stamperLand = nil, 0, 0
+	local progress, plantedAt, wasContested = 0, 0, false
 	local lantern = field.lantern
 	local last = os.clock()
 	while true do
@@ -408,6 +404,7 @@ local function playRound(attackers, isCancelled, announce)
 		local dt = clock - last
 		last = clock
 		local state = lantern:GetAttribute("State")
+		local onSite = 0 -- attackers on the Shrine being activated
 
 		if state == "Base" or state == "Dropped" then
 			for q, rec in pairs(roster) do
@@ -428,65 +425,61 @@ local function playRound(attackers, isCancelled, announce)
 			else
 				for name, ring in pairs(field.shrines) do
 					if flat(root.Position, ring.Position) <= cfg("ShrineRadius", 7) then
-						local planter = c
 						placeLantern(ring.Position + Vector3.new(0, 2.5, 0), "Planted")
-						heroLand(planter, cfg("PlantHold", 1.1), ring.Position)
+						heroLand(c, cfg("PlantHold", 1.1), ring.Position)
 						field.lantern.PointLight.Range = 30
 						folder:SetAttribute("PlantedShrine", name)
-						igniteEnds = clock + cfg("IgniteTime", 20)
-						folder:SetAttribute("IgniteEndsAt", now() + cfg("IgniteTime", 20))
-						setPhase("Ignition", cfg("IgniteTime", 20))
-						announce(string.format("LANTERN LIT AT %s  //  %ds", name, cfg("IgniteTime", 20)), 3, "LANTERN SIEGE", LANTERN_COLOR)
+						progress, plantedAt, wasContested = 0, clock, false
+						setPhase("Activating", math.max(0, liveEnds - clock))
+						announce(string.format("ACTIVATING SHRINE %s", name), 3, "LANTERN SIEGE", LANTERN_COLOR)
 						break
 					end
 				end
 			end
 		elseif state == "Planted" then
-			-- a defender on it kneels and stamps (superhero landing, still); a blow knocks it off
-			-- the job and costs time
-			local s = stamper
-			local sRoot = s and s:FindFirstChild("HumanoidRootPart")
-			if s and (not onField(s) or not sRoot or flat(sRoot.Position, lantern.Position) > cfg("StampRange", 5) + 2
-				or (s:GetAttribute("ImpactTime") or 0) > stamperHitAt) then
-				if s and onField(s) and (s:GetAttribute("ImpactTime") or 0) > stamperHitAt then
-					stamp = math.max(0, stamp - cfg("StampHitCost", 1))
-				end
-				heroLandRelease(s)
-				stamper = nil
-			end
-			if not stamper then
-				for q, rec in pairs(roster) do
-					local root = q:FindFirstChild("HumanoidRootPart")
-					if rec.team == defenders and onField(q) and root and flat(root.Position, lantern.Position) <= cfg("StampRange", 5) then
-						stamper, stamperHitAt, stamperLand = q, q:GetAttribute("ImpactTime") or 0, 0
-						break
-					end
+			-- who stands on the site: attackers fill the bar, any defender holds it
+			local name = folder:GetAttribute("PlantedShrine")
+			local site = field.shrines[name]
+			local defenders_on = 0
+			for q, rec in pairs(roster) do
+				local root = q:FindFirstChild("HumanoidRootPart")
+				if onField(q) and root and flat(root.Position, site.Position) <= cfg("ActivateRadius", 12)
+					and math.abs(root.Position.Y - site.Position.Y) < 10 then
+					if rec.team == attackers then onSite += 1 else defenders_on += 1 end
 				end
 			end
-			if stamper and clock - stamperLand >= 1.2 then
-				stamperLand = clock
-				heroLand(stamper, 1.3, lantern.Position)
+			local contested = defenders_on > 0
+			if contested ~= wasContested then
+				wasContested = contested
+				folder:SetAttribute("Contested", contested)
+				if contested then announce(string.format("SHRINE %s CONTESTED", name), 2, "LANTERN SIEGE", COLOR[defenders]) end
 			end
-			stamp = stamper and stamp + dt or math.max(0, stamp - dt * 0.5)
-			folder:SetAttribute("StampProgress", stamp / cfg("StampTime", 2.5))
-			if stamp >= cfg("StampTime", 2.5) then
-				if stamper then heroLandRelease(stamper) end
-				lantern.PointLight.Enabled = false
-				lantern.Transparency = 0.7
-				VfxModule.createShockwave(lantern.Position, 30, 0.8)
-				return defenders, "Stamped it out"
+			local fill = dt / cfg("ActivateTime", 10)
+			if onSite > 0 and not contested then
+				progress += fill
+			elseif onSite == 0 then
+				progress -= fill * cfg("ActivateDrain", 0.5)
 			end
-			if clock >= igniteEnds then
-				return attackers, "The Lantern burned"
+			progress = math.clamp(progress, 0, 1)
+			folder:SetAttribute("ActivateProgress", progress)
+			if progress >= 1 then
+				VfxModule.createShockwave(site.Position, 40, 0.9)
+				return attackers, "Shrine " .. name .. " activated"
+			end
+			if progress <= 0 and onSite == 0 and clock - plantedAt > 1.5 then
+				-- left alone, the activation dies out: the Lantern lies on the Shrine for the taking
+				placeLantern(groundAt(site.Position) + Vector3.new(0, 1.5, 0), "Dropped")
+				folder:SetAttribute("PlantedShrine", nil)
+				folder:SetAttribute("ActivateProgress", nil)
+				folder:SetAttribute("Contested", nil)
+				setPhase("Live", math.max(0, liveEnds - clock))
+				announce(string.format("ACTIVATION AT %s BROKEN", name), 2.5, "LANTERN SIEGE", COLOR[defenders])
 			end
 		end
 
-		state = lantern:GetAttribute("State")
-		if state ~= "Planted" then
-			if clock >= liveEnds then return defenders, "Time ran out" end
-			if aliveCount(attackers) == 0 then return defenders, "Attackers wiped out" end
-		end
-		if aliveCount(defenders) == 0 then return attackers, "Defenders wiped out" end
+		-- time: it runs on while attackers stand on a Shrine they are activating
+		if clock >= liveEnds and onSite == 0 then return defenders, "Time ran out" end
+		if aliveCount(attackers) == 0 then return defenders, "Attackers wiped out" end
 	end
 end
 

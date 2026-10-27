@@ -278,20 +278,21 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			end
 		elseif view.planted then
 			local ring = view.planted.position + (myPos - view.planted.position) * Vector3.new(1, 0, 1)
-			ring = (ring - view.planted.position).Magnitude > 0.1 and view.planted.position + (ring - view.planted.position).Unit * 10 or view.planted.position
+			-- (on the site: only attackers standing on it fill the bar)
+			ring = (ring - view.planted.position).Magnitude > 0.1 and view.planted.position + (ring - view.planted.position).Unit * 7 or view.planted.position
 			tasks.HoldPlant = {
-				score = cfg("Objective_HoldValue", 110) - flat(view.planted.position, myPos) * 0.2,
-				point = ring, speed = run, engage = engage, urgency = 0.6, paceWhy = "hold the Shrine",
-				why = "hold " .. tostring(view.planted.shrine) .. " while it burns",
+				score = cfg("Objective_HoldValue", 110) + (view.planted.contested and 30 or 0) - flat(view.planted.position, myPos) * 0.2,
+				point = ring, speed = run, engage = engage, urgency = view.planted.contested and 0.9 or 0.6, paceWhy = "hold the Shrine",
+				why = string.format("activate %s (%d%%)", tostring(view.planted.shrine), view.planted.progress * 100),
 			}
 		end
 	else
 		if view.planted then
-			local left = math.max(0, view.planted.endsAt - workspace:GetServerTimeNow())
+			-- standing on the site holds the activation: the fuller the bar, the more it matters
 			tasks.Retake = {
-				score = cfg("Objective_RetakeValue", 150) + (1 - left / cfg("Objective_IgniteTime", 20)) * 80 - flat(view.planted.position, myPos) * 0.2,
-				point = view.planted.position, speed = run, engage = engage * 0.6, urgency = 1, paceWhy = "it is burning",
-				why = string.format("stamp it out at %s (%ds left)", tostring(view.planted.shrine), left),
+				score = cfg("Objective_RetakeValue", 150) + view.planted.progress * 80 - flat(view.planted.position, myPos) * 0.2,
+				point = view.planted.position, speed = run, engage = engage * 0.6, urgency = 1, paceWhy = "it is activating",
+				why = string.format("stop the activation at %s (%d%%)", tostring(view.planted.shrine), view.planted.progress * 100),
 			}
 		end
 		-- watch a Shrine: the one fewest teammates watch, near the way the attackers come

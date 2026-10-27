@@ -733,7 +733,6 @@ CombatConfig.Objective_PickUpValue = 140             -- - 0.3/stud - 70 per team
 CombatConfig.Objective_EscortValue = 75              -- + 40 x protectiveness - 0.15/stud
 CombatConfig.Objective_HoldValue = 110               -- standing round a burning Lantern
 CombatConfig.Objective_RetakeValue = 150             -- + up to 80 as the burn runs out
-CombatConfig.Objective_IgniteTime = 20               -- (same as LanternSiege.IgniteTime)
 CombatConfig.Objective_GuardValue = 70               -- + 20 x awareness; spread: - 35 per teammate on that Shrine
 CombatConfig.Objective_GuardTakenCost = 35
 CombatConfig.Objective_HuntCost = 30                 -- Hunt scores this much less while a mode has objectives out
@@ -767,10 +766,13 @@ CombatConfig.Objective_PatrolRestless = 0.55 -- Pers_MobilityPreference from whi
 CombatConfig.Objective_PatrolSwing = 30   -- degrees it moves round the Shrine when it does
 
 CombatConfig.LanternSiege = {
-	HuddleTime = 10, LiveTime = 100, IgniteTime = 20, RoundOverTime = 4,
+	HuddleTime = 10, LiveTime = 100, RoundOverTime = 4,
 	RoundsToWin = 5, SwapAfter = 4,
 	ShrineForward = 0.35, ShrineSide = 0.55, ShrineRadius = 7, -- (Shrines: fractions of anchor-to-centre from the defenders' anchor)
-	LanternAhead = 14, PickUpRange = 5, StampRange = 5, StampTime = 2.5,
+	PickUpRange = 5,
+	ActivateTime = 10,   -- seconds of attackers on the site, uncontested, to activate it
+	ActivateRadius = 12, -- studs round the Shrine that count as on the site (both teams)
+	ActivateDrain = 0.5, -- with no attacker on the site the bar drains at this share of its fill rate
 	BenchHeight = 3000,
 }
 

@@ -29,7 +29,7 @@ end
 -- nil outside a live round, else:
 -- { role = "Attack" | "Defend", carrier = model|nil, iCarry = bool,
 --   lantern = { state, position (nil when it can't know) },
---   shrines = { { name, position } }, planted = { shrine, position, endsAt } | nil }
+--   shrines = { { name, position } }, planted = { shrine, position, progress 0..1, contested } | nil }
 function Objectives.view(quin)
 	local f = folder()
 	if not f then return nil end
@@ -61,7 +61,8 @@ function Objectives.view(quin)
 
 	local planted = nil
 	if state == "Planted" then
-		planted = { shrine = f:GetAttribute("PlantedShrine"), position = lanternPart.Position, endsAt = f:GetAttribute("IgniteEndsAt") or 0 }
+		planted = { shrine = f:GetAttribute("PlantedShrine"), position = lanternPart.Position,
+			progress = f:GetAttribute("ActivateProgress") or 0, contested = f:GetAttribute("Contested") == true }
 	end
 	return {
 		role = role, carrier = carrier, iCarry = carrier == quin,
