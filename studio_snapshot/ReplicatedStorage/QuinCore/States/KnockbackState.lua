@@ -14,6 +14,7 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 local wallTech -- (below)
 
 local KnockbackState = { name = "Knockback" }
@@ -43,7 +44,7 @@ end
 function KnockbackState.enter(fighter, humanoid, rootPart)
 	require(ReplicatedStorage.QuinCore.Modules.Drives).onKnockdown(fighter) -- (fury)
 	require(ReplicatedStorage.QuinCore.Modules.PersonalitySystem).recordCombatOutcome(fighter, "KnockedDown") -- (habits: Temperament)
-	local stunDuration = CombatConfig.BaseStunDuration or 0.5
+	local stunDuration = CombatConfig.BaseStunDuration or 1.5
 	local stunResist = fighter:GetAttribute("StunResist") or 0
 	stunDuration = stunDuration * (1 - stunResist)
 	
@@ -175,7 +176,7 @@ function wallTech(fighter, humanoid, rootPart, data, hit, normal)
 		local PilotInput = require(ReplicatedStorage.QuinCore.Modules.PilotInput)
 		if not PilotInput.pressedRecently(fighter, "Jump", CombatConfig.Knockback_WallTechInputWindow or 0.4) then return false end
 	else
-		local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.5
+		local mobility = Pers.get(fighter, "MobilityPreference")
 		if math.random() >= (CombatConfig.Knockback_WallTechChance or 0.35) * (0.5 + mobility) then return false end
 	end
 	-- off the wall, back toward the attacker if it is in front of the wall, else straight out
@@ -354,7 +355,7 @@ function KnockbackState.setStunParams(fighter, duration, isHeavy)
 	local data = knockbackData[fighter]
 	if data then
 		if isHeavy then
-			data.stunDuration = (CombatConfig.HeavyStunDuration or 1.5) * (1 - (fighter:GetAttribute("StunResist") or 0))
+			data.stunDuration = (CombatConfig.HeavyStunDuration or 3.5) * (1 - (fighter:GetAttribute("StunResist") or 0))
 		end
 	end
 end

@@ -12,6 +12,7 @@ local DebugReadouts = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 
 local FightMaths = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("FightMaths"))
 local SocialSystem = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SocialSystem"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 local TargetingModule = {}
 
 -- Utility-based target evaluation and selection
@@ -45,7 +46,7 @@ end
 local function isHolding(quinModel)
 	local name = quinModel:GetAttribute("CurrentTarget")
 	if not name or name == "" then return false end
-	local persistence = quinModel:GetAttribute("Pers_TargetPersistence") or 0.7
+	local persistence = Pers.get(quinModel, "TargetPersistence")
 	return heldFor(quinModel, name, os.clock()) < (CombatConfig.Targeting_MinHold or 2.0) * (0.5 + persistence)
 end
 
@@ -127,8 +128,8 @@ function TargetingModule.selectTarget(quinModel, localState)
 	end
 
 	-- Personality & runtime attributes
-	local aggression        = quinModel:GetAttribute("Pers_Aggression") or 0.6
-	local targetPersistence = quinModel:GetAttribute("Pers_TargetPersistence") or 0.7
+	local aggression        = Pers.get(quinModel, "Aggression")
+	local targetPersistence = Pers.get(quinModel, "TargetPersistence")
 	local confidence        = (localState and localState.currentConfidence) or (quinModel:GetAttribute("CurrentConfidence") or 0.6)
 	local selfHp            = (localState and localState.SelfHealthPercent) or 1.0
 
@@ -139,7 +140,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 		-- Fallback to global scan if no enemies are in direct local radius
 		-- (nobody close by, as in the middle of a jump: it keeps the target it has)
 		local kept = currentTargetName and currentTargetName ~= ""
-			and ((workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(currentTargetName))
+			and QuinRoster.byName(currentTargetName)
 		if kept and TargetingModule.isValid(kept) then
 			return kept, 50, "Committed to its target (nobody near)"
 		end
@@ -175,7 +176,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 		local am = ally.model
 		local aTarget = am and am.Parent and am:GetAttribute("CurrentTarget")
 		if aTarget and aTarget ~= "" and engagedStates[am:GetAttribute("CurrentState") or ""] then
-			local enemy = (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(aTarget)
+			local enemy = QuinRoster.byName(aTarget)
 			local aRoot, eRoot = am:FindFirstChild("HumanoidRootPart"), enemy and enemy:FindFirstChild("HumanoidRootPart")
 			if aRoot and eRoot and (aRoot.Position - eRoot.Position).Magnitude <= crowdRadius then
 				takers[aTarget] = (takers[aTarget] or 0) + 1
@@ -185,7 +186,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 			end
 		end
 	end
-	local protectiveness = quinModel:GetAttribute("Pers_Protectiveness") or 0.5
+	local protectiveness = Pers.get(quinModel, "Protectiveness")
 
 	-- who struck it a moment ago (DamageModule: LastAttackerName, ImpactTime)
 	-- Just after it turned on one blow it settles on that answer a moment (a persistent Quin
@@ -193,7 +194,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 	-- quick back-and-forth switches in a 16v16 were this)
 	local struckName = nil
 	local settling = answeredAt[quinModel]
-		and os.clock() - answeredAt[quinModel] < (CombatConfig.Targeting_StruckSettle or 2.0) * (0.5 + (quinModel:GetAttribute("Pers_TargetPersistence") or 0.7))
+		and os.clock() - answeredAt[quinModel] < (CombatConfig.Targeting_StruckSettle or 2.0) * (0.5 + (Pers.get(quinModel, "TargetPersistence")))
 	if not settling and workspace:GetServerTimeNow() - (quinModel:GetAttribute("ImpactTime") or 0) <= (CombatConfig.Targeting_StruckMemory or 1.5) then
 		struckName = quinModel:GetAttribute("LastAttackerName")
 	end
@@ -251,7 +252,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 			-- 7. Directional Awareness Score (Phase 2): priority response to immediate rear flanker
 			local rearThreatScore = 0
 			if localState and localState.IsUnderRearThreat and localState.ClosestRearThreat == model then
-				local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
+				local awareness = Pers.get(quinModel, "Awareness")
 				if dist <= (CombatConfig.RearThreatCriticalRange or 10.0) then
 					rearThreatScore = 45 * awareness
 				end
@@ -299,7 +300,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 			-- while B chased C while C chased A, round and round on the same spot.)
 			local huntedScore = 0
 			if localState and localState.PrimaryPursuer == model and not isCurrent then
-				huntedScore = (CombatConfig.Targeting_HuntedScore or 60) * (quinModel:GetAttribute("Pers_Awareness") or 0.65)
+				huntedScore = (CombatConfig.Targeting_HuntedScore or 60) * (Pers.get(quinModel, "Awareness"))
 			end
 
 			-- 12b. It just hit me (owner 2026-10-27: Quins punched in the back of the head kept
@@ -333,7 +334,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 				local onAlly = false -- (this enemy is going for one of my team)
 				local theirTarget = model:GetAttribute("CurrentTarget")
 				if theirTarget and theirTarget ~= "" and theirTarget ~= quinModel.Name then
-					local ally = (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(theirTarget)
+					local ally = QuinRoster.byName(theirTarget)
 					onAlly = ally ~= nil and ally:GetAttribute("Team") == quinModel:GetAttribute("Team")
 				end
 				if planTarget == "Weakest" then
@@ -424,7 +425,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 	-- A target that has left its near view (thrown clear, gone round a corner) is still its target
 	-- while the hold lasts: it does not turn to whoever happens to be near in that moment
 	if not heldCandidate and bestCandidate and isHolding(quinModel) then
-		local held = (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(heldName)
+		local held = QuinRoster.byName(heldName)
 		if held and TargetingModule.isValid(held) then
 			return held, 50, "Committed to its target (out of view)"
 		end
@@ -469,7 +470,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 			if (was == "Flanker" or was == "Joiner") and quinModel:GetAttribute("PackIntentAlly") == intentAlly then
 				intent = was
 			else
-				intent = math.random() < (quinModel:GetAttribute("Pers_Awareness") or 0.65) * (CombatConfig.Team_FlankLean or 1) and "Flanker" or "Joiner"
+				intent = math.random() < (Pers.get(quinModel, "Awareness")) * (CombatConfig.Team_FlankLean or 1) and "Flanker" or "Joiner"
 			end
 		end
 		if quinModel:GetAttribute("PackIntent") ~= intent or quinModel:GetAttribute("PackIntentAlly") ~= intentAlly then

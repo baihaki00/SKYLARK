@@ -20,6 +20,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local PlatformCatalogue = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("PlatformCatalogue"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local RetreatTacticsModule = {}
 
@@ -74,12 +75,12 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 	local myPosFlat = Vector3.new(myPos.X, 0, myPos.Z)
 
 	-- Personality & Trait attributes
-	local confidence = fighter:GetAttribute("CurrentConfidence") or (fighter:GetAttribute("Pers_Confidence") or 0.6)
-	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
-	local protectiveness = fighter:GetAttribute("Pers_Protectiveness") or 0.5
-	local awareness = fighter:GetAttribute("Pers_Awareness") or 0.6
-	local riskTolerance = fighter:GetAttribute("Pers_RiskTolerance") or 0.5
-	local dashPreference = fighter:GetAttribute("Pers_DashPreference") or 0.6
+	local confidence = fighter:GetAttribute("CurrentConfidence") or (Pers.get(fighter, "Confidence"))
+	local mobility = Pers.get(fighter, "MobilityPreference")
+	local protectiveness = Pers.get(fighter, "Protectiveness")
+	local awareness = Pers.get(fighter, "Awareness")
+	local riskTolerance = Pers.get(fighter, "RiskTolerance")
+	local dashPreference = Pers.get(fighter, "DashPreference")
 	local ownerId = fighter:GetAttribute("OwnerId") or "SERVER"
 
 	-- Threat centroid (flat XZ)

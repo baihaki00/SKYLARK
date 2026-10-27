@@ -18,6 +18,7 @@ local Workspace = game:GetService("Workspace")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local QuinData = require(QuinCore:WaitForChild("QuinData"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local Instinct = {}
 
@@ -48,7 +49,7 @@ end
 
 -- How long this Quin takes to answer a tell (a worn Quin is slower: ConditionFactor 0.75 .. 1)
 local function reactionTime(quin)
-	local awareness = quin:GetAttribute("Pers_Awareness") or 0.6
+	local awareness = Pers.get(quin, "Awareness")
 	local t = cfg("ReactionBase", 0.16) * (1.3 - awareness * 0.6) * (2 - (quin:GetAttribute("ConditionFactor") or 1))
 	if (quin:GetAttribute("Energy") or 100) < (CombatConfig.FatigueThreshold or 25) then
 		t += cfg("TiredExtra", 0.08)
@@ -61,8 +62,8 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 	local KnockbackModule = require(QuinCore.Modules.KnockbackModule)
 	local LocomotionModule = require(QuinCore.Modules.LocomotionModule)
 	local timeLeft = contactAt - now
-	local defense = defender:GetAttribute("Pers_DefensePreference") or 0.5
-	local mobility = defender:GetAttribute("Pers_MobilityPreference") or 0.5
+	local defense = Pers.get(defender, "DefensePreference")
+	local mobility = Pers.get(defender, "MobilityPreference")
 	local low = attacker:GetAttribute("StrikeLow") == true
 	local roll = math.random()
 	-- (its stats scale each answer: getting out of the way by DodgeChance, the guard by BlockChance)

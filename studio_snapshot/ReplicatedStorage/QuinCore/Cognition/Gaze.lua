@@ -26,6 +26,8 @@ local ENGAGED_STATES = { Fight = true, Knockback = true, Recovery = true, Projec
 local ACTIVE_STATES = { Chase = true, Circling = true, Retreat = true }
 
 local Workspace = game:GetService("Workspace")
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 local function gcfg(cfg, key, default)
 	local v = cfg[key]
@@ -35,7 +37,7 @@ end
 
 -- Between looks down over the edge of high ground (more often for aware Quins)
 local function nextEdgeDelay(quinModel, cfg)
-	local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
+	local awareness = Pers.get(quinModel, "Awareness")
 	local interval = cfg.GazeGlanceIntervalMax + (cfg.GazeGlanceIntervalMin - cfg.GazeGlanceIntervalMax) * awareness
 	return interval * (0.7 + math.random() * 0.6)
 end
@@ -102,7 +104,7 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 	if intentAt and intentAt ~= gaze.intentAt then
 		gaze.intentAt = intentAt
 		local ally = not ENGAGED_STATES[state] and now >= gaze.glanceUntil and gcfg(cfg, "GazeIntentGlance", true)
-			and (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(quinModel:GetAttribute("PackIntentAlly") or "")
+			and QuinRoster.byName(quinModel:GetAttribute("PackIntentAlly"))
 		local aRoot = ally and ally:FindFirstChild("HumanoidRootPart")
 		if aRoot then
 			local offset = aRoot.Position - SpatialModule.getEyePosition(rootPart)
@@ -141,7 +143,7 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 		gaze.cues = gaze.cues or setmetatable({}, { __mode = "k" })
 		if cue and now >= (gaze.cues[cue] or 0) then
 			gaze.cues[cue] = now + gcfg(cfg, "GazeCueCooldown", 5)
-			local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
+			local awareness = Pers.get(quinModel, "Awareness")
 			local chance = (gcfg(cfg, "GazeCueChanceBase", 0.25) + gcfg(cfg, "GazeCueChanceAwareness", 0.6) * awareness) * (active and gcfg(cfg, "GazeCueActiveShare", 0.5) or 1)
 			if math.random() < chance then
 				local offset = cue.HumanoidRootPart.Position - eye
@@ -254,7 +256,7 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 					gaze.scanIdx = 1
 					gaze.scanCycles = (gaze.scanCycles or 0) + 1
 				end
-				local restless = quinModel:GetAttribute("Pers_MobilityPreference") or 0.5
+				local restless = Pers.get(quinModel, "MobilityPreference")
 				local hold = gcfg(cfg, "GazeScanHoldMin", 0.9) + gcfg(cfg, "GazeScanHoldSpan", 1.6) * (1 - restless)
 				quinModel:SetAttribute("LookPoint", points[gaze.scanIdx])
 				quinModel:SetAttribute("LookUntil", serverNow + hold)

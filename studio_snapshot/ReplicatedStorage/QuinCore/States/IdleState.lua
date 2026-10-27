@@ -11,6 +11,7 @@ local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChi
 local Cognition = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Cognition"))
 local Pace = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pace"))
 local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local IdleState = { name = "Idle" }
 
@@ -30,8 +31,8 @@ function IdleState.enter(fighter, humanoid, rootPart)
 	-- idle here swapped the stance clip on every pass through this state.
 	AnimationModule.ensureBaseIdle(humanoid)
 
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-	local confidence = fighter:GetAttribute("Pers_Confidence") or 0.6
+	local aggression = Pers.get(fighter, "Aggression")
+	local confidence = Pers.get(fighter, "Confidence")
 
 	local isMatchInProgress = (workspace:GetAttribute("MatchStarted") == true)
 	local inCombat = (fighter:GetAttribute("InCombat") == true)
@@ -52,7 +53,7 @@ function IdleState.enter(fighter, humanoid, rootPart)
 		if aggression > 0.72 then
 			reactionDelay = (math.random() * 0.4) / speedMult
 			local roll = math.random()
-			if roll < 0.45 and energy >= (CombatConfig.DashMinEnergy or 20) then
+			if roll < 0.45 and energy >= (CombatConfig.DashMinEnergy or 25) then
 				openingAction = "Dash"
 			else
 				openingAction = "Run"
@@ -102,7 +103,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Energy recovery while idle (the body does it when Body_StaminaByEffort is on: BodyStamina)
 	if CombatConfig.Body_StaminaByEffort == false then
 		local energy = fighter:GetAttribute("Energy") or 100
-		local recovery = (CombatConfig.EnergyRecovery_Idle or 8) * 0.1
+		local recovery = (CombatConfig.EnergyRecovery_Idle or 16) * 0.1
 		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recovery))
 	end
 	
@@ -255,7 +256,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		return IdleState
 	end
 
-	local target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange or 1000)
+	local target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange or 800)
 	
 	if target then
 		local targetHRP = target:FindFirstChild("HumanoidRootPart")
@@ -300,7 +301,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 			return require(script.Parent:WaitForChild("ChaseState"))
 		end
 
-		local combatRange = CombatConfig.CombatRange or 8
+		local combatRange = CombatConfig.CombatRange or 8.2
 		if distance > combatRange * 2.5 then
 			if DEBUG then print("[Idle] Enemy detected, chasing") end
 			return require(script.Parent:WaitForChild("ChaseState"))

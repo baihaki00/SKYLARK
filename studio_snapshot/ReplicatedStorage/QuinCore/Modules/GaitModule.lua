@@ -309,7 +309,7 @@ local function driveDiagonal(humanoid, st, tracks, weights, lens, plants, cycleD
 		if sideWeights[j] * wSide > leadW then leadW, leadLen = sideWeights[j] * wSide, sideLens[j] end
 	end
 	local minRate = CombatConfig.Gait_MinPlayRate or 0.60
-	local maxRate = CombatConfig.Gait_MaxPlayRate or 1.45
+	local maxRate = CombatConfig.Gait_MaxPlayRate or 1.50
 	cadence = math.clamp(cadence, minRate / leadLen, maxRate / leadLen)
 
 	local direction = cosA < 0 and -1 or 1
@@ -441,7 +441,7 @@ function GaitModule.update(humanoid, rootPart, dt)
 	end
 
 	local minRate = CombatConfig.Gait_MinPlayRate or 0.60
-	local maxRate = CombatConfig.Gait_MaxPlayRate or 1.45
+	local maxRate = CombatConfig.Gait_MaxPlayRate or 1.50
 	local cadence = speed / math.max(cycleDistance, 0.01)
 	cadence = math.clamp(cadence, minRate / lens[lead], maxRate / lens[lead])
 
@@ -520,7 +520,7 @@ function GaitModule.update(humanoid, rootPart, dt)
 		local useRun = speed > (CombatConfig.Gait_StrafeRunSpeed or 10)
 		local path = lateral > 0 and (useRun and "Strafe.StrafeRightRun" or "Strafe.StrafeRightWalk")
 			or (useRun and "Strafe.StrafeLeftRun" or "Strafe.StrafeLeftWalk")
-		local authored = useRun and (CombatConfig.Strafe_RunAuthoredSpeed or 18.5) or (CombatConfig.Strafe_WalkAuthoredSpeed or 6.5)
+		local authored = useRun and (CombatConfig.Strafe_RunAuthoredSpeed or 18.8) or (CombatConfig.Strafe_WalkAuthoredSpeed or 7.3)
 		local rate = math.clamp(math.abs(lateral) / authored, CombatConfig.Strafe_MinPlayRate or 0.6, 1.6)
 		-- the forward loops fade out underneath (kept alive at ~0 so their phase is not lost)
 		for i, track in ipairs(tracks) do

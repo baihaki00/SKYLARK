@@ -17,12 +17,13 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Blackboard = require(script.Parent:WaitForChild("Blackboard"))
 local Callouts = require(script.Parent:WaitForChild("Callouts"))
 local Layers = require(script.Parent:WaitForChild("Layers"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local Memory = {}
 
 function Memory.retention(quinModel)
 	local cfg = CombatConfig.Cognition
-	local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
+	local awareness = Pers.get(quinModel, "Awareness")
 	return cfg.MemoryRetentionMin + awareness * (cfg.MemoryRetentionMax - cfg.MemoryRetentionMin)
 end
 

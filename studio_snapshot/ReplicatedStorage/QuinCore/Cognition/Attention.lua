@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local Attention = {}
 
@@ -17,10 +18,10 @@ local ENGAGED_STATES = { Fight = true, Special = true }
 
 function Attention.capacity(quinModel)
 	local cfg = CombatConfig.Cognition
-	local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
+	local awareness = Pers.get(quinModel, "Awareness")
 	local capacity = cfg.AttentionCapacityMin + awareness * (cfg.AttentionCapacityMax - cfg.AttentionCapacityMin)
 	if ENGAGED_STATES[quinModel:GetAttribute("CurrentState") or ""] then
-		capacity -= (quinModel:GetAttribute("Pers_Aggression") or 0.6) * cfg.AttentionEngagedPenalty
+		capacity -= (Pers.get(quinModel, "Aggression")) * cfg.AttentionEngagedPenalty
 	end
 	return math.clamp(math.round(capacity), 1, cfg.AttentionCapacityMax)
 end
@@ -59,7 +60,7 @@ end
 
 function Attention.rank(quinModel, percepts, enabled)
 	local targetName = quinModel:GetAttribute("CurrentTarget") or quinModel:GetAttribute("TargetQuin")
-	local aggression = quinModel:GetAttribute("Pers_Aggression") or 0.6
+	local aggression = Pers.get(quinModel, "Aggression")
 
 	local ranked = {}
 	for _, percept in ipairs(percepts) do

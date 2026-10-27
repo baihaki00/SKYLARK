@@ -32,6 +32,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Modules = QuinCore:WaitForChild("Modules")
 local SocialSystem = require(Modules:WaitForChild("SocialSystem"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local CFG = (CombatConfig.Social or {}).Tension or {}
 
@@ -236,7 +237,7 @@ local function tick(dt)
 			local q = quins[m]
 			if not q then
 				local P = CFG.PatienceRange or { 0.2, 0.8 }
-				local calm = 1 - (m:GetAttribute("Pers_Aggression") or 0.6)
+				local calm = 1 - (Pers.get(m, "Aggression"))
 				q = { u = 0, stall = 0, patience = math.clamp(P[1] + (P[2] - P[1]) * calm + (math.random() - 0.5) * 0.15, 0.05, 0.95) }
 				quins[m] = q
 			end

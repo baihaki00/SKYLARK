@@ -17,6 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local Senses = {}
 
@@ -42,7 +43,7 @@ end
 -- Hearing reach for this Quin: aware Quins pick up more
 function Senses.hearingRange(quinModel)
 	local cfg = CombatConfig.Cognition
-	local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
+	local awareness = Pers.get(quinModel, "Awareness")
 	return cfg.HearingRangeMin + awareness * (cfg.HearingRangeMax - cfg.HearingRangeMin)
 end
 

@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Blackboard = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Blackboard"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local FightMaths = {}
 
@@ -62,7 +63,7 @@ function FightMaths.cost(quinModel, rootPart, spot, confidence)
 	if not allies then return 0 end
 	local deficit = enemies - allies
 	if deficit <= cfg("FightMaths_Slack", 0.25) then return 0 end
-	local risk = quinModel:GetAttribute("Pers_RiskTolerance") or 0.5
+	local risk = Pers.get(quinModel, "RiskTolerance")
 	confidence = confidence or quinModel:GetAttribute("CurrentConfidence") or 0.6
 	local caution = math.clamp(1.3 - risk * 0.8 - confidence * 0.5, 0.15, 1.2)
 	return math.min(deficit, 3) * cfg("FightMaths_Weight", 40) * caution, string.format("bad odds there (%d v %d)", nAllies, nEnemies)

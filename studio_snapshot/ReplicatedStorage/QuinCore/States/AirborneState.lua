@@ -182,7 +182,7 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 					
 					if moveData.isSlam then
 						-- METEOR SLAM
-						KnockbackModule.applySlam(hitModel, CombatConfig.SlamDownForce or 200)
+						KnockbackModule.applySlam(hitModel, CombatConfig.SlamDownForce or 176)
 						
 						-- VFX & Audio Hook
 						local hitHRP = hitModel:FindFirstChild("HumanoidRootPart")

@@ -149,11 +149,11 @@ end
 function projectileJump(fighter, humanoid, rootPart, pj)
 	if CombatConfig.EnableProjectileJump == false then return nil end
 	local energy = fighter:GetAttribute("Energy") or 0
-	if energy < (CombatConfig.ProjectileJumpMinEnergy or 35) then
+	if energy < (CombatConfig.ProjectileJumpMinEnergy or 40) then
 		fighter:SetAttribute("PilotNote", "Not enough mana for a projectile jump")
 		return nil
 	end
-	local maxRange = cfg("ProjectileJumpRange", CombatConfig.ProjectileJumpMaxDistance or 90)
+	local maxRange = cfg("ProjectileJumpRange", CombatConfig.ProjectileJumpMaxDistance or 800)
 	local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
 	local team = fighter:GetAttribute("Team")
 	local targetRoot = pj.target and pj.target:FindFirstChild("HumanoidRootPart")

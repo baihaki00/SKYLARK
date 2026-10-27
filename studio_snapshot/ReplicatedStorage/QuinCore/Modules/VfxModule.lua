@@ -1066,7 +1066,7 @@ function VfxModule.createFootprint(fighter, side)
 	end
 	canvas.Parent.Parent:SetAttribute("Foot", side) -- (which foot made it: debug and tests)
 	if (image or "") ~= "" then
-		local label = decalImage(canvas, image, CombatConfig.Vfx_FootprintImageTransparency or 0.25)
+		local label = decalImage(canvas, image, CombatConfig.Vfx_FootprintImageTransparency or 0.6)
 		label.ScaleType = Enum.ScaleType.Fit -- keep the drawing's proportions
 		local size = CombatConfig.Vfx_FootprintImageSize
 		if mirror and typeof(size) == "Vector2" then

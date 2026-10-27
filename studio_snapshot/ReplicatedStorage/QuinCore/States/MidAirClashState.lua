@@ -482,7 +482,7 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	
 	-- Global safety timeout: max 4.5s in air clash (the orbit's own limit, plus a beat)
-	if totalElapsed > math.max(4.5, math.max(CombatConfig.MidAirClash_OrbitMaxTime or 6, CombatConfig.MidAirClash_OrbitLeapMaxTime or 0) + 1.5) then
+	if totalElapsed > math.max(4.5, math.max(CombatConfig.MidAirClash_OrbitMaxTime or 2, CombatConfig.MidAirClash_OrbitLeapMaxTime or 2) + 1.5) then
 		return require(script.Parent:WaitForChild("AirborneState"))
 	end
 	

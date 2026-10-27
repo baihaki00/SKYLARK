@@ -361,7 +361,7 @@ task.spawn(function()
 		spBar.Size = UDim2.new(eRatio, 0, 1, 0)
 		
 		-- Energy bar color: cyan when healthy, red when fatigued
-		if energy <= (CombatConfig.FatigueThreshold or 20) then
+		if energy <= (CombatConfig.FatigueThreshold or 25) then
 			spBar.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
 		elseif energy <= 50 then
 			spBar.BackgroundColor3 = Color3.fromRGB(255, 200, 80)
@@ -676,7 +676,7 @@ task.spawn(function()
 					if oldTargetName and oldTargetName ~= "" and oldTargetName ~= selectedTarget.Name and currentState.name == "Fight" then
 						local sHRP = selectedTarget:FindFirstChild("HumanoidRootPart")
 						local dist = sHRP and (sHRP.Position - rootPart.Position).Magnitude or 50
-						if dist > (CombatConfig.CombatRange or 8) * 1.5 then
+						if dist > (CombatConfig.CombatRange or 8.2) * 1.5 then
 							order("Idle")
 						end
 					end
@@ -870,7 +870,7 @@ task.spawn(function()
 				local ceiling = workspace:Spherecast(head, 2, Vector3.new(0, CombatConfig.ProjectileJump_Headroom or 45, 0), params)
 				-- (the bumps were 31-38 studs up and up to 29 across: the climb toward the target is
 				-- checked too)
-				local target = not ceiling and (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(Quin:GetAttribute("CurrentTarget") or "")
+				local target = not ceiling and QuinRoster.byName(Quin:GetAttribute("CurrentTarget"))
 				local tRoot = target and target:FindFirstChild("HumanoidRootPart")
 				if tRoot then
 					local toward = tRoot.Position - head

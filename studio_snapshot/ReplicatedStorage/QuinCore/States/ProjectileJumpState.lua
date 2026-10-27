@@ -591,7 +591,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		end
 	end
 	if not target then
-		target, _ = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange or 1000)
+		target, _ = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange or 800)
 	end
 
 	local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))

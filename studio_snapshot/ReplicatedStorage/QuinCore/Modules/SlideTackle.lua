@@ -28,6 +28,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SlideTackle = {}
 
 local isStudio = game:GetService("RunService"):IsStudio()
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local stats = { slides = 0, sweeps = 0, hurdles = 0, guarded = 0 }
 
@@ -214,7 +215,7 @@ function SlideTackle.slide(fighter, humanoid, rootPart, target)
 							local look = eRoot.CFrame.LookVector
 							local facing = Vector3.new(look.X, 0, look.Z).Unit:Dot(-dir) > 0.3
 							local busy = enemy:GetAttribute("Attacking") == true
-							local mobility = enemy:GetAttribute("Pers_MobilityPreference") or 0.6
+							local mobility = Pers.get(enemy, "MobilityPreference")
 							local roll = math.random() < cfg("HurdleChance", 0.35) * (0.5 + mobility)
 							-- (Studio demo switch: Workspace TackleOutcome = "hurdle" | "sweep" decides the reflex)
 							local forced = isStudio and Workspace:GetAttribute("TackleOutcome")

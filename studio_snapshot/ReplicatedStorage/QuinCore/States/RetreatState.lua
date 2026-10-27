@@ -206,7 +206,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	-- ============================================================
 	-- 2. DYNAMIC STATE TRANSITIONS & HYSTERESIS COMMITMENT
 	-- ============================================================
-	local minCommitDuration = CombatConfig.RetreatMinDuration or 1.2
+	local minCommitDuration = CombatConfig.RetreatMinDuration or 2.5
 
 	-- Nearest threat distance
 	local nearestThreatDist = result.nearestEnemyDist or math.huge
@@ -409,7 +409,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	local slideGap = SpatialModule.detectLowOverheadGap(rootPart, 8)
 	local energy = fighter:GetAttribute("Energy") or 100
 	local lastSlide = fighter:GetAttribute("LastSlideTime") or 0
-	local canSlide = (now - lastSlide) >= (CombatConfig.SlideCooldown or 2.5) and energy >= (CombatConfig.SlideMinEnergy or 12)
+	local canSlide = (now - lastSlide) >= (CombatConfig.SlideCooldown or 8.0) and energy >= (CombatConfig.SlideMinEnergy or 12)
 		and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 	if slideGap and canSlide then
 		RuntimeTracer.checkpoint(fighter, "Retreat sliding under obstacle gap")
@@ -422,7 +422,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	local canWallRun = (now - lastWallRun) >= (CombatConfig.WallRunCooldown or 5.0) and energy >= (CombatConfig.WallRunMinEnergy or 15)
 		and (data.currentSpeed or 30) >= 20 and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 	if canWallRun then
-		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2, CombatConfig.WallRunMinRunway or 24)
+		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 4.8, CombatConfig.WallRunMinRunway or 24)
 		local WallRunState = require(script.Parent:WaitForChild("WallRunState"))
 		if wallSurface and WallRunState.fastEnough(rootPart, wallSurface) then
 			fighter:SetAttribute("LastWallRunTime", now)

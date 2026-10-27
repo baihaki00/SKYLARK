@@ -250,7 +250,7 @@ local function claimFacing(data, humanoid, rootPart)
 		align.RigidityEnabled = false
 		align.Responsiveness = CombatConfig.Locomotion_FacingResponsiveness or 35
 		align.MaxTorque = 400000
-		align.MaxAngularVelocity = CombatConfig.Locomotion_FacingMaxTurnRate or 14
+		align.MaxAngularVelocity = CombatConfig.Locomotion_FacingMaxTurnRate or 30
 		align.CFrame = CFrame.lookAt(Vector3.zero, flatUnit(rootPart.CFrame.LookVector, Vector3.new(0, 0, -1)))
 		align.Parent = rootPart
 	end
@@ -641,7 +641,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		end
 	end
 
-	local skidThreshold = CombatConfig.Locomotion_SkidSpeedThreshold or 13.0
+	local skidThreshold = CombatConfig.Locomotion_SkidSpeedThreshold or 14.0
 	local now = os.clock()
 
 	-- How long it has held its top speed (the stop-run plant needs a real run behind it)
@@ -673,8 +673,8 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	fighter:SetAttribute("LastActivityTime", now)
 
 	local isChattering = fighter:GetAttribute("DirectionalChatter") == true
-	local skidCooldown = CombatConfig.Locomotion_SkidCooldown or 0.70
-	local skidLockout = CombatConfig.Locomotion_SkidLockout or 0.65
+	local skidCooldown = CombatConfig.Locomotion_SkidCooldown or 0.45
+	local skidLockout = CombatConfig.Locomotion_SkidLockout or 0.35
 
 	local isStrafing = (fighter:GetAttribute("IsStrafing") == true) or (humanoid.AutoRotate == false and not data.ownsFacing)
 
@@ -1125,11 +1125,11 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	-- Enforce jump debounce to eliminate rapid-fire double-hopping
 	-- (an obstacle crossing only needs to be back on the ground: bars in a row are taken
 	-- landing-to-takeoff within a few tenths of a second)
-	local debounce = crossing and 0.15 or (CombatConfig.Locomotion_JumpDebounce or 0.35)
+	local debounce = crossing and 0.15 or (CombatConfig.Locomotion_JumpDebounce or 1.0)
 	-- (down again since the last jump: it can go again once its feet are under it. The debounce
 	-- from takeoff kept a body that had landed waiting ~0.3 s for nothing)
 	if (data.lastLandTime or 0) > data.lastJumpTime then
-		debounce = math.min(debounce, (data.lastLandTime - data.lastJumpTime) + (CombatConfig.Locomotion_JumpReplant or 0.1))
+		debounce = math.min(debounce, (data.lastLandTime - data.lastJumpTime) + (CombatConfig.Locomotion_JumpReplant or 0.05))
 	end
 	if (now - data.lastJumpTime) < debounce then
 		fighter:SetAttribute("JumpSkip", string.format("debounce %.2f %s", now - data.lastJumpTime, tostring(jumpType)))
@@ -1439,7 +1439,7 @@ function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
 	-- The dash stops short at striking range. It used to cover at least 31 studs whatever the
 	-- gap, so from a 16-22 stud standoff it drove straight through the target and shoved it.
 	-- Short gaps become a quick step-in at a lower speed over the same minimum duration.
-	local travel = math.clamp(dist - (CombatConfig.CombatRange or 8) * 0.9, 8, 60)
+	local travel = math.clamp(dist - (CombatConfig.CombatRange or 8.2) * 0.9, 8, 60)
 	local maxDashSpeed = (CombatConfig.DashSpeed or 110) * speedMult
 	local slideDuration = math.clamp(travel / maxDashSpeed, 0.22 / speedMult, 0.55 / speedMult)
 	local dashSpeed = math.min(maxDashSpeed, travel / (slideDuration * 0.8)) -- 0.8: mean of the slide's speed envelope

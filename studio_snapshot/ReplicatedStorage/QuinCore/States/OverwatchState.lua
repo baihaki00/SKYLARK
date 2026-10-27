@@ -24,6 +24,7 @@ local PlatformCatalogue = require(QuinCore:WaitForChild("Modules"):WaitForChild(
 local AirInterceptModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AirInterceptModule"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local OverwatchState = { name = "Overwatch" }
 
@@ -69,7 +70,7 @@ end
 
 -- A point near the platform's edge on the side the enemies are on (any side if it knows of none)
 local function pickLookout(fighter, rootPart, platform)
-	local inset = CombatConfig.Overwatch_EdgeInset or 3
+	local inset = CombatConfig.Overwatch_EdgeInset or 5
 	local toward
 	local enemy = nearestEnemy(fighter, function() return true end)
 	if enemy then
@@ -91,13 +92,13 @@ end
 --   pace    - walk back and forth along the platform, short stops at each turn
 --   loop    - jog a lap or two around the top (platforms wide enough for a circle)
 local function planRoutine(fighter, rootPart, platform)
-	local inset = CombatConfig.Overwatch_EdgeInset or 3
+	local inset = CombatConfig.Overwatch_EdgeInset or 5
 	local ua, ub = math.max(platform.halfA - inset, 0), math.max(platform.halfB - inset, 0)
 	local longAxis, longHalf = platform.axisA, ua
 	if ub > ua then
 		longAxis, longHalf = platform.axisB, ub
 	end
-	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+	local mobility = Pers.get(fighter, "MobilityPreference")
 	local walkSpeed = CombatConfig.Overwatch_WalkSpeed or 10
 	local roll = math.random()
 
@@ -142,7 +143,7 @@ local function randomIn(range)
 end
 
 function OverwatchState.enter(fighter, humanoid, rootPart)
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
+	local aggression = Pers.get(fighter, "Aggression")
 	local watchMin = CombatConfig.Overwatch_WatchMin or 4
 	local watchMax = CombatConfig.Overwatch_WatchMax or 12
 	watchData[fighter] = {
@@ -178,7 +179,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Getting its breath back
 	if CombatConfig.Body_StaminaByEffort == false then -- (otherwise the body does it: BodyStamina)
 		local energy = fighter:GetAttribute("Energy") or 100
-		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + (CombatConfig.EnergyRecovery_Idle or 8) * 0.1))
+		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + (CombatConfig.EnergyRecovery_Idle or 16) * 0.1))
 	end
 
 	-- An enemy up here with it
@@ -189,7 +190,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 	if intruder then
 		TargetingModule.setTarget(fighter, intruder.model)
 		RuntimeTracer.checkpoint(fighter, "Overwatch: enemy on the platform")
-		if intruder.distance <= (CombatConfig.CombatRange or 8) * 1.2 then
+		if intruder.distance <= (CombatConfig.CombatRange or 8.2) * 1.2 then
 			return require(script.Parent:WaitForChild("FightState"))
 		end
 		return require(script.Parent:WaitForChild("ChaseState"))

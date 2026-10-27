@@ -31,6 +31,7 @@ local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChi
 local StrikeMarkers = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StrikeMarkers"))
 local Evasion = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Evasion"))
 local RunService = game:GetService("RunService")
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 -- Dynamic combat animation pools: directly hot-swappable via AnimationConfig!
 local function getLiveAttacks()
@@ -50,18 +51,8 @@ local function getLiveAttacks()
 end
 
 local function findModelByName(name)
-	if not name or name == "" then return nil end
-	local quinServer = workspace:FindFirstChild("QuinServer") or workspace
-	local m = quinServer:FindFirstChild(name) or workspace:FindFirstChild(name)
-	if m and m:IsA("Model") and m:FindFirstChild("HumanoidRootPart") then
-		return m
-	end
-	for _, tag in ipairs(QuinRoster.all()) do
-		if tag.Name == name and tag:FindFirstChild("HumanoidRootPart") then
-			return tag
-		end
-	end
-	return nil
+	local m = QuinRoster.byName(name)
+	return m and m:FindFirstChild("HumanoidRootPart") and m or nil
 end
 
 local FightState = { name = "Fight" }
@@ -88,11 +79,11 @@ local function decideAction(fighter, target, distance, data)
 	local isLastStand = fighter:GetAttribute("LastStandMode") == true
 	-- (its own personality: this read "Aggression" / "SpecialPreference", which nothing writes,
 	-- so every Quin fought at 0.7 and 0.3 whatever it was like)
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
+	local aggression = Pers.get(fighter, "Aggression")
 	if isLastStand then
 		aggression = math.min(1.0, aggression + (CombatConfig.LastStandAggressionBonus or 0.50))
 	end
-	local specialPref = fighter:GetAttribute("Pers_SpecialPreference") or 0.35
+	local specialPref = Pers.get(fighter, "SpecialPreference")
 	local specialCooldown = fighter:GetAttribute("SpecialCooldown") or 8
 	local now = tick()
 	
@@ -142,7 +133,7 @@ local function decideAction(fighter, target, distance, data)
 			fighter:SetAttribute("LastReactionTime", now)
 			-- A bold Quin with the energy for it goes up to meet the jumper instead
 			local canJump = CombatConfig.EnableProjectileJump ~= false and fighter:GetAttribute("EnableProjectileJump") ~= false
-				and (fighter:GetAttribute("Energy") or 100) >= (CombatConfig.ProjectileJumpMinEnergy or 35)
+				and (fighter:GetAttribute("Energy") or 100) >= (CombatConfig.ProjectileJumpMinEnergy or 40)
 			if canJump and math.random() < aggression * (CombatConfig.Combat_MeetJumpChance or 0.5) then
 				return "answer_jump"
 			end
@@ -165,10 +156,10 @@ local function decideAction(fighter, target, distance, data)
 		local rearCooldown = 1.8 / speedMult
 		if (now - lastRearReaction) >= rearCooldown then
 			fighter:SetAttribute("LastRearReactionTime", now)
-			local awareness = fighter:GetAttribute("Pers_Awareness") or 0.65
+			local awareness = Pers.get(fighter, "Awareness")
 			local occupiedQuadrants = fighter:GetAttribute("OccupiedQuadrants") or 1
 			local isBeingBullied = fighter:GetAttribute("BeingBullied")
-			local defensePref = fighter:GetAttribute("Pers_DefensePreference") or 0.5
+			local defensePref = Pers.get(fighter, "DefensePreference")
 			
 			-- In heavy multi-quadrant surround (>= 3 quadrants) or high defense focus: backstep slide to break pinch
 			if occupiedQuadrants >= (CombatConfig.SurroundedQuadrantThreshold or 3) or (isBeingBullied and defensePref > 0.55) then
@@ -189,15 +180,15 @@ local function decideAction(fighter, target, distance, data)
 	end
 	
 	-- Dash attack (gap closer)
-	local dashMin = CombatConfig.DashMinDistance or 10
-	local dashMax = CombatConfig.DashMaxDistance or 28
-	local minDashMana = CombatConfig.DashMinEnergy or 20
+	local dashMin = CombatConfig.DashMinDistance or 15
+	local dashMax = CombatConfig.DashMaxDistance or 60
+	local minDashMana = CombatConfig.DashMinEnergy or 25
 	local lastDash = fighter:GetAttribute("LastDashTime") or 0
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	local dashCooldown = 8.0 / speedMult
 	local isDashOnCooldown = (now - lastDash) < dashCooldown
 	local energy = fighter:GetAttribute("Energy") or 100
-	if not isDashOnCooldown and energy >= minDashMana and distance >= dashMin and distance <= dashMax and roll < (CombatConfig.DashAttackChance or 0.15) then
+	if not isDashOnCooldown and energy >= minDashMana and distance >= dashMin and distance <= dashMax and roll < (CombatConfig.DashAttackChance or 0.20) then
 		return "dash"
 	end
 	
@@ -256,13 +247,13 @@ end
 
 -- Chance to guard the next strike of a combo the Quin is caught in (defensive Quins more often)
 local function comboBreakChance(fighter)
-	local defense = fighter:GetAttribute("Pers_DefensePreference") or 0.5
+	local defense = Pers.get(fighter, "DefensePreference")
 	return (CombatConfig.Combat_ComboBreakChance or 0.25) * (0.5 + defense)
 end
 
 -- Chance to guard a strike seen coming while the Quin is between its own attacks
 local function reactiveGuardChance(fighter)
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
+	local aggression = Pers.get(fighter, "Aggression")
 	return (fighter:GetAttribute("BlockChance") or 0.25) * (1.2 - aggression * 0.5)
 end
 
@@ -441,13 +432,13 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- striking distance and never drives into (or through) its target
 	local lungeSpeed = CombatConfig.Combat_LungeMaxSpeed or 60
 	local lungeTime = math.min(effectiveDuration * 0.4, 0.35)
-	local stopDistance = CombatConfig.Combat_LungeStopDistance or 5.5
+	local stopDistance = CombatConfig.Combat_LungeStopDistance or 4.8
 	-- The step goes toward where the target will be at impact (its velocity, Combat_StrikeLead
 	-- ahead), not along the body's facing toward where it was
 	local function stepIn(timeLeft)
 		if not (fighter.Parent and targetHRP and targetHRP.Parent) then return end
 		local tv = targetHRP.AssemblyLinearVelocity
-		local aim = targetHRP.Position + Vector3.new(tv.X, 0, tv.Z) * timeLeft * (CombatConfig.Combat_StrikeLead or 0)
+		local aim = targetHRP.Position + Vector3.new(tv.X, 0, tv.Z) * timeLeft * (CombatConfig.Combat_StrikeLead or 0.6)
 		local offset = Vector3.new(aim.X - rootPart.Position.X, 0, aim.Z - rootPart.Position.Z)
 		local room = offset.Magnitude - stopDistance
 		if room > 0.25 then
@@ -516,8 +507,8 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 						-- LAUNCH: Send them flying up!
 						AudioModule.playSlam(hitModel:FindFirstChild("HumanoidRootPart").Position)
 						KnockbackModule.applyLaunch(hitModel,
-							CombatConfig.LaunchVerticalForce or 120,
-							CombatConfig.LaunchHorizontalForce or 20)
+							CombatConfig.LaunchVerticalForce or 8,
+							CombatConfig.LaunchHorizontalForce or 224)
 						hitModel:SetAttribute("ForceState", "Knockback")
 						if DEBUG then print("[Fight] LAUNCH! -> Airborne pursuit") end
 					else
@@ -780,7 +771,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	
 	-- Find or retain committed target
-	local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 60) * 1.5)
+	local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 800) * 1.5)
 	
 	if not target then
 		-- No current valid committed target, or target died/escaped: acquire nearest candidate
@@ -789,7 +780,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			TargetingModule.setTarget(fighter, target)
 			data.lastEngagedTarget = target
 			-- If next target is beyond close combat range, transition to Chase or Circling, NEVER mid-combat Idle!
-			if distance > (CombatConfig.CombatRange or 8) * 1.8 then
+			if distance > (CombatConfig.CombatRange or 8.2) * 1.8 then
 				return require(script.Parent:WaitForChild("ChaseState"))
 			end
 		else
@@ -819,15 +810,15 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	local roll = math.random()
 	local pjEnabled = not inShowdown and (CombatConfig.EnableProjectileJump ~= false) and (fighter:GetAttribute("EnableProjectileJump") ~= false)
 	local minDist = CombatConfig.ProjectileJumpMinDistance or 25
-	local maxDist = CombatConfig.ProjectileJumpMaxDistance or 90
-	local minPJMana = CombatConfig.ProjectileJumpMinEnergy or 35
+	local maxDist = CombatConfig.ProjectileJumpMaxDistance or 800
+	local minPJMana = CombatConfig.ProjectileJumpMinEnergy or 40
 	local lastPJ = fighter:GetAttribute("LastProjectileJumpTime") or 0
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
+	local aggression = Pers.get(fighter, "Aggression")
 	local pjCooldown = ((aggression > 0.7) and 14.0 or 18.0) / speedMult
 	local isPJOnCooldown = (now - lastPJ) < pjCooldown
 	local energy = fighter:GetAttribute("Energy") or 100
-	local pjChance = fighter:GetAttribute("ProjectileJumpChance") or CombatConfig.ProjectileJumpChance or 0.08
+	local pjChance = fighter:GetAttribute("ProjectileJumpChance") or CombatConfig.ProjectileJumpChance or 0.35
 
 	-- (team coordination step 5, owner 2026-10-27: a Quin stood in its fight and then burst into a
 	-- rocket jump for no reason) the jump needs one: the target is up high, running off, or cannot
@@ -875,11 +866,11 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	if reach then Reach.publish(fighter, reach) end
 	local tooFar
 	if reach then
-		local combatRange = CombatConfig.CombatRange or 7
+		local combatRange = CombatConfig.CombatRange or 8.2
 		tooFar = distance > combatRange * (CombatConfig.Reach_FightMaxRangeFactor or 4)
 			or (distance > combatRange * 1.2 and reach.time > (CombatConfig.Reach_FightLeaveTime or 0.4))
 	else
-		tooFar = distance > (CombatConfig.CombatRange or 7) * 2.5
+		tooFar = distance > (CombatConfig.CombatRange or 8.2) * 2.5
 	end
 	if tooFar then
 		if DEBUG then print("[Fight] Target too far -> Chase") end
@@ -902,7 +893,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	FightState.faceTarget(rootPart, targetHRP, data)
 	
 	-- Distance management
-	local idealRange = CombatConfig.CombatRange or 8
+	local idealRange = CombatConfig.CombatRange or 8.2
 	local locoDt = math.clamp(now - (data.lastLocoTime or (now - 0.05)), 1 / 60, 0.25)
 	data.lastLocoTime = now
 	-- Hysteresis on the approach: start closing past idealRange + 2, keep closing until just
@@ -963,8 +954,8 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- Attack cooldown
-	local minCooldown = CombatConfig.AttackCooldownMin or 0.5
-	local maxCooldown = CombatConfig.AttackCooldownMax or 1.5
+	local minCooldown = CombatConfig.AttackCooldownMin or 0.2
+	local maxCooldown = CombatConfig.AttackCooldownMax or 0.7
 	local attackSpeed = fighter:GetAttribute("AttackSpeed") or 1.0
 	
 	local cooldown = 0
@@ -979,7 +970,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	-- The fight's tempo (Modules/Rhythm): a breath after a burst, an explosion after a long quiet
 	local tempo = Rhythm.tempo(fighter, target, distance < 20)
 	if tempo == "breath" and currentComboStep == 0 then
-		cooldown *= CombatConfig.Rhythm_BreathCooldown or 2.5
+		cooldown *= CombatConfig.Rhythm_BreathCooldown or 1.8
 		-- (now and then the breath is a stand-off: it circles its opponent)
 		if not data.breathCircled and math.random() < (CombatConfig.Rhythm_BreathCircleChance or 0.35) then
 			data.breathCircled = true
@@ -1011,7 +1002,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	-- and the strike comes from the new angle (Modules/Evasion)
 	if distance < 12 and Evasion.dashReady(fighter) and currentComboStep == 0
 		and (target:GetAttribute("IsGuarding") == true or fighter:GetAttribute("StrikeResult") == "Blocked")
-		and math.random() < (CombatConfig.FocusDash_OpeningChance or 0.3) then
+		and math.random() < (CombatConfig.FocusDash_OpeningChance or 0.5) then
 		local toT = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z)
 		local side = Vector3.new(-toT.Z, 0, toT.X) * (math.random() < 0.5 and -1 or 1)
 		if Evasion.focusDash(fighter, humanoid, rootPart, targetHRP, side) then
@@ -1025,7 +1016,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	local action = decideAction(fighter, target, distance, data)
 	-- (an explosion after a long quiet: in hard, with a dash when there is room for one, else heavy)
 	if tempo == "explode" and (action == "light" or action == "dodge" or action == "block") then
-		local dashOk = distance >= (CombatConfig.DashMinDistance or 10) and (fighter:GetAttribute("Energy") or 0) >= (CombatConfig.DashMinEnergy or 20)
+		local dashOk = distance >= (CombatConfig.DashMinDistance or 15) and (fighter:GetAttribute("Energy") or 0) >= (CombatConfig.DashMinEnergy or 25)
 		action = dashOk and "dash" or "heavy"
 		fighter:SetAttribute("EngagedSince", os.clock())
 	end
@@ -1039,7 +1030,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	-- A strike is only thrown at a target the step-in can reach. Out of reach the Quin keeps
 	-- closing (the approach above) instead of swinging at air and losing its combo.
 	-- (moving in fast, the strike starts a beat earlier: the lunge covers the extra gap)
-	local strikeReach = CombatConfig.Combat_StrikeRange or 10.0
+	local strikeReach = CombatConfig.Combat_StrikeRange or 9.0
 	if CombatConfig.Flow_ArriveHot ~= false then
 		local v = rootPart.AssemblyLinearVelocity
 		strikeReach += math.min(Vector3.new(v.X, 0, v.Z).Magnitude * (CombatConfig.Flow_StrikeLeadTime or 0.1), CombatConfig.Flow_StrikeLeadMax or 4)
@@ -1152,7 +1143,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			if CombatConfig.Flow_DodgeCounter ~= false then
 				-- A slip off the line, not only straight back: the counter comes from an angle
 				-- (agile Quins slip more often)
-				local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.5
+				local mobility = Pers.get(fighter, "MobilityPreference")
 				if math.random() < (CombatConfig.Flow_DodgeSlipChance or 0.5) * (0.5 + mobility) then
 					local side = Vector3.new(-slideDir.Z, 0, slideDir.X) * (math.random() < 0.5 and -1 or 1)
 					slideDir = (side * 0.85 + slideDir * 0.5).Unit
@@ -1203,7 +1194,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			TargetingModule.setTarget(fighter, rearThreatModel, "RearThreat")
 			data.lastEngagedTarget = rearThreatModel.Name
 			
-			local awareness = fighter:GetAttribute("Pers_Awareness") or 0.65
+			local awareness = Pers.get(fighter, "Awareness")
 			if math.random() < (0.3 + awareness * 0.4) then
 				fighter:SetAttribute("IsGuarding", true)
 				task.delay(0.35 / speedMult, function()

@@ -91,13 +91,13 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	local wallRunSpeed = (CombatConfig.WallRunSpeed or 48) * speedMult
-	local maxDuration = (CombatConfig.WallRunMaxDuration or 1.25) / speedMult
+	local maxDuration = (CombatConfig.WallRunMaxDuration or 3.0) / speedMult
 
 	local energy = fighter:GetAttribute("Energy") or 100
 	fighter:SetAttribute("Energy", math.max(0, energy - (CombatConfig.WallRunMinEnergy or 15)))
 
 	-- The caller just detected the surface; read it again from the current position
-	local wallInfo = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2)
+	local wallInfo = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 4.8)
 		or wallBeside(fighter, rootPart)
 	local tangent = rootPart.CFrame.LookVector
 	local normal = -rootPart.CFrame.RightVector
@@ -133,7 +133,7 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 		maxDuration = maxDuration,
 		wallRunSpeed = wallRunSpeed, -- (the lane ahead is probed at this speed)
 		along = along,
-		rise = along * (CombatConfig.WallRun_ClimbRatio or 0.6),
+		rise = along * (CombatConfig.WallRun_ClimbRatio or 0.75),
 		startY = rootPart.Position.Y,
 		tangent = tangent,
 		normal = normal,
@@ -161,8 +161,8 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 	-- The update only watches for the end of the run.
 	data.stepConn = RunService.Heartbeat:Connect(function(dt)
 		if wallRunData[fighter] ~= data or not data.linearVelocity then return end
-		data.rise -= Workspace.Gravity * (CombatConfig.WallRun_GravityScale or 0.15) * dt
-		data.along = math.max(data.along - (CombatConfig.WallRun_Drag or 5) * dt, 0)
+		data.rise -= Workspace.Gravity * (CombatConfig.WallRun_GravityScale or 0.20) * dt
+		data.along = math.max(data.along - (CombatConfig.WallRun_Drag or 3) * dt, 0)
 		data.linearVelocity.VectorVelocity = runVelocity(data, rootPart, data.wallDistance)
 	end)
 
@@ -211,9 +211,9 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 	local elapsed = nowClock - data.startTime
 
 	-- Spent: sinking, back down where it started, or too slow to stay on the wall
-	local spent = data.rise <= -(CombatConfig.WallRun_SinkSpeed or 8)
+	local spent = data.rise <= -(CombatConfig.WallRun_SinkSpeed or 22)
 		or (data.rise < 0 and rootPart.Position.Y <= data.startY)
-		or data.along < (CombatConfig.WallRun_MinAlongSpeed or 14)
+		or data.along < (CombatConfig.WallRun_MinAlongSpeed or 26)
 
 	local checkParams = RaycastParams.new()
 	checkParams.FilterDescendantsInstances = { fighter, Workspace:FindFirstChild("QuinServer") }
@@ -298,7 +298,7 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 	data.wallDistance = wallHit.Distance
 	if data.track and data.track.IsPlaying then
 		local speed = math.sqrt(data.along * data.along + data.rise * data.rise)
-		local rate = math.clamp(speed / (CombatConfig.Gait_RunAuthoredSpeed or 29.5), CombatConfig.WallRun_MinClipRate or 0.9, CombatConfig.WallRun_MaxClipRate or 1.9)
+		local rate = math.clamp(speed / (CombatConfig.Gait_RunAuthoredSpeed or 29.5), CombatConfig.WallRun_MinClipRate or 1.15, CombatConfig.WallRun_MaxClipRate or 1.9)
 		data.track:AdjustSpeed(rate)
 	end
 

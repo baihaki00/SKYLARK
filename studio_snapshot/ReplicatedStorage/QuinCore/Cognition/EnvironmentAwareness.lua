@@ -14,7 +14,7 @@ local EnvironmentAwareness = {}
 
 function EnvironmentAwareness.survey(quinModel, rootPart, nearbyEnemies, nearbyAllies)
 	local retreat = SpatialModule.getSafeRetreatDirection(rootPart, nearbyEnemies, nearbyAllies, CombatConfig)
-	local overheadPlatform = SpatialModule.findReachableOverheadPlatform(rootPart, CombatConfig.HighGroundJumpReach or 14)
+	local overheadPlatform = SpatialModule.findReachableOverheadPlatform(rootPart, CombatConfig.HighGroundJumpReach or 27.0)
 	local isOnElevatedPlatform = SpatialModule.isOnElevatedPlatform(rootPart, CombatConfig.ElevatedPlatformThreshold or 6.0)
 
 	DebugReadouts.set(quinModel, "RetreatScore", math.round(retreat.score * 100) / 100)

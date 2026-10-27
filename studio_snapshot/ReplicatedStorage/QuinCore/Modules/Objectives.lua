@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local Blackboard = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Blackboard"))
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 local Objectives = {}
 
@@ -42,7 +43,7 @@ function Objectives.view(quin)
 	local role = quin:GetAttribute("Team") == attackers and "Attack" or "Defend"
 	local state = lanternPart:GetAttribute("State") or "Base"
 	local carrierName = lanternPart:GetAttribute("Carrier")
-	local carrier = carrierName and (Workspace:FindFirstChild("QuinServer") or Workspace):FindFirstChild(carrierName) or nil
+	local carrier = QuinRoster.byName(carrierName)
 
 	local position = lanternPart.Position
 	if (state == "Carried" or state == "Planting") and role == "Defend" then

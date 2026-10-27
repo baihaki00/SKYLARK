@@ -4,6 +4,8 @@
 -- 32-entry table (27 ms of server time a second, benchmark 2026-10-26: performance plan step B).
 --   QuinRoster.all() -> the list. READ ONLY: every caller this frame gets the same table.
 --                       (an empty list is a fresh table, so a caller may fill its own fallback)
+--   QuinRoster.byName(name) -> the Quin with that name, or nil (targets, allies and attackers are
+--                       remembered by name in attributes; this is the one lookup for them)
 -- A Quin removed this frame can still be listed until the next frame: callers check .Parent and
 -- Health as they did with GetTagged.
 -- (Refreshed by game time, not by tag signals: a connection made in a module dies with the Quin
@@ -28,6 +30,24 @@ function QuinRoster.all()
 		return {}
 	end
 	return list
+end
+
+local byNameMap = {}
+local byNameTime = -1
+
+function QuinRoster.byName(name)
+	if not name or name == "" then
+		return nil
+	end
+	local now = Workspace.DistributedGameTime
+	if now ~= byNameTime then
+		byNameTime = now
+		byNameMap = {}
+		for _, quin in ipairs(QuinRoster.all()) do
+			byNameMap[quin.Name] = quin
+		end
+	end
+	return byNameMap[name]
 end
 
 return QuinRoster

@@ -27,6 +27,8 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Blackboard = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Blackboard"))
 local FightMaths = require(QuinCore:WaitForChild("Modules"):WaitForChild("FightMaths"))
 local Objectives = require(QuinCore:WaitForChild("Modules"):WaitForChild("Objectives"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 local TaskChoice = {}
 
@@ -63,9 +65,9 @@ end
 local function score(quinModel, rootPart, context, board)
 	local myPos = rootPart.Position
 	local confidence = context.currentConfidence or pers(quinModel, "CurrentConfidence", 0.6)
-	local aggression = pers(quinModel, "Pers_Aggression", 0.6)
-	local protect = pers(quinModel, "Pers_Protectiveness", 0.5)
-	local risk = pers(quinModel, "Pers_RiskTolerance", 0.5)
+	local aggression = Pers.get(quinModel, "Aggression")
+	local protect = Pers.get(quinModel, "Protectiveness")
+	local risk = Pers.get(quinModel, "RiskTolerance")
 	local selfHp = context.SelfHealthPercent or 1
 	local tasks = {}
 
@@ -117,7 +119,7 @@ local function score(quinModel, rootPart, context, board)
 			end
 			if not attacker then
 				local last = am:GetAttribute("LastAttackerName")
-				local lm = last and (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(last)
+				local lm = QuinRoster.byName(last)
 				local lRoot = rootOf(lm)
 				if lRoot and (mine or flat(lRoot.Position, aRoot.Position) <= cfg("Task_RescueDangerRadius", 30)) then
 					attacker, danger = lm, 1
@@ -237,7 +239,7 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			return
 		end
 	end
-	local awareness = pers(quinModel, "Pers_Awareness", 0.65)
+	local awareness = Pers.get(quinModel, "Awareness")
 	local run = cfg("Objective_RunSpeed", 40)
 	local engage = cfg("Objective_EngageRange", 16)
 	-- the clock: with little of the round left the attackers stop being careful (0 .. 1)
@@ -379,7 +381,7 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			local angle = math.rad(cfg("Objective_GuardSpread", 55)) * (slot - (count + 1) / 2)
 			-- a restless guard, having looked all round from its post, walks over to look from the
 			-- other side of it (a steady one holds its post)
-			local restless = pers(quinModel, "Pers_MobilityPreference", 0.5)
+			local restless = Pers.get(quinModel, "MobilityPreference")
 			local cycles = board.gaze and board.gaze.scanCycles or 0
 			if restless >= cfg("Objective_PatrolRestless", 0.55) and cycles % 2 == 1 then
 				angle += math.rad(cfg("Objective_PatrolSwing", 30)) * ((slot % 2 == 0) and 1 or -1)
@@ -417,7 +419,7 @@ function TaskChoice.choose(quinModel, rootPart, context)
 			-- on its way to a hurt ally: a protective Quin runs past the enemies in its path; an
 			-- aggressive one takes the first fight it passes (habits, so the temperament shows:
 			-- Guardian and Friendly push through, Hothead and Jester take the bait)
-			keep += cfg("Task_RescueDevotion", 70) * pers(quinModel, "Pers_Protectiveness", 0.5) - cfg("Task_RescueDistraction", 40) * pers(quinModel, "Pers_Aggression", 0.6)
+			keep += cfg("Task_RescueDevotion", 70) * Pers.get(quinModel, "Protectiveness") - cfg("Task_RescueDistraction", 40) * Pers.get(quinModel, "Aggression")
 		end
 		tasks[held.name].score += keep
 	end

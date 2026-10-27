@@ -37,6 +37,8 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Modules = QuinCore:WaitForChild("Modules")
 local SocialSystem = require(Modules:WaitForChild("SocialSystem"))
 local SpatialModule = require(Modules:WaitForChild("SpatialModule"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 local CFG = (CombatConfig.Social or {}).Respect or {}
 
@@ -64,7 +66,7 @@ local function rand(r) return r[1] + math.random() * (r[2] - r[1]) end
 local function bump(t, k) t[k] = (t[k] or 0) + 1 end
 local function lerp(a, b, t) return a + (b - a) * t end
 local function smooth(x) x = math.clamp(x, 0, 1) return x * x * (3 - 2 * x) end
-local function aggressionOf(m) return m:GetAttribute("Pers_Aggression") or 0.6 end
+local function aggressionOf(m) return Pers.get(m, "Aggression") end
 local function bearing(v)
 	return v.Magnitude > 0.5 and v.Unit or Vector3.new(math.cos(math.random() * 6.28), 0, math.sin(math.random() * 6.28))
 end
@@ -514,11 +516,11 @@ local function breakStandoff(breaker, reason)
 	local rb, ro, hum = rootOf(breaker), rootOf(other), humOf(breaker)
 	if rb and ro and hum then
 		local d = flat(ro.Position - rb.Position).Magnitude
-		if d >= (CombatConfig.DashMinDistance or 10) and d <= (CombatConfig.DashMaxDistance or 28) then
+		if d >= (CombatConfig.DashMinDistance or 15) and d <= (CombatConfig.DashMaxDistance or 60) then
 			local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
 			pcall(LocomotionModule.dash, breaker, hum, rb, ro.Position, d)
 		end
-		breaker:SetAttribute("ForceState", d <= (CombatConfig.CombatRange or 8) * 2.5 and "Fight" or "Chase")
+		breaker:SetAttribute("ForceState", d <= (CombatConfig.CombatRange or 8.2) * 2.5 and "Fight" or "Chase")
 	end
 	SocialSystem.raiseEvent("StandoffBreak", { text = breaker.Name })
 	print(string.format("[Social] The final fight: %s goes in on %s (%s, after %.1f s)", breaker.Name, other.Name, reason, now() - c.standoff.at))
@@ -1008,7 +1010,7 @@ if game:GetService("RunService"):IsStudio() then
 		if type(cmd) ~= "string" or cmd == "" then return end
 		Workspace:SetAttribute("RespectDevCommand", nil)
 		local verb, name, a, b = cmd:match("^(%S+)%s*(%S*)%s*(%S*)%s*(%S*)")
-		local q = Workspace:FindFirstChild("QuinServer") and Workspace.QuinServer:FindFirstChild(name)
+		local q = QuinRoster.byName(name)
 		if verb == "seed" and q then
 			q:SetAttribute("MatchKills", tonumber(a) or 3)
 			q:SetAttribute("MatchDamageDealt", tonumber(b) or 1200)

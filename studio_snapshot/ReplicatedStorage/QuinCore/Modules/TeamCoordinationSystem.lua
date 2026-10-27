@@ -4,15 +4,17 @@
 -- In accordance with Skylark Isles Core Principles: Roles emerge dynamically from physical & tactical context.
 
 local TeamCoordinationSystem = {}
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 
 -- Evaluates and updates the Quin's team role based on local allies, enemies, and personal attributes
 function TeamCoordinationSystem.evaluateRole(quinModel, nearbyAllies, nearbyEnemies, tacticalContext)
 	if not quinModel or not quinModel.Parent then return "LoneWolf" end
 
 	local qType = quinModel:GetAttribute("QuinType") or "TypeA"
-	local confidence = quinModel:GetAttribute("CurrentConfidence") or (quinModel:GetAttribute("Pers_Confidence") or 0.6)
-	local protectiveness = quinModel:GetAttribute("Pers_Protectiveness") or 0.5
-	local mobilityPref = quinModel:GetAttribute("Pers_MobilityPreference") or 0.5
+	local confidence = quinModel:GetAttribute("CurrentConfidence") or (Pers.get(quinModel, "Confidence"))
+	local protectiveness = Pers.get(quinModel, "Protectiveness")
+	local mobilityPref = Pers.get(quinModel, "MobilityPreference")
 	local currentRole = quinModel:GetAttribute("TeamRole") or "Solo"
 
 	local allyCount = nearbyAllies and #nearbyAllies or 0
@@ -98,7 +100,7 @@ function TeamCoordinationSystem.getTeamFocusTarget(quinModel)
 	if role == "Follower" and false then -- (leader signals are followed by decision now: SocialLeaders)
 		local leaderName = quinModel:GetAttribute("AssignedLeader")
 		if leaderName and leaderName ~= "" then
-			local leaderModel = workspace:FindFirstChild(leaderName) or (workspace:FindFirstChild("QuinServer") and workspace.QuinServer:FindFirstChild(leaderName))
+			local leaderModel = QuinRoster.byName(leaderName)
 			if leaderModel and leaderModel.Parent then
 				local focus = leaderModel:GetAttribute("TeamFocusTarget") or leaderModel:GetAttribute("CurrentTarget")
 				if focus and focus ~= "" then
@@ -111,7 +113,7 @@ function TeamCoordinationSystem.getTeamFocusTarget(quinModel)
 	elseif role == "Bodyguard" then
 		local guardedName = quinModel:GetAttribute("GuardedAlly")
 		if guardedName and guardedName ~= "" then
-			local guardedModel = workspace:FindFirstChild(guardedName) or (workspace:FindFirstChild("QuinServer") and workspace.QuinServer:FindFirstChild(guardedName))
+			local guardedModel = QuinRoster.byName(guardedName)
 			if guardedModel and guardedModel.Parent then
 				-- Intercept the enemy targeting our guarded ally
 				local enemyAttackingAlly = guardedModel:GetAttribute("LastAttackerName") or guardedModel:GetAttribute("CurrentTarget")

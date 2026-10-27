@@ -540,7 +540,7 @@ function ProceduralCombatReactionController:update(dt)
 	local wallLeanTarget = 0
 	if serverState == "WallRun" then
 		local side = serverModel and serverModel:GetAttribute("WallRunSide")
-		local tilt = math.rad(CombatConfig.WallRunTiltDegrees or 18)
+		local tilt = math.rad(CombatConfig.WallRunTiltDegrees or 30)
 		wallLeanTarget = (side == "Left" and -tilt) or (side == "Right" and tilt) or 0
 	end
 	self.wallLean = self.wallLean + (wallLeanTarget - self.wallLean) * (1 - math.exp(-10.0 * dt))
@@ -1314,7 +1314,7 @@ function ProceduralCombatReactionController:update(dt)
 
 		-- Pelvis Dip Offset: sink the hips when one foot stands lower (a step, the edge of a
 		-- platform) so that foot reaches its ground instead of hanging in the air
-		local hipsDipScale = CombatConfig.FootIK_HipsDipScale or 0.35
+		local hipsDipScale = CombatConfig.FootIK_HipsDipScale or 0.50
 		local maxHipsDip = CombatConfig.FootIK_MaxHipsDip or 0.6
 		local lowestDelta = math.min(lDelta or 0, rDelta or 0)
 		if lowestDelta < -0.30 and not footsFree then

@@ -11,6 +11,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local PersonalitySystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("PersonalitySystem"))
 local TeamCoordinationSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("TeamCoordinationSystem"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local SituationAwareness = {
 	LOCAL_RADIUS = 45, -- direct local combat encounter
@@ -125,7 +126,7 @@ function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAl
 	end
 
 	-- Rear threat, within a range set by the Quin's awareness
-	local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
+	local awareness = Pers.get(quinModel, "Awareness")
 	local maxRearRange = CombatConfig.RearThreatDetectionRange or 22.0
 	local rearDetectDist = 8.0 + awareness * (maxRearRange - 8.0)
 	local closestRearThreat, closestRearThreatDist = nil, math.huge
@@ -192,7 +193,7 @@ function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAl
 		}
 	end
 
-	local baseConfidence = quinModel:GetAttribute("Pers_Confidence") or 0.6
+	local baseConfidence = Pers.get(quinModel, "Confidence")
 	local currentConfidence = PersonalitySystem.computeEffectiveConfidence(baseConfidence, self.healthRatio, localAdvantageRatio)
 
 	local threatLevel = math.clamp((enemyCount * 25) + ((1 - self.healthRatio) * 35) + (isSelfIsolated and 25 or 0) - (allyCount * 15), 0, 100)

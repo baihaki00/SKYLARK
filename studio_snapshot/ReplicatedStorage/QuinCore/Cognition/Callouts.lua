@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local Callouts = {}
 
@@ -65,7 +66,7 @@ function Callouts.maybeCall(board, quinModel, rootPart, fresh, now)
 	table.sort(fresh, function(a, b) return a.distance < b.distance end)
 	for _, percept in ipairs(fresh) do
 		if not recentlyCalled(list, percept.model, now) then
-			local awareness = quinModel:GetAttribute("Pers_Awareness") or 0.65
+			local awareness = Pers.get(quinModel, "Awareness")
 			local chance = cfg("CalloutChanceBase", 0.35) + cfg("CalloutChanceAwareness", 0.5) * awareness
 			board.nextCallout = now + cfg("CalloutCooldown", 2.5)
 			if math.random() >= chance then return end

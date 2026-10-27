@@ -8,6 +8,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 
 local PersonalitySystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("PersonalitySystem"))
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local DecisionSystem = {}
 
@@ -16,14 +17,14 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	if not tacticalContext then return "Attack", "ENGAGING", {} end
 
 	-- Personality dimensions for this individual Quin
-	local aggression         = quinModel:GetAttribute("Pers_Aggression") or 0.6
-	local riskTolerance      = quinModel:GetAttribute("Pers_RiskTolerance") or 0.5
-	local dashPreference     = quinModel:GetAttribute("Pers_DashPreference") or 0.6
-	local retreatTendency    = quinModel:GetAttribute("Pers_RetreatTendency") or 0.3
-	local targetPersistence  = quinModel:GetAttribute("Pers_TargetPersistence") or 0.7
-	local protectiveness     = quinModel:GetAttribute("Pers_Protectiveness") or 0.4
-	local mobilityPreference = quinModel:GetAttribute("Pers_MobilityPreference") or 0.6
-	local specialPreference  = quinModel:GetAttribute("Pers_SpecialPreference") or 0.35
+	local aggression         = Pers.get(quinModel, "Aggression")
+	local riskTolerance      = Pers.get(quinModel, "RiskTolerance")
+	local dashPreference     = Pers.get(quinModel, "DashPreference")
+	local retreatTendency    = Pers.get(quinModel, "RetreatTendency")
+	local targetPersistence  = Pers.get(quinModel, "TargetPersistence")
+	local protectiveness     = Pers.get(quinModel, "Protectiveness")
+	local mobilityPreference = Pers.get(quinModel, "MobilityPreference")
+	local specialPreference  = Pers.get(quinModel, "SpecialPreference")
 	local confidence         = tacticalContext.currentConfidence or 0.6
 
 	local hpRatio        = tacticalContext.ownHealthRatio or (tacticalContext.SelfHealthPercent or 1.0)
@@ -248,7 +249,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 
 	-- Habit leanings (temperament + habits: the old Quirky labels are gone). Each is a smooth
 	-- function of the habits, so a Quin drifts into and out of them as its habits change.
-	local awarenessHabit = quinModel:GetAttribute("Pers_Awareness") or 0.6
+	local awarenessHabit = Pers.get(quinModel, "Awareness")
 	local charge = math.clamp((aggression - 0.7) / 0.25, 0, 1) * math.clamp((dashPreference - 0.6) / 0.3, 0, 1)
 	if charge > 0 then
 		scores["Attack"] = (scores["Attack"] or 0) + 25 * charge

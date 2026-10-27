@@ -12,6 +12,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Cognition = require(QuinCore:WaitForChild("Cognition"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local AirInterceptModule = {}
 
@@ -27,7 +28,7 @@ function AirInterceptModule.consider(fighter, rootPart)
 	if not board or not canProjectileJump(fighter) then return nil end
 
 	local minHeight = CombatConfig.Intercept_MinHeight or 40
-	local maxRange = CombatConfig.Intercept_MaxRange or 300
+	local maxRange = CombatConfig.Intercept_MaxRange or 200
 	local nearest, nearestDistance = nil, maxRange
 	for _, contact in ipairs(board.contacts.enemies) do
 		if contact.visible and contact.channel == "sight" and contact.distance <= nearestDistance then
@@ -69,8 +70,8 @@ function AirInterceptModule.consider(fighter, rootPart)
 	if now - (board.interceptWeighed[nearest] or 0) < (CombatConfig.Intercept_RollInterval or 3.0) then return nil end
 	board.interceptWeighed[nearest] = now
 
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-	local chance = (CombatConfig.Intercept_ChanceBase or 0.15) + (CombatConfig.Intercept_ChanceAggression or 0.45) * aggression
+	local aggression = Pers.get(fighter, "Aggression")
+	local chance = (CombatConfig.Intercept_ChanceBase or 0.03) + (CombatConfig.Intercept_ChanceAggression or 0.15) * aggression
 	if math.random() >= chance then return nil end
 	return nearest
 end

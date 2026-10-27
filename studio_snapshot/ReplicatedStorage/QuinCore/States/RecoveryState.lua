@@ -192,14 +192,14 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 	if not data then return require(script.Parent:WaitForChild("IdleState")) end
 
 	if tick() - data.enterTime >= data.duration then
-		local chaseRange = CombatConfig.ChaseRange or 60
+		local chaseRange = CombatConfig.ChaseRange or 800
 		local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, chaseRange)
 		if not target then
 			target, distance = TargetingModule.getNearest(rootPart, chaseRange)
 		end
 
 		if target then
-			local combatRange = CombatConfig.CombatRange or 8
+			local combatRange = CombatConfig.CombatRange or 8.2
 			if distance <= combatRange * 1.2 then
 				-- Opponent in melee proximity: defend or fight
 				return require(script.Parent:WaitForChild("FightState"))

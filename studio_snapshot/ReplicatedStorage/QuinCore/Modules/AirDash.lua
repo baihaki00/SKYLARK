@@ -30,6 +30,7 @@ local SpatialModule = require(Modules:WaitForChild("SpatialModule"))
 local AirDash = {}
 
 local isStudio = game:GetService("RunService"):IsStudio()
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local air = setmetatable({}, { __mode = "k" }) -- fighter -> this airtime { since, used, rolled, wall }
 local stats = { attack = 0, ledge = 0, chase = 0, declined = 0 }
@@ -175,8 +176,8 @@ function AirDash.consider(fighter, humanoid, rootPart, target)
 	end
 	-- one decision per airtime
 	a.rolled = true
-	local dashPref = fighter:GetAttribute("Pers_DashPreference") or 0.6
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
+	local dashPref = Pers.get(fighter, "DashPreference")
+	local aggression = Pers.get(fighter, "Aggression")
 	local base = a.wall and cfg("WallChance", 0.55) or cfg("Chance", 0.3)
 	if isStudio and Workspace:GetAttribute("AirDashAlways") then base = 10 end -- (test switch)
 	if math.random() >= base * (0.5 + dashPref) * (0.5 + aggression) then
@@ -187,7 +188,7 @@ function AirDash.consider(fighter, humanoid, rootPart, target)
 	a.used = true
 	if inReach then
 		-- in at the target: stops short at striking range, down toward it if it is below
-		local travel = math.clamp(d - (CombatConfig.CombatRange or 8) * 0.9, 6, cfg("MaxTravel", 40))
+		local travel = math.clamp(d - (CombatConfig.CombatRange or 8.2) * 0.9, 6, cfg("MaxTravel", 40))
 		local vertical = toTarget.Y < -4 and math.max(toTarget.Y / (cfg("Duration", 0.26) * 2), -cfg("MaxDropSpeed", 45)) or nil
 		fighter:SetAttribute("ObstacleAwareness", a.wall and "Dash off the wall at the target" or "Jump -> dash at the target")
 		return perform(fighter, humanoid, rootPart, targetRoot.Position, travel, vertical, "attack")
@@ -215,8 +216,8 @@ function AirDash.fromWall(fighter, humanoid, rootPart, target, normal, release)
 	if not SpatialModule.checkLineOfSight(SpatialModule.getEyePosition(rootPart), SpatialModule.getEyePosition(targetRoot), { fighter, target }) then
 		return skip(fighter, "wall: no sight")
 	end
-	local dashPref = fighter:GetAttribute("Pers_DashPreference") or 0.6
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
+	local dashPref = Pers.get(fighter, "DashPreference")
+	local aggression = Pers.get(fighter, "Aggression")
 	local base = cfg("WallChance", 0.55)
 	if isStudio and Workspace:GetAttribute("AirDashAlways") then base = 10 end -- (test switch)
 	if math.random() >= base * (0.5 + dashPref) * (0.5 + aggression) then
@@ -226,7 +227,7 @@ function AirDash.fromWall(fighter, humanoid, rootPart, target, normal, release)
 	end
 	release()
 	air[fighter] = { since = os.clock(), used = true, wall = true }
-	local travel = math.clamp(d - (CombatConfig.CombatRange or 8) * 0.9, 6, cfg("MaxTravel", 40))
+	local travel = math.clamp(d - (CombatConfig.CombatRange or 8.2) * 0.9, 6, cfg("MaxTravel", 40))
 	local vertical = toTarget.Y < -4 and math.max(toTarget.Y / (cfg("Duration", 0.26) * 2), -cfg("MaxDropSpeed", 45)) or nil
 	fighter:SetAttribute("ObstacleAwareness", "Dash off the wall at the target")
 	return perform(fighter, humanoid, rootPart, targetRoot.Position, travel, vertical, "attack")

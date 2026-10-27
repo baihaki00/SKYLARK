@@ -16,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local Pace = {}
 
@@ -42,7 +43,7 @@ end
 
 -- The urgency as this Quin feels it: hot heads hurry, the tired save their legs
 function Pace.felt(fighter, urgency)
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.5
+	local aggression = Pers.get(fighter, "Aggression")
 	local felt = urgency + (aggression - 0.5) * cfg("Pace_AggressionTilt", 0.3)
 	local energy, maxEnergy = fighter:GetAttribute("Energy"), fighter:GetAttribute("MaxEnergy") or 100
 	if energy and maxEnergy > 0 and energy / maxEnergy < cfg("Pace_TiredShare", 0.3) then
@@ -74,7 +75,7 @@ function Pace.gear(fighter, urgency, why)
 		local floor = s.gear == "Run" and cfg("Pace_RunAt", 0.62) or cfg("Pace_JogAt", 0.28)
 		if felt < floor - cfg("Pace_Hysteresis", 0.08) then
 			s.lowSince = s.lowSince or now
-			local persistence = fighter:GetAttribute("Pers_TargetPersistence") or 0.5
+			local persistence = Pers.get(fighter, "TargetPersistence")
 			if now - s.lowSince >= cfg("Pace_DownshiftHold", 0.6) + cfg("Pace_PersistenceHold", 0.9) * persistence then
 				s.gear, s.lowSince = GEARS[RANK[s.gear] - 1], nil
 			end
@@ -98,7 +99,7 @@ end
 -- How long it takes this Quin to take in something new before acting on it (alert Quins are
 -- quick). The same news reaches a team at once; they do not all move on the same frame.
 function Pace.reaction(fighter)
-	local awareness = fighter:GetAttribute("Pers_Awareness") or 0.6
+	local awareness = Pers.get(fighter, "Awareness")
 	return cfg("Pace_ReactionMin", 0.15) + cfg("Pace_ReactionSpan", 0.65) * (1 - awareness)
 end
 

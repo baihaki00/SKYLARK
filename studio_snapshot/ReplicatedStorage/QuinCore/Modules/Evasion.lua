@@ -27,6 +27,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
 local Modules = QuinCore:WaitForChild("Modules")
 local ImpulseModule = require(Modules:WaitForChild("ImpulseModule"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local Evasion = {}
 
@@ -342,7 +343,7 @@ function Evasion.evade(defender, humanoid, rootPart, attacker, attackerRoot, con
 		kind = math.random() < 0.5 and "Left" or "Right"
 	end
 	-- ...unless it reads it wrong and leans into the limb (the less aware, the more often)
-	local awareness = defender:GetAttribute("Pers_Awareness") or 0.6
+	local awareness = Pers.get(defender, "Awareness")
 	local wrong = false
 	if side and kind ~= "Back" and math.random() < cfg("QuickEvade_MistakeChance", 0.2) * (1.5 - awareness) then
 		kind = side

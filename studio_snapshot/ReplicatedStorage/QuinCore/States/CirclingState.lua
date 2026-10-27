@@ -26,6 +26,7 @@ local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitMo
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local NavigationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("NavigationModule"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local CirclingState = { name = "Circling" }
 
@@ -123,9 +124,9 @@ end
 
 function CirclingState.enter(fighter, humanoid, rootPart)
 	fighter:SetAttribute("CirclingSince", os.clock()) -- (Rhythm: a stand-off that goes on too long breaks)
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-	local confidence = fighter:GetAttribute("Pers_Confidence") or 0.6
-	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+	local aggression = Pers.get(fighter, "Aggression")
+	local confidence = Pers.get(fighter, "Confidence")
+	local mobility = Pers.get(fighter, "MobilityPreference")
 
 	-- The pace of the standoff says how the Quin is doing: spent Quins drag, eager or nimble
 	-- ones prowl fast, the rest walk it.
@@ -236,13 +237,13 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Mana / Energy recovery while pacing & circling (two terms, as before: one scales with game speed)
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-	local recoveryRate = CombatConfig.EnergyRecovery_Walk or 15
+	local recoveryRate = CombatConfig.EnergyRecovery_Walk or 10
 	if CombatConfig.Body_StaminaByEffort == false then -- (otherwise the body does it: BodyStamina)
 		local energy = fighter:GetAttribute("Energy") or 100
 		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recoveryRate * 0.1 * speedMult + recoveryRate * 0.1))
 	end
 
-	local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 60) * 1.5)
+	local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, (CombatConfig.ChaseRange or 800) * 1.5)
 	if not target then
 		target, distance = TargetingModule.getNearest(rootPart, CombatConfig.ChaseRange)
 		if target then
@@ -267,7 +268,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- (The fight's own tempo check never saw these lulls: they happen out here, circling.)
 	if not keepingAway and CombatConfig.Rhythm_Enabled ~= false and distance < 20
 		and os.clock() - (fighter:GetAttribute("CirclingSince") or os.clock()) >= (CombatConfig.Rhythm_LullTime or 4)
-		and math.random() < (CombatConfig.Rhythm_ExplodeChance or 0.5) * (0.5 + (fighter:GetAttribute("Pers_Aggression") or 0.6)) then
+		and math.random() < (CombatConfig.Rhythm_ExplodeChance or 0.5) * (0.5 + (Pers.get(fighter, "Aggression"))) then
 		fighter:SetAttribute("ExplodeNext", true)
 		fighter:SetAttribute("CirclingSince", os.clock())
 		return require(script.Parent:WaitForChild("FightState"))
@@ -296,16 +297,16 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Snap condition 1: Time's up (tension snap)
 	-- Snap condition 2: Enemy got too close (below minimum circling range) -> FightState
 	-- Snap condition 3: Enemy moved too far away (above max circling range) -> ChaseState
-	local minCircleRange = (CombatConfig.CombatRange or 8) * 0.7
-	local maxCircleRange = (CombatConfig.CombatRange or 8) * 4.5
+	local minCircleRange = (CombatConfig.CombatRange or 8.2) * 0.7
+	local maxCircleRange = (CombatConfig.CombatRange or 8.2) * 4.5
 	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true)
 
 	local now = tick()
 	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway and not standoffGap then
 		if now - data.enterTime >= data.duration or distance < minCircleRange then
 			-- Tension snapped at close quarters: dash/attack into FightState!
-			local dashMin = CombatConfig.DashMinDistance or 10
-			local dashMax = CombatConfig.DashMaxDistance or 28
+			local dashMin = CombatConfig.DashMinDistance or 15
+			local dashMax = CombatConfig.DashMaxDistance or 60
 			if math.random() > 0.5 and distance >= dashMin and distance <= dashMax and targetHRP then
 				fighter:SetAttribute("JumpWhy", "dash in: standoff snapped") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
@@ -321,11 +322,11 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway and not standoffGap and (now - data.enterTime) >= (CombatConfig.Circling_OpeningMinTime or 0.5) then
 		local toMe = flatUnit(rootPart.Position - targetHRP.Position, nil)
 		local targetFacing = flatUnit(targetHRP.CFrame.LookVector, nil)
-		local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-		if toMe and targetFacing and targetFacing:Dot(toMe) < -0.2 and distance <= (CombatConfig.DashMaxDistance or 28)
+		local aggression = Pers.get(fighter, "Aggression")
+		if toMe and targetFacing and targetFacing:Dot(toMe) < -0.2 and distance <= (CombatConfig.DashMaxDistance or 60)
 			and math.random() < aggression * (CombatConfig.Circling_OpeningChancePerTick or 0.35) then
 			fighter:SetAttribute("ObstacleAwareness", "Opening: target's back is turned")
-			if distance >= (CombatConfig.DashMinDistance or 10) then
+			if distance >= (CombatConfig.DashMinDistance or 15) then
 				fighter:SetAttribute("JumpWhy", "dash in: its back is turned") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 			end
@@ -335,7 +336,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Strafe reversals / feints (agile fighters change direction)
 	if data.nextFeintTime and now >= data.nextFeintTime and not isTargetDown then
-		local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+		local mobility = Pers.get(fighter, "MobilityPreference")
 		if mobility > 0.58 and math.random() < 0.65 then
 			data.direction = -data.direction
 			data.nextFeintTime = now + (1.6 + math.random() * 2.2)
@@ -393,8 +394,8 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 
 		if retreatResult.isCornered then
 			-- Cornered beast: an aggressive fighter with the enemy in reach counter-strikes instead
-			local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-			local meleeRange = (CombatConfig.CombatRange or 8) * 2.0
+			local aggression = Pers.get(fighter, "Aggression")
+			local meleeRange = (CombatConfig.CombatRange or 8.2) * 2.0
 			if aggression >= (CombatConfig.CorneredCounterThreshold or 0.65) and distance <= meleeRange then
 				fighter:SetAttribute("DesperateCounter", true)
 				return require(script.Parent:WaitForChild("FightState"))
@@ -405,7 +406,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	elseif tacticalState == "RESCUING" then
 		local allyName = fighter:GetAttribute("DistressedAllyName")
 		if allyName and allyName ~= "" then
-			local ally = workspace:FindFirstChild(allyName) or (workspace:FindFirstChild("QuinServer") and workspace.QuinServer:FindFirstChild(allyName))
+			local ally = QuinRoster.byName(allyName)
 			local allyHRP = ally and ally:FindFirstChild("HumanoidRootPart")
 			if allyHRP then
 				moveDirection = ((allyHRP.Position - rootPart.Position).Unit * 1.4 + tangent * 0.4).Unit
@@ -442,7 +443,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- side > 0: the motion is toward the Quin's right while it faces the target. The strafe
 	-- form applies while the motion is within Circling_MaxFacingBias of straight sideways.
 	local side = moveDirection:Dot(bodyRightFacingTarget)
-	local maxBias = math.rad(CombatConfig.Circling_MaxFacingBias or 35)
+	local maxBias = math.rad(CombatConfig.Circling_MaxFacingBias or 60)
 	-- (a respect-custom standoff sets its own gap and pace)
 	local clipSet, clipSpeed = strafeClipsFor(data, standoffGap and math.huge or distance)
 

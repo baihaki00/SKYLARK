@@ -30,6 +30,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local SpatialModule = require(Modules:WaitForChild("SpatialModule"))
 local Momentum = require(Modules:WaitForChild("Momentum"))
 local JumpLog = require(Modules:WaitForChild("JumpLog"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local MomentumDuel = {}
 
@@ -70,7 +71,7 @@ local function rootOf(fighter)
 end
 
 local function pers(fighter, key)
-	return fighter:GetAttribute("Pers_" .. key) or 0.5
+	return Pers.get(fighter, key)
 end
 
 local function energy(fighter)

@@ -140,22 +140,11 @@ local CombatConfig = {
 	RetreatEnemyRepulsionWeight = 1.5,  -- how strongly retreat avoids enemy centroid
 	RetreatAllyAttractionWeight = 0.8,  -- how strongly retreat seeks allied cluster
 	RetreatBoundaryPenalty = 1.2,       -- penalty for retreating toward arena edge
-	RetreatObstaclePenalty = 1.0,       -- penalty for retreating into obstacles/walls
 	RetreatCenterBias = 0.3,            -- gentle pull toward arena center during retreat
-	CorneredScoreThreshold = 0.15,      -- below this retreat quality score = cornered (triggers counter-strike for aggressive quins)
 	CorneredCounterThreshold = 0.65,    -- aggression above this = cornered beast counter-strikes instead of retreating
 
 	--// SURVIVAL DECISION & CONTINUOUS TACTICAL PURSUIT (Phase 13)
-	EscapeFeasibilityThreshold = 0.20,    -- below this feasibility, escape is abandoned in favor of last stand / counterattack
-	LastStandAggressionBonus = 0.50,      -- attack/counter utility boost when in Last Stand
-	JukeTriggerDistance = 14.0,           -- studs (distance to closing pursuer that triggers sharp 90-135 deg lateral cut)
-	JukeClosingSpeedThreshold = 5.0,      -- studs/s (closing velocity towards runner required to trigger juke)
-	JukeDuration = 0.35,                  -- seconds (duration of lateral juke evasion cut)
-	JukeCooldown = 1.8,                   -- seconds (min interval between sharp jukes)
-	PredictiveLeadMaxTime = 1.2,          -- seconds (maximum forward extrapolation time for chaser interception)
 	PredictiveLeadMinTime = 0.2,          -- seconds (minimum forward extrapolation time for chaser interception)
-	DefendDelayDistance = 35.0,           -- studs (proximity of reinforcing ally for defend-and-delay behavior)
-	PursuerOverextendWhiffDistance = 10.0, -- studs (distance within which a chaser whiff triggers immediate counter-strike)
 
 	--// VERTICAL NAVIGATION & FLOATING PLATFORM (Phase 4)
 	ElevatedPlatformThreshold = 6.0,     -- studs above arena floor to classify as elevated OB platform
@@ -1526,5 +1515,15 @@ CombatConfig.SkyWind = {
 	FadeIn = 0.4, FadeOut = 0.5,
 	RollOffMin = 20, RollOffMax = 250,
 }
+
+-- Keys code read with only a fallback (audit 2026-10-27): defined here at the value it already used
+CombatConfig.Flow_DodgeClipSpeed = 1.2
+CombatConfig.Pace_KeepUpGain = 0.8
+CombatConfig.Pace_MovingSpotSpeed = 3
+CombatConfig.ProjectileJump_FightFleeSpeed = 14
+CombatConfig.ProjectileJump_FightUpGap = 8
+CombatConfig.Retreat_EvenlyHurtMargin = 0.1
+CombatConfig.Targeting_StruckSettle = 2.0
+CombatConfig.Team_FlankCommitRange = 0.9
 
 return CombatConfig

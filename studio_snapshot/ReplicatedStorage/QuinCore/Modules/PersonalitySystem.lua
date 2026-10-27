@@ -2,6 +2,7 @@
 -- Canonical 9-dimension personality evaluation and Type-constrained generation
 -- Personality represents individual behavioral bias and preference, NOT hard command logic
 
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 local PersonalitySystem = {
 	PersonalityVersion = 1,
 }
@@ -159,7 +160,7 @@ end
 -- Adjust runtime confidence dynamically based on in-combat events
 function PersonalitySystem.applyEventToConfidence(quinModel, eventType, magnitude)
 	if not quinModel or not quinModel.Parent then return end
-	local cur = quinModel:GetAttribute("CurrentConfidence") or (quinModel:GetAttribute("Pers_Confidence") or 0.6)
+	local cur = quinModel:GetAttribute("CurrentConfidence") or (Pers.get(quinModel, "Confidence"))
 	local mag = magnitude or 1.0
 	local delta = 0
 
@@ -176,7 +177,7 @@ function PersonalitySystem.applyEventToConfidence(quinModel, eventType, magnitud
 		delta = -0.15 * mag
 	elseif eventType == "Decay" then
 		-- Passive decay back towards BaseConfidence
-		local base = quinModel:GetAttribute("Pers_Confidence") or 0.6
+		local base = Pers.get(quinModel, "Confidence")
 		delta = (base - cur) * 0.1 * mag
 	end
 

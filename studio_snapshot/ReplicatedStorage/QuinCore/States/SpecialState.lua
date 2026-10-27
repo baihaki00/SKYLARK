@@ -208,7 +208,7 @@ function SpecialState.enter(fighter, humanoid, rootPart)
 	
 	-- Energy drain
 	local energy = fighter:GetAttribute("Energy") or 100
-	local drain = CombatConfig.EnergyDrain_Special or 30
+	local drain = CombatConfig.EnergyDrain_Special or 15
 	fighter:SetAttribute("Energy", math.max(0, energy - drain))
 	
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
@@ -371,8 +371,8 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 	if data.phase == "recovery" then
 		local phaseElapsed = tick() - data.phaseStartTime
 		if phaseElapsed >= (move.recoveryDuration / speedMult) then
-			local t, d = TargetingModule.getNearest(rootPart, CombatConfig.CombatRange or 8)
-			if t and d <= (CombatConfig.CombatRange or 8) * 1.5 then
+			local t, d = TargetingModule.getNearest(rootPart, CombatConfig.CombatRange or 8.2)
+			if t and d <= (CombatConfig.CombatRange or 8.2) * 1.5 then
 				return require(script.Parent:WaitForChild("FightState"))
 			else
 				return require(script.Parent:WaitForChild("ChaseState"))

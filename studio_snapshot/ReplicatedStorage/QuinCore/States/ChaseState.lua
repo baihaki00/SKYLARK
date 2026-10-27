@@ -27,20 +27,11 @@ local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local Reach = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Reach"))
 local Pace = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pace"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local function findModelByName(name)
-	if not name or name == "" then return nil end
-	local quinServer = workspace:FindFirstChild("QuinServer") or workspace
-	local m = quinServer:FindFirstChild(name) or workspace:FindFirstChild(name)
-	if m and m:IsA("Model") and m:FindFirstChild("HumanoidRootPart") then
-		return m
-	end
-	for _, tag in ipairs(QuinRoster.all()) do
-		if tag.Name == name and tag:FindFirstChild("HumanoidRootPart") then
-			return tag
-		end
-	end
-	return nil
+	local m = QuinRoster.byName(name)
+	return m and m:FindFirstChild("HumanoidRootPart") and m or nil
 end
 
 local ChaseState = { name = "Chase" }
@@ -50,10 +41,10 @@ local JumpHandler = LocomotionModule
 local chaseData = setmetatable({}, { __mode = "k" })
 
 local function selectPacingStrategy(fighter)
-	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-	local dashPref = fighter:GetAttribute("Pers_DashPreference") or 0.6
-	local confidence = fighter:GetAttribute("Pers_Confidence") or 0.6
+	local mobility = Pers.get(fighter, "MobilityPreference")
+	local aggression = Pers.get(fighter, "Aggression")
+	local dashPref = Pers.get(fighter, "DashPreference")
+	local confidence = Pers.get(fighter, "Confidence")
 	
 	local rand = math.random()
 	
@@ -120,7 +111,7 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 		strategy = pacingOverride
 		fighter:SetAttribute("InitialPacingOverride", nil)
 	end
-	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+	local mobility = Pers.get(fighter, "MobilityPreference")
 	local now = tick()
 	
 	local maxSpeed = fighter:GetAttribute("Speed") or 40
@@ -314,8 +305,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		fighter:SetAttribute("IsCornered", retreatResult.isCornered)
 
 		if retreatResult.isCornered then
-			local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-			local meleeRange = (CombatConfig.CombatRange or 8) * 2.0
+			local aggression = Pers.get(fighter, "Aggression")
+			local meleeRange = (CombatConfig.CombatRange or 8.2) * 2.0
 			if aggression >= (CombatConfig.CorneredCounterThreshold or 0.65) and distance <= meleeRange then
 				-- Cornered aggressive fighter with enemy in melee proximity: desperate stand-and-fight instead of futile retreat
 				fighter:SetAttribute("DesperateCounter", true)
@@ -525,7 +516,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		-- following. A persistent hunter follows a fainter trail.
 		local contact = Cognition.contactFor(fighter, target)
 		local trailWorth = contact ~= nil and not contact.visible
-			and contact.confidence >= (CombatConfig.Chase_TrailGiveUpConfidence or 0.6) - (fighter:GetAttribute("Pers_TargetPersistence") or 0.6) * 0.5
+			and contact.confidence >= (CombatConfig.Chase_TrailGiveUpConfidence or 0.6) - (Pers.get(fighter, "TargetPersistence")) * 0.5
 		if trailWorth and not data.searchLeg then
 			data.targetLKP = contact.position
 		end
@@ -568,9 +559,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- === 5. Chase Commitment & Pursuit Abandonment (Sections 9-11) ===
-	local persistence = fighter:GetAttribute("Pers_TargetPersistence") or 0.6
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-	local confidence = fighter:GetAttribute("CurrentConfidence") or (fighter:GetAttribute("Pers_Confidence") or 0.6)
+	local persistence = Pers.get(fighter, "TargetPersistence")
+	local aggression = Pers.get(fighter, "Aggression")
+	local confidence = fighter:GetAttribute("CurrentConfidence") or (Pers.get(fighter, "Confidence"))
 	local targetHum = target:FindFirstChildOfClass("Humanoid")
 	local targetHpRatio = targetHum and (targetHum.Health / targetHum.MaxHealth) or 1.0
 
@@ -766,7 +757,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- 4. Long Athletic Dash (Requires minimum 25 mana, cooldown 14-20s, never spammed)
 	local lastDash = fighter:GetAttribute("LastDashTime") or 0
-	local dashPref = fighter:GetAttribute("Pers_DashPreference") or 0.6
+	local dashPref = Pers.get(fighter, "DashPreference")
 	local minDashMana = CombatConfig.DashMinEnergy or 25
 	local dashCooldown = math.max(4.0, ((dashPref > 0.7) and 12.0 or 18.0) / speedMult)
 	local isDashOnCooldown = (now - lastDash) < dashCooldown
@@ -788,8 +779,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- chance per check that grows with aggression and mobility; CombatConfig.ProjectileJump_*)
 	local pjEnabled = not inShowdown and (CombatConfig.EnableProjectileJump ~= false) and (fighter:GetAttribute("EnableProjectileJump") ~= false)
 	local lastPJ = fighter:GetAttribute("LastProjectileJumpTime") or 0
-	local aggression = fighter:GetAttribute("Pers_Aggression") or 0.6
-	local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+	local aggression = Pers.get(fighter, "Aggression")
+	local mobility = Pers.get(fighter, "MobilityPreference")
 	local minPJMana = CombatConfig.ProjectileJumpMinEnergy or 40
 	local pjCooldown = math.max(6.0, (CombatConfig.ProjectileJump_Cooldown or 14.0) * ((aggression > 0.7) and 0.75 or 1.0) / speedMult)
 	local isPJOnCooldown = (now - lastPJ) < pjCooldown
@@ -844,7 +835,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- Mirroring: If they are circling, we circle!
-	if reachable and targetState == "Circling" and distance < (CombatConfig.CombatRange or 7) * 4.0 then
+	if reachable and targetState == "Circling" and distance < (CombatConfig.CombatRange or 8.2) * 4.0 then
 		if math.random() > 0.8 then
 			return require(script.Parent:WaitForChild("CirclingState"))
 		end
@@ -853,11 +844,11 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- In range to fight: by studs, or by time when Reach is on (a target running in is met sooner)
 	local reachNow = Reach.enabled() and Reach.measure(fighter, rootPart, target) or nil
 	if reachNow then Reach.publish(fighter, reachNow) end
-	local inRange = distance <= (CombatConfig.CombatRange or 7) * 1.5
-		or (reachNow ~= nil and reachNow.time <= (CombatConfig.Reach_FightEnterTime or 0.15) and distance <= (CombatConfig.CombatRange or 7) * 3)
+	local inRange = distance <= (CombatConfig.CombatRange or 8.2) * 1.5
+		or (reachNow ~= nil and reachNow.time <= (CombatConfig.Reach_FightEnterTime or 0.15) and distance <= (CombatConfig.CombatRange or 8.2) * 3)
 	-- (a flanker still going round does not stop to fight at the side: it gets behind first,
 	-- unless the enemy comes right at it; team coordination step 3)
-	if inRange and fighter:GetAttribute("Flanking") and distance > (CombatConfig.CombatRange or 7) * (CombatConfig.Team_FlankCommitRange or 0.9) then
+	if inRange and fighter:GetAttribute("Flanking") and distance > (CombatConfig.CombatRange or 8.2) * (CombatConfig.Team_FlankCommitRange or 0.9) then
 		inRange = false
 	end
 	if reachable and inRange then
@@ -1070,8 +1061,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Slide-under: low-overhead gap ahead -> athletic SlideState
 	local slideGap = SpatialModule.detectLowOverheadGap(rootPart, 18)
 	local energy = fighter:GetAttribute("Energy") or 100
-	local aggressionHabit = fighter:GetAttribute("Pers_Aggression") or 0.6
-	local dashHabit = fighter:GetAttribute("Pers_DashPreference") or 0.6
+	local aggressionHabit = Pers.get(fighter, "Aggression")
+	local dashHabit = Pers.get(fighter, "DashPreference")
 	local charge = math.clamp((aggressionHabit - 0.7) / 0.25, 0, 1) * math.clamp((dashHabit - 0.6) / 0.3, 0, 1)
 	local lastSlide = fighter:GetAttribute("LastSlideTime") or 0
 	local slideCooldown = (CombatConfig.SlideCooldown or 8.0) - 3.0 * charge -- (a charger slides more)
@@ -1104,7 +1095,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	if canSlide and distance >= slideMin and distance <= slideMax and (data.currentSpeed or 30) >= 24 and not inShowdown then
 		if not data.slideDecided then
 			data.slideDecided = true
-			local mobilityPref = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+			local mobilityPref = Pers.get(fighter, "MobilityPreference")
 			local slideChance = math.max(math.clamp(0.10 + 0.5 * mobilityPref, 0.10, 0.45), 0.6 * charge)
 			if workspace:GetAttribute("SlideTackleAlways") and game:GetService("RunService"):IsStudio() then slideChance = 1 end -- (test switch)
 			data.slideWanted = math.random() < slideChance
@@ -1124,8 +1115,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Dynamic Wall-Running (Phase 6 Parkour): angled vertical wall traversal
 	local lastWallRun = fighter:GetAttribute("LastWallRunTime") or 0
-	local mobilityHabit = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
-	local riskHabit = fighter:GetAttribute("Pers_RiskTolerance") or 0.5
+	local mobilityHabit = Pers.get(fighter, "MobilityPreference")
+	local riskHabit = Pers.get(fighter, "RiskTolerance")
 	local wallLover = math.clamp((mobilityHabit - 0.7) / 0.2, 0, 1) * math.clamp((riskHabit - 0.6) / 0.2, 0, 1)
 	local wallRunCooldown = (CombatConfig.WallRunCooldown or 5.0) - 2.5 * wallLover
 	-- (a target that takes to a wall is followed onto it: no waiting out the cooldown)
@@ -1136,7 +1127,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Not worth mounting a wall with the target already this close: the run would end at once
 	if canWallRun and not inShowdown and distance > 22 then
-		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 5.2, CombatConfig.WallRunMinRunway or 24)
+		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 4.8, CombatConfig.WallRunMinRunway or 24)
 		local WallRunState = require(script.Parent:WaitForChild("WallRunState"))
 		if wallSurface and WallRunState.fastEnough(rootPart, wallSurface) then
 			fighter:SetAttribute("ObstacleAwareness", "Wall-Running " .. wallSurface.side)
@@ -1243,7 +1234,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			-- studs, taken only from close to the ledge: it walked to the rim first, and landed
 			-- at the foot of the platform whatever the distance to its target. Before that it
 			-- was taken from anywhere and came down on the same top, several times over.)
-			local landAt = math.max(flatDist - (CombatConfig.CombatRange or 8) * 0.9, 6)
+			local landAt = math.max(flatDist - (CombatConfig.CombatRange or 8.2) * 0.9, 6)
 			local leap = TraversalModule.solveJumpDown(rootPart.Position.Y - targetHRP.Position.Y, landAt, ledgeDist,
 				CombatConfig.HighGround_DiveLedgeMargin or 2.5)
 			local toTarget = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z)
@@ -1300,7 +1291,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Brake into the engagement: cap the pace by what the braking rate can shed over the
 	-- remaining gap. At a full sprint the stopping distance (~13 studs) is longer than the
 	-- hand-over range to Fight, so a sprinting Quin ran through its target and was shoved back.
-	local arriveGap = math.max(distance - (CombatConfig.CombatRange or 8), 0.5)
+	local arriveGap = math.max(distance - (CombatConfig.CombatRange or 8.2), 0.5)
 	local arriveSpeed = math.sqrt(2 * (CombatConfig.Locomotion_BrakingDeceleration or 95) * arriveGap) + 6
 	targetSpeed = math.min(targetSpeed, arriveSpeed)
 	-- Pacing through a run of obstacles (set where the crossing is planned)
@@ -1350,7 +1341,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Push-off is a start-from-rest overlay: chosen once per start, never replayed while
 		-- the Quin stays slow (the gait base layer runs underneath it)
 		if not data.pushOffAnim then
-			local mobility = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+			local mobility = Pers.get(fighter, "MobilityPreference")
 			data.pushOffAnim = (mobility > 0.55 or math.random() > 0.5) and "Movement.IdleToRun1" or "Movement.IdleToRun2"
 			data.pushOffSpent = true
 		end
@@ -1394,10 +1385,10 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	if CombatConfig.Body_StaminaByEffort ~= false then
 		-- (nothing here)
 	elseif not shouldWalk then
-		local drain = (CombatConfig.EnergyDrain_Sprint or 1) * 0.1 * speedMult
+		local drain = (CombatConfig.EnergyDrain_Sprint or 2) * 0.1 * speedMult
 		fighter:SetAttribute("Energy", math.max(0, energy - drain))
 	else
-		local recovery = (CombatConfig.EnergyRecovery_Walk or 15) * 0.1 * speedMult
+		local recovery = (CombatConfig.EnergyRecovery_Walk or 10) * 0.1 * speedMult
 		fighter:SetAttribute("Energy", math.min(CombatConfig.MaxEnergy or 100, energy + recovery))
 	end
 	
@@ -1434,7 +1425,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 
 	-- Emergent Multi-Chaser Formations (Tandem vs Dispersion based on bonds & quirks)
 	local myOwner = fighter:GetAttribute("OwnerId") or "SERVER"
-	local protectHabit = fighter:GetAttribute("Pers_Protectiveness") or 0.4
+	local protectHabit = Pers.get(fighter, "Protectiveness")
 	local sameTargetTeammates = {}
 	for _, q in ipairs(QuinRoster.all()) do
 		if q ~= fighter and q.Parent and q:FindFirstChild("HumanoidRootPart") then
@@ -1449,13 +1440,13 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- its target and now and then carves across to the other, like a skier: the run curves and
 	-- the body leans into it (the tilt reads the curve). Wider swings for a mobile Quin; none up
 	-- close, while walking, detouring or out of sight.
-	local arcCfg = CombatConfig.Chase_CarveDegrees or 0
+	local arcCfg = CombatConfig.Chase_CarveDegrees or 32
 	if arcCfg > 0 and hasLoS and not shouldWalk and not inShowdown and reachable and distance > 14 then
 		if now >= (data.carveFlipAt or 0) then
 			data.carveSide = (data.carveSide or (math.random() < 0.5 and 1 or -1)) * -1
 			data.carveFlipAt = now + (CombatConfig.Chase_CarveSwitchMin or 1.6) + math.random() * (CombatConfig.Chase_CarveSwitchSpread or 1.6)
 		end
-		local mob = fighter:GetAttribute("Pers_MobilityPreference") or 0.6
+		local mob = Pers.get(fighter, "MobilityPreference")
 		local fade = math.clamp((distance - 14) / 30, 0, 1)
 		local angle = math.rad(arcCfg * (0.6 + mob * 0.8) * fade) * data.carveSide
 		local to = arcTarget - rootPart.Position
@@ -1472,7 +1463,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- between where it is and the enemy's back, so the run curves round; once behind, it goes in.
 	local flanking = false
 	if hasLoS and fighter:GetAttribute("PackIntent") == "Flanker" and CombatConfig.Team_Flank ~= false then
-		local ally = (workspace:FindFirstChild("QuinServer") or workspace):FindFirstChild(fighter:GetAttribute("PackIntentAlly") or "")
+		local ally = QuinRoster.byName(fighter:GetAttribute("PackIntentAlly"))
 		local aRoot = ally and ally:FindFirstChild("HumanoidRootPart")
 		local tPos = targetHRP.Position
 		if aRoot and (aRoot.Position - tPos).Magnitude <= (CombatConfig.Targeting_CrowdRadius or 45) then

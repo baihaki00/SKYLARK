@@ -10,6 +10,7 @@ local VfxModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChil
 local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local BattleEventSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 
 local DamageModule = {}
 
@@ -177,7 +178,7 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 				-- Slide backward slightly from the blocked impact
 				if hrp and attackerHRP then
 					local awayDir = (hrp.Position - attackerHRP.Position).Unit
-					KnockbackModule.applyMicroKnockback(targetModel, awayDir, CombatConfig.Combat_BlockSlideStuds or 1.5)
+					KnockbackModule.applyMicroKnockback(targetModel, awayDir, CombatConfig.Combat_BlockSlideStuds or 0.5)
 				end
 
 				-- (a strike stopped: the defender's confidence; Modules/Drives)
@@ -372,7 +373,7 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 			})
 
 			-- Attacker confidence surge
-			local curConf = attackerModel:GetAttribute("Pers_Confidence") or 0.6
+			local curConf = Pers.get(attackerModel, "Confidence")
 			attackerModel:SetAttribute("Pers_Confidence", math.min(1.0, curConf + 0.20))
 		end
 	end
