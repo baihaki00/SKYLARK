@@ -29,7 +29,10 @@ end
 -- nil outside a live round, else:
 -- { role = "Attack" | "Defend", carrier = model|nil, iCarry = bool,
 --   lantern = { state, position (nil when it can't know) },
---   shrines = { { name, position } }, planted = { shrine, position, progress 0..1, contested } | nil }
+--   shrines = { { name, position } },
+--   planting = { shrine, position, planter } | nil  (an attacker kneeling on a Shrine),
+--   planted = { shrine, position, endsAt (it goes off), defuser } | nil,
+--   roundLeft = seconds on the round clock (before a plant) }
 function Objectives.view(quin)
 	local f = folder()
 	if not f then return nil end
@@ -42,7 +45,7 @@ function Objectives.view(quin)
 	local carrier = carrierName and (Workspace:FindFirstChild("QuinServer") or Workspace):FindFirstChild(carrierName) or nil
 
 	local position = lanternPart.Position
-	if state == "Carried" and role == "Defend" then
+	if (state == "Carried" or state == "Planting") and role == "Defend" then
 		position = nil
 		local board = Blackboard.peek(quin)
 		for _, contact in ipairs(board and board.contacts and board.contacts.enemies or {}) do
@@ -59,15 +62,26 @@ function Objectives.view(quin)
 	end
 	table.sort(shrines, function(a, b) return a.name < b.name end)
 
-	local planted = nil
+	local planted, planting = nil, nil
+	local siteOf = function(name)
+		for _, s in ipairs(shrines) do
+			if s.name == name then return s.position end
+		end
+		return lanternPart.Position
+	end
 	if state == "Planted" then
 		planted = { shrine = f:GetAttribute("PlantedShrine"), position = lanternPart.Position,
-			progress = f:GetAttribute("ActivateProgress") or 0, contested = f:GetAttribute("Contested") == true }
+			endsAt = f:GetAttribute("DetonateAt") or 0, defuser = f:GetAttribute("Defuser") }
+	elseif state == "Planting" then
+		-- (a kneeling Quin on a Shrine is plain to see: no need to have spotted it)
+		local name = f:GetAttribute("PlantedShrine")
+		planting = { shrine = name, position = siteOf(name), planter = carrier }
 	end
 	return {
-		role = role, carrier = carrier, iCarry = carrier == quin,
+		role = role, carrier = carrier, iCarry = carrier == quin and state == "Carried",
 		lantern = { state = state, position = position },
-		shrines = shrines, planted = planted,
+		shrines = shrines, planted = planted, planting = planting,
+		roundLeft = math.max(0, (f:GetAttribute("RoundEndsAt") or 0) - Workspace:GetServerTimeNow()),
 	}
 end
 

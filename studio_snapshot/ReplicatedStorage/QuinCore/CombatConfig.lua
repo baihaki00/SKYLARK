@@ -765,14 +765,17 @@ CombatConfig.Objective_GuardPost = 12     -- studs out from the Shrine (+5 every
 CombatConfig.Objective_PatrolRestless = 0.55 -- Pers_MobilityPreference from which a guard patrols
 CombatConfig.Objective_PatrolSwing = 30   -- degrees it moves round the Shrine when it does
 
+CombatConfig.Objective_DetonateTime = 40            -- (same as LanternSiege.DetonateTime)
+CombatConfig.Objective_HurryFrom = 35               -- round seconds left (past the last 10) where attackers start to hurry
 CombatConfig.LanternSiege = {
 	HuddleTime = 10, LiveTime = 100, RoundOverTime = 4,
 	RoundsToWin = 5, SwapAfter = 4,
 	ShrineForward = 0.35, ShrineSide = 0.55, ShrineRadius = 7, -- (Shrines: fractions of anchor-to-centre from the defenders' anchor)
-	PickUpRange = 5,
-	ActivateTime = 10,   -- seconds of attackers on the site, uncontested, to activate it
-	ActivateRadius = 12, -- studs round the Shrine that count as on the site (both teams)
-	ActivateDrain = 0.5, -- with no attacker on the site the bar drains at this share of its fill rate
+	PickUpRange = 5, RegrabDelay = 1.2, -- (one that lost the orb to a blow waits this long to grab it)
+	PlantTime = 4,      -- seconds kneeling on a Shrine to plant
+	DetonateTime = 40,  -- seconds from the plant until it goes off
+	DefuseTime = 7,     -- seconds kneeling on it to defuse (past half way, a stop keeps that half)
+	DefuseRange = 5,
 	BenchHeight = 3000,
 }
 

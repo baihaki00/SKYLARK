@@ -4,22 +4,23 @@
 -- It only puts things on the field and keeps the score; what the Quins do about them comes from
 -- their own brain (QuinCore Modules/Objectives -> TaskChoice), nothing here tells a Quin what to do.
 --
---   Field    two Shrines (A, B) on the defenders' half; the Lantern on a pedestal in the centre.
---   Round    Huddle (everyone still) -> Live: the attackers take the Lantern from the centre and
---            carry it to a Shrine (the carrier is slower and can't dash or projectile-jump; it
---            drops the Lantern when knocked out, and any attacker can pick it up) -> Activating:
---            set down on the Shrine, a bar fills while attackers stand on the site; any defender
---            on the site holds it (contested); with no attacker on it the bar drains, and empty,
---            the Lantern lies there for the taking again.
---            Attackers win: the bar fills.
---            Defenders win: time runs out (it runs on while attackers fill the bar), or every
---            attacker is out. Every defender out wins nothing by itself: the Shrine must still be
---            activated.
+--   Field    two Shrines (A, B) on the defenders' half; the Lantern (a small orb) on a pedestal
+--            in the centre.
+--   Round    plant and defuse (owner 2026-10-27: "valorant but fist fights and ballistic moves"):
+--            Huddle (everyone still) -> Live: any attacker takes the orb (held in the hand, no
+--            limits on how it moves); a blow knocks it out of the hand, and any attacker can pick
+--            it up again -> Planting: on a Shrine the carrier kneels PlantTime seconds (a blow stops
+--            it and the orb falls) -> Planted: it goes off after DetonateTime; a defender kneels on
+--            it DefuseTime seconds to defuse it (a blow stops it; past half way that half is kept).
+--            Attackers win: it goes off, or every defender is out.
+--            Defenders win: it is defused, the round clock runs out before a plant, or every
+--            attacker is out before a plant (after a plant they must still defuse it).
 --   Knockout a Quin at 0 health is not removed: it glitches out and sits the round out, and the
 --            same Quin comes back for the next one.
 --   Match    first to RoundsToWin; sides swap after SwapAfter rounds.
 -- Published for brains and screens: Workspace.LanternSiege (attributes Live, Phase, Round,
--- Attackers, ScoreTeamAlpha/Beta, PhaseEndsAt, PlantedShrine, ActivateProgress, Contested; the Lantern part's
+-- Attackers, ScoreTeamAlpha/Beta, PhaseEndsAt, RoundEndsAt, PlantedShrine, PlantProgress,
+-- DetonateAt, DefuseProgress, Defuser; the Lantern part's
 -- State / Carrier; Shrines/A, Shrines/B). Tuning: CombatConfig.LanternSiege.
 
 local CollectionService = game:GetService("CollectionService")
@@ -145,16 +146,16 @@ local function buildField()
 	local lantern = Instance.new("Part")
 	lantern.Name = "Lantern"
 	lantern.Shape = Enum.PartType.Ball
-	lantern.Size = Vector3.new(2.4, 2.4, 2.4)
+	lantern.Size = Vector3.new(1.3, 1.3, 1.3)
 	lantern.Material = Enum.Material.Neon
 	lantern.Color = LANTERN_COLOR
 	lantern.Anchored, lantern.CanCollide, lantern.CanQuery, lantern.CanTouch, lantern.Massless = true, false, false, false, true
 	local light = Instance.new("PointLight")
 	light.Color = LANTERN_COLOR
-	light.Range = 18
+	light.Range = 14
 	light.Brightness = 3
 	light.Parent = lantern
-	billboard(lantern, "LANTERN", LANTERN_COLOR, 110).Parent.StudsOffsetWorldSpace = Vector3.new(0, 4, 0)
+	billboard(lantern, "ORB", LANTERN_COLOR, 80).Parent.StudsOffsetWorldSpace = Vector3.new(0, 4, 0)
 	lantern.Parent = folder
 	folder.Parent = Workspace
 
@@ -165,7 +166,7 @@ end
 ----------------------------------------------------------------------------------------
 -- Quins: knockouts sit the round out (the same Quin comes back)
 ----------------------------------------------------------------------------------------
-local roster = {} -- [quin] = { team, parked, savedPJ }
+local roster = {} -- [quin] = { team, parked }
 
 local function parked(q) return roster[q] and roster[q].parked end
 
@@ -237,21 +238,13 @@ end
 ----------------------------------------------------------------------------------------
 -- The Lantern
 ----------------------------------------------------------------------------------------
-local lanternState = { carrier = nil, weld = nil }
+local lanternState = { carrier = nil, weld = nil, hitAt = 0 }
+local noGrabUntil = {} -- [quin] = clock: it just lost the orb to a blow, it does not snatch it straight back
 
+-- (no limits on the carrier: it dashes, jumps and fights like any Quin; a blow costs it the orb)
 local function setCarrierFlags(q, on)
-	local rec = roster[q]
-	if not rec then return end
-	if on then
-		rec.savedPJ = q:GetAttribute("EnableProjectileJump")
-		q:SetAttribute("EnableProjectileJump", false)
-		q:SetAttribute("NoDash", true)
-		q:SetAttribute("LanternCarrier", true)
-	else
-		q:SetAttribute("EnableProjectileJump", rec.savedPJ)
-		q:SetAttribute("NoDash", nil)
-		q:SetAttribute("LanternCarrier", nil)
-	end
+	if not roster[q] then return end
+	q:SetAttribute("LanternCarrier", on or nil)
 end
 
 local function placeLantern(pos, state)
@@ -266,7 +259,7 @@ local function placeLantern(pos, state)
 	if state ~= "Planted" then
 		lantern.Transparency = 0
 		lantern.PointLight.Enabled = true
-		lantern.PointLight.Range = 18
+		lantern.PointLight.Range = 14
 	end
 	lantern:SetAttribute("State", state)
 	lantern:SetAttribute("Carrier", nil)
@@ -277,18 +270,19 @@ local function carry(q)
 	if not root then return end
 	local lantern = field.lantern
 	lantern.Anchored = false
-	lantern.CFrame = root.CFrame * CFrame.new(0, 1.2, 1.4)
+	-- by its right hand (each screen puts it in the hand itself: LanternOrbClient)
+	lantern.CFrame = root.CFrame * CFrame.new(1.5, -0.8, -0.8)
 	local weld = Instance.new("WeldConstraint")
 	weld.Part0, weld.Part1 = root, lantern
 	weld.Parent = lantern
-	lanternState.weld, lanternState.carrier = weld, q
+	lanternState.weld, lanternState.carrier, lanternState.hitAt = weld, q, q:GetAttribute("ImpactTime") or 0
 	setCarrierFlags(q, true)
 	lantern:SetAttribute("State", "Carried")
 	lantern:SetAttribute("Carrier", q.Name)
 end
 
--- The superhero landing (Parkour.LandingSuperHero) for setting the Lantern on a Shrine: the Quin
--- goes down on one knee, still, for `hold` seconds; the ground shakes.
+-- The superhero landing (Parkour.LandingSuperHero) for planting and defusing: the Quin goes down
+-- on one knee, still, for `hold` seconds; the ground shakes.
 local function heroLand(q, hold, position)
 	local h = q:FindFirstChildOfClass("Humanoid")
 	local root = q:FindFirstChild("HumanoidRootPart")
@@ -306,6 +300,19 @@ local function heroLand(q, hold, position)
 			q:SetAttribute("IsInert", false)
 		end
 	end)
+end
+
+local function heroLandRelease(q)
+	if not q then return end
+	q:SetAttribute("HeroLandToken", nil)
+	if onField(q) and field and field.folder:GetAttribute("Live") then
+		q:SetAttribute("IsInert", false)
+	end
+end
+
+-- Struck since `since` (DamageModule's ImpactTime)
+local function struck(q, since)
+	return (q:GetAttribute("ImpactTime") or 0) > since
 end
 
 ----------------------------------------------------------------------------------------
@@ -371,9 +378,10 @@ local function playRound(attackers, isCancelled, announce)
 	local defenders = other(attackers)
 	local folder = field.folder
 	folder:SetAttribute("Attackers", attackers)
-	folder:SetAttribute("PlantedShrine", nil)
-	folder:SetAttribute("ActivateProgress", nil)
-	folder:SetAttribute("Contested", nil)
+	for _, key in ipairs({ "PlantedShrine", "PlantProgress", "DetonateAt", "DefuseProgress", "Defuser", "Planter" }) do
+		folder:SetAttribute(key, nil)
+	end
+	noGrabUntil = {}
 	folder:SetAttribute("Live", false)
 
 	placeTeams(attackers)
@@ -394,9 +402,18 @@ local function playRound(attackers, isCancelled, announce)
 	warhorn()
 	release()
 	local liveEnds = os.clock() + cfg("LiveTime", 100)
-	local progress, plantedAt, wasContested = 0, 0, false
+	folder:SetAttribute("RoundEndsAt", now() + cfg("LiveTime", 100))
 	local lantern = field.lantern
+	local planter, plantAt, plantHit, plantShrine = nil, 0, 0, nil
+	local detonateAt = nil
+	local defuser, defuseHit, defuse, defuseLand = nil, 0, 0, 0
 	local last = os.clock()
+
+	local function drop(at, why)
+		placeLantern(groundAt(at) + Vector3.new(0, 1, 0), "Dropped")
+		announce(why or "THE ORB IS DOWN", 2, "LANTERN SIEGE", LANTERN_COLOR)
+	end
+
 	while true do
 		task.wait(0.1)
 		if isCancelled() then return nil end
@@ -404,12 +421,12 @@ local function playRound(attackers, isCancelled, announce)
 		local dt = clock - last
 		last = clock
 		local state = lantern:GetAttribute("State")
-		local onSite = 0 -- attackers on the Shrine being activated
 
 		if state == "Base" or state == "Dropped" then
 			for q, rec in pairs(roster) do
 				local root = q:FindFirstChild("HumanoidRootPart")
-				if rec.team == attackers and onField(q) and root and flat(root.Position, lantern.Position) <= cfg("PickUpRange", 5)
+				if rec.team == attackers and onField(q) and root and clock >= (noGrabUntil[q] or 0)
+					and flat(root.Position, lantern.Position) <= cfg("PickUpRange", 5)
 					and math.abs(root.Position.Y - lantern.Position.Y) < 8 then
 					carry(q)
 					break
@@ -419,67 +436,107 @@ local function playRound(attackers, isCancelled, announce)
 			local c = lanternState.carrier
 			local root = c and c:FindFirstChild("HumanoidRootPart")
 			if not c or not onField(c) or not root then
-				local at = root and root.Position or lantern.Position
-				placeLantern(groundAt(at) + Vector3.new(0, 1.5, 0), "Dropped")
-				announce("THE LANTERN IS DOWN", 2.5, "LANTERN SIEGE", LANTERN_COLOR)
+				drop(root and root.Position or lantern.Position)
+			elseif struck(c, lanternState.hitAt) then
+				-- knocked out of its hand: it falls a step away
+				noGrabUntil[c] = clock + cfg("RegrabDelay", 1.2)
+				local away = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5)
+				drop(root.Position + (away.Magnitude > 0.01 and away.Unit or Vector3.xAxis) * 4, "ORB KNOCKED LOOSE")
 			else
 				for name, ring in pairs(field.shrines) do
-					if flat(root.Position, ring.Position) <= cfg("ShrineRadius", 7) then
-						placeLantern(ring.Position + Vector3.new(0, 2.5, 0), "Planted")
-						heroLand(c, cfg("PlantHold", 1.1), ring.Position)
-						field.lantern.PointLight.Range = 30
+					if flat(root.Position, ring.Position) <= cfg("ShrineRadius", 7)
+						and math.abs(root.Position.Y - ring.Position.Y) < 6 then
+						-- it kneels and plants
+						planter, plantAt, plantHit, plantShrine = c, clock, c:GetAttribute("ImpactTime") or 0, name
+						lantern:SetAttribute("State", "Planting")
+						folder:SetAttribute("Planter", c.Name)
 						folder:SetAttribute("PlantedShrine", name)
-						progress, plantedAt, wasContested = 0, clock, false
-						setPhase("Activating", math.max(0, liveEnds - clock))
-						announce(string.format("ACTIVATING SHRINE %s", name), 3, "LANTERN SIEGE", LANTERN_COLOR)
+						heroLand(c, cfg("PlantTime", 4), ring.Position)
 						break
 					end
 				end
 			end
-		elseif state == "Planted" then
-			-- who stands on the site: attackers fill the bar, any defender holds it
-			local name = folder:GetAttribute("PlantedShrine")
-			local site = field.shrines[name]
-			local defenders_on = 0
-			for q, rec in pairs(roster) do
-				local root = q:FindFirstChild("HumanoidRootPart")
-				if onField(q) and root and flat(root.Position, site.Position) <= cfg("ActivateRadius", 12)
-					and math.abs(root.Position.Y - site.Position.Y) < 10 then
-					if rec.team == attackers then onSite += 1 else defenders_on += 1 end
+		elseif state == "Planting" then
+			local root = planter and planter:FindFirstChild("HumanoidRootPart")
+			if not planter or not onField(planter) or not root or struck(planter, plantHit) then
+				-- stopped: the orb falls on the Shrine
+				if planter then
+					heroLandRelease(planter)
+					noGrabUntil[planter] = clock + cfg("RegrabDelay", 1.2)
+				end
+				folder:SetAttribute("PlantProgress", nil)
+				folder:SetAttribute("Planter", nil)
+				folder:SetAttribute("PlantedShrine", nil)
+				drop(field.shrines[plantShrine].Position + Vector3.new(3, 0, 0), "PLANT STOPPED")
+				planter = nil
+			else
+				local progress = (clock - plantAt) / cfg("PlantTime", 4)
+				folder:SetAttribute("PlantProgress", math.min(progress, 1))
+				if progress >= 1 then
+					local ring = field.shrines[plantShrine]
+					placeLantern(ring.Position + Vector3.new(0, 1.2, 0), "Planted")
+					heroLandRelease(planter)
+					planter = nil
+					field.lantern.PointLight.Range = 26
+					folder:SetAttribute("PlantProgress", nil)
+					folder:SetAttribute("Planter", nil)
+					folder:SetAttribute("PlantedShrine", plantShrine)
+					detonateAt = clock + cfg("DetonateTime", 40)
+					folder:SetAttribute("DetonateAt", now() + cfg("DetonateTime", 40))
+					setPhase("Planted", cfg("DetonateTime", 40))
+					announce(string.format("ORB PLANTED AT %s  //  %ds TO DEFUSE", plantShrine, cfg("DetonateTime", 40)), 3, "LANTERN SIEGE", LANTERN_COLOR)
 				end
 			end
-			local contested = defenders_on > 0
-			if contested ~= wasContested then
-				wasContested = contested
-				folder:SetAttribute("Contested", contested)
-				if contested then announce(string.format("SHRINE %s CONTESTED", name), 2, "LANTERN SIEGE", COLOR[defenders]) end
+		elseif state == "Planted" then
+			-- a defender on it kneels and defuses; a blow stops it (past half way, that half stays)
+			local d = defuser
+			local dRoot = d and d:FindFirstChild("HumanoidRootPart")
+			if d and (not onField(d) or not dRoot or flat(dRoot.Position, lantern.Position) > cfg("DefuseRange", 5) + 2 or struck(d, defuseHit)) then
+				heroLandRelease(d)
+				defuser = nil
+				defuse = defuse >= 0.5 and 0.5 or 0
+				folder:SetAttribute("Defuser", nil)
+				announce("DEFUSE STOPPED", 1.5, "LANTERN SIEGE", COLOR[attackers])
 			end
-			local fill = dt / cfg("ActivateTime", 10)
-			if onSite > 0 and not contested then
-				progress += fill
-			elseif onSite == 0 then
-				progress -= fill * cfg("ActivateDrain", 0.5)
+			if not defuser then
+				for q, rec in pairs(roster) do
+					local root = q:FindFirstChild("HumanoidRootPart")
+					if rec.team == defenders and onField(q) and root and flat(root.Position, lantern.Position) <= cfg("DefuseRange", 5)
+						and math.abs(root.Position.Y - lantern.Position.Y) < 8 then
+						defuser, defuseHit, defuseLand = q, q:GetAttribute("ImpactTime") or 0, 0
+						folder:SetAttribute("Defuser", q.Name)
+						break
+					end
+				end
 			end
-			progress = math.clamp(progress, 0, 1)
-			folder:SetAttribute("ActivateProgress", progress)
-			if progress >= 1 then
-				VfxModule.createShockwave(site.Position, 40, 0.9)
-				return attackers, "Shrine " .. name .. " activated"
+			if defuser then
+				if clock - defuseLand >= 1.2 then
+					defuseLand = clock
+					heroLand(defuser, 1.3, lantern.Position)
+				end
+				defuse += dt / cfg("DefuseTime", 7)
 			end
-			if progress <= 0 and onSite == 0 and clock - plantedAt > 1.5 then
-				-- left alone, the activation dies out: the Lantern lies on the Shrine for the taking
-				placeLantern(groundAt(site.Position) + Vector3.new(0, 1.5, 0), "Dropped")
-				folder:SetAttribute("PlantedShrine", nil)
-				folder:SetAttribute("ActivateProgress", nil)
-				folder:SetAttribute("Contested", nil)
-				setPhase("Live", math.max(0, liveEnds - clock))
-				announce(string.format("ACTIVATION AT %s BROKEN", name), 2.5, "LANTERN SIEGE", COLOR[defenders])
+			folder:SetAttribute("DefuseProgress", defuse > 0 and math.min(defuse, 1) or nil)
+			if defuse >= 1 then
+				heroLandRelease(defuser)
+				lantern.PointLight.Enabled = false
+				lantern.Transparency = 0.7
+				VfxModule.createShockwave(lantern.Position, 30, 0.8)
+				return defenders, "Defused"
+			end
+			if clock >= detonateAt then
+				VfxModule.createShockwave(lantern.Position, 50, 1.0)
+				return attackers, "The orb went off"
 			end
 		end
 
-		-- time: it runs on while attackers stand on a Shrine they are activating
-		if clock >= liveEnds and onSite == 0 then return defenders, "Time ran out" end
-		if aliveCount(attackers) == 0 then return defenders, "Attackers wiped out" end
+		state = lantern:GetAttribute("State")
+		local planted = state == "Planted"
+		if not planted then
+			if clock >= liveEnds and state ~= "Planting" then return defenders, "Time ran out" end
+			if aliveCount(attackers) == 0 then return defenders, "Attackers wiped out" end
+		end
+		if aliveCount(defenders) == 0 then return attackers, "Defenders wiped out" end
 	end
 end
 

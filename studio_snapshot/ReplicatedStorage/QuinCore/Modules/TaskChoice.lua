@@ -215,6 +215,9 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 	local awareness = pers(quinModel, "Pers_Awareness", 0.65)
 	local run = cfg("Objective_RunSpeed", 40)
 	local engage = cfg("Objective_EngageRange", 16)
+	-- the clock: with little of the round left the attackers stop being careful (0 .. 1)
+	local hurry = view.roundLeft and math.clamp(1 - (view.roundLeft - 10) / cfg("Objective_HurryFrom", 35), 0, 1) or 0
+	local clock = function(sec) return string.format("%d:%02d", math.floor(sec) // 60, math.floor(sec) % 60) end
 
 	if view.role == "Attack" then
 		if view.iCarry then
@@ -223,7 +226,8 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			local best, bestScore = nil, -math.huge
 			for _, s in ipairs(view.shrines) do
 				local _, enemies = FightMaths.sides(quinModel, rootPart, s.position)
-				local sc = -(enemies or 0) * cfg("Objective_ShrineEnemyCost", 40) - flat(s.position, myPos) * 0.1
+				-- (short of time the nearer one wins over the safer one)
+				local sc = -(enemies or 0) * cfg("Objective_ShrineEnemyCost", 40) * (1 - 0.6 * hurry) - flat(s.position, myPos) * (0.1 + 0.4 * hurry)
 					+ (board.carryShrine == s.name and cfg("Objective_ShrineKeep", 30) or 0)
 				if sc > bestScore then best, bestScore = s, sc end
 			end
@@ -234,6 +238,8 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 				local urgency, pace = 0.3, "carry it in"
 				if chaser then
 					urgency, pace = 0.95, "chased"
+				elseif hurry > 0.3 then
+					urgency, pace = 1, "time is short"
 				elseif flat(best.position, myPos) < 50 and bestScore > -20 then
 					urgency, pace = 0.75, "run it in"
 				end
@@ -241,15 +247,15 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 				tasks.Carry = {
 					score = cfg("Objective_CarryValue", 150) + 60 * (1 - aggression), point = best.position, spot = best.name,
 					speed = cfg("Objective_CarrySpeed", 22), engage = 0, urgency = urgency, paceWhy = pace,
-					why = string.format("carry it to %s (%s)", best.name, bestScore > -20 and "looks open" or "least bad"),
+					why = string.format("plant at %s (%s, %s left)", best.name, bestScore > -20 and "looks open" or "least bad", clock(view.roundLeft or 0)),
 				}
 			end
 		elseif view.lantern.state == "Base" or view.lantern.state == "Dropped" then
 			local pos = view.lantern.position
 			tasks.PickUp = {
 				score = cfg("Objective_PickUpValue", 140) - flat(pos, myPos) * 0.3 - takenBy("PickUp", nil, quinModel) * 70,
-				point = pos, speed = run, engage = engage * 0.6, urgency = 0.75, paceWhy = "get the Lantern",
-				why = view.lantern.state == "Base" and "take the Lantern" or "the Lantern is down, grab it",
+				point = pos, speed = run, engage = engage * 0.6, urgency = math.max(0.75, hurry), paceWhy = "get the orb",
+				why = view.lantern.state == "Base" and "take the orb" or "the orb is down, grab it",
 			}
 		elseif view.lantern.state == "Carried" and view.carrier then
 			local cRoot = view.carrier:FindFirstChild("HumanoidRootPart")
@@ -276,23 +282,44 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 					why = "walk with " .. view.carrier.Name,
 				}
 			end
-		elseif view.planted then
-			local ring = view.planted.position + (myPos - view.planted.position) * Vector3.new(1, 0, 1)
-			-- (on the site: only attackers standing on it fill the bar)
-			ring = (ring - view.planted.position).Magnitude > 0.1 and view.planted.position + (ring - view.planted.position).Unit * 7 or view.planted.position
+		elseif view.planting or view.planted then
+			-- round the Shrine it is being planted on / is planted on: keep the defenders off it
+			local site = view.planted or view.planting
+			local ring = site.position + (myPos - site.position) * Vector3.new(1, 0, 1)
+			ring = (ring - site.position).Magnitude > 0.1 and site.position + (ring - site.position).Unit * 10 or site.position
+			local defusing = view.planted and view.planted.defuser
+			local left = view.planted and math.max(0, view.planted.endsAt - workspace:GetServerTimeNow()) or nil
 			tasks.HoldPlant = {
-				score = cfg("Objective_HoldValue", 110) + (view.planted.contested and 30 or 0) - flat(view.planted.position, myPos) * 0.2,
-				point = ring, speed = run, engage = engage, urgency = view.planted.contested and 0.9 or 0.6, paceWhy = "hold the Shrine",
-				why = string.format("activate %s (%d%%)", tostring(view.planted.shrine), view.planted.progress * 100),
+				score = cfg("Objective_HoldValue", 110) + (defusing and 40 or 0) - flat(site.position, myPos) * 0.2,
+				point = ring, speed = run, engage = engage * (defusing and 1.5 or 1), urgency = (defusing or view.planting) and 1 or 0.6,
+				paceWhy = defusing and "they are defusing" or "hold the Shrine",
+				why = view.planting and string.format("cover the plant at %s", tostring(site.shrine))
+					or defusing and string.format("stop the defuse at %s (%s)", tostring(site.shrine), clock(left))
+					or string.format("guard the orb at %s (%s)", tostring(site.shrine), clock(left)),
 			}
 		end
 	else
 		if view.planted then
-			-- standing on the site holds the activation: the fuller the bar, the more it matters
+			-- the less time on it, the more it matters; with one already kneeling on it, the
+			-- others keep the attackers off rather than stand in line
+			local left = math.max(0, view.planted.endsAt - workspace:GetServerTimeNow())
+			local mine = view.planted.defuser == quinModel.Name
+			local someone = view.planted.defuser and not mine
+			local away = (myPos - view.planted.position) * Vector3.new(1, 0, 1)
+			away = away.Magnitude > 0.1 and away.Unit or Vector3.xAxis
 			tasks.Retake = {
-				score = cfg("Objective_RetakeValue", 150) + view.planted.progress * 80 - flat(view.planted.position, myPos) * 0.2,
-				point = view.planted.position, speed = run, engage = engage * 0.6, urgency = 1, paceWhy = "it is activating",
-				why = string.format("stop the activation at %s (%d%%)", tostring(view.planted.shrine), view.planted.progress * 100),
+				score = cfg("Objective_RetakeValue", 150) + (1 - left / cfg("Objective_DetonateTime", 40)) * 80 - flat(view.planted.position, myPos) * 0.2,
+				point = someone and view.planted.position + away * 8 or view.planted.position,
+				speed = run, engage = someone and engage * 1.5 or engage * 0.6, urgency = 1, paceWhy = "it will go off",
+				why = someone and string.format("cover the defuse at %s (%s)", tostring(view.planted.shrine), clock(left))
+					or string.format("defuse at %s (%s left)", tostring(view.planted.shrine), clock(left)),
+			}
+		elseif view.planting then
+			-- one is kneeling on a Shrine: a blow stops it
+			tasks.Retake = {
+				score = cfg("Objective_RetakeValue", 150) + 40 - flat(view.planting.position, myPos) * 0.2,
+				point = view.planting.position, speed = run, engage = engage * 1.5, urgency = 1, paceWhy = "they are planting",
+				why = string.format("stop the plant at %s", tostring(view.planting.shrine)),
 			}
 		end
 		-- watch a Shrine: the one fewest teammates watch, near the way the attackers come
