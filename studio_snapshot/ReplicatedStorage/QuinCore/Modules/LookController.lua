@@ -360,22 +360,25 @@ function LookController:update(dt)
 		-- Between 70 and 85 deg, tracking smoothly blends to 0 via cubic Hermite curve.
 		-- Beyond 85 deg (behind character), gaze weight is 0: head faces forward naturally.
 		-- Eliminates branch-cut (+-180 deg) flipping, owl snaps, and idle jitter!
+		-- (2026-10-27, owner: "I don't see the Quins tracking their enemies". It followed only to 60
+		-- degrees and let go past 85, so anything to the side got no look at all. Now head, neck
+		-- and upper back follow to 100 degrees, and it lets go between 100 and 125: still well
+		-- short of straight behind, where the look would flip sides.)
 		local absYaw = math.abs(rawYaw)
 		local gazeWeight = 1.0
-		if absYaw > math.rad(70) then
-			if absYaw >= math.rad(85) then
+		if absYaw > math.rad(100) then
+			if absYaw >= math.rad(125) then
 				gazeWeight = 0.0
 			else
-				local p = (absYaw - math.rad(70)) / math.rad(15)
+				local p = (absYaw - math.rad(100)) / math.rad(25)
 				gazeWeight = 1.0 - (p * p * (3 - 2 * p))
 			end
 		end
 
 		-- A look back over the shoulder turns further, the upper back taking its share
-		local yawLimit = ZONE2_MAX
+		local yawLimit = ZONE3_MAX
 		if mode == "GLANCE_BACK" or mode == "SOCIAL" then
 			gazeWeight = 1.0
-			yawLimit = ZONE3_MAX
 		end
 		local clampedYaw = math.clamp(rawYaw, -yawLimit, yawLimit) * gazeWeight
 		local clampedPitch = math.clamp(rawPitch, PITCH_MIN, PITCH_MAX) * gazeWeight

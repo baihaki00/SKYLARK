@@ -907,7 +907,7 @@ CombatConfig.ProjectileJump_LandingLeanFullSpeed = 40   -- studs/s of slide at w
 
 -- === Mid-air clash outcomes ===
 CombatConfig.MidAirClash_ImmediateSmashChance = 0.3     -- chance there is no brawl: the faster one smashes the other down at once
-CombatConfig.MidAirClash_SmashSpeed = 260               -- studs/s the loser is thrown down at
+CombatConfig.MidAirClash_SmashFallShare = 0.85        -- the loser's fall takes this share of a drop from rest (less when the winner had more on it: steeper, faster)
 
 -- === Sky intercept (Modules/AirInterceptModule) ===
 CombatConfig.Intercept_MinHeight = 40          -- studs an airborne enemy must be above the Quin

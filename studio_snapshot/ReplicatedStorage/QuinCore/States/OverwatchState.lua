@@ -26,6 +26,7 @@ local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("T
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
+local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (the turner a state holds: body claim)
 
 local OverwatchState = { name = "Overwatch" }
 
@@ -67,6 +68,21 @@ local function nearestEnemy(fighter, accept)
 		end
 	end
 	return best
+end
+
+-- Stopped up here, it turns (slowly, the Watch pace) to the nearest enemy it can see: the fight
+-- below, not the way it last walked. Owner 2026-10-27: Quins on a platform stood staring the
+-- other way while a battle went on behind them (the head cannot turn that far on its own).
+-- Walking on, the body is the walk's again.
+local function lookOut(fighter, rootPart)
+	local seen = nearestEnemy(fighter, function(contact) return contact.visible end)
+	if not seen then
+		Facing.drop(rootPart, "Watch")
+		return
+	end
+	local align = Facing.hold(rootPart, "Watch")
+	local p = rootPart.Position
+	align.CFrame = CFrame.lookAt(p, Vector3.new(seen.position.X, p.Y, seen.position.Z))
 end
 
 -- A point near the platform's edge on the side the enemies are on (any side if it knows of none)
@@ -232,8 +248,10 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Use the platform: look out, pace, jog a loop (planRoutine), with stops in between
 	if now < data.pauseUntil then
 		LocomotionModule.brake(fighter, humanoid, rootPart, dt)
+		lookOut(fighter, rootPart)
 		return OverwatchState
 	end
+	Facing.drop(rootPart, "Watch")
 	local route = data.route
 	if not route or data.routeIndex > #route.points then
 		if route then

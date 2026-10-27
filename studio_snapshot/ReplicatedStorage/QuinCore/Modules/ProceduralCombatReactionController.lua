@@ -767,6 +767,13 @@ function ProceduralCombatReactionController:update(dt)
 		-- or into the curve of the circle it is on, read as tipping over (18 degrees at a run strafe)
 		if Layers.isOn("StrafeUpright", serverModel) then
 			tiltTarget *= 1 - self.squareUp.share
+			-- and the same for any step that is not forward, whatever clip plays (owner 2026-10-27:
+			-- fight footwork and circling on the run clip still tipped the whole body sideways): full
+			-- tilt within ~30 degrees of straight ahead, none from ~60 (sideways, backpedalling)
+			if speed > 1 then
+				local ahead = -self.rootPart.CFrame:VectorToObjectSpace(flatVel).Z / speed
+				tiltTarget *= math.clamp((ahead - 0.5) / 0.37, 0, 1)
+			end
 		end
 	end
 	self.bodyTilt = self.bodyTilt or Vector3.zero

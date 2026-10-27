@@ -39,9 +39,17 @@ function NavigationModule.isReachable(rootPart, targetRoot)
 	local lift = Vector3.new(0, CombatConfig.Nav_SweepHeight or SWEEP_HEIGHT, 0)
 	local offset = (to + lift) - (from + lift)
 	if offset.Magnitude < 0.5 then return true end
-	local hit = Workspace:Spherecast(from + lift, SWEEP_RADIUS, offset, sweepParams(rootPart.Parent, targetRoot.Parent))
+	local params = sweepParams(rootPart.Parent, targetRoot.Parent)
+	local hit = Workspace:Spherecast(from + lift, SWEEP_RADIUS, offset, params)
 	if hit then
 		return false, "blocked"
+	end
+	-- and at chest height: the sweep above runs over the head, so a wall about as tall as the
+	-- Quins was not "in the way" and two of them fought (and hit) across it (owner 2026-10-27)
+	local chest = Vector3.new(0, 1.5, 0)
+	local offsetChest = (to + chest) - (from + chest)
+	if offsetChest.Magnitude > 0.5 and Workspace:Spherecast(from + chest, 0.6, offsetChest, params) then
+		return false, "wall"
 	end
 	return true
 end

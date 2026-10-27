@@ -346,28 +346,34 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 				-- Play FallAirKnockback (the wailing animation Bai specified)
 				AnimationModule.play(humanoid, AnimationIds.FallAirKnockback, Enum.AnimationPriority.Action4, true, 1.1)
 				
-				-- High downward velocity toward the floor
-				local loserAtt = Instance.new("Attachment")
-				loserAtt.Name = "KB_Att"
-				loserAtt.Parent = rootPart
+				-- Struck down on a real arc: thrown down and away from the winner, then gravity and
+				-- Knockback's fall (flailing, the fall pose for its side, impact, skid, get-up) carry it.
+				-- (It used to be held on a 260 studs/s rail straight down for 0.6 s, whatever it was
+				-- doing: from 40 studs up it reached the floor in 0.15 s, before the fall pose could
+				-- play, and every smash looked the same - owner 2026-10-27, "snapped to the ground".)
+				-- How hard depends on the clash: the more the winner had on it, the steeper and
+				-- faster it goes down; the higher it is, the longer the fall.
+				rootPart.Anchored = false
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { fighter, target, Workspace:FindFirstChild("QuinServer") }
+				params.RespectCanCollide = true
+				local down = Workspace:Raycast(rootPart.Position, Vector3.new(0, -300, 0), params)
+				local standOffset = (humanoid.HipHeight or 2) + rootPart.Size.Y / 2
+				local height = down and math.max(rootPart.Position.Y - down.Position.Y - standOffset, 0) or 40
+				local g = Workspace.Gravity
+				local edge = math.clamp((targetHum.Health - humanoid.Health) / math.max(targetHum.MaxHealth, 1) * 2, 0, 1)
+				local share = (CombatConfig.MidAirClash_SmashFallShare or 0.85) - 0.3 * edge -- of a drop from rest
+				local fallTime = math.max(share * math.sqrt(2 * height / g), 0.12)
+				local vy = (0.5 * g * fallTime * fallTime - height) / fallTime
+				local away = Vector3.new(rootPart.Position.X - targetHRP.Position.X, 0, rootPart.Position.Z - targetHRP.Position.Z)
+				away = away.Magnitude > 0.1 and away.Unit or -Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z).Unit
+				local carry = math.clamp(6 + height * 0.25, 6, 30) * (0.7 + 0.6 * edge) -- studs along the ground before it lands
+				rootPart.AssemblyLinearVelocity = away * (carry / fallTime) + Vector3.new(0, vy, 0)
 
-				local lv = Instance.new("LinearVelocity")
-				lv.Name = "KB_LinearVelocity"
-				lv.Attachment0 = loserAtt
-				lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-				local smashSpeed = CombatConfig.MidAirClash_SmashSpeed or 260
-				lv.VectorVelocity = Vector3.new(0, -smashSpeed, 0)
-				lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis -- MaxAxesForce is ignored otherwise
-				lv.MaxAxesForce = Vector3.new(20000, 1e7, 20000)
-				lv.Parent = rootPart
-				Debris:AddItem(loserAtt, 0.6)
-				Debris:AddItem(lv, 0.6)
-				
-				rootPart.AssemblyLinearVelocity = Vector3.new(0, -smashSpeed, 0)
-				
 				fighter:SetAttribute("KnockbackType", "hard_ground")
 				StateRequest.ask(fighter, "Knockback", StateRequest.HIT, "struck")
-				fighter:SetAttribute("LaunchedAt", tick() + 0.1)
+				fighter:SetAttribute("LaunchedAt", tick())
 				
 				DamageModule.chip(target, fighter, 20) -- the one smashed down takes it (this used to hit the winner)
 				
