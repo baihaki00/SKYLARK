@@ -364,21 +364,42 @@ function LookController:update(dt)
 		-- degrees and let go past 85, so anything to the side got no look at all. Now head, neck
 		-- and upper back follow to 100 degrees, and it lets go between 100 and 125: still well
 		-- short of straight behind, where the look would flip sides.)
+		-- Moving forward (owner 2026-10-28: a Quin running straight with its head turned 90 degrees
+		-- looked wrong): the head turns at most Look_MovingYawMax, and lets go of a target further
+		-- round (Look_MovingLetGoStart..End) - the body turns to it, or it is not watched. Standing,
+		-- strafing and backpedalling keep the wide range. Workspace HeadLimitOff = true: old range.
+		local moving = 0
+		if Workspace:GetAttribute("HeadLimitOff") ~= true then
+			local vel = self.rootPart.AssemblyLinearVelocity
+			local flatVel = Vector3.new(vel.X, 0, vel.Z)
+			local speed = flatVel.Magnitude
+			if speed > 1 then
+				local look = self.rootPart.CFrame.LookVector
+				local flatLook = Vector3.new(look.X, 0, look.Z)
+				local along = flatLook.Magnitude > 0.01 and flatVel.Unit:Dot(flatLook.Unit) or 0
+				local function ss(a, b, x) local t = math.clamp((x - a) / (b - a), 0, 1) return t * t * (3 - 2 * t) end
+				moving = ss(4, 10, speed) * ss(0.5, 0.85, along)
+			end
+		end
+		local letGoStart = math.rad(100) + moving * (math.rad((okConfig and CombatConfig.Look_MovingLetGoStart) or 70) - math.rad(100))
+		local letGoEnd = math.rad(125) + moving * (math.rad((okConfig and CombatConfig.Look_MovingLetGoEnd) or 95) - math.rad(125))
+
 		local absYaw = math.abs(rawYaw)
 		local gazeWeight = 1.0
-		if absYaw > math.rad(100) then
-			if absYaw >= math.rad(125) then
+		if absYaw > letGoStart then
+			if absYaw >= letGoEnd then
 				gazeWeight = 0.0
 			else
-				local p = (absYaw - math.rad(100)) / math.rad(25)
+				local p = (absYaw - letGoStart) / (letGoEnd - letGoStart)
 				gazeWeight = 1.0 - (p * p * (3 - 2 * p))
 			end
 		end
 
 		-- A look back over the shoulder turns further, the upper back taking its share
-		local yawLimit = ZONE3_MAX
+		local yawLimit = ZONE3_MAX + moving * (math.rad((okConfig and CombatConfig.Look_MovingYawMax) or 45) - ZONE3_MAX)
 		if mode == "GLANCE_BACK" or mode == "SOCIAL" then
 			gazeWeight = 1.0
+			yawLimit = ZONE3_MAX -- (a deliberate look keeps its full turn, moving or not)
 		end
 		local clampedYaw = math.clamp(rawYaw, -yawLimit, yawLimit) * gazeWeight
 		local clampedPitch = math.clamp(rawPitch, PITCH_MIN, PITCH_MAX) * gazeWeight

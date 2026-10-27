@@ -1532,4 +1532,9 @@ CombatConfig.Retreat_EvenlyHurtMargin = 0.1
 CombatConfig.Targeting_StruckSettle = 2.0
 CombatConfig.Team_FlankCommitRange = 0.9
 
+-- LookController while moving forward (owner 2026-10-28: head turned 90 deg off a body running straight)
+CombatConfig.Look_MovingYawMax = 45       -- degrees the head turns at most while moving forward
+CombatConfig.Look_MovingLetGoStart = 70   -- degrees off: starts letting go of a target further round
+CombatConfig.Look_MovingLetGoEnd = 95     -- degrees off: head back to forward
+
 return CombatConfig
