@@ -134,6 +134,14 @@ function LookController:resolveTargetPosition()
 			end
 		end
 
+		-- A look at a place (LookPoint until LookUntil): where it was just told to go, a way in it
+		-- scans from its post, the spot a teammate called (IdleState, Cognition.Gaze)
+		local lookUntil = serverModel:GetAttribute("LookUntil")
+		local lookPoint = serverModel:GetAttribute("LookPoint")
+		if not isPlayer and lookUntil and typeof(lookPoint) == "Vector3" and workspace:GetServerTimeNow() < lookUntil then
+			return lookPoint + Vector3.new(0, 2.5, 0), "LOOK"
+		end
+
 		-- Scanning (Cognition.Gaze): a glance at the sky, or looking down over the edge of
 		-- high ground. The head pitches to the gaze, straight ahead of the body.
 		local gazeMode = serverModel:GetAttribute("GazeMode")

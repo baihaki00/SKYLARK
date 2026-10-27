@@ -26,6 +26,7 @@ local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChi
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local Reach = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Reach"))
+local Pace = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pace"))
 
 local function findModelByName(name)
 	if not name or name == "" then return nil end
@@ -86,6 +87,30 @@ local function selectPacingStrategy(fighter)
 			return "ConfidentWalk"
 		end
 	end
+end
+
+-- How urgent this chase is (Modules/Pace turns it into walk / jog / run): a long approach with
+-- nothing at stake is a jog; closing in, a target on an ally, one coming at it, one hurt or getting
+-- away, a rescue - each makes it hurry. Read from what it knows, so two Quins in the same chase can
+-- be in different gears.
+local function chaseUrgency(fighter, target, distance, targetState)
+	local u = CombatConfig.Pace_ChaseBase or 0.5
+	local why = "approach"
+	if distance < (CombatConfig.Pace_ChaseCloseRange or 90) then u += 0.35 why = "closing in" end
+	local tTarget = target:GetAttribute("CurrentTarget")
+	if tTarget == fighter.Name then
+		u += 0.25 why = "it is coming for me"
+	elseif tTarget and tTarget ~= "" then
+		local folder = workspace:FindFirstChild("QuinServer")
+		local victim = folder and folder:FindFirstChild(tTarget)
+		if victim and victim:GetAttribute("Team") == fighter:GetAttribute("Team") then u += 0.25 why = "it is on " .. tTarget end
+	end
+	local hum = target:FindFirstChildOfClass("Humanoid")
+	if hum and hum.MaxHealth > 0 and hum.Health / hum.MaxHealth < 0.35 then u += 0.2 why = "it is hurt" end
+	if targetState == "Retreat" then u += 0.2 why = "it is getting away" end
+	if fighter:GetAttribute("TacticalState") == "RESCUING" or fighter:GetAttribute("Task") == "Rescue" then u += 0.3 why = "rescue" end
+	if distance > (CombatConfig.Pace_ChaseFarRange or 160) then u -= 0.1 end
+	return u, why
 end
 
 function ChaseState.enter(fighter, humanoid, rootPart)
@@ -694,7 +719,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			shouldWalk = (distance > 65)
 		elseif strat == "ConfidentWalk" then
 			shouldWalk = (distance > 45)
-		elseif strat == "AlternatingPace" then
+		elseif strat == "AlternatingPace" and not Pace.enabled() then
+			-- (a timer that flipped walk and sprint every few seconds: with Pace on, the
+			-- urgency of the chase decides the gear instead)
 			if now >= (data.pacingSwitchTime or 0) then
 				data.isPacingWalk = not data.isPacingWalk
 				data.pacingSwitchTime = now + ((data.isPacingWalk and math.random(1.5, 2.5) or math.random(3.5, 6)) / speedMult)
@@ -1265,6 +1292,10 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local speed = fighter:GetAttribute("Speed") or 40
 	-- Walking is the Walk clip's own pace. It used to be 16 studs/s, which is a hard jog: the
 	-- legs were over-cranked and it never read as a walk.
+	if not shouldWalk and Pace.enabled() then
+		local urgency, why = chaseUrgency(fighter, target, distance, targetState)
+		speed = math.min(speed, (Pace.gear(fighter, urgency, why)))
+	end
 	local targetSpeed = (shouldWalk and (CombatConfig.Player_WalkSpeed or 7.5) or speed) * speedMult
 	-- Brake into the engagement: cap the pace by what the braking rate can shed over the
 	-- remaining gap. At a full sprint the stopping distance (~13 studs) is longer than the

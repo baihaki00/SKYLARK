@@ -9,10 +9,14 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local LocomotionModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local GaitModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GaitModule"))
 local Cognition = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Cognition"))
+local Pace = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pace"))
 
 local IdleState = { name = "Idle" }
 
 local idleData = {}
+-- The spot it is walking to for a job, kept across states: when it was told of it (it looks
+-- first, then goes), and whether it has got there (it stays put until the spot really moves)
+local jobData = setmetatable({}, { __mode = "k" })
 
 function IdleState.enter(fighter, humanoid, rootPart)
 	LocomotionModule.brake(fighter, humanoid, rootPart, 0.05)
@@ -118,14 +122,69 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 			if contact.visible and contact.distance <= engage then threat = true break end
 		end
 		if not threat then
-			local gyro = rootPart:FindFirstChild("IdleGyro")
-			if gyro then gyro:Destroy() end
+			local job = jobData[fighter]
+			local now = os.clock()
 			local flat = Vector3.new(goTo.X - rootPart.Position.X, 0, goTo.Z - rootPart.Position.Z)
-			if flat.Magnitude > 3 then
-				LocomotionModule.steer(fighter, humanoid, rootPart, Vector3.new(goTo.X, rootPart.Position.Y, goTo.Z), fighter:GetAttribute("ObjectiveSpeed") or 40, 0.1)
-			else
+			-- A new spot (a new job, or the old spot moved well away): it takes it in first, head
+			-- turned that way, then goes - quick for an alert Quin, slower for a dull one. Already
+			-- on the move, it just bends its course.
+			if not job or (Vector3.new(goTo.X, 0, goTo.Z) - Vector3.new(job.spot.X, 0, job.spot.Z)).Magnitude > 20 then
+				local moving = rootPart.AssemblyLinearVelocity.Magnitude > 6
+				job = { spot = goTo, arrived = false, goAt = now + ((moving or not Pace.enabled()) and 0 or Pace.reaction(fighter)) }
+				jobData[fighter] = job
+				if job.goAt > now then
+					fighter:SetAttribute("LookPoint", goTo)
+					fighter:SetAttribute("LookUntil", workspace:GetServerTimeNow() + (job.goAt - now) + 0.3)
+				end
+			end
+			-- How fast the spot itself moves (a place beside a walking carrier): it keeps pace with it
+			-- rather than running up, stopping, and running up again
+			if job.spotAt and now - job.spotAt > 0.05 then
+				local moved = Vector3.new(goTo.X - job.spot.X, 0, goTo.Z - job.spot.Z).Magnitude
+				job.spotSpeed = (job.spotSpeed or 0) * 0.6 + (moved / (now - job.spotAt)) * 0.4
+			end
+			job.spot, job.spotAt = goTo, now
+			local movingSpot = (job.spotSpeed or 0) > (CombatConfig.Pace_MovingSpotSpeed or 3)
+			local settle = CombatConfig.Pace_SettleRadius or 3
+			if job.arrived and flat.Magnitude > (CombatConfig.Pace_LeaveRadius or 7) then job.arrived = false end
+			if not job.arrived and flat.Magnitude <= settle and not movingSpot then job.arrived = true end
+
+			local face = fighter:GetAttribute("ObjectiveFace")
+			local gyro = rootPart:FindFirstChild("IdleGyro")
+			if job.arrived or now < job.goAt then
 				LocomotionModule.brake(fighter, humanoid, rootPart, 0.1)
 				AnimationModule.ensureBaseIdle(humanoid)
+				-- on its post it faces the way it watches (a guard looks out, not at the Shrine)
+				if job.arrived and typeof(face) == "Vector3" and rootPart.AssemblyLinearVelocity.Magnitude < 3 then
+					if not gyro then
+						gyro = Instance.new("AlignOrientation")
+						gyro.Name = "IdleGyro"
+						gyro.Mode = Enum.OrientationAlignmentMode.OneAttachment
+						gyro.Attachment0 = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+						gyro.RigidityEnabled = false
+						gyro.Responsiveness = 8
+						gyro.MaxTorque = 100000
+						gyro.MaxAngularVelocity = 4
+						gyro.CFrame = rootPart.CFrame
+						gyro.Parent = rootPart
+					end
+					gyro.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(face.X, rootPart.Position.Y, face.Z))
+				elseif gyro then
+					gyro:Destroy()
+				end
+			else
+				if gyro then gyro:Destroy() end
+				local cap = fighter:GetAttribute("ObjectiveSpeed") or 40
+				local speed = cap
+				if Pace.enabled() then
+					speed = math.min(cap, (Pace.gear(fighter, fighter:GetAttribute("ObjectiveUrgency") or 1, fighter:GetAttribute("ObjectivePaceWhy"))))
+					if movingSpot then
+						speed = math.min(speed, job.spotSpeed + math.max(flat.Magnitude - settle, 0) * (CombatConfig.Pace_KeepUpGain or 0.8))
+					else
+						speed = Pace.arrive(speed, flat.Magnitude - settle)
+					end
+				end
+				LocomotionModule.steer(fighter, humanoid, rootPart, Vector3.new(goTo.X, rootPart.Position.Y, goTo.Z), speed, 0.1)
 			end
 			GaitModule.update(humanoid, rootPart, 0.1)
 			return IdleState

@@ -739,6 +739,33 @@ CombatConfig.Objective_GuardTakenCost = 35
 CombatConfig.Objective_HuntCost = 30                 -- Hunt scores this much less while a mode has objectives out
 CombatConfig.Objective_CarrierTargetBonus = 70       -- target utility of an enemy carrying the Lantern
 -- Lantern Siege rounds (ServerScriptService.LanternSiege)
+-- Pace (Modules/Pace, 2026-10-27): walk / jog / run from how urgent a goal is, for every Quin in
+-- every mode. Habits tilt it; it shifts up at once and down only after the urgency stays low.
+CombatConfig.Pace_Enabled = true          -- (Workspace attribute PaceOff = true turns it off live)
+CombatConfig.Pace_JogSpeed = 13           -- studs/s: the Jog gear
+CombatConfig.Pace_JogAt = 0.28            -- felt urgency from which it jogs ...
+CombatConfig.Pace_RunAt = 0.62            -- ... and runs
+CombatConfig.Pace_Hysteresis = 0.08       -- below a gear's threshold by this before it slows
+CombatConfig.Pace_DownshiftHold = 0.6     -- s it stays low before it drops a gear ...
+CombatConfig.Pace_PersistenceHold = 0.9   -- ... + this x Pers_TargetPersistence
+CombatConfig.Pace_AggressionTilt = 0.3    -- (aggression - 0.5) x this added to the urgency
+CombatConfig.Pace_TiredShare = 0.3        -- energy share under which it feels less urgent ...
+CombatConfig.Pace_TiredCost = 0.25        -- ... by this
+CombatConfig.Pace_ArriveDecel = 28        -- studs/s^2 easing off into a spot (not into a fight)
+CombatConfig.Pace_ArriveFloor = 3         -- studs/s it still has at the spot
+CombatConfig.Pace_ReactionMin = 0.15      -- s to take in a new spot at awareness 1 ...
+CombatConfig.Pace_ReactionSpan = 0.65     -- ... + this at awareness 0
+CombatConfig.Pace_SettleRadius = 3        -- studs: at the spot
+CombatConfig.Pace_LeaveRadius = 7         -- studs the spot must move before it walks again
+CombatConfig.Pace_ChaseBase = 0.5         -- chase urgency with nothing at stake (a jog for most)
+CombatConfig.Pace_ChaseCloseRange = 90    -- studs: closing in, it runs
+CombatConfig.Pace_ChaseFarRange = 160     -- studs: beyond this a little less urgent
+CombatConfig.Objective_CarryChasedRange = 35 -- studs: an enemy this near the carrier and it runs
+CombatConfig.Objective_GuardSpread = 55   -- degrees between guards' posts round a Shrine
+CombatConfig.Objective_GuardPost = 12     -- studs out from the Shrine (+5 every other guard)
+CombatConfig.Objective_PatrolRestless = 0.55 -- Pers_MobilityPreference from which a guard patrols
+CombatConfig.Objective_PatrolSwing = 30   -- degrees it moves round the Shrine when it does
+
 CombatConfig.LanternSiege = {
 	HuddleTime = 10, LiveTime = 100, IgniteTime = 20, RoundOverTime = 4,
 	RoundsToWin = 5, SwapAfter = 4,

@@ -1025,6 +1025,9 @@ function Orchestrator.stopMatch()
     end
     matchThread = nil
     skipEpoch += 1
+    -- (a cancelled thread never reaches the mode's own clean-up: a stopped Lantern Siege left its
+    -- field Live, and the next match's Quins went on holding and retaking a Shrine)
+    pcall(LanternSiege.cleanup)
 
     currentPhase = "IDLE"
     phaseEndTime = 0

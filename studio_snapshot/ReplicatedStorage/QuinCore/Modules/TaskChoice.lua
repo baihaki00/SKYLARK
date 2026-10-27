@@ -177,6 +177,31 @@ local function takenBy(task, spot, me)
 	return n
 end
 
+-- Teammates on the same job at the same spot, with itself, in a fixed order: each takes its own
+-- place there (guards spread round a Shrine instead of standing on one point)
+local function slotAmong(task, spot, me)
+	local names = { me.Name }
+	for _, q in ipairs((workspace:FindFirstChild("QuinServer") or workspace):GetChildren()) do
+		if q ~= me and q:GetAttribute("Team") == me:GetAttribute("Team") and q:GetAttribute("Task") == task
+			and (spot == nil or q:GetAttribute("TaskSpot") == spot) then
+			table.insert(names, q.Name)
+		end
+	end
+	table.sort(names)
+	for i, n in ipairs(names) do
+		if n == me.Name then return i, #names end
+	end
+	return 1, #names
+end
+
+-- An enemy it believes is within `range` of a point
+local function enemyNear(board, point, range)
+	for _, contact in ipairs(board.contacts and board.contacts.enemies or {}) do
+		if flat(contact.position, point) <= range then return contact end
+	end
+	return nil
+end
+
 function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggression, protect)
 	local myPos = rootPart.Position
 	local awareness = pers(quinModel, "Pers_Awareness", 0.65)
@@ -196,10 +221,18 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			end
 			if best then
 				board.carryShrine = best.name
+				-- (it walks it in while nobody is on it; chased, or with an open Shrine close, it runs)
+				local chaser = enemyNear(board, myPos, cfg("Objective_CarryChasedRange", 35))
+				local urgency, pace = 0.3, "carry it in"
+				if chaser then
+					urgency, pace = 0.95, "chased"
+				elseif flat(best.position, myPos) < 50 and bestScore > -20 then
+					urgency, pace = 0.75, "run it in"
+				end
 				-- (a hot-headed carrier may turn on one that is on it; a calm one keeps walking)
 				tasks.Carry = {
 					score = cfg("Objective_CarryValue", 150) + 60 * (1 - aggression), point = best.position, spot = best.name,
-					speed = cfg("Objective_CarrySpeed", 22), engage = 0,
+					speed = cfg("Objective_CarrySpeed", 22), engage = 0, urgency = urgency, paceWhy = pace,
 					why = string.format("carry it to %s (%s)", best.name, bestScore > -20 and "looks open" or "least bad"),
 				}
 			end
@@ -207,20 +240,31 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			local pos = view.lantern.position
 			tasks.PickUp = {
 				score = cfg("Objective_PickUpValue", 140) - flat(pos, myPos) * 0.3 - takenBy("PickUp", nil, quinModel) * 70,
-				point = pos, speed = run, engage = engage * 0.6,
+				point = pos, speed = run, engage = engage * 0.6, urgency = 0.75, paceWhy = "get the Lantern",
 				why = view.lantern.state == "Base" and "take the Lantern" or "the Lantern is down, grab it",
 			}
 		elseif view.lantern.state == "Carried" and view.carrier then
 			local cRoot = view.carrier:FindFirstChild("HumanoidRootPart")
 			if cRoot then
 				-- walk a little ahead of the carrier, to one side (each escort its own side)
+				-- toward the Shrine the carrier heads for (its facing turned with every step, the point
+				-- swung and the escort flipped between run and walk chasing it)
 				local toShrine = cRoot.CFrame.LookVector
-				local side = Vector3.new(-toShrine.Z, 0, toShrine.X) * ((#quinModel.Name % 2 == 0) and 1 or -1)
-				local point = cRoot.Position + Vector3.new(toShrine.X, 0, toShrine.Z) * 8 + side * 7
+				for _, s in ipairs(view.shrines) do
+					if s.name == view.carrier:GetAttribute("TaskSpot") then
+						local d = Vector3.new(s.position.X - cRoot.Position.X, 0, s.position.Z - cRoot.Position.Z)
+						if d.Magnitude > 1 then toShrine = d.Unit end
+					end
+				end
+				toShrine = Vector3.new(toShrine.X, 0, toShrine.Z).Unit
+				local slot, count = slotAmong("Escort", nil, quinModel)
+				local side = Vector3.new(-toShrine.Z, 0, toShrine.X) * ((slot % 2 == 0) and 1 or -1)
+				local point = cRoot.Position + toShrine * (slot <= 2 and 8 or -4) + side * 7
 				tasks.Escort = {
 					score = cfg("Objective_EscortValue", 75) + 40 * protect - flat(cRoot.Position, myPos) * 0.15
 						- math.max(0, takenBy("Escort", nil, quinModel) - 1) * 25,
 					point = point, speed = run, engage = engage,
+					urgency = flat(point, myPos) > 25 and 0.7 or 0.35, paceWhy = flat(point, myPos) > 25 and "catch up" or "walk with it",
 					why = "walk with " .. view.carrier.Name,
 				}
 			end
@@ -229,7 +273,7 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			ring = (ring - view.planted.position).Magnitude > 0.1 and view.planted.position + (ring - view.planted.position).Unit * 10 or view.planted.position
 			tasks.HoldPlant = {
 				score = cfg("Objective_HoldValue", 110) - flat(view.planted.position, myPos) * 0.2,
-				point = ring, speed = run, engage = engage,
+				point = ring, speed = run, engage = engage, urgency = 0.6, paceWhy = "hold the Shrine",
 				why = "hold " .. tostring(view.planted.shrine) .. " while it burns",
 			}
 		end
@@ -238,7 +282,7 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			local left = math.max(0, view.planted.endsAt - workspace:GetServerTimeNow())
 			tasks.Retake = {
 				score = cfg("Objective_RetakeValue", 150) + (1 - left / cfg("Objective_IgniteTime", 20)) * 80 - flat(view.planted.position, myPos) * 0.2,
-				point = view.planted.position, speed = run, engage = engage * 0.6,
+				point = view.planted.position, speed = run, engage = engage * 0.6, urgency = 1, paceWhy = "it is burning",
 				why = string.format("stamp it out at %s (%ds left)", tostring(view.planted.shrine), left),
 			}
 		end
@@ -250,11 +294,25 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			if sc > bestScore then best, bestScore = s, sc end
 		end
 		if best then
+			-- each guard of that Shrine its own post round it, facing a different way in
 			local toward = view.lantern.position or best.position
 			local dir = Vector3.new(toward.X - best.position.X, 0, toward.Z - best.position.Z)
-			local point = best.position + (dir.Magnitude > 1 and dir.Unit * 12 or Vector3.zero)
+			dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(0, 0, 1)
+			local slot, count = slotAmong("Guard", best.name, quinModel)
+			local angle = math.rad(cfg("Objective_GuardSpread", 55)) * (slot - (count + 1) / 2)
+			-- a restless guard, having looked all round from its post, walks over to look from the
+			-- other side of it (a steady one holds its post)
+			local restless = pers(quinModel, "Pers_MobilityPreference", 0.5)
+			local cycles = board.gaze and board.gaze.scanCycles or 0
+			if restless >= cfg("Objective_PatrolRestless", 0.55) and cycles % 2 == 1 then
+				angle += math.rad(cfg("Objective_PatrolSwing", 30)) * ((slot % 2 == 0) and 1 or -1)
+			end
+			local postDir = CFrame.fromAxisAngle(Vector3.yAxis, angle):VectorToWorldSpace(dir)
+			local point = best.position + postDir * (cfg("Objective_GuardPost", 12) + (slot % 2) * 5)
+			local far = flat(point, myPos) > 70
 			tasks.Guard = {
 				score = cfg("Objective_GuardValue", 70) + 20 * awareness + bestScore * 0.5, point = point, spot = best.name,
+				face = point + postDir * 40, urgency = far and 0.55 or 0.3, paceWhy = far and "get to my post" or "to my post",
 				speed = run, engage = engage * (1 + 0.5 * aggression),
 				why = "watch " .. best.name,
 			}
@@ -310,7 +368,8 @@ function TaskChoice.choose(quinModel, rootPart, context)
 	if quinModel:GetAttribute("TaskWhy") ~= best.why then quinModel:SetAttribute("TaskWhy", best.why) end
 	if quinModel:GetAttribute("TaskAlly") ~= (best.ally or "") then quinModel:SetAttribute("TaskAlly", best.ally or "") end
 	return { name = bestName, enemy = best.enemy, ally = best.ally, why = best.why,
-		point = best.point, speed = best.speed, engage = best.engage }
+		point = best.point, speed = best.speed, engage = best.engage, face = best.face,
+		urgency = best.urgency, paceWhy = best.paceWhy }
 end
 
 return TaskChoice

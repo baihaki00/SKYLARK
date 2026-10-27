@@ -455,6 +455,9 @@ local function broadcastStateChange(Quin, newState)
 end
 
 task.spawn(function()
+	-- (every Quin of a match is spawned in the same frame: without this they all think on the
+	-- same tick, ten times a second, and act on news on the same frame - start, stop, turn)
+	task.wait(math.random() * 0.1)
 	while enableAI and Quin.Parent and humanoid.Health > 0 do
 		-- === Player-Controlled Bypass ===
 		-- When a human player is piloting this Quin, bypass autonomous AI decisions, FSM movement, and AI arena safety net
@@ -682,6 +685,9 @@ task.spawn(function()
 				if task and task.point then
 					Quin:SetAttribute("ObjectiveGoTo", task.point)
 					Quin:SetAttribute("ObjectiveSpeed", task.speed or 40)
+					Quin:SetAttribute("ObjectiveUrgency", task.urgency or 1)
+					Quin:SetAttribute("ObjectivePaceWhy", task.paceWhy)
+					Quin:SetAttribute("ObjectiveFace", task.face)
 					Quin:SetAttribute("ObjectiveEngage", task.engage or 16)
 					Quin:SetAttribute("ObjectiveUntil", workspace:GetServerTimeNow() + 1.0)
 					local sHRP = selectedTarget and selectedTarget:FindFirstChild("HumanoidRootPart")

@@ -158,6 +158,63 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 			gaze.glanceUntil = now + cfg.GazeGlanceDuration
 		end
 	end
+	-- Standing (owner 2026-10-27: "defenders don't look at each other"), in any mode, the head has
+	-- something to do, and only things it has a reason for:
+	--   greet  an ally that comes up to it draws a look (it saw it come)
+	--   scan   otherwise it looks, one after another, where it believes enemies are or were (its
+	--          own contacts: memory, callouts), and, on a post, across the way it watches. How long
+	--          it holds each look is its habit: a restless Quin looks quickly, a steady one holds.
+	local still = rootPart.AssemblyLinearVelocity.Magnitude < gcfg(cfg, "GazeStandSpeed", 4)
+	if still and state == "Idle" and now >= gaze.glanceUntil and gcfg(cfg, "GazeStandLooks", true) ~= false then
+		local serverNow = Workspace:GetServerTimeNow()
+		gaze.greeted = gaze.greeted or setmetatable({}, { __mode = "k" })
+		local greet
+		for _, contact in ipairs(board.contacts.allies or {}) do
+			local m = contact.model
+			if m and contact.position and now >= (gaze.greeted[m] or 0)
+				and (contact.position - rootPart.Position).Magnitude < gcfg(cfg, "GazeGreetRange", 20) then
+				local v = m:FindFirstChild("HumanoidRootPart") and m.HumanoidRootPart.AssemblyLinearVelocity or Vector3.zero
+				local toMe = rootPart.Position - contact.position
+				if v.Magnitude > 4 and v:Dot(toMe) > 0 then greet = m break end
+				gaze.greeted[m] = now + 1 -- (standing near it already: no need to look)
+			end
+		end
+		if greet then
+			gaze.greeted[greet] = now + gcfg(cfg, "GazeGreetCooldown", 10)
+			gaze.glanceAt = greet
+			gaze.glancePitch = 0
+			gaze.glanceUntil = now + gcfg(cfg, "GazeGreetDuration", 1.2)
+			gaze.nextGlance = gaze.glanceUntil + gcfg(cfg, "GazeCueCheck", 0.4)
+			gaze.lastLook = "greet"
+		elseif serverNow >= (quinModel:GetAttribute("LookUntil") or 0) then
+			local points = {}
+			for _, contact in ipairs(board.contacts.enemies or {}) do
+				if contact.position and not contact.visible then table.insert(points, contact.position) end
+			end
+			local face = quinModel:GetAttribute("ObjectiveFace")
+			if typeof(face) == "Vector3" then
+				local out = Vector3.new(face.X - rootPart.Position.X, 0, face.Z - rootPart.Position.Z)
+				if out.Magnitude > 1 then
+					for _, deg in ipairs({ -45, 0, 45 }) do
+						table.insert(points, rootPart.Position + CFrame.fromAxisAngle(Vector3.yAxis, math.rad(deg)):VectorToWorldSpace(out.Unit) * 40)
+					end
+				end
+			end
+			if #points > 0 then
+				gaze.scanIdx = (gaze.scanIdx or 0) + 1
+				if gaze.scanIdx > #points then
+					gaze.scanIdx = 1
+					gaze.scanCycles = (gaze.scanCycles or 0) + 1
+				end
+				local restless = quinModel:GetAttribute("Pers_MobilityPreference") or 0.5
+				local hold = gcfg(cfg, "GazeScanHoldMin", 0.9) + gcfg(cfg, "GazeScanHoldSpan", 1.6) * (1 - restless)
+				quinModel:SetAttribute("LookPoint", points[gaze.scanIdx])
+				quinModel:SetAttribute("LookUntil", serverNow + hold)
+				gaze.lastLook = "scan"
+				mode = "scan"
+			end
+		end
+	end
 	if now < gaze.glanceUntil then
 		pitch = gaze.glancePitch
 		mode = "glance"
