@@ -90,17 +90,19 @@ end
 -- Keeps a clip on the group's phase. It used to be set straight onto it whenever it drifted past
 -- PHASE_TOLERANCE: 633 jumps in 30 s of a 16v16 (288 on the run), each one a visible hitch of the
 -- legs and hips. Now a clip that is seen is pulled back a little each update; only one too faint
--- to see, or one far out (a fresh start, a reversal), is set at once.
+-- to see is set at once. One far out (a reversal of travel) is pulled faster, still not jumped.
 local PHASE_PULL = 0.015 -- of a cycle per update, at most
+local PHASE_PULL_FAR = 0.04 -- (more than 0.3 of a cycle out)
 local function pullPhase(track, clipPhase)
 	if not isActive(track) or track.Length <= 0 then return end
 	local current = (track.TimePosition % track.Length) / track.Length
 	local d = wrappedPhaseDelta(clipPhase, current)
 	if math.abs(d) <= PHASE_TOLERANCE * 0.5 then return end
-	if track.WeightCurrent < 0.1 or math.abs(d) > 0.3 then
+	if track.WeightCurrent < 0.1 then
 		track.TimePosition = clipPhase * track.Length
 	else
-		track.TimePosition = ((current + math.clamp(d, -PHASE_PULL, PHASE_PULL)) % 1) * track.Length
+		local most = math.abs(d) > 0.3 and PHASE_PULL_FAR or PHASE_PULL
+		track.TimePosition = ((current + math.clamp(d, -most, most)) % 1) * track.Length
 	end
 end
 
@@ -239,13 +241,19 @@ end
 local function drive(track, weight, rate, st, key, startPhase)
 	weight = math.max(weight, 0.001) -- keep the track alive so the sync group never loses phase
 	if not isActive(track) then
+		-- (a clip still fading out from a stop is picked up where it is, not jumped to the phase:
+		-- the sync pulls it in. Jumped, the legs hitched on every quick stop-and-go)
+		local wasSeen = track.WeightCurrent >= 0.1
+		local wasAt = track.TimePosition
 		track.Priority = Enum.AnimationPriority.Movement
 		track.Looped = true
 		track:Play(START_FADE, weight, math.abs(rate))
 		if rate < 0 then
 			track:AdjustSpeed(rate) -- backpedal: the cycle played in reverse
 		end
-		if startPhase and track.Length > 0 then
+		if wasSeen then
+			track.TimePosition = wasAt
+		elseif startPhase and track.Length > 0 then
 			track.TimePosition = startPhase * track.Length
 		end
 		st.weights[key], st.rates[key] = weight, rate
