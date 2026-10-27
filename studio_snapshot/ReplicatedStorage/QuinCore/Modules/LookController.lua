@@ -38,6 +38,15 @@ local POINT_ACROSS = math.rad(25)  -- furthest the aim goes across the body
 local POINT_OUT = math.rad(120)    -- furthest out to its own side
 local POINT_PITCH_MIN, POINT_PITCH_MAX = math.rad(-35), math.rad(50)
 local POINT_CHEST_SHARE, POINT_CHEST_MAX = 0.3, math.rad(20)
+local POINT_WRIST = math.rad(35)      -- most the wrist turns to line the finger up
+-- The pointing hand: the index straight, the other three curled in tight (the clips hold a loose
+-- fist; on this rig a finger curls by turning negative about its own X). The thumb keeps the clip's.
+local POINT_FINGERS = {
+	Index = { -4, -3, -2 },
+	Middle = { -80, -95, -60 },
+	Ring = { -85, -95, -60 },
+	Pinky = { -85, -90, -60 },
+}
 
 local function smooth(a, b, x)
 	local t = math.clamp((x - a) / (b - a), 0, 1)
@@ -66,7 +75,14 @@ function LookController.new(ghostModel, aiModel)
 		local fore = ghostModel:FindFirstChild("mixamorig:" .. side .. "ForeArm", true)
 		local hand = ghostModel:FindFirstChild("mixamorig:" .. side .. "Hand", true)
 		if upper and fore and hand then
-			self.arms[side] = { upper = upper, fore = fore, hand = hand }
+			local fingers = {}
+			for finger, angles in pairs(POINT_FINGERS) do
+				for i, deg in ipairs(angles) do
+					local bone = hand:FindFirstChild("mixamorig:" .. side .. "Hand" .. finger .. i, true)
+					if bone then table.insert(fingers, { bone = bone, pose = CFrame.Angles(math.rad(deg), 0, 0) }) end
+				end
+			end
+			self.arms[side] = { upper = upper, fore = fore, hand = hand, fingers = fingers }
 		end
 	end
 	self.pointW, self.pointChestYaw = 0, 0
@@ -329,11 +345,19 @@ function LookController:preparePoint()
 	if not at or Workspace:GetAttribute("PointOff") == true then return end
 	local t = Workspace:GetServerTimeNow() - at
 	if t < 0 or t >= POINT_DURATION then return end
-	local folder = Workspace:FindFirstChild("QuinServer")
-	local enemy = folder and folder:FindFirstChild(model:GetAttribute("PointAtName") or "")
-	local enemyRoot = enemy and enemy:FindFirstChild("HumanoidRootPart")
-	if not enemyRoot then return end
-	local targetPos = enemyRoot.Position + Vector3.new(0, 1, 0)
+	-- at a Quin (PointAtName), or at a place (PointAtPos: a spot, a thing, where to go)
+	local targetPos
+	local name = model:GetAttribute("PointAtName")
+	if name and name ~= "" then
+		local folder = Workspace:FindFirstChild("QuinServer")
+		local enemy = folder and folder:FindFirstChild(name)
+		local enemyRoot = enemy and enemy:FindFirstChild("HumanoidRootPart")
+		if not enemyRoot then return end
+		targetPos = enemyRoot.Position + Vector3.new(0, 1, 0)
+	else
+		targetPos = model:GetAttribute("PointAtPos")
+		if typeof(targetPos) ~= "Vector3" then return end
+	end
 	local localPos = self.rootPart.CFrame:PointToObjectSpace(targetPos)
 	if self.pointKey ~= at then
 		self.pointKey = at
@@ -401,6 +425,26 @@ function LookController:applyPoint()
 	local offset2 = axis2 and CFrame.fromAxisAngle(foreRot:VectorToObjectSpace(axis2), angle2) or CFrame.identity
 	self:applyBoneOffset(upper, CFrame.identity:Lerp(offset1, self.pointW))
 	self:applyBoneOffset(fore, CFrame.identity:Lerp(offset2, self.pointW))
+	-- the wrist turns the finger onto the target (the clip's wrist angle left it ~15 degrees off),
+	-- at most POINT_WRIST
+	local index1 = arm.fingers[1] and hand:FindFirstChild("mixamorig:" .. self.pointSide .. "HandIndex1")
+	local index2 = index1 and index1:FindFirstChild("mixamorig:" .. self.pointSide .. "HandIndex2")
+	local index3 = index2 and index2:FindFirstChild("mixamorig:" .. self.pointSide .. "HandIndex3")
+	if index3 then
+		local Hw = hand.TransformedWorldCFrame * hand.Transform:Inverse() * self:baseTransform(hand)
+		local tipLocal = (index1.CFrame * index2.CFrame * index3.CFrame).Position - index1.CFrame.Position
+		local fingerDir = Hw:VectorToWorldSpace(tipLocal.Unit)
+		local axis3, angle3 = between(fingerDir, (self.pointTarget - Hw.Position).Unit)
+		if axis3 then
+			angle3 = math.min(angle3, POINT_WRIST)
+			self:applyBoneOffset(hand, CFrame.identity:Lerp(CFrame.fromAxisAngle(Hw:VectorToObjectSpace(axis3), angle3), self.pointW))
+		end
+	end
+	-- the hand: from the clip's fist to the point, with the arm
+	for _, finger in ipairs(arm.fingers) do
+		local base = self:baseTransform(finger.bone)
+		self:applyBoneOffset(finger.bone, base:Inverse() * base:Lerp(finger.pose, self.pointW))
+	end
 end
 
 -- Update procedural look-at on top of animation, then the pointing arm

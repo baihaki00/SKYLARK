@@ -132,6 +132,7 @@ function Callouts.maybeCall(board, quinModel, rootPart, fresh, now)
 			quinModel:SetAttribute("CalloutAt", workspace:GetServerTimeNow())
 			if point then
 				quinModel:SetAttribute("PointAtName", percept.model.Name)
+				quinModel:SetAttribute("PointAtPos", nil)
 				quinModel:SetAttribute("PointAt", workspace:GetServerTimeNow()) -- (LookController raises the arm)
 				Callouts.debugTag(quinModel, "point: " .. percept.model.Name, Color3.fromRGB(255, 230, 120))
 			end
