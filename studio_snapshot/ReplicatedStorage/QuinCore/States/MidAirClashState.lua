@@ -16,6 +16,8 @@ local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitF
 local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local ClashOrbit = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ClashOrbit"))
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 local MidAirClashState = { name = "MidAirClash" }
 
@@ -105,7 +107,7 @@ function MidAirClashState.enter(fighter, humanoid, rootPart)
 				target:SetAttribute("MidAirClashRole", "Follower")
 				target:SetAttribute("MidAirClashPartner", fighter.Name)
 				target:SetAttribute("ClashWith", fighter.Name)
-				target:SetAttribute("ForceState", "MidAirClash")
+				StateRequest.ask(target, "MidAirClash", StateRequest.CLASH, "met in the air")
 				
 				-- Set initial mid-air center point (ensure elevated at least Y=30)
 				local midY = math.max(30, (rootPart.Position.Y + targetHRP.Position.Y) / 2)
@@ -189,23 +191,23 @@ end
 
 function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = clashData[fighter]
-	if not data then return require(script.Parent:WaitForChild("AirborneState")) end
+	if not data then return States.Airborne end
 	
 	local target = data.target
 	if not target or not target.Parent then
-		return require(script.Parent:WaitForChild("AirborneState"))
+		return States.Airborne
 	end
 	-- The partner left the clash (or is clashing with someone else): nobody to fight up here.
 	-- Not once a result is written (the leader leaves first and clears its own partner).
 	if not fighter:GetAttribute("ClashResult") and tick() - data.startTime > 0.3
 		and target:GetAttribute("MidAirClashPartner") ~= fighter.Name then
-		return require(script.Parent:WaitForChild("AirborneState"))
+		return States.Airborne
 	end
 	
 	local targetHum = target:FindFirstChildOfClass("Humanoid")
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
 	if not targetHum or targetHum.Health <= 0 or not targetHRP then
-		return require(script.Parent:WaitForChild("AirborneState"))
+		return States.Airborne
 	end
 	
 	local now = tick()
@@ -310,9 +312,9 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 			
 			cleanupMovers(rootPart)
 			fighter:SetAttribute("KnockbackType", "air")
-			fighter:SetAttribute("ForceState", "Knockback")
+			StateRequest.ask(fighter, "Knockback", StateRequest.HIT, "struck")
 			KnockbackModule.applyKnockback(fighter, flatAway, 110, 0.5)
-			return require(script.Parent:WaitForChild("KnockbackState"))
+			return States.Knockback
 			
 		-- RESOLUTION 2: METEOR DOWNWARD SMASH
 		else
@@ -336,7 +338,7 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 					end
 				end)
 				
-				return require(script.Parent:WaitForChild("AirborneState"))
+				return States.Airborne
 			else
 				-- LOSER: Smashed straight down to the ground!
 				cleanupMovers(rootPart)
@@ -364,19 +366,19 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 				rootPart.AssemblyLinearVelocity = Vector3.new(0, -smashSpeed, 0)
 				
 				fighter:SetAttribute("KnockbackType", "hard_ground")
-				fighter:SetAttribute("ForceState", "Knockback")
+				StateRequest.ask(fighter, "Knockback", StateRequest.HIT, "struck")
 				fighter:SetAttribute("LaunchedAt", tick() + 0.1)
 				
 				DamageModule.chip(target, fighter, 20) -- the one smashed down takes it (this used to hit the winner)
 				
-				return require(script.Parent:WaitForChild("KnockbackState"))
+				return States.Knockback
 			end
 		end
 	end
 	
 	-- Global safety timeout: max 4.5s in air clash (the orbit's own limit, plus a beat)
 	if totalElapsed > math.max(4.5, math.max(CombatConfig.MidAirClash_OrbitMaxTime or 2, CombatConfig.MidAirClash_OrbitLeapMaxTime or 2) + 1.5) then
-		return require(script.Parent:WaitForChild("AirborneState"))
+		return States.Airborne
 	end
 	
 	return MidAirClashState

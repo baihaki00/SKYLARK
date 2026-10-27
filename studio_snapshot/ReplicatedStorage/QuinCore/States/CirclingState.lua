@@ -27,6 +27,7 @@ local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("Run
 local BattleEventSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local NavigationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local CirclingState = { name = "Circling" }
 
@@ -198,7 +199,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Respect-custom spectators must never circle
 	local showdownRole = fighter:GetAttribute("RespectRole")
 	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).standsDown(fighter) then
-		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
+		return States.Idle -- (spectators stand and watch)
 	end
 	-- A place it decided to walk to (a leader's regroup, a respect custom): it goes there first
 	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).followMoveIntent(fighter, humanoid, rootPart, 0.1) then
@@ -215,7 +216,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	local data = circlingData[fighter]
-	if not data then return require(script.Parent:WaitForChild("FightState")) end
+	if not data then return States.Fight end
 	-- A focused dash or a quick evade has the body (Modules/Evasion): nothing else steers it
 	if Evasion.busy(fighter) then
 		return CirclingState
@@ -232,7 +233,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Prone / Cockroach protection: if flat on ground, immediately recover
 	if rootPart.CFrame.UpVector.Y < 0.6 and SpatialModule.isGrounded(rootPart) then
 		fighter:SetAttribute("KnockbackType", "hard_ground")
-		return require(script.Parent:WaitForChild("RecoveryState"))
+		return States.Recovery
 	end
 
 	-- (mana comes back in the body while it paces: BodyStamina)
@@ -245,7 +246,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 			TargetingModule.setTarget(fighter, target)
 		else
 			TargetingModule.clearTarget(fighter)
-			return require(script.Parent:WaitForChild("IdleState"))
+			return States.Idle
 		end
 	end
 
@@ -256,7 +257,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- not to duel: it takes no part in the standoff below, and it runs again when pressed.
 	local keepingAway = fighter:GetAttribute("TacticalState") == "RETREATING"
 	if keepingAway and distance < (CombatConfig.Retreat_FleeAgainDistance or 40) then
-		return require(script.Parent:WaitForChild("RetreatState"))
+		return States.Retreat
 	end
 
 	-- A stand-off that has gone quiet too long breaks: someone explodes into it (Modules/Rhythm).
@@ -266,7 +267,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		and math.random() < (CombatConfig.Rhythm_ExplodeChance or 0.5) * (0.5 + (Pers.get(fighter, "Aggression"))) then
 		fighter:SetAttribute("ExplodeNext", true)
 		fighter:SetAttribute("CirclingSince", os.clock())
-		return require(script.Parent:WaitForChild("FightState"))
+		return States.Fight
 	end
 
 	-- A target it cannot get to (up on a platform, behind a wall) is not circled: orbiting
@@ -278,7 +279,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		else
 			data.unreachableSince = data.unreachableSince or tick()
 			if tick() - data.unreachableSince > 0.5 then
-				return require(script.Parent:WaitForChild("ChaseState"))
+				return States.Chase
 			end
 		end
 	end
@@ -286,7 +287,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Snap condition 0: Opponent broke the standoff to fight!
 	if not keepingAway and (targetState == "Fight" or targetState == "Dash" or targetState == "Special") then
 		if DEBUG then print("[Circling] Opponent attacked! FIGHT!") end
-		return require(script.Parent:WaitForChild("FightState"))
+		return States.Fight
 	end
 
 	-- Snap condition 1: Time's up (tension snap)
@@ -306,9 +307,9 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 				fighter:SetAttribute("JumpWhy", "dash in: standoff snapped") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 			end
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		elseif distance > maxCircleRange then
-			return require(script.Parent:WaitForChild("ChaseState"))
+			return States.Chase
 		end
 	end
 
@@ -325,7 +326,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 				fighter:SetAttribute("JumpWhy", "dash in: its back is turned") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 			end
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		end
 	end
 
@@ -393,7 +394,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 			local meleeRange = (CombatConfig.CombatRange or 8.2) * 2.0
 			if aggression >= (CombatConfig.CorneredCounterThreshold or 0.65) and distance <= meleeRange then
 				fighter:SetAttribute("DesperateCounter", true)
-				return require(script.Parent:WaitForChild("FightState"))
+				return States.Fight
 			end
 		end
 

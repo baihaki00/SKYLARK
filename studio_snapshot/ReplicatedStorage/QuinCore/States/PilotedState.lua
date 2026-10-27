@@ -39,6 +39,7 @@ local GaitModule = require(Modules:WaitForChild("GaitModule"))
 local PilotInput = require(Modules:WaitForChild("PilotInput"))
 local RuntimeTracer = require(Modules:WaitForChild("RuntimeTracer"))
 local SpatialModule = require(Modules:WaitForChild("SpatialModule"))
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local PilotedState = { name = "Piloted", tickInterval = 1 / 30 }
 
@@ -52,7 +53,7 @@ local function cfg(key, default)
 end
 
 local function fightState()
-	return require(script.Parent:WaitForChild("FightState"))
+	return States.Fight
 end
 
 local function flat(v) return Vector3.new(v.X, 0, v.Z) end
@@ -154,7 +155,7 @@ function projectileJump(fighter, humanoid, rootPart, pj)
 		return nil
 	end
 	local maxRange = cfg("ProjectileJumpRange", CombatConfig.ProjectileJumpMaxDistance or 800)
-	local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
+	local ProjectileJumpState = States.ProjectileJump
 	local team = fighter:GetAttribute("Team")
 	local targetRoot = pj.target and pj.target:FindFirstChild("HumanoidRootPart")
 	local targetHum = pj.target and pj.target:FindFirstChildOfClass("Humanoid")

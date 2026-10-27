@@ -33,6 +33,8 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local ImpulseModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ImpulseModule"))
 local RunService = game:GetService("RunService")
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 local ProjectileJumpState = { name = "ProjectileJump" }
 
@@ -839,15 +841,15 @@ end
 
 function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = stateData[fighter]
-	if not data then return require(script.Parent:WaitForChild("IdleState")) end
+	if not data then return States.Idle end
 
 	local target = data.target
 	if not target then
-		return require(script.Parent:WaitForChild("FightState"))
+		return States.Fight
 	end
 	local targetPosPart = target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart")
 	if not targetPosPart then
-		return require(script.Parent:WaitForChild("FightState"))
+		return States.Fight
 	end
 
 	local targetPos = targetPosPart.Position
@@ -856,7 +858,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 
 	local lv = rootPart:FindFirstChild("PJ_LinearVelocity") or rootPart:FindFirstChild("PJ_Velocity")
 	local ao = rootPart:FindFirstChild("PJ_Align") or rootPart:FindFirstChild("PJ_Gyro")
-	if not lv or not ao then return require(script.Parent:WaitForChild("FightState")) end
+	if not lv or not ao then return States.Fight end
 
 	-- After the launch clip: the kit's airborne loop until the dive (or the landing) takes over
 	if data.kit and not data.inAirLoop and not data.diving and data.phase ~= "Impact" then
@@ -914,7 +916,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		and target:GetAttribute("CurrentState") == "ProjectileJump"
 		and distToTarget <= (CombatConfig.MidAirClash_TriggerDistance or 40) then
 		fighter:SetAttribute("ClashWith", target.Name)
-		return require(script.Parent:WaitForChild("MidAirClashState"))
+		return States.MidAirClash
 	end
 
 	if data.phase == "Init" then
@@ -1044,7 +1046,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		if data.interceptContact and targetAirborne and not targetClashing then
 			fighter:SetAttribute("ClashWith", target.Name)
 			fighter:SetAttribute("InterceptHits", (fighter:GetAttribute("InterceptHits") or 0) + 1)
-			return require(script.Parent:WaitForChild("MidAirClashState"))
+			return States.MidAirClash
 		-- (below the interceptor it is coming down past it: the line would point at the floor)
 		elseif not targetAirborne or targetClashing or timeInPhase > INTERCEPT_TIMEOUT
 			or targetPos.Y < rootPart.Position.Y - 5 then
@@ -1221,7 +1223,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		-- (a target already clashing with someone else is not joined: three-way clashes)
 		if not data.precise and (targetState == "ProjectileJump" or targetState == "Airborne") and distToTarget <= 35 then
 			fighter:SetAttribute("ClashWith", target.Name)
-			return require(script.Parent:WaitForChild("MidAirClashState"))
+			return States.MidAirClash
 		end
 
 		-- Impact reached while still airborne (target within reach, path blocked): drop the rest
@@ -1352,7 +1354,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 						other:SetAttribute("ImpactType", "SLAM")
 						local oState = other:GetAttribute("CurrentState")
 						if oDist <= knockRadius and oState ~= "Knockback" and oState ~= "Death" and oState ~= "Airborne" then
-							other:SetAttribute("ForceState", "Knockback")
+							StateRequest.ask(other, "Knockback", StateRequest.HIT, "struck")
 							other:SetAttribute("KnockbackType", "ground")
 						end
 					end
@@ -1377,7 +1379,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 		AnimationModule.stop(humanoid, AnimationIds.Dash, 0.05)
 		fighter:SetAttribute("KnockbackType", data.precise and "traversal_landing" or "slam_landing")
 
-		return require(script.Parent:WaitForChild("RecoveryState"))
+		return States.Recovery
 	end
 
 	return ProjectileJumpState

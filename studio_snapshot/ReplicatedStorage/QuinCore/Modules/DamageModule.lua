@@ -11,6 +11,7 @@ local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local BattleEventSystem = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("BattleEventSystem"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 local DamageModule = {}
 
@@ -187,7 +188,7 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 				-- Trigger Immediate Counter-Attack
 				targetModel:SetAttribute("ImmediateCounter", true)
 				targetModel:SetAttribute("ImmediateCounterTarget", attackerModel.Name)
-				targetModel:SetAttribute("ForceState", "Fight")
+				StateRequest.ask(targetModel, "Fight", StateRequest.COUNTER, "counter after a block")
 
 				return false, false, "Blocked"
 			else

@@ -15,6 +15,7 @@ local AudioModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForCh
 local VfxModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("VfxModule"))
 local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local AirborneState = { name = "Airborne" }
 
@@ -75,7 +76,7 @@ end
 function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = airborneData[fighter]
 	if not data then
-		return require(script.Parent:WaitForChild("IdleState"))
+		return States.Idle
 	end
 	
 	local elapsed = tick() - data.enterTime
@@ -84,14 +85,14 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Timeout: fall back to ground
 	if elapsed > maxAirTime then
 		if DEBUG then print("[Airborne] Timeout → ground") end
-		return require(script.Parent:WaitForChild("ChaseState"))
+		return States.Chase
 	end
 	
 	-- Check if we landed
 	local state = humanoid:GetState()
 	if elapsed > 0.5 and (state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.Landed) then
 		if DEBUG then print("[Airborne] Landed → Chase") end
-		return require(script.Parent:WaitForChild("ChaseState"))
+		return States.Chase
 	end
 	
 	-- Find target
@@ -120,7 +121,7 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 	if not clashedRecently and targetState ~= "Knockback" and targetState ~= "MidAirClash"
 		and (targetState == "Airborne" or targetState == "ProjectileJump" or targetState == "MidAirClash" or targetOffGround) and distance < 35 then
 		fighter:SetAttribute("ClashWith", target.Name)
-		return require(script.Parent:WaitForChild("MidAirClashState"))
+		return States.MidAirClash
 	end
 	
 	-- Move toward target in air

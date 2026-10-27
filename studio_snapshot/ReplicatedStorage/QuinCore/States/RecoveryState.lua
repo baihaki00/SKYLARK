@@ -11,6 +11,7 @@ local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("Run
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local KnockbackModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("KnockbackModule"))
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local RecoveryState = { name = "Recovery" }
 
@@ -189,7 +190,7 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	local data = recoveryData[fighter]
-	if not data then return require(script.Parent:WaitForChild("IdleState")) end
+	if not data then return States.Idle end
 
 	if tick() - data.enterTime >= data.duration then
 		local chaseRange = CombatConfig.ChaseRange or 800
@@ -202,24 +203,24 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 			local combatRange = CombatConfig.CombatRange or 8.2
 			if distance <= combatRange * 1.2 then
 				-- Opponent in melee proximity: defend or fight
-				return require(script.Parent:WaitForChild("FightState"))
+				return States.Fight
 			elseif distance <= combatRange * 3.5 then
 				-- Standoff range: circular pacing
-				return require(script.Parent:WaitForChild("CirclingState"))
+				return States.Circling
 			end
 		end
 		-- Nobody within reach. On a high platform that is a place worth holding (not for a Quin
 		-- that is restless or hunting: it goes after someone)
-		local OverwatchState = require(script.Parent:WaitForChild("OverwatchState"))
+		local OverwatchState = States.Overwatch
 		local urgency = fighter:GetAttribute("SocialHunt") and 1 or (fighter:GetAttribute("SocialUrgency") or 0)
 		if urgency < 0.5 and OverwatchState.canHold(fighter, rootPart) then
 			return OverwatchState
 		end
 		if target then
 			-- Distant opponent: pursue
-			return require(script.Parent:WaitForChild("ChaseState"))
+			return States.Chase
 		end
-		return require(script.Parent:WaitForChild("IdleState"))
+		return States.Idle
 	end
 
 	-- Keep them grounded, upright, and still during get-up

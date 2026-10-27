@@ -16,6 +16,8 @@ local VfxModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChil
 local AnimationIds = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("AnimationIds"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 local SpecialState = { name = "Special" }
 
@@ -245,14 +247,14 @@ end
 function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = specialData[fighter]
 	if not data then
-		return require(script.Parent:WaitForChild("FightState"))
+		return States.Fight
 	end
 
 	-- Prone guard: if knocked flat, recover
 	local upY = rootPart.CFrame.UpVector.Y
 	if upY < 0.6 and SpatialModule.isGrounded(rootPart) then
 		fighter:SetAttribute("KnockbackType", "hard_ground")
-		return require(script.Parent:WaitForChild("RecoveryState"))
+		return States.Recovery
 	end
 	
 	local elapsed = tick() - data.enterTime
@@ -358,7 +360,7 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 						dir = (dir + Vector3.new(0, 0.8, 0)).Unit
 					end
 					KnockbackModule.applyKnockback(hitModel, dir, move.knockbackOnFinish, 0.35)
-					hitModel:SetAttribute("ForceState", "Knockback")
+					StateRequest.ask(hitModel, "Knockback", StateRequest.HIT, "struck")
 				end
 			end
 			
@@ -373,9 +375,9 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 		if phaseElapsed >= (move.recoveryDuration / speedMult) then
 			local t, d = TargetingModule.getNearest(rootPart, CombatConfig.CombatRange or 8.2)
 			if t and d <= (CombatConfig.CombatRange or 8.2) * 1.5 then
-				return require(script.Parent:WaitForChild("FightState"))
+				return States.Fight
 			else
-				return require(script.Parent:WaitForChild("ChaseState"))
+				return States.Chase
 			end
 		end
 		return SpecialState

@@ -33,6 +33,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 local Modules = QuinCore:WaitForChild("Modules")
 local SocialSystem = require(Modules:WaitForChild("SocialSystem"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 local CFG = (CombatConfig.Social or {}).Tension or {}
 
@@ -153,7 +154,7 @@ local function makeMove(m, allies)
 		if not m.Parent then return end
 		local state = m:GetAttribute("CurrentState")
 		if state == "Idle" or state == "Circling" or state == "Retreat" then
-			m:SetAttribute("ForceState", "Chase")
+			StateRequest.ask(m, "Chase", StateRequest.SOCIAL, "provoked")
 		end
 	end)
 end

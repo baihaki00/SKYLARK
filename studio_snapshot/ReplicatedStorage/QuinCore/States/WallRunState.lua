@@ -26,6 +26,7 @@ local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("Spa
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local VfxModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("VfxModule"))
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local WallRunState = { name = "WallRun" }
 local wallRunData = setmetatable({}, { __mode = "k" })
@@ -197,12 +198,12 @@ end
 function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = wallRunData[fighter]
 	if not data then
-		return require(script.Parent:WaitForChild("IdleState"))
+		return States.Idle
 	end
 	if data.noWall then
 		RuntimeTracer.checkpoint(fighter, "WallRun: no wall either side, dropped")
 		fighter:SetAttribute("WallKickReason", "NoWall 0.00s")
-		return require(script.Parent:WaitForChild("ChaseState"))
+		return States.Chase
 	end
 
 	-- Same clock as data.startTime. With tick() here `elapsed` was ~1.7e9 seconds, so every
@@ -244,7 +245,7 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 			RuntimeTracer.checkpoint(fighter, string.format("Wall Dash (%.2fs)", elapsed))
 			fighter:SetAttribute("WallKickReason", string.format("WallDash %.2fs", elapsed))
 			VfxModule.createShockwave(rootPart.Position + data.normal * 0.5, 6, 0.3, fighter:GetAttribute("Element"))
-			return require(script.Parent:WaitForChild("ChaseState"))
+			return States.Chase
 		end
 	end
 
@@ -290,9 +291,9 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 		require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("AirDash")).noteWallKick(fighter)
 
 		if interceptTarget and dist <= (CombatConfig.CombatRange or 8.2) + 2.0 then
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		end
-		return require(script.Parent:WaitForChild("ChaseState"))
+		return States.Chase
 	end
 
 	data.wallDistance = wallHit.Distance

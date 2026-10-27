@@ -15,6 +15,7 @@ local AnimationIds = require(QuinCore:WaitForChild("AnimationIds"))
 local AudioModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AudioModule"))
 local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local ReEntryState = { name = "ReEntry" }
 
@@ -111,7 +112,7 @@ end
 function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = reEntryData[fighter]
 	if not data or not rootPart or not humanoid or humanoid.Health <= 0 then
-		return require(script.Parent:WaitForChild("IdleState"))
+		return States.Idle
 	end
 
 	local now = tick()
@@ -126,7 +127,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 		local timeoutBounds = SpatialModule.getArenaBounds()
 		fighter:PivotTo(CFrame.new(timeoutBounds.center.X, 7.5, timeoutBounds.center.Z))
 		rootPart.AssemblyLinearVelocity = Vector3.zero
-		return require(script.Parent:WaitForChild("FightState"))
+		return States.Fight
 	end
 
 	-- Recompute live horizontal direction to arena center
@@ -148,7 +149,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 		GaitModule.update(humanoid, rootPart, locoDt)
 
 		if not SpatialModule.isOutOfBounds(rootPart, 30) then
-			return require(script.Parent:WaitForChild("ChaseState"))
+			return States.Chase
 		end
 		if phaseElapsed > 2.5 then
 			-- Blocked on the way in: fall back to the run-up and leap
@@ -275,9 +276,9 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 				-- Transition to combat or idle
 				local isCombatActive = Workspace:GetAttribute("NormalCombatActive") or Workspace:GetAttribute("MatchStarted")
 				if isCombatActive then
-					return require(script.Parent:WaitForChild("FightState"))
+					return States.Fight
 				else
-					return require(script.Parent:WaitForChild("CirclingState"))
+					return States.Circling
 				end
 			end
 		end

@@ -39,6 +39,7 @@ local SocialSystem = require(Modules:WaitForChild("SocialSystem"))
 local SpatialModule = require(Modules:WaitForChild("SpatialModule"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
 local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 local CFG = (CombatConfig.Social or {}).Respect or {}
 
@@ -520,7 +521,7 @@ local function breakStandoff(breaker, reason)
 			local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
 			pcall(LocomotionModule.dash, breaker, hum, rb, ro.Position, d)
 		end
-		breaker:SetAttribute("ForceState", d <= (CombatConfig.CombatRange or 8.2) * 2.5 and "Fight" or "Chase")
+		StateRequest.ask(breaker, d <= (CombatConfig.CombatRange or 8.2) * 2.5 and "Fight" or "Chase", StateRequest.SOCIAL, "broke the custom")
 	end
 	SocialSystem.raiseEvent("StandoffBreak", { text = breaker.Name })
 	print(string.format("[Social] The final fight: %s goes in on %s (%s, after %.1f s)", breaker.Name, other.Name, reason, now() - c.standoff.at))
@@ -678,7 +679,7 @@ local function hunt(o)
 	o:SetAttribute("SocialWatchPoint", nil)
 	o:SetAttribute("TargetOverride", c.survivor.Name)
 	o:SetAttribute("SocialHunt", c.survivor.Name)
-	o:SetAttribute("ForceState", "Chase")
+	StateRequest.ask(o, "Chase", StateRequest.SOCIAL, "hunts the survivor")
 end
 
 -- The comeback: the leader is down. A beat of shock, then each decides: most turn on the

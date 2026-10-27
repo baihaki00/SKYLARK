@@ -28,6 +28,7 @@ local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("T
 local Cognition = require(QuinCore:WaitForChild("Cognition"))
 local PlatformCatalogue = require(QuinCore:WaitForChild("Modules"):WaitForChild("PlatformCatalogue"))
 local TraversalModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TraversalModule"))
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local RetreatState = { name = "Retreat" }
 local retreatData = setmetatable({}, { __mode = "k" })
@@ -152,19 +153,19 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Respect custom: Duelists stand and fight; spectators watch
 	local showdownRole = fighter:GetAttribute("RespectRole")
 	if showdownRole == "Duelist" then
-		return require(script.Parent:WaitForChild("FightState"))
+		return States.Fight
 	elseif require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).standsDown(fighter) then
-		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
+		return States.Idle -- (spectators stand and watch)
 	end
 
 	local data = retreatData[fighter]
-	if not data then return require(script.Parent:WaitForChild("IdleState")) end
+	if not data then return States.Idle end
 
 	-- Prone / Cockroach protection: if flat on ground, immediately recover
 	local upY = rootPart.CFrame.UpVector.Y
 	if upY < 0.6 and SpatialModule.isGrounded(rootPart) then
 		fighter:SetAttribute("KnockbackType", "hard_ground")
-		return require(script.Parent:WaitForChild("RecoveryState"))
+		return States.Recovery
 	end
 
 	local now = tick()
@@ -239,7 +240,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		fighter:SetAttribute("DesperateCounter", true)
 		TargetingModule.setTarget(fighter, nearestThreat)
 		RuntimeTracer.checkpoint(fighter, "Escape suicidal -> Turn to Last Stand fight!")
-		return require(script.Parent:WaitForChild("FightState"))
+		return States.Fight
 	end
 
 	-- TRANSITION 2: DEFEND & DELAY (Reinforcing Ally Approaching)
@@ -257,7 +258,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	if nearestAllyDist > 16 and fighter:GetAttribute("ReinforcingAllyApproaching") == true and nearestThreatDist <= (CombatConfig.DefendDelayDistance or 35.0) and elapsed >= minCommitDuration then
 		fighter:SetAttribute("IsGuarding", true)
 		RuntimeTracer.checkpoint(fighter, "Ally reinforcing -> Defend & Delay stance")
-		return require(script.Parent:WaitForChild("CirclingState"))
+		return States.Circling
 	end
 
 	-- TRANSITION 3: PURSUER OVEREXTENSION / WHIFF COUNTERATTACK
@@ -288,7 +289,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 			fighter:SetAttribute("RetreatCounterattacked", true)
 			TargetingModule.setTarget(fighter, nearestThreat)
 			RuntimeTracer.checkpoint(fighter, "Pursuer overextended -> Turn and Counterattack!")
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		end
 	end
 
@@ -316,7 +317,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 			})
 			RuntimeTracer.checkpoint(fighter, lostThem and "Retreat: lost the pursuer" or "Retreat reached safety")
 			-- Regroup & hold defensive standoff with energy recovery; do NOT dead-stop into IdleState
-			return require(script.Parent:WaitForChild("CirclingState"))
+			return States.Circling
 		end
 	end
 
@@ -338,7 +339,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 			fighter:SetAttribute("RetreatCounterattacked", true)
 			TargetingModule.setTarget(fighter, nearestThreat)
 			RuntimeTracer.checkpoint(fighter, "Retreat reached allies -> COUNTERATTACK!")
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		end
 	end
 
@@ -355,11 +356,11 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 					ElevationGained = heightDiff,
 				})
 				RuntimeTracer.checkpoint(fighter, "Retreat secured high ground -> Holding vantage")
-				local OverwatchState = require(script.Parent:WaitForChild("OverwatchState"))
+				local OverwatchState = States.Overwatch
 				if OverwatchState.canHold(fighter, rootPart) then
 					return OverwatchState
 				end
-				return require(script.Parent:WaitForChild("CirclingState"))
+				return States.Circling
 			end
 		end
 
@@ -373,7 +374,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 			fighter:SetAttribute("LastStandMode", true)
 			fighter:SetAttribute("DesperateCounter", true)
 			RuntimeTracer.checkpoint(fighter, "Retreat cornered -> Desperate Stand")
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		end
 
 		-- Decision changed by player command or external system
@@ -387,7 +388,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		local recAction = fighter:GetAttribute("RecommendedAction")
 		if recAction and recAction ~= "Retreat" and nearestThreatDist > 20 and runFinished then
 			RuntimeTracer.checkpoint(fighter, "Retreat complete -> " .. recAction)
-			return require(script.Parent:WaitForChild("CirclingState"))
+			return States.Circling
 		end
 	end
 
@@ -423,7 +424,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		and (data.currentSpeed or 30) >= 20 and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall
 	if canWallRun then
 		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 4.8, CombatConfig.WallRunMinRunway or 24)
-		local WallRunState = require(script.Parent:WaitForChild("WallRunState"))
+		local WallRunState = States.WallRun
 		if wallSurface and WallRunState.fastEnough(rootPart, wallSurface) then
 			fighter:SetAttribute("LastWallRunTime", now)
 			RuntimeTracer.checkpoint(fighter, "Retreat wall-running away from threat")
@@ -440,7 +441,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 				fighter:SetAttribute("ObstacleAwareness", "Projectile jump to high ground")
 				RuntimeTracer.checkpoint(fighter, "Retreat: projectile jump onto a platform")
 				fighter:SetAttribute("JumpWhy", "escape to high ground") -- (JumpLog, team step 5)
-				local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
+				local ProjectileJumpState = States.ProjectileJump
 				ProjectileJumpState.aimAtPoint(fighter, result.targetPosition)
 				return ProjectileJumpState
 			end

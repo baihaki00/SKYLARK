@@ -12,6 +12,7 @@ local Cognition = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChil
 local Pace = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pace"))
 local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local IdleState = { name = "Idle" }
 
@@ -282,30 +283,30 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		if data.openingAction == "ProjectileJump" and CombatConfig.EnableProjectileJump and fighter:GetAttribute("EnableProjectileJump") ~= false then
 			data.openingAction = nil
 			fighter:SetAttribute("JumpWhy", "opening move") -- (JumpLog, team step 5)
-			return require(script.Parent:WaitForChild("ProjectileJumpState"))
+			return States.ProjectileJump
 		elseif data.openingAction == "Dash" then
 			data.openingAction = nil
 			if targetHRP then
 				fighter:SetAttribute("JumpWhy", "opening dash") -- (JumpLog, team step 5)
 				LocomotionModule.dash(fighter, humanoid, rootPart, targetHRP.Position, distance)
 			end
-			return require(script.Parent:WaitForChild("ChaseState"))
+			return States.Chase
 		elseif data.openingAction == "ConfidentWalk" then
 			data.openingAction = nil
 			fighter:SetAttribute("InitialPacingOverride", "ConfidentWalk")
-			return require(script.Parent:WaitForChild("ChaseState"))
+			return States.Chase
 		end
 
 		local combatRange = CombatConfig.CombatRange or 8.2
 		if distance > combatRange * 2.5 then
 			if DEBUG then print("[Idle] Enemy detected, chasing") end
-			return require(script.Parent:WaitForChild("ChaseState"))
+			return States.Chase
 		elseif distance > combatRange * 1.2 then
 			if DEBUG then print("[Idle] Enemy at standoff, circling") end
-			return require(script.Parent:WaitForChild("CirclingState"))
+			return States.Circling
 		else
 			if DEBUG then print("[Idle] Enemy in range, fighting") end
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		end
 	end
 	

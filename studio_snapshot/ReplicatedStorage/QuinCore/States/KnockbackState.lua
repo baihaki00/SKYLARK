@@ -15,6 +15,7 @@ local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForC
 local SpatialModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("SpatialModule"))
 local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 local wallTech -- (below)
 
 local KnockbackState = { name = "Knockback" }
@@ -225,7 +226,7 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	local data = knockbackData[fighter]
-	if not data then return require(script.Parent:WaitForChild("IdleState")) end
+	if not data then return States.Idle end
 	
 	local elapsed = tick() - data.enterTime
 	
@@ -289,7 +290,7 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 				fighter:SetAttribute("FallSide", fallSide(rootPart))
 			end
 			
-			return require(script.Parent:WaitForChild("RecoveryState"))
+			return States.Recovery
 		end
 	end
 	
@@ -315,7 +316,7 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 			-- (as far as it travels before the next update, plus its own half-width)
 			local hit, n = KnockbackModule.wallAhead(rootPart, flat.Unit, flat.Magnitude * 0.035 + 2)
 			if hit and flat:Dot(n) < 0 and wallTech(fighter, humanoid, rootPart, data, hit, n) then
-				return require(script.Parent:WaitForChild("ChaseState"))
+				return States.Chase
 			elseif hit and flat:Dot(n) < 0 then
 				local off = (flat - 2 * flat:Dot(n) * n) * (CombatConfig.Knockback_BounceRestitution or 0.55)
 				rootPart.AssemblyLinearVelocity = Vector3.new(off.X, vel.Y, off.Z)
@@ -337,11 +338,11 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 			-- Fallback: If 3.0 seconds have passed and they still haven't hit the ground, force recovery
 			if elapsed > 3.0 then
 				print("[KnockbackState] Fallback Recovery triggered! elapsed:", elapsed)
-				return require(script.Parent:WaitForChild("RecoveryState"))
+				return States.Recovery
 			end
 		else
 			-- For ground knockbacks, immediately go to recovery when stun is up
-			return require(script.Parent:WaitForChild("RecoveryState"))
+			return States.Recovery
 		end
 	end
 	

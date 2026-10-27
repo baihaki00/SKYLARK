@@ -28,6 +28,7 @@ local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):Wait
 local Reach = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Reach"))
 local Pace = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pace"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local function findModelByName(name)
 	local m = QuinRoster.byName(name)
@@ -206,7 +207,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Respect-custom spectators must never chase
 	local showdownRole = fighter:GetAttribute("RespectRole")
 	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).standsDown(fighter) then
-		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
+		return States.Idle -- (spectators stand and watch)
 	end
 	-- A place it decided to walk to (a leader's regroup, a respect custom): it goes there first
 	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).followMoveIntent(fighter, humanoid, rootPart, 0.1) then
@@ -229,7 +230,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local upY = rootPart.CFrame.UpVector.Y
 	if upY < 0.6 and SpatialModule.isGrounded(rootPart) then
 		fighter:SetAttribute("KnockbackType", "hard_ground")
-		return require(script.Parent:WaitForChild("RecoveryState"))
+		return States.Recovery
 	end
 	
 	local target, distance
@@ -250,7 +251,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	
 	if not target or not target:FindFirstChild("HumanoidRootPart") then
-		return require(script.Parent:WaitForChild("IdleState"))
+		return States.Idle
 	end
 	
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
@@ -270,13 +271,13 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Respect-custom standoff: once within the circling gap it circles, it does not close in
 	local standoffGap = fighter:GetAttribute("SocialStandoff")
 	if standoffGap and distance <= standoffGap + 12 then
-		return require(script.Parent:WaitForChild("CirclingState"))
+		return States.Circling
 	end
 
 	-- === PURSUIT TERMINATION INVARIANTS (Section 5) ===
 	-- 1. Target out of maximum chase range (> 800 studs)
 	if distance > (CombatConfig.ChaseRange or 800) then
-		return require(script.Parent:WaitForChild("IdleState"))
+		return States.Idle
 	end
 
 	-- 2. Tactical decision override: disengage or rescue higher priority (disabled in Showdown)
@@ -310,13 +311,13 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			if aggression >= (CombatConfig.CorneredCounterThreshold or 0.65) and distance <= meleeRange then
 				-- Cornered aggressive fighter with enemy in melee proximity: desperate stand-and-fight instead of futile retreat
 				fighter:SetAttribute("DesperateCounter", true)
-				return require(script.Parent:WaitForChild("FightState"))
+				return States.Fight
 			end
 		end
 
-		return require(script.Parent:WaitForChild("RetreatState"))
+		return States.Retreat
 	elseif recAction == "ProtectAlly" then
-		return require(script.Parent:WaitForChild("CirclingState"))
+		return States.Circling
 	end
 
 	-- Vertical gap awareness: target is perched on high ground
@@ -331,7 +332,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			AirInterceptModule.commit(fighter, jumper)
 			RuntimeTracer.checkpoint(fighter, "Chase: going up after a jumper")
 			fighter:SetAttribute("JumpWhy", "after a jumper in the sky") -- (JumpLog, team step 5)
-			return require(script.Parent:WaitForChild("ProjectileJumpState"))
+			return States.ProjectileJump
 		end
 	end
 
@@ -387,7 +388,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				end
 				fighter:SetAttribute("LastProjectileJumpTime", tick())
 				fighter:SetAttribute("JumpWhy", "spot hop to a stepping stone (it is up high)") -- (JumpLog, team step 5)
-				local ProjectileJumpState = require(script.Parent:WaitForChild("ProjectileJumpState"))
+				local ProjectileJumpState = States.ProjectileJump
 				ProjectileJumpState.aimAtPoint(fighter, stone.point)
 				return ProjectileJumpState
 			end
@@ -452,7 +453,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				fighter:SetAttribute("JumpStyle", stylePool[math.random(1, #stylePool)])
 				TargetingModule.setTarget(fighter, target, "State")
 				fighter:SetAttribute("JumpWhy", "rocket to it on high ground") -- (JumpLog, team step 5)
-				return require(script.Parent:WaitForChild("ProjectileJumpState"))
+				return States.ProjectileJump
 			end
 		end
 
@@ -491,7 +492,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	local energy = fighter:GetAttribute("Energy") or 100
 	local hpRatio = humanoid.Health / humanoid.MaxHealth
 	if energy < 15 and hpRatio < 0.35 then
-		return require(script.Parent:WaitForChild("CirclingState"))
+		return States.Circling
 	end
 	
 	local now = tick()
@@ -553,7 +554,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				data.surveyingAtLKP = nil
 				data.targetLKP = nil
 				TargetingModule.clearTarget(fighter)
-				return require(script.Parent:WaitForChild("IdleState"))
+				return States.Idle
 			end
 		end
 	end
@@ -606,7 +607,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				NewTarget = nearestDistraction.Name,
 			})
 			RuntimeTracer.checkpoint(fighter, "Chase abandoned: distracted by " .. nearestDistraction.Name)
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		end
 	end
 
@@ -642,7 +643,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				EnemyCount = targetAllies + 1,
 			})
 			RuntimeTracer.checkpoint(fighter, "Chase abandoned: target reached squad ambush (1v" .. (targetAllies+1) .. ")")
-			return require(script.Parent:WaitForChild("CirclingState"))
+			return States.Circling
 		end
 	end
 
@@ -671,7 +672,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				TargetingModule.setTarget(fighter, rearModel, "RearThreat")
 				fighter:SetAttribute("LastRearReactionTime", now)
 				
-				return require(script.Parent:WaitForChild("FightState"))
+				return States.Fight
 			end
 		-- 2. Over-The-Shoulder Backward Glance (Pursuer detected behind at distance <= 22 studs)
 		elseif rearDist <= maxRearDetect then
@@ -806,7 +807,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			TargetingModule.setTarget(fighter, target, "State")
 
 			fighter:SetAttribute("JumpWhy", "rocket to close a far gap") -- (JumpLog, team step 5)
-			return require(script.Parent:WaitForChild("ProjectileJumpState"))
+			return States.ProjectileJump
 		end
 	end
 	
@@ -837,7 +838,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Mirroring: If they are circling, we circle!
 	if reachable and targetState == "Circling" and distance < (CombatConfig.CombatRange or 8.2) * 4.0 then
 		if math.random() > 0.8 then
-			return require(script.Parent:WaitForChild("CirclingState"))
+			return States.Circling
 		end
 	end
 	
@@ -853,9 +854,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	if reachable and inRange then
 		if math.random() > 0.7 then
-			return require(script.Parent:WaitForChild("CirclingState"))
+			return States.Circling
 		else
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		end
 	end
 	
@@ -1128,7 +1129,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Not worth mounting a wall with the target already this close: the run would end at once
 	if canWallRun and not inShowdown and distance > 22 then
 		local wallSurface = SpatialModule.detectWallRunSurface(rootPart, CombatConfig.WallRunRayDistance or 4.8, CombatConfig.WallRunMinRunway or 24)
-		local WallRunState = require(script.Parent:WaitForChild("WallRunState"))
+		local WallRunState = States.WallRun
 		if wallSurface and WallRunState.fastEnough(rootPart, wallSurface) then
 			fighter:SetAttribute("ObstacleAwareness", "Wall-Running " .. wallSurface.side)
 			return WallRunState

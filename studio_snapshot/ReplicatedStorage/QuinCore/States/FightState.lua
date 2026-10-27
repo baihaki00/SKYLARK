@@ -32,6 +32,8 @@ local StrikeMarkers = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local Evasion = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Evasion"))
 local RunService = game:GetService("RunService")
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 -- Dynamic combat animation pools: directly hot-swappable via AnimationConfig!
 local function getLiveAttacks()
@@ -212,7 +214,7 @@ local function applyHitOutcome(rootPart, hitModel, moveData, outcome)
 
 	local away = rootPart.CFrame.LookVector
 	AudioModule.playSlam(hitRoot.Position)
-	hitModel:SetAttribute("ForceState", "Knockback")
+	StateRequest.ask(hitModel, "Knockback", StateRequest.HIT, "struck")
 	if outcome == DamageModule.Outcome.AirKnockback then
 		hitModel:SetAttribute("KnockbackType", "air")
 		local force = math.max(moveData.knockback, CombatConfig.Combat_LaunchMinForce or 60) * 1.5
@@ -509,7 +511,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 						KnockbackModule.applyLaunch(hitModel,
 							CombatConfig.LaunchVerticalForce or 8,
 							CombatConfig.LaunchHorizontalForce or 224)
-						hitModel:SetAttribute("ForceState", "Knockback")
+						StateRequest.ask(hitModel, "Knockback", StateRequest.HIT, "struck")
 						if DEBUG then print("[Fight] LAUNCH! -> Airborne pursuit") end
 					else
 						applyHitOutcome(rootPart, hitModel, moveData, DamageModule.resolveOutcome(fighter, hitModel, moveData, damageInfo))
@@ -638,12 +640,12 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Respect-custom spectators must never fight
 	local showdownRole = fighter:GetAttribute("RespectRole")
 	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).standsDown(fighter) then
-		return require(script.Parent:WaitForChild("IdleState")) -- (spectators stand and watch)
+		return States.Idle -- (spectators stand and watch)
 	end
 
 	-- Respect-custom standoff: nobody strikes until one of them breaks it
 	if fighter:GetAttribute("SocialStandoff") then
-		return require(script.Parent:WaitForChild("CirclingState"))
+		return States.Circling
 	end
 
 	-- Respect-custom duel: kept on the ceremony space, no jumping away
@@ -659,20 +661,16 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	local now = tick()
 	
 	-- Check forced state change (from being hit, disengaging, or tactical override)
-	local forcedState = fighter:GetAttribute("ForceState")
+	local forcedState = StateRequest.take(fighter)
 	if forcedState then
-		fighter:SetAttribute("ForceState", nil)
-		local targetStateModule = script.Parent:FindFirstChild(forcedState .. "State")
-		if targetStateModule then
-			return require(targetStateModule)
-		end
+		return States[forcedState]
 	end
 
 	-- Prone / Cockroach protection: if flat on ground, immediately recover
 	local upY = rootPart.CFrame.UpVector.Y
 	if upY < 0.6 and SpatialModule.isGrounded(rootPart) then
 		fighter:SetAttribute("KnockbackType", "hard_ground")
-		return require(script.Parent:WaitForChild("RecoveryState"))
+		return States.Recovery
 	end
 	
 	-- Check hit stun
@@ -781,13 +779,13 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			data.lastEngagedTarget = target
 			-- If next target is beyond close combat range, transition to Chase or Circling, NEVER mid-combat Idle!
 			if distance > (CombatConfig.CombatRange or 8.2) * 1.8 then
-				return require(script.Parent:WaitForChild("ChaseState"))
+				return States.Chase
 			end
 		else
 			-- No enemies exist anywhere in arena
 			TargetingModule.clearTarget(fighter)
 			data.lastEngagedTarget = nil
-			return require(script.Parent:WaitForChild("IdleState"))
+			return States.Idle
 		end
 	else
 		data.lastEngagedTarget = target
@@ -795,14 +793,14 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 
 	local targetHRP = target:FindFirstChild("HumanoidRootPart")
 	if not targetHRP then
-		return require(script.Parent:WaitForChild("ChaseState"))
+		return States.Chase
 	end
 
 	-- DO NOT attack downed or recovering opponents!
 	local targetState = target:GetAttribute("CurrentState")
 	if targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true then
 		if DEBUG then print("[Fight] Opponent is down/recovering! Entering tactical standoff.") end
-		return require(script.Parent:WaitForChild("CirclingState"))
+		return States.Circling
 	end
 	
 	-- Early exit for Projectile Jumps (tactical aerial leap, strictly gated by mana & cooldown)
@@ -857,7 +855,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		targetVal.Value = target
 		
 		fighter:SetAttribute("JumpWhy", forcedAction == "projectile_jump" and "forced action" or pjWhy) -- (JumpLog, team step 5)
-		return require(script.Parent:WaitForChild("ProjectileJumpState"))
+		return States.ProjectileJump
 	end
 	
 	-- Too far? Chase. By time when Reach is on (design doc 5.2): a target getting away is chased
@@ -874,7 +872,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	if tooFar then
 		if DEBUG then print("[Fight] Target too far -> Chase") end
-		return require(script.Parent:WaitForChild("ChaseState"))
+		return States.Chase
 	end
 
 	-- Close but out of reach (a wall or a platform edge between them): Chase finds the way
@@ -885,7 +883,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		data.unreachableSince = data.unreachableSince or now
 		if now - data.unreachableSince > 0.5 then
 			data.unreachableSince = nil
-			return require(script.Parent:WaitForChild("ChaseState"))
+			return States.Chase
 		end
 	end
 	
@@ -974,7 +972,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- (now and then the breath is a stand-off: it circles its opponent)
 		if not data.breathCircled and math.random() < (CombatConfig.Rhythm_BreathCircleChance or 0.35) then
 			data.breathCircled = true
-			return require(script.Parent:WaitForChild("CirclingState"))
+			return States.Circling
 		end
 	else
 		data.breathCircled = nil
@@ -1077,7 +1075,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			if moveData.isLaunch then
 				task.delay((attackDuration + 0.05) / speedMult, function()
 					if fighter.Parent and fighter:GetAttribute("CurrentState") == "Fight" then
-						fighter:SetAttribute("ForceState", "Airborne")
+						StateRequest.ask(fighter, "Airborne", StateRequest.FOLLOW, "launch follow-up")
 					end
 				end)
 			end
@@ -1166,7 +1164,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		data.currentAction = "special"
 		data.actionEndTime = now + 1.0
 		data.attackFinishTime = now + 1.0
-		return require(script.Parent:WaitForChild("SpecialState"))
+		return States.Special
 		
 	elseif action == "rear_turn_counter" then
 		data.currentAction = "rear_turn_counter"
@@ -1279,14 +1277,10 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		return FightState
 	end
 
-	local fs = fighter:GetAttribute("ForceState")
+	-- (asked during this tick: a hit, its own launch, a counter or a social order)
+	local fs = StateRequest.take(fighter)
 	if fs then
-		fighter:SetAttribute("ForceState", nil)
-		if fs == "Knockback" then
-			return require(script.Parent:WaitForChild("KnockbackState"))
-		elseif fs == "Airborne" then
-			return require(script.Parent:WaitForChild("AirborneState"))
-		end
+		return States[fs]
 	end
 	
 	return FightState

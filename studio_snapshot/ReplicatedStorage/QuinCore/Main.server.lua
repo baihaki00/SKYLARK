@@ -51,6 +51,7 @@ local Drives = require(QuinCore:WaitForChild("Modules"):WaitForChild("Drives"))
 local Momentum = require(QuinCore:WaitForChild("Modules"):WaitForChild("Momentum"))
 local lastBodyTick = os.clock()
 local Cognition = require(QuinCore:WaitForChild("Cognition"))
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 -- States in which a Quin stands on the ground by its own choice (and so needs room to stand)
 -- States in which a Quin is not in control of itself: it does not pick a new target in them
@@ -63,47 +64,20 @@ local STANDING_STATES = { Idle = true, Fight = true, Circling = true, Chase = tr
 local PILOT_STATES = { Piloted = true, Knockback = true, Recovery = true, Death = true, ReEntry = true,
 	ProjectileJump = true, MidAirClash = true } -- (a jump it chose; a clash it met in the air)
 local function isPiloted() return Quin:GetAttribute("PilotedBy") ~= nil end
--- The brain's own orders (go idle, retreat, chase) never overwrite a state already waiting: a
--- Knockback or a clash another Quin set on this one between ticks wins (the brain wrote over
--- them, and a Quin that had been hit walked on instead of flying back)
-local function order(stateName)
-	if Quin:GetAttribute("ForceState") == nil then
-		Quin:SetAttribute("ForceState", stateName)
-	end
+-- The brain's own orders (go idle, retreat, chase): the lowest request, so a Knockback or a clash
+-- another Quin set on this one between ticks wins (Modules/StateRequest)
+local function order(stateName, why)
+	StateRequest.ask(Quin, stateName, StateRequest.BRAIN, why or "brain")
 end
 SocialSystem.start() -- the social layer (pack leaders, respect customs, arena events)
 
 -- === STATE MODULES ===
-local statesFolder = QuinCore:WaitForChild("States") 
-local States = {
-	Idle = require(statesFolder:WaitForChild("IdleState")),
-	Chase = require(statesFolder:WaitForChild("ChaseState")),
-	Circling = require(statesFolder:WaitForChild("CirclingState")),
-	Fight = require(statesFolder:WaitForChild("FightState")),
-	Airborne = require(statesFolder:WaitForChild("AirborneState")),
-	Knockback = require(statesFolder:WaitForChild("KnockbackState")),
-	Recovery = require(statesFolder:WaitForChild("RecoveryState")),
-	Retreat = require(statesFolder:WaitForChild("RetreatState")),
-	Overwatch = require(statesFolder:WaitForChild("OverwatchState")),
-	Special = require(statesFolder:WaitForChild("SpecialState")),
-	Death = require(statesFolder:WaitForChild("DeathState")),
-	ProjectileJump = require(statesFolder:WaitForChild("ProjectileJumpState")),
-	MidAirClash = require(statesFolder:WaitForChild("MidAirClashState")),
-	ReEntry = require(statesFolder:WaitForChild("ReEntryState")),
-	WallRun = require(statesFolder:WaitForChild("WallRunState")),
-	Piloted = require(statesFolder:WaitForChild("PilotedState")),
-}
-
--- Aliases for backwards compatibility / absorbed micro-actions
-States.Slide = States.Chase
-States.Dash = States.Chase
-States.Test = States.Idle
-States.AuraFarm = States.Circling
-States.PositioningJump = States.Chase
-States.TargetTransition = States.Idle
-States.ProjectileJumpRecovery = States.Recovery
-States.Anticipate = States.Fight
-States.TestEnd = States.Idle
+-- (one registry for all of QuinCore: Modules/States; every state is loaded here, up front)
+local States = require(QuinCore:WaitForChild("Modules"):WaitForChild("States"))
+for _, module in ipairs(QuinCore:WaitForChild("States"):GetChildren()) do
+	local name = module:IsA("ModuleScript") and module.Name:match("^(.+)State$")
+	if name then local _ = States[name] end
+end
 
 -- === REMOTE EVENT (STATE SYNC) ===
 local StateSyncEvent = ReplicatedStorage:FindFirstChild("AI_StateSync")
@@ -549,7 +523,7 @@ task.spawn(function()
 					and math.abs(rootPart.AssemblyLinearVelocity.Y) <= 35 then
 					-- (not while it runs along the wall or is still being thrown)
 					print(string.format("[Trespass] %s off the arena floor (%s) for %.1fs - re-entry", Quin.Name, tostring(Quin:GetAttribute("Trespass")), Quin:GetAttribute("TrespassTime") or 0))
-					Quin:SetAttribute("ForceState", "ReEntry")
+					StateRequest.ask(Quin, "ReEntry", StateRequest.REENTRY, "off the arena floor")
 				end
 			end
 			
@@ -580,7 +554,7 @@ task.spawn(function()
 					if proneTime >= 0.15 then
 						Quin:SetAttribute("ProneGroundedTime", 0)
 						Quin:SetAttribute("KnockbackType", "hard_ground")
-						Quin:SetAttribute("ForceState", "Recovery")
+						StateRequest.ask(Quin, "Recovery", StateRequest.GETUP, "prone on the ground")
 					end
 				else
 					Quin:SetAttribute("ProneGroundedTime", 0)
@@ -603,7 +577,7 @@ task.spawn(function()
 					if floatTime > 2.0 then
 						print("[AntiFloat] Stuck mid-air, forcing re-entry: " .. Quin.Name)
 						Quin:SetAttribute("FloatTime", 0)
-						Quin:SetAttribute("ForceState", "ReEntry")
+						StateRequest.ask(Quin, "ReEntry", StateRequest.REENTRY, "stuck mid-air")
 					end
 				else
 					Quin:SetAttribute("FloatTime", 0)
@@ -760,13 +734,8 @@ task.spawn(function()
 		end
 
 		-- Handle forced states from external forces (e.g., getting hit)
-		local forceStateStr = Quin:GetAttribute("ForceState")
-
-		local forceState = nil
-		if forceStateStr and States[forceStateStr] then
-			forceState = States[forceStateStr]
-			Quin:SetAttribute("ForceState", nil)
-		end
+		local forceStateStr = StateRequest.take(Quin)
+		local forceState = forceStateStr and States[forceStateStr] or nil
 		
 		local newState = forceState
 		-- Under something lower than itself it cannot stand, wait or fight: it knows, and gets out

@@ -25,6 +25,7 @@ local AirInterceptModule = require(QuinCore:WaitForChild("Modules"):WaitForChild
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
 local OverwatchState = { name = "Overwatch" }
 
@@ -168,7 +169,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = watchData[fighter]
 	local platform = heldPlatform(rootPart)
 	if not data or not platform then
-		return require(script.Parent:WaitForChild("ChaseState"))
+		return States.Chase
 	end
 
 	local now = os.clock()
@@ -187,9 +188,9 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 		TargetingModule.setTarget(fighter, intruder.model)
 		RuntimeTracer.checkpoint(fighter, "Overwatch: enemy on the platform")
 		if intruder.distance <= (CombatConfig.CombatRange or 8.2) * 1.2 then
-			return require(script.Parent:WaitForChild("FightState"))
+			return States.Fight
 		end
-		return require(script.Parent:WaitForChild("ChaseState"))
+		return States.Chase
 	end
 
 	-- A jumper in the sky
@@ -198,7 +199,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 		AirInterceptModule.commit(fighter, jumper)
 		RuntimeTracer.checkpoint(fighter, "Overwatch: going up after a jumper")
 		fighter:SetAttribute("JumpWhy", "after a jumper in the sky") -- (JumpLog, team step 5)
-		return require(script.Parent:WaitForChild("ProjectileJumpState"))
+		return States.ProjectileJump
 	end
 
 	-- A Quin that is restless (a lull dragged on) or hunting does not hold a platform for long
@@ -220,12 +221,12 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 			TargetingModule.setTarget(fighter, prey.model, "Dive")
 			RuntimeTracer.checkpoint(fighter, "Overwatch: diving on " .. prey.model.Name)
 			fighter:SetAttribute("JumpWhy", "dive on prey below") -- (JumpLog, team step 5)
-			return require(script.Parent:WaitForChild("ProjectileJumpState"))
+			return States.ProjectileJump
 		end
 	end
 	if watched >= maxWatch then
 		RuntimeTracer.checkpoint(fighter, "Overwatch: watch over, climbing down")
-		return require(script.Parent:WaitForChild("ChaseState"))
+		return States.Chase
 	end
 
 	-- Use the platform: look out, pace, jog a loop (planRoutine), with stops in between

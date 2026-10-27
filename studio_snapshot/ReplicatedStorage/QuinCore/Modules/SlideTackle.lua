@@ -29,6 +29,7 @@ local SlideTackle = {}
 
 local isStudio = game:GetService("RunService"):IsStudio()
 local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads + defaults, one place)
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 local stats = { slides = 0, sweeps = 0, hurdles = 0, guarded = 0 }
 
@@ -149,7 +150,7 @@ local function sweep(slider, victim, dir, speed)
 	local launch = cfg("Launch", 55)
 	root.AssemblyLinearVelocity = dir * math.min(speed * cfg("Carry", 0.35), 20) + Vector3.new(0, launch, 0)
 	root.AssemblyAngularVelocity = Vector3.zero
-	victim:SetAttribute("ForceState", "Knockback")
+	StateRequest.ask(victim, "Knockback", StateRequest.HIT, "slide tackle")
 	-- over the way it is falling: the head turns toward the topple
 	local toppleFlat = Vector3.new(topple.X, 0, topple.Z)
 	toppleFlat = toppleFlat.Magnitude > 0.01 and toppleFlat.Unit or -dir

@@ -38,6 +38,7 @@ local AudioModule = require(Modules:WaitForChild("AudioModule"))
 local VfxModule = require(Modules:WaitForChild("VfxModule"))
 local SpatialModule = require(Modules:WaitForChild("SpatialModule"))
 local ImpulseModule = require(Modules:WaitForChild("ImpulseModule"))
+local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 local Momentum = {}
 
@@ -492,7 +493,7 @@ land = function(rec, velocity, standPos)
 	-- not snapped upright onto its feet in one frame (owner: "looks like they snapped on the ground")
 	if rec.kind == "thrown" and (fall >= cfg("ThrownGetUpFall", 60) or h.Magnitude >= cfg("ThrownGetUpSpeed", 60)) then
 		fighter:SetAttribute("KnockbackType", "hard_ground")
-		fighter:SetAttribute("ForceState", "Recovery")
+		StateRequest.ask(fighter, "Recovery", StateRequest.GETUP, "thrown down hard")
 		AnimationModule.playConfig(humanoid, "Reactions.SlammedDown", 1, Enum.AnimationPriority.Action4, false)
 		AudioModule.playFallOnGround(root.Position)
 		if h.Magnitude > 10 then
