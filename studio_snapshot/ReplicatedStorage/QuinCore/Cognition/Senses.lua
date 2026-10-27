@@ -5,7 +5,10 @@
 --   sight    inside the vision cone and range, with a clear line of sight. The cone is 200
 --            degrees wide and VisionVerticalHalfAngle above and below where the head points
 --            (gazePitch, from Cognition.Gaze)
---   hearing  close enough to hear, and making noise (running, attacking, being thrown)
+--   hearing  close enough to hear what it makes (owner 2026-10-27: "if they hear footsteps they
+--            turn around"): a walk is silent, a jog is heard at its hearing range, a sprint
+--            further, a fight about twice as far, and a loud moment (a plant's or a defuse's slam,
+--            LoudUntil) across much of the arena
 --   touch    within arm's reach, or the Quin that just hit it
 -- Neutral (layer off): every living enemy is noticed wherever it is, as before this layer existed.
 
@@ -21,10 +24,19 @@ local NOISY_STATES = { Fight = true, Knockback = true, ProjectileJump = true, Sp
 local HIT_MEMORY = 2.0 -- seconds an attacker stays "felt" after its hit
 local LOS_ALWAYS_WITHIN = 45 -- line of sight is always resolved inside the local combat radius
 
-local function isNoisy(other, otherRoot, cfg)
-	return otherRoot.AssemblyLinearVelocity.Magnitude > cfg.NoiseSpeed
-		or other:GetAttribute("Attacking") == true
-		or NOISY_STATES[other:GetAttribute("CurrentState") or ""] == true
+-- How far off the noise `other` makes right now can be heard by a Quin whose hearing reach is
+-- `hearing` (0: it makes none)
+local function noiseReach(other, otherRoot, cfg, hearing)
+	if (other:GetAttribute("LoudUntil") or 0) > workspace:GetServerTimeNow() then
+		return cfg.HearingLoudRange or 160
+	end
+	if other:GetAttribute("Attacking") == true or NOISY_STATES[other:GetAttribute("CurrentState") or ""] == true then
+		return hearing * (cfg.HearingFightFactor or 2.2)
+	end
+	local speed = Vector3.new(otherRoot.AssemblyLinearVelocity.X, 0, otherRoot.AssemblyLinearVelocity.Z).Magnitude
+	if speed > (cfg.SprintNoiseSpeed or 28) then return hearing * (cfg.HearingSprintFactor or 1.4) end
+	if speed > cfg.NoiseSpeed then return hearing end
+	return 0
 end
 
 -- Hearing reach for this Quin: aware Quins pick up more
@@ -90,7 +102,7 @@ function Senses.sense(quinModel, rootPart, others, enabled, gazePitch)
 				if not channel and inCone and hasLoS then
 					channel = "sight"
 				end
-				if not channel and distance <= hearing and isNoisy(other, otherRoot, cfg) then
+				if not channel and distance <= noiseReach(other, otherRoot, cfg, hearing) then
 					channel = "hearing"
 				end
 				percept.channel = channel

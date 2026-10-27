@@ -351,11 +351,23 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 				why = string.format("stop the plant at %s", tostring(view.planting.shrine)),
 			}
 		end
-		-- watch a Shrine: the one fewest teammates watch, near the way the attackers come
+		-- watch a Shrine: the one fewest teammates watch, near the way the attackers come, and the
+		-- one it has word of enemies near (seen, heard, called out; the orb's carrier most of all) -
+		-- an aware Quin rotates on what it knows. Once the orb is being planted or is down there is
+		-- nothing left to guard: it goes (a far guard stood at an empty site while the other was
+		-- planted: its post outscored the retake from across the map)
 		local best, bestScore = nil, -math.huge
-		for _, s in ipairs(view.shrines) do
+		local planting = view.planting or view.planted
+		for _, s in ipairs(planting and {} or view.shrines) do
+			local word = 0
+			for _, contact in ipairs(board.contacts and board.contacts.enemies or {}) do
+				if contact.position and flat(contact.position, s.position) <= cfg("Objective_GuardWordRange", 80) then
+					word += (contact.confidence or 1) * (contact.model == view.carrier and 2.5 or 1)
+				end
+			end
 			local sc = -takenBy("Guard", s.name, quinModel) * cfg("Objective_GuardTakenCost", 35) - flat(s.position, myPos) * 0.1
 				+ (board.task and board.task.spot == s.name and 20 or 0)
+				+ math.min(word, 4) * cfg("Objective_GuardWordValue", 25) * (0.4 + awareness)
 			if sc > bestScore then best, bestScore = s, sc end
 		end
 		if best then

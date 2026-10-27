@@ -155,7 +155,12 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 			if job.arrived or now < job.goAt then
 				LocomotionModule.brake(fighter, humanoid, rootPart, 0.1)
 				AnimationModule.ensureBaseIdle(humanoid)
-				-- on its post it faces the way it watches (a guard looks out, not at the Shrine)
+				-- on its post it faces the way it watches (a guard looks out, not at the Shrine), and
+				-- turns to whatever it just heard behind it (Gaze: TurnTo)
+				local turnTo = fighter:GetAttribute("TurnTo")
+				if typeof(turnTo) == "Vector3" and workspace:GetServerTimeNow() <= (fighter:GetAttribute("TurnUntil") or 0) then
+					face = turnTo
+				end
 				if job.arrived and typeof(face) == "Vector3" and rootPart.AssemblyLinearVelocity.Magnitude < 3 then
 					if not gyro then
 						gyro = Instance.new("AlignOrientation")

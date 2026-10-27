@@ -294,6 +294,7 @@ local function heroLand(q, hold, position)
 	local root = q:FindFirstChild("HumanoidRootPart")
 	if not h or not root then return end
 	q:SetAttribute("IsInert", true)
+	q:SetAttribute("LoudUntil", now() + 1) -- (the slam is heard across much of the arena: Senses)
 	root.AssemblyLinearVelocity = Vector3.zero
 	AnimationModule.playConfig(h, "Parkour.LandingSuperHero", 1.0, Enum.AnimationPriority.Action4, false)
 	VfxModule.createLandingImpact(root, 0.8)

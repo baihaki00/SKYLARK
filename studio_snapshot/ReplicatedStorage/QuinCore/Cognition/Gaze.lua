@@ -185,6 +185,12 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 					gaze.gesture, gaze.gestureUntil = "Alert", now + 0.9
 					quinModel:SetAttribute("CurrentIdleStance", "Ready")
 					quinModel:SetAttribute("LastActivityTime", now)
+					-- heard or felt, not seen: it turns round to see it (the head alone leaves the
+					-- eyes' cone where it was; a guard heard steps behind it and stood on)
+					if contact.channel ~= "sight" then
+						quinModel:SetAttribute("TurnTo", contact.position)
+						quinModel:SetAttribute("TurnUntil", Workspace:GetServerTimeNow() + gcfg(cfg, "TurnToHold", 1.6))
+					end
 				end
 				if not closestDist or d < closestDist then closest, closestDist = m, d end
 			end
