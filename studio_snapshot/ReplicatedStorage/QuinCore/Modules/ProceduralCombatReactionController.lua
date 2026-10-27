@@ -471,6 +471,9 @@ function ProceduralCombatReactionController:update(dt)
 	end
 
 	if isAirborne then
+		if not self.wasAirborne then
+			self.airSince = os.clock()
+		end
 		self.wasAirborne = true
 		if velY < self.maxFallSpeed then
 			self.maxFallSpeed = velY -- Track peak falling speed for impact
@@ -505,6 +508,19 @@ function ProceduralCombatReactionController:update(dt)
 				self.activeReactionType = "GROUND_IMPACT"
 			else
 				self.maxFallSpeed = 0
+				-- A hop up onto a platform or a stair lands near the top of its arc, hardly falling:
+				-- it had no give at all and the body was simply on top (owner: "it just snapped on
+				-- it"). Any real jump now lands through the knees, deeper the longer it flew. (Not a
+				-- projectile jump: owner wants the dive as it was.)
+				local airTime = os.clock() - (self.airSince or os.clock())
+				if airTime >= (CombatConfig.Landing_HopMinAirTime or 0.2) and serverState ~= "ProjectileJump" then
+					local dip = math.clamp((CombatConfig.Landing_HopDipMin or 0.2) + airTime * 0.35, 0, CombatConfig.Landing_HopDipMax or 0.45)
+					-- (the hips spring, k 260 / d 28, sinks about 0.025 studs per unit of kick,
+					-- deepest 0.065 s after touchdown)
+					self.hipsVelocity = self.hipsVelocity - dip / 0.025
+					self.velocityPitch = self.velocityPitch + math.rad(CombatConfig.Landing_HopPitchDegrees or 6) * (dip / 0.45) * self.impulseScale
+					self.activeReactionType = "GROUND_IMPACT"
+				end
 			end
 		end
 

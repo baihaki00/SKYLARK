@@ -661,7 +661,11 @@ CombatConfig.EdgeAwareness = {
 	StepSpeed = 10,  -- studs/s (a walk)
 }
 CombatConfig.Landing_CasualWalkTime = 2.5              -- seconds a Quin keeps to a walk after a soft landing (it walks on, it does not bolt)
-CombatConfig.Landing_SoftMaxSpeed = 8                  -- studs/s across the ground at touchdown up to which a drop lands with the soft landing (faster: the hard landing)
+CombatConfig.Landing_HopMinAirTime = 0.2               -- s in the air from which a light landing (a hop onto a platform or stair) goes through the knees
+CombatConfig.Landing_HopDipMin = 0.2                   -- studs the hips sink on the lightest such landing (+0.35 per second of flight)
+CombatConfig.Landing_HopDipMax = 0.45                  -- studs at most
+CombatConfig.Landing_HopPitchDegrees = 6               -- forward give of the spine at the deepest
+CombatConfig.Landing_SoftMaxSpeed = 8                 -- studs/s across the ground at touchdown up to which a drop lands with the soft landing (faster: the hard landing)
 CombatConfig.Dismount_CasualConfidence = 0.7           -- a Quin this sure of itself, healthy, unpressed and with its target well away steps off a ledge instead of diving
 CombatConfig.Dismount_CasualMinDistance = 18           -- ... the target at least this far off (studs, flat)
 CombatConfig.Landing_SoftMinAirTime = 0.28             -- seconds of falling (about 8 studs) before a walked-off drop earns the soft landing
