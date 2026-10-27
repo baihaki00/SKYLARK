@@ -99,13 +99,20 @@ local function score(quinModel, rootPart, context, board)
 		local mine = going == am.Name
 		local reach = cfg("Task_RescueRange", 140) * (mine and cfg("Task_RescueFollowFactor", 1.5) or 1)
 		if aRoot and hp <= cfg("Task_RescueHealth", 0.45) and dist > cfg("Task_RescueMinRange", 45) and dist <= reach then
-			-- who is hurting it: an enemy this Quin knows near it, else the one that hit it last
-			local attacker, danger = nil, 0
+			-- who is hurting it: an enemy this Quin knows near it, else the one that hit it last.
+			-- It keeps the one it went for while that one is still on the ally; else the one that
+			-- is after the ally, then the nearest to it. (It took whichever came last in its list:
+			-- in a brawl round the ally that changed every tick, and the rescuer swung between
+			-- them - 121 of 280 target switches in a 16v16 were rescues, most straight back.)
+			local kept = mine and board.task.enemy
+			local attacker, danger, bestRank = nil, 0, math.huge
 			for _, contact in ipairs(board.contacts.enemies or {}) do
 				local d = flat(contact.position, aRoot.Position)
 				if d <= cfg("Task_RescueDangerRadius", 30) then
 					danger += 1
-					if contact.model:GetAttribute("CurrentTarget") == am.Name or not attacker then attacker = contact.model end
+					local rank = (contact.model == kept and -1000 or 0)
+						+ (contact.model:GetAttribute("CurrentTarget") == am.Name and -100 or 0) + d
+					if rank < bestRank then attacker, bestRank = contact.model, rank end
 				end
 			end
 			if not attacker then
@@ -122,6 +129,7 @@ local function score(quinModel, rootPart, context, board)
 					- math.max(0, danger - 1) * cfg("Task_RescueDangerCost", 18) * (1.2 - risk)
 					- rescuersOf(am.Name, quinModel) * cfg("Task_RescueTakenCost", 45)
 					- (selfHp < 0.35 and 40 or 0)
+					+ (mine and cfg("Task_RescueAllyKeep", 30) or 0) -- (the ally it is on its way to)
 				if not bestRescue or s > bestRescue.score then
 					bestRescue = { score = s, enemy = attacker, ally = am.Name, why = string.format("%s is hurt (%d%%), %s is on it", am.Name, hp * 100, attacker.Name) }
 				end

@@ -25,6 +25,8 @@ local TargetingModule = {}
 -- committed[quin] = { name, since }: also notices a target set from elsewhere (a state's own
 -- choice starts a hold of its own).
 local committed = setmetatable({}, { __mode = "k" })
+-- answeredAt[quin] = when it last turned on the one that just hit it
+local answeredAt = setmetatable({}, { __mode = "k" })
 
 -- Every change of target is written here, with who asked for it: TargetChangedBy says why a
 -- Quin turned to someone else ("Select" the utility choice, "Nearest" a state's nearest-enemy
@@ -186,8 +188,13 @@ function TargetingModule.selectTarget(quinModel, localState)
 	local protectiveness = quinModel:GetAttribute("Pers_Protectiveness") or 0.5
 
 	-- who struck it a moment ago (DamageModule: LastAttackerName, ImpactTime)
+	-- Just after it turned on one blow it settles on that answer a moment (a persistent Quin
+	-- longer): in a brawl two enemies took turns hitting it and it swung between them (23 of 32
+	-- quick back-and-forth switches in a 16v16 were this)
 	local struckName = nil
-	if workspace:GetServerTimeNow() - (quinModel:GetAttribute("ImpactTime") or 0) <= (CombatConfig.Targeting_StruckMemory or 1.5) then
+	local settling = answeredAt[quinModel]
+		and os.clock() - answeredAt[quinModel] < (CombatConfig.Targeting_StruckSettle or 2.0) * (0.5 + (quinModel:GetAttribute("Pers_TargetPersistence") or 0.7))
+	if not settling and workspace:GetServerTimeNow() - (quinModel:GetAttribute("ImpactTime") or 0) <= (CombatConfig.Targeting_StruckMemory or 1.5) then
 		struckName = quinModel:GetAttribute("LastAttackerName")
 	end
 
@@ -435,6 +442,9 @@ function TargetingModule.selectTarget(quinModel, localState)
 		-- (a new target it cannot see has no "last seen" place yet: the old target's is dropped)
 		if quinModel:GetAttribute("CurrentTarget") ~= bestCandidate.Name and not bestHasLoS then
 			quinModel:SetAttribute("LastSeenTargetPosition", nil)
+		end
+		if bestCandidate.Name == struckName and quinModel:GetAttribute("CurrentTarget") ~= struckName then
+			answeredAt[quinModel] = os.clock()
 		end
 		assign(quinModel, bestCandidate.Name, "Select")
 		quinModel:SetAttribute("LastTargetName", bestCandidate.Name)

@@ -28,6 +28,13 @@ local CombatConfig = require(ReplicatedStorage.QuinCore.CombatConfig)
 local VfxModule = require(ReplicatedStorage.QuinCore.Modules.VfxModule)
 local AnimationModule = require(ReplicatedStorage.QuinCore.Modules.AnimationModule)
 local AudioModule = require(ReplicatedStorage.QuinCore.Modules.AudioModule)
+local ArenaAudio = require(game:GetService("ServerScriptService"):WaitForChild("ArenaAudioManager"))
+
+-- The stadium warhorn marks a round (owner 2026-10-27: reuse the warhorn): when it goes live and
+-- when it is decided
+local function warhorn()
+	pcall(ArenaAudio.playWarhorn, 1.0)
+end
 local ArenaGenerator = require(ServerScriptService:WaitForChild("ArenaGenerator"))
 
 local LanternSiege = {}
@@ -387,6 +394,7 @@ local function playRound(attackers, isCancelled, announce)
 
 	folder:SetAttribute("Live", true)
 	setPhase("Live", cfg("LiveTime", 100))
+	warhorn()
 	release()
 	local liveEnds = os.clock() + cfg("LiveTime", 100)
 	local igniteEnds, stamp = nil, 0
@@ -523,6 +531,7 @@ function LanternSiege.run(hooks)
 		folder:SetAttribute("LastRound", string.format("%d:%s:%s", round, winner, why))
 		setPhase("RoundOver", cfg("RoundOverTime", 4))
 		freeze()
+		warhorn()
 		announce(string.format("%s TAKE ROUND %d  -  %s  (%d - %d)", winner == "TeamAlpha" and "ALPHA" or "BETA", round, why:upper(), score.TeamAlpha, score.TeamBeta), 4, "LANTERN SIEGE", COLOR[winner])
 		print(string.format("[LanternSiege] round %d: %s (%s)  %d-%d", round, winner, why, score.TeamAlpha, score.TeamBeta))
 		local t = os.clock() + cfg("RoundOverTime", 4)
