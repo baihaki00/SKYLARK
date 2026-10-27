@@ -701,6 +701,13 @@ task.spawn(function()
 		elseif newState and not isPiloted() and newState.name == "Piloted" then
 			newState = States.Idle -- (the player let go: the Quin's own decisions again)
 		end
+		-- Studio debug: Workspace DuelDashOnly = true - no rocket jumps, so the air moves seen are the
+		-- duel's (MomentumDuel opens far more often under the same switch)
+		if newState and newState ~= currentState and newState.name == "ProjectileJump" and forceState == nil
+			and RunService:IsStudio() and workspace:GetAttribute("DuelDashOnly") == true and not isPiloted() then
+			Quin:SetAttribute("LastProjectileJumpTime", tick())
+			newState = currentState
+		end
 		-- No rocket jump from under a platform (owner 2026-10-27: Quins launched into the underside
 		-- and hit their heads, again and again). Checked here, before the state, for every way
 		-- into it (ProjectileJumpState itself is left as it is); the jump's cooldown is already spent,

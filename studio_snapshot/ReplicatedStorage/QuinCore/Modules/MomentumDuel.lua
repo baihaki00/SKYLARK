@@ -409,27 +409,34 @@ local function allyFighting(q, t)
 	return false
 end
 
+-- Studio debug: Workspace DuelDashOnly = true - duels everywhere (no rocket jumps: Main)
+local function duelDashOnly()
+	return RunService:IsStudio() and Workspace:GetAttribute("DuelDashOnly") == true
+end
+
 local function scanOpeners()
-	if #duels >= cfg("MaxDuels", 3) then return end
+	local maxDuels = duelDashOnly() and 16 or cfg("MaxDuels", 3)
+	if #duels >= maxDuels then return end
 	local folder = Workspace:FindFirstChild("QuinServer")
 	if not folder then return end
 	local now = os.clock()
-	local boost = RunService:IsStudio() and Workspace:GetAttribute("MomentumDuelAlways") and 20 or 1
+	local boost = RunService:IsStudio() and (Workspace:GetAttribute("MomentumDuelAlways") or duelDashOnly()) and 20 or 1
+	local cooldown = duelDashOnly() and 2 or cfg("Cooldown", 10)
 	for _, q in ipairs(folder:GetChildren()) do
 		local s = q:GetAttribute("CurrentState")
 		if (s == "Chase" or s == "Circling") and not mind[q] and capable(q) and not Momentum.busy(q)
-			and now - (q:GetAttribute("MomentumDuelAt") or -1e9) > cfg("Cooldown", 10)
+			and now - (q:GetAttribute("MomentumDuelAt") or -1e9) > cooldown
 			and energy(q) >= cfg("OpenerMinEnergy", 45) then
 			local t = findTarget(q)
 			local root, tRoot = rootOf(q), t and rootOf(t)
 			if tRoot and not mind[t] and capable(t) and not Momentum.busy(t) and not allyFighting(q, t)
-				and now - (t:GetAttribute("MomentumDuelAt") or -1e9) > cfg("Cooldown", 10) * 0.5 then
+				and now - (t:GetAttribute("MomentumDuelAt") or -1e9) > cooldown * 0.5 then
 				local d = (tRoot.Position - root.Position).Magnitude
 				local chance = cfg("OpenerChance", 0.05) * (0.5 + pers(q, "Aggression")) * (0.5 + pers(q, "MobilityPreference")) * boost
 				if d >= cfg("OpenerMinRange", 50) and d <= cfg("OpenerMaxRange", 260) and math.random() < chance
 					and SpatialModule.checkLineOfSight(SpatialModule.getEyePosition(root), SpatialModule.getEyePosition(tRoot), { q, t }) then
 					startDuel(q, t)
-					if #duels >= cfg("MaxDuels", 3) then return end
+					if #duels >= maxDuels then return end
 				end
 			end
 		end
