@@ -61,7 +61,7 @@ end
 -- Reasons a state may give that do not break the hold: a passer-by is no cause to drop a target
 -- it has only just turned to. (Measured: 41 % of "Distraction" switches went straight back, two
 -- enemies inside 13 studs each being the other's distraction in turn.)
-local HOLD_RESPECTING = { Distraction = true }
+local HOLD_RESPECTING = { Distraction = true, Pointed = true }
 
 function TargetingModule.selectTarget(quinModel, localState)
 	if not quinModel or not quinModel.Parent then return nil, 0, "No model" end

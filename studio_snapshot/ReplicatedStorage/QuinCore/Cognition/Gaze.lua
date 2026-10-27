@@ -133,6 +133,37 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 			gaze.nextGlance = gaze.glanceUntil + gcfg(cfg, "GazeCueCheck", 0.4)
 		end
 	end
+	-- A point it saw (Callouts): a look at the one pointing, then where it points, then its
+	-- answer - a nod (on it) or a shake of the head (not worth it). A fight keeps the head on the
+	-- fight; the answer still shows.
+	local ps = board.pointSeen
+	if ps then
+		local t = now - ps.at
+		local look = not ENGAGED_STATES[state] and (t < 0.4 and ps.caller or t < 1.0 and ps.enemy) or nil
+		local lookRoot = look and look.Parent and look:FindFirstChild("HumanoidRootPart")
+		if lookRoot then
+			local offset = lookRoot.Position - SpatialModule.getEyePosition(rootPart)
+			if offset.Magnitude > 1 then
+				gaze.glanceAt = look
+				gaze.glancePitch = math.clamp(math.deg(math.asin(math.clamp(offset.Y / offset.Magnitude, -1, 1))), -cfg.GazeMaxPitch, cfg.GazeMaxPitch)
+				gaze.glanceUntil = ps.at + (t < 0.4 and 0.4 or 1.0)
+				gaze.nextGlance = ps.at + 1.4
+			end
+		end
+		if t >= 1.0 and not ps.answered then
+			ps.answered = true
+			local serverNow = Workspace:GetServerTimeNow()
+			quinModel:SetAttribute(ps.go and "NodAt" or "ShakeAt", serverNow)
+			quinModel:SetAttribute("PointAnswer", (ps.go and "on it: " or "nah: ") .. ps.why)
+			quinModel:SetAttribute("PointAnswerAt", serverNow)
+			require(script.Parent:WaitForChild("Callouts")).debugTag(quinModel,
+				(ps.go and "on it: " or "nah: ") .. ps.why, ps.go and Color3.fromRGB(140, 255, 140) or Color3.fromRGB(255, 150, 150))
+			if ps.go and ps.enemy.Parent and quinModel:GetAttribute("CurrentTarget") ~= ps.enemy.Name then
+				require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule")).setTarget(quinModel, ps.enemy, "Pointed")
+			end
+		end
+		if t > 1.6 then board.pointSeen = nil end
+	end
 	if ENGAGED_STATES[state] then
 		gaze.glanceUntil = 0 -- a fight takes the head back at once
 	elseif now >= gaze.nextGlance and now >= gaze.glanceUntil then

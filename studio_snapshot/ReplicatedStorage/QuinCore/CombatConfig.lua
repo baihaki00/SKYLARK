@@ -1180,6 +1180,13 @@ CombatConfig.Cognition = {
 	CalloutTeamRepeat = 4,         -- seconds before the team calls the same enemy again
 	CalloutChanceBase = 0.35,      -- chance to call news, + awareness x CalloutChanceAwareness
 	CalloutChanceAwareness = 0.5,
+	-- Pointing (owner 2026-10-28: Quins are mute, they point). A call is an arm held toward the
+	-- enemy; only an ally that sees the caller's point takes it in. Workspace PointOff = the old
+	-- shout (heard by everyone in CalloutRange). Workspace PointDebug = labels over the heads.
+	PointDuration = 1.1,           -- seconds the arm is up (an ally has this long to see it)
+	PointMaxAngle = 115,           -- degrees off its facing it will point (behind it, it does not)
+	PointBusyNotice = 0.15,        -- chance a busy Quin (fighting, hit) notices a point, + awareness x
+	PointBusyNoticeAwareness = 0.4,
 	CalloutKeep = 3,               -- seconds a call stays in the air for allies to hear
 	CalloutGlanceChance = 0.6,     -- chance a Quin that hears a call glances where it was called
 }

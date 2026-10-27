@@ -22,6 +22,34 @@ local okConfig, CombatConfig = pcall(function() return require(script.Parent.Par
 local SOCIAL = okConfig and CombatConfig.Social or {}
 local NOD_DURATION = SOCIAL.NodDuration or 0.6
 local NOD_DEPTH = math.rad(SOCIAL.NodDepth or 12)
+-- Head shake (Gaze: "not worth it" to an ally's point): two swings, fading, after ShakeAt
+local SHAKE_DURATION = 0.7
+local SHAKE_AMP = math.rad(16)
+
+-- Pointing (Cognition/Callouts, owner 2026-10-28: Quins are mute, they point). For PointDuration
+-- after the Quin's PointAt, the arm on the enemy's side reaches toward it: a two-bone IK (shoulder,
+-- elbow) to a hand point short of full reach, so the elbow keeps a bend, with the elbow dropping
+-- down, out and a little back like a person's. The aim is held inside what a shoulder does (a
+-- little across the body, never behind it), and the chest turns part of the way.
+local COG = okConfig and CombatConfig.Cognition or {}
+local POINT_DURATION = COG.PointDuration or 1.1
+local POINT_REACH = 0.97           -- hand distance as a share of the arm's full length: ~28 degrees at the elbow (0.9 gave 52, a bent arm)
+local POINT_ACROSS = math.rad(25)  -- furthest the aim goes across the body
+local POINT_OUT = math.rad(120)    -- furthest out to its own side
+local POINT_PITCH_MIN, POINT_PITCH_MAX = math.rad(-35), math.rad(50)
+local POINT_CHEST_SHARE, POINT_CHEST_MAX = 0.3, math.rad(20)
+
+local function smooth(a, b, x)
+	local t = math.clamp((x - a) / (b - a), 0, 1)
+	return t * t * (3 - 2 * t)
+end
+
+-- Rotation (world axis, angle) taking direction a onto direction b; nil when already aligned
+local function between(a, b)
+	local axis = a:Cross(b)
+	if axis.Magnitude < 1e-5 then return nil end
+	return axis.Unit, math.acos(math.clamp(a:Dot(b), -1, 1))
+end
 
 function LookController.new(ghostModel, aiModel)
 	local self = setmetatable({}, LookController)
@@ -32,6 +60,16 @@ function LookController.new(ghostModel, aiModel)
 
 	-- Bones
 	self.headBone = ghostModel:FindFirstChild("mixamorig:Head", true)
+	self.arms = {}
+	for _, side in ipairs({ "Right", "Left" }) do
+		local upper = ghostModel:FindFirstChild("mixamorig:" .. side .. "Arm", true)
+		local fore = ghostModel:FindFirstChild("mixamorig:" .. side .. "ForeArm", true)
+		local hand = ghostModel:FindFirstChild("mixamorig:" .. side .. "Hand", true)
+		if upper and fore and hand then
+			self.arms[side] = { upper = upper, fore = fore, hand = hand }
+		end
+	end
+	self.pointW, self.pointChestYaw = 0, 0
 	self.neckBone = ghostModel:FindFirstChild("mixamorig:Neck", true)
 	self.spine2Bone = ghostModel:FindFirstChild("mixamorig:Spine2", true)
 	self.rootPart = ghostModel:FindFirstChild("HumanoidRootPart") or (aiModel and aiModel:FindFirstChild("HumanoidRootPart"))
@@ -276,10 +314,105 @@ function LookController:applyBoneOffset(bone, offset)
 	self.boneWrites[bone] = { base = base, written = bone.Transform }
 end
 
--- Update procedural look-at on top of animation
+-- The animated Transform under any offset written last frame (see applyBoneOffset)
+function LookController:baseTransform(bone)
+	local last = self.boneWrites and self.boneWrites[bone]
+	if last and bone.Transform == last.written then return last.base end
+	return bone.Transform
+end
+
+-- How far the arm is up this frame, toward what, with which arm, and the chest's share
+function LookController:preparePoint()
+	self.pointW, self.pointChestYaw = 0, 0
+	local model = self.aiModel
+	local at = model and model:GetAttribute("PointAt")
+	if not at or Workspace:GetAttribute("PointOff") == true then return end
+	local t = Workspace:GetServerTimeNow() - at
+	if t < 0 or t >= POINT_DURATION then return end
+	local folder = Workspace:FindFirstChild("QuinServer")
+	local enemy = folder and folder:FindFirstChild(model:GetAttribute("PointAtName") or "")
+	local enemyRoot = enemy and enemy:FindFirstChild("HumanoidRootPart")
+	if not enemyRoot then return end
+	local targetPos = enemyRoot.Position + Vector3.new(0, 1, 0)
+	local localPos = self.rootPart.CFrame:PointToObjectSpace(targetPos)
+	if self.pointKey ~= at then
+		self.pointKey = at
+		self.pointSide = localPos.X >= 0 and "Right" or "Left" -- (the arm on its side)
+	end
+	if not self.arms[self.pointSide] then return end
+	local w = smooth(0, 0.18, t) * (1 - smooth(POINT_DURATION - 0.3, POINT_DURATION, t))
+	local yaw = math.atan2(-localPos.X, -localPos.Z)
+	-- the enemy swung round behind it mid-point: the arm comes down rather than wrench back
+	w *= 1 - smooth(math.rad(105), math.rad(140), math.abs(yaw))
+	-- ...or crossed over to the other arm's side (it turned): down rather than point wrong
+	local across = self.pointSide == "Right" and yaw or -yaw
+	w *= 1 - smooth(POINT_ACROSS + math.rad(10), POINT_ACROSS + math.rad(45), across)
+	self.pointW = w
+	self.pointTarget = targetPos
+	self.pointChestYaw = math.clamp(yaw * POINT_CHEST_SHARE, -POINT_CHEST_MAX, POINT_CHEST_MAX) * w
+end
+
+-- Two-bone IK for the pointing arm, after the head/neck/chest are written
+function LookController:applyPoint()
+	if self.pointW <= 0.001 then return end
+	local arm = self.arms[self.pointSide]
+	local upper, fore, hand = arm.upper, arm.fore, arm.hand
+	local root = self.rootPart.CFrame
+	-- the arm as animated (without last frame's offsets)
+	local U = upper.TransformedWorldCFrame * upper.Transform:Inverse() * self:baseTransform(upper)
+	local F = U * fore.CFrame * self:baseTransform(fore)
+	local S, E0, H0 = U.Position, F.Position, (F * hand.CFrame).Position
+	local L1, L2 = (E0 - S).Magnitude, (H0 - E0).Magnitude
+	if L1 < 0.05 or L2 < 0.05 then return end
+
+	-- aim, held inside what a shoulder does
+	local toTarget = self.pointTarget - S
+	if toTarget.Magnitude < 0.5 then return end
+	local ld = root:VectorToObjectSpace(toTarget.Unit)
+	local yaw = math.atan2(-ld.X, -ld.Z) -- (+ = to its left)
+	local pitch = math.asin(math.clamp(ld.Y, -1, 1))
+	if self.pointSide == "Right" then
+		yaw = math.clamp(yaw, -POINT_OUT, POINT_ACROSS)
+	else
+		yaw = math.clamp(yaw, -POINT_ACROSS, POINT_OUT)
+	end
+	pitch = math.clamp(pitch, POINT_PITCH_MIN, POINT_PITCH_MAX)
+	local dir = root:VectorToWorldSpace(Vector3.new(-math.sin(yaw) * math.cos(pitch), math.sin(pitch), -math.cos(yaw) * math.cos(pitch)))
+
+	-- hand short of full reach; the elbow on the circle that leaves, toward the pole
+	local d = (L1 + L2) * POINT_REACH
+	local T = S + dir * d
+	local cosA = math.clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1)
+	local out = root.RightVector * (self.pointSide == "Right" and 1 or -1)
+	local pole = -root.UpVector + out * 0.6 - root.LookVector * 0.3
+	local perp = pole - dir * pole:Dot(dir)
+	if perp.Magnitude < 1e-3 then perp = -root.UpVector - dir * (-root.UpVector):Dot(dir) end
+	perp = perp.Unit
+	local E = S + dir * (cosA * L1) + perp * (math.sqrt(1 - cosA * cosA) * L1)
+
+	-- upper arm onto the elbow, then the forearm onto the hand point (full solution, as local
+	-- offsets), then both eased in by the weight
+	local axis1, angle1 = between((E0 - S).Unit, (E - S).Unit)
+	local R1 = axis1 and CFrame.fromAxisAngle(axis1, angle1) or CFrame.identity
+	local offset1 = axis1 and CFrame.fromAxisAngle(U:VectorToObjectSpace(axis1), angle1) or CFrame.identity
+	local f1 = R1:VectorToWorldSpace((H0 - E0).Unit)
+	local axis2, angle2 = between(f1, (T - E).Unit)
+	local foreRot = R1 * F.Rotation
+	local offset2 = axis2 and CFrame.fromAxisAngle(foreRot:VectorToObjectSpace(axis2), angle2) or CFrame.identity
+	self:applyBoneOffset(upper, CFrame.identity:Lerp(offset1, self.pointW))
+	self:applyBoneOffset(fore, CFrame.identity:Lerp(offset2, self.pointW))
+end
+
+-- Update procedural look-at on top of animation, then the pointing arm
 function LookController:update(dt)
 	if not self.enabled or not self.headBone or not self.rootPart then return end
 	if self.aiModel and self.aiModel:GetAttribute("CurrentState") == "Death" then return end
+	self:preparePoint()
+	self:updateLook(dt)
+	self:applyPoint()
+end
+
+function LookController:updateLook(dt)
 
 	local targetPos, mode = self:resolveTargetPosition()
 	self.gazeMode = mode
@@ -293,6 +426,14 @@ function LookController:update(dt)
 		if t >= 0 and t < NOD_DURATION then
 			local wave = math.sin(2 * math.pi * t / NOD_DURATION)
 			nodPitch = -NOD_DEPTH * wave * wave * (1 - 0.4 * t / NOD_DURATION)
+		end
+	end
+	local shakeYaw = 0
+	local shakeAt = self.aiModel and self.aiModel:GetAttribute("ShakeAt")
+	if shakeAt then
+		local t = workspace:GetServerTimeNow() - shakeAt
+		if t >= 0 and t < SHAKE_DURATION then
+			shakeYaw = SHAKE_AMP * math.sin(4 * math.pi * t / SHAKE_DURATION) * (1 - t / SHAKE_DURATION)
 		end
 	end
 
@@ -316,7 +457,7 @@ function LookController:update(dt)
 	if not targetPos then
 		-- No target: settle back to the clip's own head
 		springTo(0, 0)
-		if nodPitch == 0 and math.abs(self.currentYaw) < 0.002 and math.abs(self.currentPitch) < 0.002
+		if nodPitch == 0 and shakeYaw == 0 and self.pointChestYaw == 0 and math.abs(self.currentYaw) < 0.002 and math.abs(self.currentPitch) < 0.002
 			and math.abs(self.yawVelocity) < 0.01 and math.abs(self.pitchVelocity) < 0.01 then
 			self.currentYaw, self.currentPitch, self.yawVelocity, self.pitchVelocity = 0, 0, 0, 0
 			return -- Early return: leaves author-keyed head/neck bone transforms 100% untouched
@@ -409,9 +550,9 @@ function LookController:update(dt)
 	-- Distribution over head, neck and upper back: fixed shares, so the split never jumps.
 	-- (Zones with different splits - 100% head to 30 degrees, then 60/40 - moved the head
 	-- back 12 degrees the moment a target crossed 30 degrees.)
-	local headYaw = self.currentYaw * 0.50
-	local neckYaw = self.currentYaw * 0.30
-	local spineYaw = self.currentYaw * 0.20
+	local headYaw = self.currentYaw * 0.50 + shakeYaw * 0.7
+	local neckYaw = self.currentYaw * 0.30 + shakeYaw * 0.3
+	local spineYaw = self.currentYaw * 0.20 + self.pointChestYaw
 
 	-- Pitch distribution: 70% Head, 30% Neck
 	local headPitch = self.currentPitch * 0.70 + nodPitch * 0.75
