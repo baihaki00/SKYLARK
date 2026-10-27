@@ -457,6 +457,9 @@ CombatConfig.Nav_ClearHoldTime = 0.5            -- seconds the way must stay cle
 CombatConfig.Gait_AutoDriveInterval = 0         -- seconds between automatic gait updates (0: every frame)
 CombatConfig.Gait_StartFade = 0.06              -- seconds a ground loop fades in over
 CombatConfig.Gait_WeightFade = 0.04             -- seconds a change of blend weight takes
+CombatConfig.Gait_SoftStartFade = 0.15          -- soft blend: seconds a ground loop fades in over (GaitSoftBlendOff = old 0.06)
+CombatConfig.Gait_SoftWeightFadePerUnit = 0.2   -- soft blend: seconds of fade per 1.0 of weight change (big hand-overs fade slowly)
+CombatConfig.Gait_BlendFollowRate = 7          -- 1/s; how fast the Walk/Jog/Run blend follows the speed (cadence follows at 25)
 CombatConfig.HighGround_VantageDistance = 24    -- studs out from a perched target it waits at when it cannot get up
 CombatConfig.EnergyDrain_PointJump = 8          -- mana for a hop on to a spot (the big jump: EnergyDrain_ProjectileJump)
 CombatConfig.ProjectileJump_TurnLegSlope = 0.2  -- how far downhill a turn leg of a dive runs (drop per stud across)

@@ -59,6 +59,13 @@ local LAUNCH_WINDOW = 0.3 -- after a deliberate jump the Humanoid can still read
 local AUTO_DRIVE_INTERVAL = CombatConfig.Gait_AutoDriveInterval or 0
 local AUTO_DRIVE_MIN_SPEED = 1.5 -- studs/s of planar motion before the base layer is filled
 local SPEED_FOLLOW_RATE = 25 -- 1/s; how tightly the gait speed follows the measured velocity
+-- Soft blend: the Walk/Jog/Run weights follow a slower speed than the cadence does. The Humanoid
+-- reaches a new WalkSpeed in ~0.1 s, so blend weights on the fast speed swapped walk for run in
+-- a few frames (the walk-to-run pop). Cadence stays on the fast speed so the feet keep the ground.
+-- Workspace GaitSoftBlendOff = true restores the old behaviour (A/B).
+local function softBlendOn()
+	return workspace:GetAttribute("GaitSoftBlendOff") ~= true
+end
 local STANDSTILL_SPEED = 0.4 -- studs/s below which the Quin is standing: no ground loop plays at all
 -- States that own the whole body (reactions, scripted flight) or select their own
 -- locomotion clips (Circling strafes) are never filled automatically.
@@ -156,7 +163,8 @@ local function clearForeignMovementTracks(humanoid, own)
 	if not animator then return end
 	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
 		if not own[track] and track.Priority == Enum.AnimationPriority.Movement then
-			track:Stop(START_FADE)
+			-- (out as slowly as the gait comes in, or the body shows the idle pose for a moment)
+			track:Stop(softBlendOn() and (CombatConfig.Gait_SoftStartFade or 0.15) or START_FADE)
 		end
 	end
 end
@@ -247,7 +255,7 @@ local function drive(track, weight, rate, st, key, startPhase)
 		local wasAt = track.TimePosition
 		track.Priority = Enum.AnimationPriority.Movement
 		track.Looped = true
-		track:Play(START_FADE, weight, math.abs(rate))
+		track:Play(softBlendOn() and (CombatConfig.Gait_SoftStartFade or 0.15) or START_FADE, weight, math.abs(rate))
 		if rate < 0 then
 			track:AdjustSpeed(rate) -- backpedal: the cycle played in reverse
 		end
@@ -260,7 +268,12 @@ local function drive(track, weight, rate, st, key, startPhase)
 		return
 	end
 	if math.abs(weight - (st.weights[key] or -1)) > WEIGHT_DEADBAND then
-		track:AdjustWeight(weight, WEIGHT_FADE)
+		local fade = WEIGHT_FADE
+		if softBlendOn() then
+			-- a big jump (forward <-> strafe hand-over) fades as slowly as the clip taking over
+			fade = math.max(fade, math.abs(weight - (st.weights[key] or 0)) * (CombatConfig.Gait_SoftWeightFadePerUnit or 0.2))
+		end
+		track:AdjustWeight(weight, fade)
 		st.weights[key] = weight
 	end
 	if math.abs(rate - (st.rates[key] or -1)) > RATE_DEADBAND then
@@ -449,7 +462,15 @@ function GaitModule.update(humanoid, rootPart, dt)
 		speed = math.max(speed, CombatConfig.Gait_ReversalSpeedFloor or 9)
 	end
 
-	local weights = blendWeights(speed)
+	local blendSpeed = speed
+	if softBlendOn() then
+		st.blendSpeed = st.blendSpeed or speed
+		st.blendSpeed += (speed - st.blendSpeed) * (1 - math.exp(-(CombatConfig.Gait_BlendFollowRate or 7) * dt))
+		blendSpeed = st.blendSpeed
+	else
+		st.blendSpeed = speed
+	end
+	local weights = blendWeights(blendSpeed)
 	local lens, plants = {}, {}
 	local cycleDistance = 0
 	local lead = 1
@@ -467,7 +488,7 @@ function GaitModule.update(humanoid, rootPart, dt)
 	cadence = math.clamp(cadence, minRate / lens[lead], maxRate / lens[lead])
 
 	-- Fade the whole gait layer over the idle pose near standstill
-	local locoWeight = smoothstep(STANDSTILL_SPEED, CombatConfig.Gait_IdleBlendSpeed or 3.0, speed)
+	local locoWeight = smoothstep(STANDSTILL_SPEED, CombatConfig.Gait_IdleBlendSpeed or 3.0, math.min(speed, blendSpeed)) -- (eased on a start, prompt on a stop)
 
 	local anyActive = false
 	for _, track in ipairs(tracks) do
