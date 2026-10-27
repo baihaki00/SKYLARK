@@ -143,9 +143,10 @@ end
 
 -- Take in every call from this Quin's team made since it last listened, within earshot of where
 -- it was shouted. learn(call) stores it as a belief; returns the newest call heard, or nil.
--- Does this Quin see the caller (in its vision cone, nothing in between)?
-local function seesCaller(quinModel, rootPart, call)
-	local callerRoot = call.caller.Parent and call.caller:FindFirstChild("HumanoidRootPart")
+-- Does this Quin see another's gesture (in front of it, nothing in between)? Also used for a
+-- pack leader's points (SocialLeaders).
+function Callouts.sees(quinModel, rootPart, other)
+	local callerRoot = other.Parent and other:FindFirstChild("HumanoidRootPart")
 	if not callerRoot then return false end
 	local cog = CombatConfig.Cognition
 	local offset = callerRoot.Position - rootPart.Position
@@ -156,7 +157,10 @@ local function seesCaller(quinModel, rootPart, call)
 		and look.Unit:Dot(flat.Unit) < math.cos(math.rad(cfg("PointSeeHalfAngle", 60))) then
 		return false
 	end
-	return SpatialModule.checkLineOfSight(SpatialModule.getEyePosition(rootPart), SpatialModule.getEyePosition(callerRoot), { quinModel, call.caller })
+	return SpatialModule.checkLineOfSight(SpatialModule.getEyePosition(rootPart), SpatialModule.getEyePosition(callerRoot), { quinModel, other })
+end
+local function seesCaller(quinModel, rootPart, call)
+	return Callouts.sees(quinModel, rootPart, call.caller)
 end
 
 -- What it makes of a point it saw: go after that enemy, or not. A leaning (temperament, what it

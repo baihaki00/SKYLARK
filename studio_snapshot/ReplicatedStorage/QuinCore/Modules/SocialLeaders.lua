@@ -28,6 +28,20 @@ local SocialSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("Soci
 
 local CFG = (CombatConfig.Social or {}).Leaders or {}
 
+-- Leaders point (owner 2026-10-28: Quins are mute; a signal is a gesture, and only the allies
+-- that see it take part). Attack: at the target. Regroup: at the spot. Protect: at the enemy on
+-- it. A follower that sees the point answers with its body: a nod (with you) or a shake of the
+-- head (no). One that does not see it is not asked. Workspace LeaderPointOff: the old way (every
+-- follower within SignalRadius answers, look-and-nod only).
+local POINT_DURATION = (CombatConfig.Cognition or {}).PointDuration or 1.1
+local NO_POINT_STATES = { Knockback = true, Recovery = true, Death = true, ProjectileJump = true, MidAirClash = true, Special = true }
+local function pointing()
+	return Workspace:GetAttribute("LeaderPointOff") ~= true
+end
+local function Callouts()
+	return require(QuinCore:WaitForChild("Cognition"):WaitForChild("Callouts"))
+end
+
 local SocialLeaders = {}
 
 local leaders = {}      -- team -> { [model] = { since, cred, outshoneSince, downSince } }
@@ -256,13 +270,33 @@ local function respond(follower, leader, kind, info)
 	-- reaction time: quick when it trusts the leader
 	local delay = (CFG.ReactMin or 0.3) + (1 - t) * ((CFG.ReactMax or 1.4) - (CFG.ReactMin or 0.3)) + math.random() * 0.3
 	local follows = math.random() < p
+	local pointed = pointing()
+	if pointed then delay = math.min(delay, 0.5) end -- (it saw the arm: the look comes at once)
 	task.delay(delay, function()
 		if not (follower.Parent and leader.Parent) then return end
-		SocialSystem.lookAt(follower, leader, 0.8)
+		SocialSystem.lookAt(follower, leader, pointed and 0.45 or 0.8)
+		if pointed then
+			-- then where the leader points, then its answer
+			task.delay(0.45, function()
+				if not follower.Parent then return end
+				if info.target and info.target.Parent then
+					SocialSystem.lookAt(follower, info.target, 0.6)
+				elseif info.point then
+					follower:SetAttribute("LookPoint", info.point)
+					follower:SetAttribute("LookUntil", Workspace:GetServerTimeNow() + 0.6)
+				end
+			end)
+			task.delay(1.0, function()
+				if not follower.Parent then return end
+				follower:SetAttribute(follows and "NodAt" or "ShakeAt", Workspace:GetServerTimeNow())
+				Callouts().debugTag(follower, (follows and "with you: " or "no: ") .. string.lower(kind),
+					follows and Color3.fromRGB(140, 255, 140) or Color3.fromRGB(255, 150, 150))
+			end)
+		end
 		if follows then
 			stats.follow += 1
 			followScore[leader] = (followScore[leader] or 0) + 1
-			if math.random() < 0.5 then SocialSystem.nod(follower, 0.5) end
+			if not pointed and math.random() < 0.5 then SocialSystem.nod(follower, 0.5) end
 			if kind == "Attack" and info.target then
 				follower:SetAttribute("SocialFocus", info.target.Name)
 				follower:SetAttribute("SocialFocusUntil", SocialSystem.now() + (CFG.FocusTime or 8))
@@ -280,7 +314,7 @@ local function respond(follower, leader, kind, info)
 			table.insert(info.ignorers, follower)
 			-- refusal: looks at the leader, then back at its own enemy, and keeps fighting
 			if myTarget then
-				task.delay(0.9, function() SocialSystem.lookAt(follower, myTarget, 1.0) end)
+				task.delay(pointed and 1.5 or 0.9, function() SocialSystem.lookAt(follower, myTarget, 1.0) end)
 			end
 			-- witnesses: allies close to the one who refused, not busy themselves
 			for _, w in ipairs(SocialSystem.fighters()) do
@@ -321,6 +355,51 @@ local function signal(leader, team, kind, info, members)
 	info.kind, info.leader, info.team, info.at = kind, leader, team, now()
 	info.followers, info.ignorers = {}, {}
 	info.targetHealth0 = info.target and humOf(info.target) and humOf(info.target).Health or nil
+	local candidates = {}
+	for _, m in ipairs(members) do
+		if m ~= leader and m:GetAttribute("FollowingLeader") == leader.Name and flatDist(m, leader) < (CFG.SignalRadius or 70) then
+			table.insert(candidates, m)
+		end
+	end
+	if pointing() and info.aim then
+		-- body language: the arm toward it, the head with it, then a nod round at the pack. Each
+		-- follower answers only once it has seen the arm up (in front of it, in sight).
+		if typeof(info.aim) == "Vector3" then
+			leader:SetAttribute("PointAtName", nil)
+			leader:SetAttribute("PointAtPos", info.aim)
+			leader:SetAttribute("LookPoint", info.aim)
+			leader:SetAttribute("LookUntil", Workspace:GetServerTimeNow() + POINT_DURATION)
+		else
+			leader:SetAttribute("PointAtName", info.aim.Name)
+			leader:SetAttribute("PointAtPos", nil)
+			SocialSystem.lookAt(leader, info.aim, POINT_DURATION)
+		end
+		leader:SetAttribute("PointAt", Workspace:GetServerTimeNow())
+		Callouts().debugTag(leader, "lead: " .. string.lower(kind) .. (info.target and (" " .. info.target.Name) or ""), Color3.fromRGB(255, 200, 80))
+		SocialSystem.nod(leader, POINT_DURATION)
+		table.insert(pending, info)
+		task.spawn(function()
+			local waiting = candidates
+			local t0 = now()
+			while #waiting > 0 and now() - t0 <= POINT_DURATION and leader.Parent do
+				local still = {}
+				for _, m in ipairs(waiting) do
+					local mRoot = m.Parent and rootOf(m)
+					if mRoot and Callouts().sees(m, mRoot, leader) then
+						info.aliveAtStart = (info.aliveAtStart or 0) + 1
+						bump(stats, "sawPoint")
+						respond(m, leader, kind, info)
+					elseif mRoot then
+						table.insert(still, m)
+					end
+				end
+				waiting = still
+				task.wait(0.15)
+			end
+			stats.missedPoint = (stats.missedPoint or 0) + #waiting
+		end)
+		return
+	end
 	-- body language: a look round at the allies, a look at the target, a nod
 	local nearest, nd = nil, math.huge
 	for _, m in ipairs(members) do
@@ -332,11 +411,9 @@ local function signal(leader, team, kind, info, members)
 		if info.target then SocialSystem.lookAt(leader, info.target, 0.9) end
 		SocialSystem.nod(leader, 0.3)
 	end)
-	for _, m in ipairs(members) do
-		if m ~= leader and m:GetAttribute("FollowingLeader") == leader.Name and flatDist(m, leader) < (CFG.SignalRadius or 70) then
-			info.aliveAtStart = (info.aliveAtStart or 0) + 1
-			respond(m, leader, kind, info)
-		end
+	for _, m in ipairs(candidates) do
+		info.aliveAtStart = (info.aliveAtStart or 0) + 1
+		respond(m, leader, kind, info)
 	end
 	table.insert(pending, info)
 end
@@ -347,6 +424,7 @@ local function considerSignals(byTeam)
 			if leader.Parent and not isDown(leader) and now() - (lastSignal[leader] or 0) >= (CFG.SignalCooldown or 6) then
 				local root = rootOf(leader)
 				local nearAllies, nearEnemies, enemyCentroid = 0, 0, Vector3.zero
+				local closestEnemy, closestD = nil, math.huge
 				for _, m in ipairs(SocialSystem.fighters()) do
 					local d = flatDist(m, leader)
 					if m ~= leader and d < (CFG.SignalRadius or 70) then
@@ -355,20 +433,31 @@ local function considerSignals(byTeam)
 						elseif d < 40 then
 							nearEnemies += 1
 							enemyCentroid += rootOf(m).Position
+							if d < closestD then closestEnemy, closestD = m, d end
 						end
 					end
+				end
+				-- a point needs a free arm and the thing in front of it: else it signals later
+				local function canPoint(aim)
+					if not pointing() then return true end
+					if not aim or leader:GetAttribute("Attacking") == true or NO_POINT_STATES[leader:GetAttribute("CurrentState") or ""] then return false end
+					local pos = typeof(aim) == "Vector3" and aim or (rootOf(aim) and rootOf(aim).Position)
+					if not pos then return false end
+					local off = Vector3.new(pos.X - root.Position.X, 0, pos.Z - root.Position.Z)
+					local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+					return off.Magnitude < 1 or look.Unit:Dot(off.Unit) >= math.cos(math.rad((CombatConfig.Cognition or {}).PointMaxAngle or 115))
 				end
 				if nearAllies > 0 and root then
 					local target = targetOf(leader)
 					if hpRatio(leader) < (CFG.ProtectHealth or 0.35) and nearEnemies > 0 then
-						signal(leader, team, "Protect", {}, members)
+						if canPoint(closestEnemy) then signal(leader, team, "Protect", { aim = closestEnemy }, members) end
 					elseif nearEnemies >= nearAllies + 2 then
 						local away = root.Position - enemyCentroid / nearEnemies
 						away = Vector3.new(away.X, 0, away.Z)
 						local point = root.Position + (away.Magnitude > 0.1 and away.Unit * 20 or Vector3.zero)
-						signal(leader, team, "Regroup", { point = point }, members)
+						if canPoint(point) then signal(leader, team, "Regroup", { point = point, aim = point }, members) end
 					elseif target and target:GetAttribute("Team") ~= team and (leader:GetAttribute("CurrentState") == "Fight" or leader:GetAttribute("CurrentState") == "Chase") then
-						signal(leader, team, "Attack", { target = target }, members)
+						if canPoint(target) then signal(leader, team, "Attack", { target = target, aim = target }, members) end
 					end
 				end
 			end
@@ -456,7 +545,8 @@ end
 
 local function publishStats()
 	local out = { leaders = {}, signals = stats.signals, follow = stats.follow, ignore = stats.ignore,
-		witness = stats.witness, emerged = stats.emerged, transfers = #stats.transfers, lastTransfers = {} }
+		witness = stats.witness, emerged = stats.emerged, transfers = #stats.transfers, lastTransfers = {},
+		sawPoint = stats.sawPoint or 0, missedPoint = stats.missedPoint or 0 }
 	for team, roster in pairs(leaders) do
 		local names = {}
 		for m, e in pairs(roster) do table.insert(names, string.format("%s(%.2f)", m.Name, e.cred)) end
