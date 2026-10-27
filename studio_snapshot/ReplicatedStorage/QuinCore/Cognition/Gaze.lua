@@ -21,7 +21,7 @@ local PlatformCatalogue = require(QuinCore:WaitForChild("Modules"):WaitForChild(
 local Gaze = {}
 
 -- States in which a Quin has no attention to spare for looking around
-local ENGAGED_STATES = { Fight = true, Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, Special = true, BeamStruggle = true }
+local ENGAGED_STATES = { Fight = true, Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, Special = true }
 -- States busy with a fight: only an enemy overhead is worth a look
 local ACTIVE_STATES = { Chase = true, Circling = true, Retreat = true }
 

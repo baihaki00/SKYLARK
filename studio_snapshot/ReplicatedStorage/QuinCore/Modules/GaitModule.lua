@@ -64,7 +64,7 @@ local STANDSTILL_SPEED = 0.4 -- studs/s below which the Quin is standing: no gro
 -- locomotion clips (Circling strafes) are never filled automatically.
 local AUTO_DRIVE_EXCLUDED_STATES = {
 	Knockback = true, Recovery = true, Death = true, WallRun = true, Airborne = true,
-	MidAirClash = true, BeamStruggle = true, ProjectileJump = true, ProjectileFight = true,
+	MidAirClash = true, ProjectileJump = true, ProjectileFight = true,
 	-- (Circling was excluded for its strafe clips; hasForeignLocomotion already keeps the fill
 	-- off while one plays, and without the fill a Circling Quin between strafes moved in the
 	-- fight stance - or in no pose at all)

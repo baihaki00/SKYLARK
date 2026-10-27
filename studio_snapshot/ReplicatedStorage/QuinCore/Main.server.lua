@@ -86,7 +86,6 @@ local States = {
 	Interception = require(statesFolder:WaitForChild("InterceptionState")),
 	ReEntry = require(statesFolder:WaitForChild("ReEntryState")),
 	WallRun = require(statesFolder:WaitForChild("WallRunState")),
-	BeamStruggle = require(statesFolder:WaitForChild("BeamStruggleState")),
 	Piloted = require(statesFolder:WaitForChild("PilotedState")),
 }
 
@@ -595,7 +594,7 @@ task.spawn(function()
 				local isShowdown = Quin:GetAttribute("RespectRole") == "Duelist"
 				local isAirState = (currentState.name == "Knockback" or currentState.name == "Airborne"
 					or currentState.name == "ProjectileJump"
-					or currentState.name == "MidAirClash" or currentState.name == "BeamStruggle"
+					or currentState.name == "MidAirClash"
 					or currentState.name == "Recovery"
 					or currentState.name == "ReEntry")
 				if not isShowdown and not isAirState and not isGrounded and rootPart.AssemblyLinearVelocity.Magnitude < 5 then
@@ -648,9 +647,8 @@ task.spawn(function()
 		-- === Tactical Perception & Emergent Decision Layer ===
 		local showdownRole = Quin:GetAttribute("RespectRole")
 		local isShowdownPerimeter = SocialSystem.standsDown(Quin) -- (stepped back for the respect custom: plans no fights)
-		local isBeamStruggling = (currentState.name == "BeamStruggle")
 
-		if not isShowdownPerimeter and not isBeamStruggling and rootPart and humanoid.Health > 0 and not isPiloted() then
+		if not isShowdownPerimeter and rootPart and humanoid.Health > 0 and not isPiloted() then
 			local tacticalContext = TacticalPerception.evaluate(Quin)
 			if tacticalContext then
 				-- 1. Utility-based target selection & switching
@@ -897,7 +895,7 @@ task.spawn(function()
 			-- State Dwell Commitment Check: prevent rapid 100-300ms fluttering
 			local isInterrupt = (forceState ~= nil)
 				or (newState.name == "Knockback" or newState.name == "Death" or newState.name == "Recovery"
-					or newState.name == "MidAirClash" or newState.name == "BeamStruggle" or newState.name == "ReEntry"
+					or newState.name == "MidAirClash" or newState.name == "ReEntry"
 					-- committed moves lasting a second or more, gated by their own cooldowns; held
 					-- back here, a hop onto a stepping stone waited 1.3 s and its spot request lapsed
 					or newState.name == "ProjectileJump" or newState.name == "WallRun"

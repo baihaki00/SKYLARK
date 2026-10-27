@@ -21,7 +21,7 @@ local KNOWN_TRACK_LENGTHS = {
 	["rbxassetid://103890244670922"] = 1.233, -- Attacks.Kicks.WheelDriveLeft
 	["rbxassetid://90752953215195"] = 1.000, -- Attacks.Punches.LeftPunch
 	["rbxassetid://100294955898321"] = 1.000, -- Attacks.Punches.RightPunch, Tactics.DesperateCounter
-	["rbxassetid://109837817595150"] = 3.867, -- Idles.CombatIdle, Idles.FightIdle, Idles.SurveyIdle, Transition.AssessTarget, Transition.BeamStruggle
+	["rbxassetid://109837817595150"] = 3.867, -- Idles.CombatIdle, Idles.FightIdle, Idles.SurveyIdle, Transition.AssessTarget
 	["rbxassetid://71743026406362"] = 2.733, -- Attacks.Special.ProceduralSmackDown
 	["rbxassetid://79207866638803"] = 3.200, -- Reactions.GetUpBackFast
 	["rbxassetid://82896239168564"] = 3.200, -- Reactions.GetUpFrontFast
@@ -81,7 +81,7 @@ local KNOWN_NAMES = {
 	["rbxassetid://103890244670922"] = "WheelDriveLeft",
 	["rbxassetid://90752953215195"] = "LeftPunch",
 	["rbxassetid://100294955898321"] = "RightPunch",
-	["rbxassetid://109837817595150"] = "BeamStruggle",
+	["rbxassetid://109837817595150"] = "FightIdle",
 	["rbxassetid://71743026406362"] = "ProceduralSmackDown",
 	["rbxassetid://79207866638803"] = "GetUpBackFast",
 	["rbxassetid://82896239168564"] = "GetUpFrontFast",
@@ -509,7 +509,7 @@ function AnimationModule.stopCategory(humanoid, category, fadeOut)
 	collectIds(catData)
 	
 	for animId, track in pairs(animationTracks[humanoid]) do
-		-- (never the base idle: Transition.BeamStruggle and Transition.AssessTarget share the fight
+		-- (never the base idle: Transition.AssessTarget shares the fight
 		-- idle's asset, so stopping "Attacks" on entering Fight / Circling stopped the idle loop
 		-- itself and the body showed its bind pose until the no-pose watchdog caught it)
 		if idsToStop[animId] and track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Idle then
@@ -706,7 +706,7 @@ function AnimationModule.stopCategory(humanoid, category, fadeOut)
 	end
 	
 	for animId, track in pairs(animationTracks[humanoid]) do
-		-- (never the base idle: Transition.BeamStruggle and Transition.AssessTarget share the fight
+		-- (never the base idle: Transition.AssessTarget shares the fight
 		-- idle's asset, so stopping "Attacks" on entering Fight / Circling stopped the idle loop
 		-- itself and the body showed its bind pose until the no-pose watchdog caught it)
 		if idsToStop[animId] and track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Idle then

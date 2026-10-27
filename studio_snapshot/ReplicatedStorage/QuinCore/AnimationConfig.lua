@@ -64,8 +64,6 @@ AnimationConfig.Registry = {
 		WalkThug = { borrows = "Movement.WalkConfident", speed = 0.90, fadeTime = 0.15, priority = "Movement", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Aggressive Walk" },
 	},
 	Transition = {
-		-- (the beam struggle holds the fight stance on its own track; moved here from Attacks.Specials)
-		BeamStruggle = { trackKey = "Beam", borrows = "Idles.FightIdle", speed = 1.00, fadeTime = 0.10, priority = "Action4", looped = true, impactRatio = 0.00, cancelRatio = 1.00, name = "Beam Struggle Channel" },
 		AssessTarget = { trackKey = "Assess", borrows = "Idles.FightIdle", speed = 1.20, fadeTime = 0.15, priority = "Action2", looped = false, impactRatio = 0.00, cancelRatio = 1.00, name = "Target Assessment Survey" },
 	},
 	Awareness = {

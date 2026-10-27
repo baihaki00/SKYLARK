@@ -302,31 +302,6 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	-- PHASE 2: Active Hit Detection
 	if data.phase == "active" then
-		-- Phase 12 Spectacle: Dynamic Anime Beam Struggle Collision Detection
-		if move.type == "Offensive" and target and target.Parent then
-			local tHRP = target:FindFirstChild("HumanoidRootPart")
-			local tHum = target:FindFirstChildOfClass("Humanoid")
-			if tHRP and tHum and tHum.Health > 0 then
-				local tState = target:GetAttribute("CurrentState")
-				local tSpecial = target:GetAttribute("CurrentSpecial")
-				if (tState == "Special" and tSpecial) or target:GetAttribute("ForceState") == "BeamStruggle" then
-					local dist = (tHRP.Position - rootPart.Position).Magnitude
-					if dist <= (CombatConfig.BeamStruggle_ClashRange or 80.0) then
-						local myLook = rootPart.CFrame.LookVector
-						local theirLook = tHRP.CFrame.LookVector
-						-- Facing each other in direct line of fire
-						if myLook:Dot(theirLook) <= -0.30 then
-							fighter:SetAttribute("TargetQuin", target.Name)
-							fighter:SetAttribute("ForceState", "BeamStruggle")
-							target:SetAttribute("TargetQuin", fighter.Name)
-							target:SetAttribute("ForceState", "BeamStruggle")
-							return require(script.Parent:WaitForChild("BeamStruggleState"))
-						end
-					end
-				end
-			end
-		end
-
 		local phaseElapsed = tick() - data.phaseStartTime
 		local effectiveActive = move.activeDuration / speedMult
 		

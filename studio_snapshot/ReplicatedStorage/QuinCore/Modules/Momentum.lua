@@ -45,7 +45,7 @@ local FULL_FORCE = Vector3.new(math.huge, math.huge, math.huge)
 local ARENA_MARGIN = 30
 local MOVER_NAMES = { MOM_Att = true, MOM_LinearVelocity = true, MOM_Align = true }
 -- the states that fly the body with movers of their own: a contact does not take them over
-local OWN_FLIGHT = { ProjectileJump = true, MidAirClash = true, Knockback = true, WallRun = true, Death = true, BeamStruggle = true }
+local OWN_FLIGHT = { ProjectileJump = true, MidAirClash = true, Knockback = true, WallRun = true, Death = true }
 
 local moves = {} -- fighter -> the move that has its body
 

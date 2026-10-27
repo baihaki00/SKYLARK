@@ -20,7 +20,7 @@ local SpatialModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("Spa
 
 local Senses = {}
 
-local NOISY_STATES = { Fight = true, Knockback = true, ProjectileJump = true, Special = true, BeamStruggle = true }
+local NOISY_STATES = { Fight = true, Knockback = true, ProjectileJump = true, Special = true }
 local HIT_MEMORY = 2.0 -- seconds an attacker stays "felt" after its hit
 local LOS_ALWAYS_WITHIN = 45 -- line of sight is always resolved inside the local combat radius
 

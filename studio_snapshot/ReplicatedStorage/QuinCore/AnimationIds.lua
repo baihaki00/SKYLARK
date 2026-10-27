@@ -81,7 +81,6 @@ setmetatable(AnimationIds, {
 		if key == "BlockRight" then return reg.Reactions and reg.Reactions.BlockRight and reg.Reactions.BlockRight.id end
 		-- (the rival finisher has no clip of its own: the right high kick)
 		if key == "RivalFinisher" then return reg.Attacks and reg.Attacks.Kicks and reg.Attacks.Kicks.HighKickRight and reg.Attacks.Kicks.HighKickRight.id end
-		if key == "BeamStruggle" then return reg.Transition and reg.Transition.BeamStruggle and reg.Transition.BeamStruggle.id end
 		if key == "Death" then return (reg.Reactions and reg.Reactions.Death and reg.Reactions.Death.id) or (reg.Reactions and reg.Reactions.DeathCollapse and reg.Reactions.DeathCollapse.id) end
 		if key == "DeathOnTheSpot" or key == "OnTheSpotDeath" then return reg.Reactions and reg.Reactions.DeathOnTheSpot and reg.Reactions.DeathOnTheSpot.id end
 		if key == "Dash" then 

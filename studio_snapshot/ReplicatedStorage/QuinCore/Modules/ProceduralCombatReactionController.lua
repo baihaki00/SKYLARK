@@ -20,7 +20,7 @@ local WallHand = require(Procedural:WaitForChild("WallHand"))
 local Breath = require(Procedural:WaitForChild("Breath"))
 
 -- States in which the arm layers leave the arms to the clip (thrown, getting up, special moves)
-local ARMS_BUSY_STATES = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, BeamStruggle = true, Special = true }
+local ARMS_BUSY_STATES = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, Special = true }
 
 local ProceduralCombatReactionController = {}
 ProceduralCombatReactionController.__index = ProceduralCombatReactionController
@@ -335,7 +335,7 @@ end
 
 -- The air pose held until the body shown is down (Presentation_AirHold). A local track: it plays
 -- on this screen only, over the server's clips.
-local AIR_HOLD_SKIP = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, Airborne = true, BeamStruggle = true }
+local AIR_HOLD_SKIP = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, Airborne = true }
 function ProceduralCombatReactionController:holdAirPose(dt)
 	local humanoid = self.humanoid
 	local root = self.ghostRootPart or self.rootPart
@@ -740,7 +740,7 @@ function ProceduralCombatReactionController:update(dt)
 	-- that grows with speed. The whole body turns about a point on the ground under the root,
 	-- so the feet stay where they are (the foot solver below plants them).
 	local tiltOn = Layers.isOn("BodyTilt", serverModel) -- live A/B switch
-	local tiltStates = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true, BeamStruggle = true }
+	local tiltStates = { Knockback = true, Recovery = true, ProjectileJump = true, MidAirClash = true, WallRun = true, Death = true }
 	local tiltTarget = Vector3.zero
 	if tiltOn and not isAirborne and not tiltStates[serverState] and not (self.humanoid and self.humanoid.PlatformStand) then
 		local gravity = Workspace.Gravity

@@ -13,7 +13,7 @@ local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
 
 local Attention = {}
 
-local ENGAGED_STATES = { Fight = true, Special = true, BeamStruggle = true }
+local ENGAGED_STATES = { Fight = true, Special = true }
 
 function Attention.capacity(quinModel)
 	local cfg = CombatConfig.Cognition

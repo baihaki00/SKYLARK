@@ -200,30 +200,7 @@ local CombatConfig = {
 	RetreatSafeDistance = 85.0,           -- studs minimum distance from nearest threat to consider retreat successful
 	RetreatMinDuration = 2.5,             -- seconds minimum before allowing safe haven transition to defensive stance
 
-	--// PHASE 12 SPECTACLE: DYNAMIC BEAM STRUGGLES, AURA FARMING & RIVAL FINISHERS
-	BeamStruggle_PowerUpDurationMin = 0.50, -- min seconds charging wind-up before beam fire
-	BeamStruggle_PowerUpDurationMax = 0.85, -- max seconds charging wind-up before beam fire
-	BeamStruggle_ReactionDelayMin = 0.04,   -- organic execution delay before opponent counter-beam
-	BeamStruggle_ReactionDelayMax = 0.12,   -- organic execution delay before opponent counter-beam
-	BeamStruggle_ContinuousManaTick = 0.10, -- seconds per continuous mana tick
-	BeamStruggle_ContinuousManaDrain = 2.0, -- -2 mana consumed every 0.10s (~20 mana/s)
-	BeamStruggle_SurgeManaCost = 5.0,       -- -5 mana per tactical surge decision
-	BeamStruggle_SurgePushForce = 35.0,     -- push force spike when surging forward
-	BeamStruggle_DesperateBurstCost = 8.0,  -- mana for emergency counter-surge when near death
-	BeamStruggle_DesperateBurstForce = 55.0,-- push force spike for emergency counter-surge
-	BeamStruggle_FatalDamage = 55.0,        -- significant damage on beam breakthrough
-	BeamStruggle_FatalKnockbackForce = 36.0, -- knockback impulse force (~25 studs travel)
-	BeamStruggle_MinDuration = 1.2,       -- min seconds before breach resolution
-	BeamStruggle_ClashRange = 80.0,       -- max studs separation for opposing specials to lock (45-80 studs threshold)
-	BeamStruggle_ClashRangeMin = 45.0,    -- min studs for ranged beam struggle engagement
-	BeamStruggle_ClashRangeMax = 80.0,    -- max studs for ranged beam struggle engagement
-	BeamStruggle_BreachDwellTime = 0.60,  -- seconds winner beam sustains and drives into loser during breach
-	BeamStruggle_BobAmplitude = 0.75,     -- studs vertical sinusoidal floating amplitude (opposite-phase seesaw)
-	BeamStruggle_BobFrequency = 3.2,      -- Hz vertical bobbing frequency
-	BeamStruggle_ShakeAmplitude = 0.20,   -- studs physical micro-shake displacement (kinetic strain/weight)
-	BeamStruggle_ShakeFrequency = 25.0,   -- Hz micro-vibration frequency
-	BeamStruggle_ArcOrbitSpeed = 0.45,    -- radians/s orbital axis rotation rate (switching places in mid-air)
-	BeamStruggle_ElemAdvantageMult = 1.35,-- +35% push force multiplier for dominant elemental matchup
+	--// PHASE 12 SPECTACLE: AURA FARMING & RIVAL FINISHERS
 
 	AuraFarm_SuperGainPerSec = 15.0,      -- SuperMeter charged per second
 	AuraFarm_EnergyGainPerSec = 20.0,     -- Energy regenerated per second
@@ -493,7 +470,6 @@ CombatConfig.Gait_StartFade = 0.06              -- seconds a ground loop fades i
 CombatConfig.Gait_WeightFade = 0.04             -- seconds a change of blend weight takes
 CombatConfig.HighGround_VantageDistance = 24    -- studs out from a perched target it waits at when it cannot get up
 CombatConfig.EnergyDrain_PointJump = 8          -- mana for a hop on to a spot (the big jump: EnergyDrain_ProjectileJump)
-CombatConfig.BeamStruggle_MaxDuration = 5.5     -- seconds a beam struggle may last
 CombatConfig.ProjectileJump_TurnLegSlope = 0.2  -- how far downhill a turn leg of a dive runs (drop per stud across)
 CombatConfig.Nav_StoneJumpMinWidth = 10                 -- studs: a stepping stone's top at least this wide is jumped on to; a smaller one gets the spot hop
 CombatConfig.Nav_StoneHopCooldown = 2.5               -- seconds between stepping-stone hops (was 0.6; owner 2026-10-27: tone them down)
