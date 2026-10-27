@@ -105,6 +105,29 @@ end
 -- Turn the body to face a target with the fight's facing (Modules/Facing, held as "Fight").
 -- Used by the fight loop and by a player's Quin (PilotedState). Not across a height difference of
 -- 5 studs or more.
+-- Stepping back off the line (owner 2026-10-28, movement step 5): its own step back from the
+-- opponent goes back and to one side, not straight back - a fighter gives ground off the line
+-- of the next punch. Still facing its opponent. The side holds a while (no zig-zag), keeps any
+-- sideways motion the body already has, and the angle is a leaning: a careful Quin angles off
+-- more, a pressing one gives ground more straight. Workspace or Quin BackAngleOff: straight back.
+function FightState.backStepDir(fighter, rootPart, data, awayFlat, now)
+	if workspace:GetAttribute("BackAngleOff") == true or fighter:GetAttribute("BackAngleOff") == true then
+		return awayFlat
+	end
+	local side = Vector3.new(-awayFlat.Z, 0, awayFlat.X)
+	local back = data.backAngle
+	if not back or now >= back.untilT then
+		local lateral = rootPart.AssemblyLinearVelocity:Dot(side)
+		local sign = math.abs(lateral) > 3 and math.sign(lateral) or (back and back.sign or (math.random() < 0.5 and -1 or 1))
+		if back and math.abs(lateral) <= 3 and math.random() < 0.3 then sign = -sign end -- (now and then the other way)
+		local careful = 1 - Pers.get(fighter, "Aggression")
+		back = { sign = sign, deg = 18 + 22 * careful + math.random() * 10, untilT = now + 1.2 + math.random() * 1.4 }
+		data.backAngle = back
+	end
+	local a = math.rad(back.deg)
+	return (awayFlat * math.cos(a) + side * (back.sign * math.sin(a))).Unit
+end
+
 function FightState.faceTarget(rootPart, targetHRP, data)
 	local yDiff = math.abs(targetHRP.Position.Y - rootPart.Position.Y)
 	if yDiff >= 5 then return end
@@ -458,7 +481,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Not during its own strike either: backing off mid-swing and lunging on the next one
 		-- rocked the body back and forth.
 		if awayFlat.Magnitude > 0.01 and Vector3.new(ownVel.X, 0, ownVel.Z).Magnitude < 16 and fighter:GetAttribute("Attacking") ~= true then
-			KnockbackModule.applySlide(fighter, awayFlat.Unit, CombatConfig.Melee_SlideSpeed or 10, 0.3) -- refreshed each tick; eases out once spacing is restored
+			KnockbackModule.applySlide(fighter, FightState.backStepDir(fighter, rootPart, data, awayFlat.Unit, now), CombatConfig.Melee_SlideSpeed or 10, 0.3) -- refreshed each tick; eases out once spacing is restored
 			if not AnimationModule.isPlaying(humanoid, AnimationIds.RetreatBackstep) then
 				AnimationModule.play(humanoid, AnimationIds.RetreatBackstep, Enum.AnimationPriority.Movement, false, 1.2, 0.1)
 			end
@@ -735,7 +758,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		
 		local awayTarget = (rootPart.Position - targetHRP.Position)
 		local awayFlat = Vector3.new(awayTarget.X, 0, awayTarget.Z)
-		local slideDir = (awayFlat.Magnitude > 0.01) and awayFlat.Unit or -rootPart.CFrame.LookVector
+		local slideDir = (awayFlat.Magnitude > 0.01) and FightState.backStepDir(fighter, rootPart, data, awayFlat.Unit, now) or -rootPart.CFrame.LookVector
 		KnockbackModule.applySlide(fighter, slideDir, 36, 0.25)
 		
 		return FightState
