@@ -1476,7 +1476,7 @@ CombatConfig.Momentum = {
 -- === MomentumDuel (Modules/MomentumDuel): the duel brain - two Quins reading each other and ===
 -- picking momentum moves beat by beat. Enabled = false switches the brain off (the moves stay).
 CombatConfig.MomentumDuel = {
-	Enabled = true,
+	Enabled = false,            -- owner 2026-10-28: off for now (DuelDashOnly debug needs it on)
 	MaxDuels = 3,               -- at once in an arena
 	ScanInterval = 0.5,         -- s between looks for an opener
 	OpenerChance = 0.05,        -- per look, x (0.5 + aggression) x (0.5 + mobility)
