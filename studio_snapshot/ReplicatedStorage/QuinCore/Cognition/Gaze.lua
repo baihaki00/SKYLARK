@@ -158,6 +158,46 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 			gaze.glanceUntil = now + cfg.GazeGlanceDuration
 		end
 	end
+	-- Gestures (owner 2026-10-27): small, on the head, eyes, a nod and the stance - never a clip that
+	-- takes the legs - and only for something that happened:
+	--   Alert        an enemy it did not know of a moment ago comes into sight: the head goes to
+	--                it, the eyes open wide, it stands ready
+	--   Ready        an enemy close while it holds a place: eyes narrowed on it, ready stance
+	--   Acknowledge  an ally comes up to it: a look and a nod (below, with the greet)
+	-- A fight takes them all back at once.
+	gaze.known = gaze.known or setmetatable({}, { __mode = "k" })
+	if ENGAGED_STATES[state] then
+		gaze.gesture = nil
+	elseif gcfg(cfg, "Gestures", true) ~= false then
+		local closest, closestDist
+		for _, contact in ipairs(board.contacts.enemies or {}) do
+			local m = contact.model
+			if contact.visible and m then
+				local fresh = now - (gaze.known[m] or -math.huge) > gcfg(cfg, "GestureForgetTime", 8)
+				gaze.known[m] = now
+				local d = (contact.position - rootPart.Position).Magnitude
+				if fresh and not ACTIVE_STATES[state] and now >= gaze.glanceUntil and d < gcfg(cfg, "GestureAlertRange", 120) then
+					gaze.glanceAt = m
+					local offset = contact.position - SpatialModule.getEyePosition(rootPart)
+					gaze.glancePitch = offset.Magnitude > 1 and math.clamp(math.deg(math.asin(math.clamp(offset.Y / offset.Magnitude, -1, 1))), -cfg.GazeMaxPitch, cfg.GazeMaxPitch) or 0
+					gaze.glanceUntil = now + gcfg(cfg, "GazeGreetDuration", 1.2)
+					gaze.nextGlance = gaze.glanceUntil + gcfg(cfg, "GazeCueCheck", 0.4)
+					gaze.gesture, gaze.gestureUntil = "Alert", now + 0.9
+					quinModel:SetAttribute("CurrentIdleStance", "Ready")
+					quinModel:SetAttribute("LastActivityTime", now)
+				end
+				if not closestDist or d < closestDist then closest, closestDist = m, d end
+			end
+		end
+		if state == "Idle" and closest and closestDist < gcfg(cfg, "GestureReadyRange", 35)
+			and (not gaze.gesture or now >= (gaze.gestureUntil or 0)) then
+			gaze.gesture, gaze.gestureUntil = "Ready", now + 0.5
+			quinModel:SetAttribute("CurrentIdleStance", "Ready")
+			quinModel:SetAttribute("LastActivityTime", now)
+		end
+	end
+	if gaze.gesture and now >= (gaze.gestureUntil or 0) then gaze.gesture = nil end
+
 	-- Standing (owner 2026-10-27: "defenders don't look at each other"), in any mode, the head has
 	-- something to do, and only things it has a reason for:
 	--   greet  an ally that comes up to it draws a look (it saw it come)
@@ -181,6 +221,8 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 		end
 		if greet then
 			gaze.greeted[greet] = now + gcfg(cfg, "GazeGreetCooldown", 10)
+			gaze.gesture, gaze.gestureUntil = "Acknowledge", now + 1.2
+			quinModel:SetAttribute("NodAt", serverNow + 0.25) -- (LookController: a nod, after the look lands)
 			gaze.glanceAt = greet
 			gaze.glancePitch = 0
 			gaze.glanceUntil = now + gcfg(cfg, "GazeGreetDuration", 1.2)
@@ -229,6 +271,9 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 	end
 	if quinModel:GetAttribute("GazeMode") ~= mode then
 		quinModel:SetAttribute("GazeMode", mode)
+	end
+	if quinModel:GetAttribute("Gesture") ~= gaze.gesture then
+		quinModel:SetAttribute("Gesture", gaze.gesture)
 	end
 	-- the Quin it glanced at (up at one overhead, or at the ally it helps): the head looks at it
 	local at = mode == "glance" and gaze.glanceAt and gaze.glanceAt.Parent and gaze.glanceAt.Name or nil

@@ -283,6 +283,7 @@ function LookController:update(dt)
 
 	local targetPos, mode = self:resolveTargetPosition()
 	self.gazeMode = mode
+	self.lastTargetPos = targetPos -- (the eyes look the rest of the way: QuinEyes)
 
 	-- Nod: two dips of the head (the second smaller), on top of wherever it is looking
 	local nodPitch = 0
