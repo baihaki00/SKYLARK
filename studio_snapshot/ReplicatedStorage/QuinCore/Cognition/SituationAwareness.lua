@@ -18,6 +18,17 @@ local SituationAwareness = {
 
 local CLOSE_PRESENCE = 10.0 -- an enemy this close counts as a threat even without line of sight
 
+-- Whom an enemy is after, as far as this Quin can tell: read off a body it sees (or one right on
+-- it), never off a memory or a report - that would be reading minds across the arena
+local function readsIntentOf(contact)
+	return contact.visible and (contact.hasLineOfSight or contact.distance <= CLOSE_PRESENCE)
+end
+
+local function isAfter(contact, quinModel)
+	local theirTarget = contact.model:GetAttribute("CurrentTarget") or contact.model:GetAttribute("TargetQuin")
+	return theirTarget == quinModel.Name and readsIntentOf(contact)
+end
+
 -- Contacts inside the local combat radius
 function SituationAwareness.nearby(contacts)
 	local allies, enemies = {}, {}
@@ -129,8 +140,7 @@ function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAl
 	-- Focus: known enemies within 40 studs that are targeting this Quin
 	local enemiesFocusingMe = {}
 	for _, enemy in ipairs(contacts.enemies) do
-		local theirTarget = enemy.model:GetAttribute("CurrentTarget") or enemy.model:GetAttribute("TargetQuin")
-		if theirTarget == quinModel.Name and enemy.distance <= 40 then
+		if isAfter(enemy, quinModel) and enemy.distance <= 40 then
 			table.insert(enemiesFocusingMe, enemy.model)
 		end
 	end
@@ -144,32 +154,42 @@ function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAl
 	local isSelfIsolated = (allyCount == 0 and enemyCount >= 1) or (nearestAllyDist > 65 and enemyCount >= 1)
 	local isOutnumbered = (enemyCount > allyCount + 1) or (localAdvantageRatio < 0.65)
 
-	-- The target's own situation, as far as this Quin knows it
+	-- The target's own situation, as far as this Quin knows it: its own target (the one it has,
+	-- else the nearest it knows of), where and how hurt it believes it is. (This used to be the
+	-- nearest enemy whatever the target was, with its true health read off the body: "finish it,
+	-- it is nearly down" was about somebody else, or about a Quin it had not seen for ten seconds.)
 	local targetInfo = nil
 	local isTargetIsolated = false
 	local targetHealthRatio = 1.0
-	local activeTarget = targetModel or (nearestEnemy and nearestEnemy.model)
-	if activeTarget and activeTarget.Parent then
-		local targetRoot = activeTarget:FindFirstChild("HumanoidRootPart")
-		local targetHum = activeTarget:FindFirstChildOfClass("Humanoid")
-		if targetRoot and targetHum and targetHum.Health > 0 then
-			local targetPos = targetRoot.Position
-			local targetAlliesCount = 0
-			for _, enemy in ipairs(contacts.enemies) do
-				if enemy.model ~= activeTarget and (enemy.position - targetPos).Magnitude <= SituationAwareness.LOCAL_RADIUS then
-					targetAlliesCount += 1
-				end
-			end
-			isTargetIsolated = targetAlliesCount == 0
-			targetHealthRatio = targetHum.Health / targetHum.MaxHealth
-			targetInfo = {
-				model = activeTarget,
-				distance = (targetPos - myPos).Magnitude,
-				healthRatio = targetHealthRatio,
-				isIsolated = isTargetIsolated,
-				alliesCount = targetAlliesCount,
-			}
+	local targetName = self.targetName
+	local targetContact = nil
+	for _, enemy in ipairs(contacts.enemies) do
+		if (targetModel and enemy.model == targetModel) or (not targetModel and enemy.model.Name == targetName) then
+			targetContact = enemy
+			break
 		end
+	end
+	targetContact = targetContact or nearestEnemy
+	local activeTarget = targetContact and targetContact.model
+	if targetContact and activeTarget.Parent then
+		local targetPos = targetContact.position
+		local targetAlliesCount = 0
+		for _, enemy in ipairs(contacts.enemies) do
+			if enemy.model ~= activeTarget and (enemy.position - targetPos).Magnitude <= SituationAwareness.LOCAL_RADIUS then
+				targetAlliesCount += 1
+			end
+		end
+		isTargetIsolated = targetAlliesCount == 0
+		targetHealthRatio = targetContact.healthRatio or 1
+		targetInfo = {
+			model = activeTarget,
+			distance = targetContact.distance,
+			healthRatio = targetHealthRatio,
+			isIsolated = isTargetIsolated,
+			alliesCount = targetAlliesCount,
+			confidence = targetContact.confidence or 1,
+			knownBy = targetContact.channel,
+		}
 	end
 
 	local baseConfidence = quinModel:GetAttribute("Pers_Confidence") or 0.6
@@ -189,8 +209,7 @@ function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAl
 		local toMe = myPos - entry.position
 		local dist = toMe.Magnitude
 		local closing = dist > 0.1 and (entry.velocity - self.velocity):Dot(toMe.Unit) or 0
-		local isTargetingMe = entry.model:GetAttribute("TargetQuin") == quinModel.Name or entry.model:GetAttribute("CurrentTarget") == quinModel.Name
-		if (closing > 0 or isTargetingMe) and dist < primaryPursuerDist then
+		if (closing > 0 or isAfter(entry, quinModel)) and dist < primaryPursuerDist then
 			primaryPursuerDist = dist
 			closingSpeed = math.max(0, closing)
 			primaryPursuer = entry.model
