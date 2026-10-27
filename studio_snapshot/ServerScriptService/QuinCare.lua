@@ -3,18 +3,26 @@
 -- the server and runs on Skylark time (SkylarkTime.now; a Skylark hour is 20 real minutes):
 --   * Condition 0..100, saved on the Quin. A match takes it down by the damage taken (a full
 --     beating -25, knocked out -15 more). A worn Quin fights worn: its max health and its energy
---     are capped at 75% + 25% x condition (applyToModel).
+--     are capped at 75% + 25% x condition, and its combat stats drop with it - it gets out of the
+--     way less (DodgeChance x factor^2), raises its guard less (BlockChance x factor) and stays
+--     down longer when knocked down (StunResist below zero) (applyToModel). Stats start from the
+--     same fair values for every Quin (QuinData); the reflexes read them (Modules/Instinct).
 --   * Rest (free): +REST_PER_HOUR a Skylark hour while it is not busy, also while its owner is
 --     offline (worked out from ConditionAt when it is next looked at).
 --   * Workshop repair (SC): REPAIR_PER_POINT a point, back to 100 after REPAIR_HOURS.
 --   * Quin Trainer: a session on one habit, up or down (Temperament.applyMatch with the owner's
 --     TrainingFocus, so the 1:3 protects it from fights), Short / Normal / Long; it wears the Quin
 --     (TRAIN_WEAR) and grows Bond. Bond makes training count for more.
+--   * Quin Trainer, drills: a session on one combat stat instead of a habit (Guard, Footwork,
+--     Toughness, Precision), 0..DRILL_MAX, earned a session at a time (Bond makes it count for
+--     more). Small on purpose - the same fair base for everyone (QuinData), a drilled Quin a little
+--     better at one thing: at the top, +30% guard or footwork, -2 damage a blow and up quicker, or
+--     +5% crit (applyDrills). Wear then takes the stats down with its condition.
 --   * Quin Specialist: appraisal, each habit as Low / Mid / High at that moment (goes stale as the
 --     habits drift). Fights reveal the habits a Quin shows most for free, from REVEAL_FIGHTS on.
 --   * A busy Quin (repair, training) can't be seated for a round (ArenaRegistration).
 -- Remote: ArenaNetwork.QuinCare (RemoteFunction) "list" | "repair", slot | "train", slot, habit,
--- dir, session | "appraise", slot. Each action needs its station close by (STATION_RANGE).
+-- dir, session | "drill", slot, drill, session | "appraise", slot. Each action needs its station close by (STATION_RANGE).
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -43,6 +51,16 @@ Care.SESSIONS = {
     Normal = { hours = 2, cost = 180, step = 0.02 },
     Long = { hours = 4, cost = 320, step = 0.04 },
 }
+Care.DRILL_MAX = 10
+Care.DRILLS = { -- (order shown in the Trainer)
+    { key = "Guard", text = "Raises its guard more often" },
+    { key = "Footwork", text = "Gets out of the way more often" },
+    { key = "Toughness", text = "Takes less from a blow, gets up quicker" },
+    { key = "Precision", text = "Lands critical hits more often" },
+}
+local DRILL_KEYS = {}
+for _, d in ipairs(Care.DRILLS) do DRILL_KEYS[d.key] = true end
+
 Care.HABIT_NAMES = {
     Aggression = "Aggression", RiskTolerance = "Risk", DashPreference = "Dash", RetreatTendency = "Retreat",
     TargetPersistence = "Focus", Protectiveness = "Protect", MobilityPreference = "Mobility",
@@ -94,6 +112,14 @@ local function finishBusy(quin)
         local after = quin.Personality[busy.Habit] or before
         return string.format("Quin #%s finished training: %s %d -> %d.", tag, Care.HABIT_NAMES[busy.Habit] or busy.Habit,
             math.floor(before * 100 + 0.5), math.floor(after * 100 + 0.5))
+    elseif busy.Kind == "Drill" then
+        local session = Care.SESSIONS[busy.Session] or Care.SESSIONS.Short
+        local bondFactor = 0.6 + 0.4 * math.clamp((quin.Bond or 0) / 100, 0, 1)
+        quin.Drills = quin.Drills or {}
+        local before = quin.Drills[busy.Drill] or 0
+        quin.Drills[busy.Drill] = math.min(Care.DRILL_MAX, before + session.hours * bondFactor)
+        quin.Bond = math.min(100, (quin.Bond or 0) + 3)
+        return string.format("Quin #%s finished drilling %s: %.1f -> %.1f of %d.", tag, busy.Drill, before, quin.Drills[busy.Drill], Care.DRILL_MAX)
     end
     return nil
 end
@@ -135,9 +161,25 @@ function Care.factor(conditionValue)
     return 0.75 + 0.25 * math.clamp((conditionValue or 100) / 100, 0, 1)
 end
 
--- A worn Quin fights worn: max health now, energy capped by the loop below
+-- Drills on top of the fair base stats already on the model (QuinSpawner.applyStats)
+function Care.applyDrills(quin, model)
+    local d = quin.Drills or {}
+    local function share(key) return math.clamp((d[key] or 0) / Care.DRILL_MAX, 0, 1) end
+    local guard, footwork, tough, precision = share("Guard"), share("Footwork"), share("Toughness"), share("Precision")
+    model:SetAttribute("BlockChance", (model:GetAttribute("BlockChance") or 0.20) * (1 + 0.3 * guard))
+    model:SetAttribute("DodgeChance", (model:GetAttribute("DodgeChance") or 0.08) * (1 + 0.3 * footwork))
+    model:SetAttribute("Defense", (model:GetAttribute("Defense") or 0) + 2 * tough)
+    model:SetAttribute("StunResist", (model:GetAttribute("StunResist") or 0) + 0.15 * tough)
+    model:SetAttribute("CriticalHitChance", (model:GetAttribute("CriticalHitChance") or 0.10) + 0.05 * precision)
+end
+
+-- What it has drilled, then how worn it is: max health now, energy capped by the loop below
 function Care.applyToModel(quin, model)
-    if not (quin and model) or quin.Condition == nil then
+    if not (quin and model) then
+        return
+    end
+    Care.applyDrills(quin, model)
+    if quin.Condition == nil then
         return
     end
     local c = Care.condition(quin)
@@ -160,6 +202,10 @@ function Care.applyToModel(quin, model)
         end
         model:GetAttributeChangedSignal("Energy"):Connect(hold)
         hold()
+        -- (the fair base stats are already on the model: QuinSpawner.applyStats)
+        model:SetAttribute("DodgeChance", (model:GetAttribute("DodgeChance") or 0.08) * f * f)
+        model:SetAttribute("BlockChance", (model:GetAttribute("BlockChance") or 0.20) * f)
+        model:SetAttribute("StunResist", (model:GetAttribute("StunResist") or 0) - (1 - f))
     end
 end
 
@@ -320,7 +366,8 @@ local function list(player)
             local busy = nil
             if q.Busy then
                 busy = { Kind = q.Busy.Kind, Left = math.max(0, SkylarkTime.realSecondsUntil(q.Busy.Until) or 0),
-                    Habit = q.Busy.Habit and Care.HABIT_NAMES[q.Busy.Habit], Dir = q.Busy.Dir, Session = q.Busy.Session }
+                    Habit = q.Busy.Habit and Care.HABIT_NAMES[q.Busy.Habit], Dir = q.Busy.Dir, Session = q.Busy.Session,
+                    Drill = q.Busy.Drill }
             end
             table.insert(out, {
                 Slot = slot,
@@ -338,6 +385,7 @@ local function list(player)
                 Gender = q.Gender,
                 Title = q.Titles and q.Titles.Current or nil,
                 Habits = habitView(q),
+                Drills = q.Drills or {},
                 AppraisedAt = q.Appraisal and q.Appraisal.At or nil,
                 Outfit = q.Outfit, -- (QuinWardrobe; nil = random each spawn)
             })
@@ -349,6 +397,8 @@ local function list(player)
         MaxSlots = QuinRosterService.MAX_SLOTS,
         Balance = Wallet.balance(player),
         Sessions = Care.SESSIONS,
+        DrillList = Care.DRILLS,
+        DrillMax = Care.DRILL_MAX,
         AppraiseCost = Care.APPRAISE_COST,
         Now = now(),
     }
@@ -406,6 +456,35 @@ local function train(player, slot, habit, dir, sessionName)
         Care.HABIT_NAMES[habit], dir > 0 and "up" or "down", math.ceil(session.hours * HOUR / 60), session.cost)
 end
 
+local function drill(player, slot, drillName, sessionName)
+    if not near(player, "Trainer") then
+        return false, "Drills are booked with the Quin Trainer."
+    end
+    local quin = quinInSlot(player, slot)
+    local session = Care.SESSIONS[sessionName]
+    if not quin then
+        return false, "No Quin in that slot."
+    end
+    if not (DRILL_KEYS[drillName] and session) then
+        return false, "Pick a drill and a session."
+    end
+    if quin.Busy then
+        return false, "That Quin is busy (" .. quin.Busy.Kind .. ")."
+    end
+    if ((quin.Drills or {})[drillName] or 0) >= Care.DRILL_MAX then
+        return false, drillName .. " is drilled as far as it goes."
+    end
+    local ok, msg = Wallet.spend(player, session.cost, string.format("Drill Quin #%s %s", quin.QuinId:sub(3, 6), drillName))
+    if not ok then
+        return false, msg
+    end
+    quin.Condition = math.max(0, (quin.Condition or 100) - Care.TRAIN_WEAR) -- (drilling wears it too)
+    quin.Busy = { Kind = "Drill", Until = now() + session.hours * HOUR, Drill = drillName, Session = sessionName }
+    markDirty(quin)
+    return true, string.format("Quin #%s is drilling %s (%s): back in %d real minutes.", quin.QuinId:sub(3, 6), drillName, sessionName,
+        math.ceil(session.hours * HOUR / 60))
+end
+
 local function appraise(player, slot)
     if not near(player, "Specialist") then
         return false, "Appraisals are done by the Quin Specialist."
@@ -447,6 +526,8 @@ remote.OnServerInvoke = function(player, action, a, b, c, d)
             return repair(player, a)
         elseif action == "train" then
             return train(player, a, b, tonumber(c), d)
+        elseif action == "drill" then
+            return drill(player, a, b, c)
         elseif action == "appraise" then
             return appraise(player, a)
         end
@@ -461,7 +542,8 @@ remote.OnServerInvoke = function(player, action, a, b, c, d)
 end
 
 -- Studio tests (MCP runs code in its own VM, so tests drive this copy through an attribute):
--- workspace QuinCareDev = "cond <slot> <0..100>" | "finish <slot>" | "dump", on the first player.
+-- workspace QuinCareDev = "cond <slot> <0..100>" | "finish <slot>" | "drill <slot> <Guard..>" (a Long
+-- drill, finished at once) | "dump", on the first player.
 -- The reply is workspace QuinCareDevResult.
 if game:GetService("RunService"):IsStudio() then
     Workspace:GetAttributeChangedSignal("QuinCareDev"):Connect(function()
@@ -482,6 +564,12 @@ if game:GetService("RunService"):IsStudio() then
                 q.Busy.Until = now() - 1
                 reply = tostring(Care.settle(q))
             end
+        elseif word == "drill" then
+            local q = quinInSlot(player, a)
+            if q and DRILL_KEYS[b] then
+                q.Busy = { Kind = "Drill", Until = now() - 1, Drill = b, Session = "Long" }
+                reply = tostring(Care.settle(q))
+            end
         elseif word == "dump" then
             local lines = {}
             local roster = QuinRosterService.getRoster(player)
@@ -490,7 +578,8 @@ if game:GetService("RunService"):IsStudio() then
                 if q then
                     Care.settle(q)
                     table.insert(lines, string.format("%d %s cond %.1f bond %d busy %s aggr %.3f", slot, q.QuinId, q.Condition or 100,
-                        q.Bond or 0, q.Busy and q.Busy.Kind or "-", q.Personality.Aggression or 0))
+                        q.Bond or 0, q.Busy and q.Busy.Kind or "-", q.Personality.Aggression or 0)
+                        .. " drills " .. game:GetService("HttpService"):JSONEncode(q.Drills or {}))
                 end
             end
             reply = table.concat(lines, " | ")

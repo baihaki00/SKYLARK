@@ -100,7 +100,7 @@ local status = label(card, { Name = "CareStatus", Position = UDim2.fromOffset(18
 local station = nil -- "Workshop" | "Trainer" | "Specialist"
 local data = nil -- the last "list"
 local selectedSlot = nil
-local pick = { habit = nil, dir = 1, session = "Normal" }
+local pick = { habit = nil, dir = 1, session = "Normal", tab = "Habits", drill = nil }
 local HABITS = { "Aggression", "RiskTolerance", "DashPreference", "RetreatTendency", "TargetPersistence",
     "Protectiveness", "MobilityPreference", "SpecialPreference", "Confidence", "Awareness" }
 local NAMES = { Aggression = "Aggression", RiskTolerance = "Risk", DashPreference = "Dash", RetreatTendency = "Retreat",
@@ -124,6 +124,8 @@ local function busyText(q)
     end
     if q.Busy.Kind == "Training" then
         return string.format("Training %s %s  •  %s left", q.Busy.Habit or "", q.Busy.Dir == 1 and "up" or "down", minutes(q.Busy.Left))
+    elseif q.Busy.Kind == "Drill" then
+        return string.format("Drilling %s  •  %s left", q.Busy.Drill or "", minutes(q.Busy.Left))
     end
     return string.format("In the Workshop  •  %s left", minutes(q.Busy.Left))
 end
@@ -174,10 +176,75 @@ local function drawWorkshop(q)
     end)
 end
 
-local function drawTrainer(q)
+-- HABITS | DRILLS along the top of the Trainer
+local function trainerTabs()
+    for i, tab in ipairs({ "Habits", "Drills" }) do
+        local on = pick.tab == tab
+        button(panel, "Tab" .. tab, string.upper(tab), {
+            Position = UDim2.fromOffset(14 + (i - 1) * 160, 6), Size = UDim2.fromOffset(152, 22), TextSize = 12,
+            BackgroundColor3 = on and C_CYAN or C_BG, TextColor3 = on and C_BG or C_TEXT,
+        }).MouseButton1Click:Connect(function()
+            pick.tab = tab
+            refresh(false)
+        end)
+    end
+end
+
+local function sessionButtons(y)
+    for i, name in ipairs({ "Short", "Normal", "Long" }) do
+        local s = data.Sessions[name]
+        local on = pick.session == name
+        button(panel, "Session" .. name, string.format("%s  %dh  %d SC", name, s.hours, s.cost), {
+            Position = UDim2.fromOffset(14 + (i - 1) * 106, y), Size = UDim2.fromOffset(100, 26), TextSize = 11,
+            BackgroundColor3 = on and C_CYAN or C_BG, TextColor3 = on and C_BG or C_TEXT,
+        }).MouseButton1Click:Connect(function()
+            pick.session = name
+            refresh(false)
+        end)
+    end
+end
+
+local function drawDrills(q)
     local busy = busyText(q)
-    label(panel, { Position = UDim2.fromOffset(14, 10), Size = UDim2.fromOffset(314, 18), TextSize = 12, TextColor3 = busy and C_AMBER or C_MUTED,
-        Text = busy or string.format("Bond %d  •  condition %d%%  •  a session costs it 5%%", q.Bond, q.Condition) })
+    local max = data.DrillMax or 10
+    for i, d in ipairs(data.DrillList or {}) do
+        local level = (q.Drills or {})[d.key] or 0
+        local on = pick.drill == d.key
+        local y = 36 + (i - 1) * 38
+        button(panel, "Drill_" .. d.key, string.format("%s  %.1f / %d", d.key, level, max), {
+            Position = UDim2.fromOffset(14, y), Size = UDim2.fromOffset(130, 30), TextSize = 12,
+            BackgroundColor3 = on and C_CYAN or C_BG, TextColor3 = on and C_BG or C_TEXT,
+        }).MouseButton1Click:Connect(function()
+            pick.drill = d.key
+            refresh(false)
+        end)
+        local bar = new("Frame", { Parent = panel, BackgroundColor3 = C_STROKE, Position = UDim2.fromOffset(152, y + 4), Size = UDim2.fromOffset(176, 6) })
+        corner(bar, 3)
+        corner(new("Frame", { Parent = bar, BackgroundColor3 = C_GREEN, Size = UDim2.fromScale(math.clamp(level / max, 0, 1), 1) }), 3)
+        label(panel, { Position = UDim2.fromOffset(152, y + 12), Size = UDim2.fromOffset(176, 16), TextSize = 11, TextColor3 = C_MUTED, Text = d.text })
+    end
+    sessionButtons(196)
+    label(panel, { Position = UDim2.fromOffset(14, 228), Size = UDim2.fromOffset(314, 40), TextSize = 11, TextWrapped = true,
+        TextTruncate = Enum.TextTruncate.None, TextColor3 = busy and C_AMBER or C_MUTED, TextYAlignment = Enum.TextYAlignment.Top,
+        Text = busy or string.format("Bond %d (more bond, more from a session)  •  condition %d%%, a session costs it 5%%. Every Quin starts equal; drills add a little.", q.Bond, q.Condition) })
+    local level = pick.drill and (q.Drills or {})[pick.drill] or 0
+    local ready = pick.drill ~= nil and not busy and level < max
+    button(panel, "CareDrill", ready and string.format("DRILL %s", string.upper(pick.drill)) or (pick.drill and level >= max and "AS FAR AS IT GOES" or "PICK A DRILL"), {
+        Position = UDim2.fromOffset(14, 276), Size = UDim2.fromOffset(314, 34), BackgroundColor3 = ready and C_AMBER or C_STROKE, TextColor3 = C_BG,
+    }).MouseButton1Click:Connect(function()
+        if ready then
+            act("drill", q.Slot, pick.drill, pick.session)
+        end
+    end)
+end
+
+local function drawTrainer(q)
+    trainerTabs()
+    if pick.tab == "Drills" then
+        drawDrills(q)
+        return
+    end
+    local busy = busyText(q)
     -- habits, two columns
     for i, habit in ipairs(HABITS) do
         local col, row = (i - 1) % 2, (i - 1) // 2
@@ -202,19 +269,9 @@ local function drawTrainer(q)
         end)
     end
     -- session
-    for i, name in ipairs({ "Short", "Normal", "Long" }) do
-        local s = data.Sessions[name]
-        local on = pick.session == name
-        button(panel, "Session" .. name, string.format("%s  %dh  %d SC", name, s.hours, s.cost), {
-            Position = UDim2.fromOffset(14 + (i - 1) * 106, 224), Size = UDim2.fromOffset(100, 26), TextSize = 11,
-            BackgroundColor3 = on and C_CYAN or C_BG, TextColor3 = on and C_BG or C_TEXT,
-        }).MouseButton1Click:Connect(function()
-            pick.session = name
-            refresh(false)
-        end)
-    end
-    label(panel, { Position = UDim2.fromOffset(14, 254), Size = UDim2.fromOffset(314, 16), TextSize = 11, TextColor3 = C_MUTED,
-        Text = "1 Skylark hour = 20 real min. Its nature resists far pushes." })
+    sessionButtons(224)
+    label(panel, { Position = UDim2.fromOffset(14, 254), Size = UDim2.fromOffset(314, 16), TextSize = 11, TextColor3 = busy and C_AMBER or C_MUTED,
+        Text = busy or string.format("Bond %d  •  cond %d%%, -5%% a session  •  1 Skylark h = 20 min", q.Bond, q.Condition) })
     local ready = pick.habit ~= nil and not busy
     button(panel, "CareTrain", ready and string.format("TRAIN %s %s", string.upper(NAMES[pick.habit]), pick.dir == 1 and "UP" or "DOWN") or "PICK A HABIT", {
         Position = UDim2.fromOffset(14, 276), Size = UDim2.fromOffset(314, 34), BackgroundColor3 = ready and C_AMBER or C_STROKE, TextColor3 = C_BG,

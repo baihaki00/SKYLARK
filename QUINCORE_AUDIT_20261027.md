@@ -22,7 +22,7 @@ Verdicts: **MERGE** (same job twice, one owner), **DELETE** (dead), **FIX** (a b
 | B7 | NavigationModule.lowObstacle / IdleState | 2-stud step missed; stuck check fooled by written velocity | fixed (f03f76b) |
 | B8 | IsAuraFarming, LockedCombatTarget, AnticipatedReaction, ComboStep | read, never written: features dead (TeamFocusTarget is live: it travels in the situation table) | DELETE or wire |
 | B9 | KnockbackState:51 | "Adrenaline Surge": every knockback refilled mana to full | removed (owner) |
-| B10 | Defense, CriticalHitChance, DodgeChance | CORRECTION: set by QuinSpawner.applyStats from QuinData (a loop the name search missed): same fair values for every Quin. Not a bug. Same loop also sets Aggression 0.65 / SpecialPreference 0.35, so B1 was 0.65 for everyone, not 0.7 | per-Quin variation is a design call |
+| B10 | Defense, CriticalHitChance, DodgeChance | CORRECTION: set by QuinSpawner.applyStats from QuinData (a loop the name search missed): same fair values for every Quin. Not a bug. Same loop also sets Aggression 0.65 / SpecialPreference 0.35, so B1 was 0.65 for everyone, not 0.7 | done: wear lowers them, Trainer drills raise them (QuinCare), Instinct reads them |
 | B11 | ProjectileFightState header | "only transitions to ... TestEndState": no such state | DELETE the claim / test state |
 
 ## 2. Duplicates: merge or keep
@@ -64,7 +64,7 @@ Verdicts: **MERGE** (same job twice, one owner), **DELETE** (dead), **FIX** (a b
 | FightState's own block/dodge chooser (lines ~105-200, 995) vs Instinct | FightState's branch only runs when Instinct is off; Instinct is on | **DELETE** FightState's branch, or keep only as Instinct's fallback in one place |
 | Dodge moves: FightState dodge/dash, Evasion focus dash, Momentum roll, AirDash | different moves, but three deciders | KEEP the moves; **MERGE** the *choice* into one "answer a strike" picker (Instinct) |
 | Mid-air: MidAirClashState + ClashOrbit (1030 lines) + old static flurry | MidAirClash_Orbit = true, so the static flurry is dead | **DELETE** the static flurry path |
-| ProjectileFightState + InterceptionState | a test cinematic reached only by ForceState from GameModeManager | **ASK**: keep as a test scene outside QuinCore, or delete |
+| ProjectileFightState + InterceptionState | a test cinematic reached only by ForceState from GameModeManager | deleted (owner, 04e62ff) |
 | Airborne (air combos) vs ProjectileJump's own air fight vs ClashOrbit | three air-fight owners | design later: one AirCombat owner |
 | Momentum + MomentumDuel vs Chase/Fight | parallel movement + duel brain beside the FSM ("not a state") | KEEP (owner's direction) but it must use the shared body claim |
 | DecisionSystem (Attack/Retreat/Pursue) vs TaskChoice vs TargetingModule | three deciders, run in a fixed order, not aware of each other | **MERGE** into one Brain tick: task -> target -> action, with the task passed to the action |

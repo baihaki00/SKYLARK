@@ -17,6 +17,7 @@ local Workspace = game:GetService("Workspace")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local QuinData = require(QuinCore:WaitForChild("QuinData"))
 
 local Instinct = {}
 
@@ -37,10 +38,18 @@ end
 local reacted = setmetatable({}, { __mode = "k" }) -- defender -> { [attacker] = windupUntil already answered }
 local stats = { seen = 0, guard = 0, slip = 0, hop = 0, none = 0 }
 
--- How long this Quin takes to answer a tell
+-- How this Quin's stat compares with the fair base every Quin starts from (QuinData): wear takes
+-- it down (QuinCare.applyToModel), 1 for a Quin in full condition
+local function statShare(quin, stat)
+	local base = QuinData.Standard[stat]
+	if type(base) ~= "number" or base == 0 then return 1 end
+	return math.max(0, quin:GetAttribute(stat) or base) / base
+end
+
+-- How long this Quin takes to answer a tell (a worn Quin is slower: ConditionFactor 0.75 .. 1)
 local function reactionTime(quin)
 	local awareness = quin:GetAttribute("Pers_Awareness") or 0.6
-	local t = cfg("ReactionBase", 0.16) * (1.3 - awareness * 0.6)
+	local t = cfg("ReactionBase", 0.16) * (1.3 - awareness * 0.6) * (2 - (quin:GetAttribute("ConditionFactor") or 1))
 	if (quin:GetAttribute("Energy") or 100) < (CombatConfig.FatigueThreshold or 25) then
 		t += cfg("TiredExtra", 0.08)
 	end
@@ -56,10 +65,12 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 	local mobility = defender:GetAttribute("Pers_MobilityPreference") or 0.5
 	local low = attacker:GetAttribute("StrikeLow") == true
 	local roll = math.random()
-	local hop = low and timeLeft >= cfg("HopMinTime", 0.15) and cfg("HopChance", 0.5) * (0.5 + mobility) or 0
-	local slip = timeLeft >= cfg("SlipMinTime", 0.12) and cfg("SlipChance", 0.15) * (0.5 + mobility) or 0
+	-- (its stats scale each answer: getting out of the way by DodgeChance, the guard by BlockChance)
+	local dodge, block = statShare(defender, "DodgeChance"), statShare(defender, "BlockChance")
+	local hop = low and timeLeft >= cfg("HopMinTime", 0.15) and cfg("HopChance", 0.5) * (0.5 + mobility) * dodge or 0
+	local slip = timeLeft >= cfg("SlipMinTime", 0.12) and cfg("SlipChance", 0.15) * (0.5 + mobility) * dodge or 0
 	-- (a cautious Quin guards more readily, a furious one would rather trade: Modules/Drives)
-	local guard = cfg("GuardChance", 0.3) * (0.5 + defense) * require(QuinCore.Modules.Drives).guardBias(defender)
+	local guard = cfg("GuardChance", 0.3) * (0.5 + defense) * require(QuinCore.Modules.Drives).guardBias(defender) * block
 	stats.seen += 1
 	if roll < hop then
 		stats.hop += 1
