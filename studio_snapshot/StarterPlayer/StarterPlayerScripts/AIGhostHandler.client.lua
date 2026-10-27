@@ -204,13 +204,18 @@ if renderMode == "Direct" then
 		local state = model:GetAttribute("CurrentState")
 		-- (not in a mid-air clash: ClashOrbit draws that path on this client itself; and only where
 		-- the root, not the mesh, is the body's assembly root, or the offset would move the root)
-		if state == "MidAirClash" and entry.smoothOffset then
+		-- (nor in a projectile jump or just out of one: owner wants the dive as it was, 2026-10-27)
+		if state == "ProjectileJump" then
+			entry.pjAt = os.clock()
+		end
+		local afterDive = os.clock() - (entry.pjAt or 0) < 0.4
+		if (state == "MidAirClash" or afterDive) and entry.smoothOffset then
 			entry.smoothOffset = nil
 			motor.C0 = entry.baseC0
 		end
 		-- (a dive's last stretch is up to ~230 studs behind on this client)
 		if step > math.max(6, speed * dt * 3) and step < 300 and state ~= "ReEntry" and state ~= "Death"
-			and state ~= "MidAirClash" and root.AssemblyRootPart == root
+			and state ~= "MidAirClash" and not afterDive and root.AssemblyRootPart == root
 			and Workspace:GetAttribute("TeleportSmoothOff") ~= true then
 			entry.smoothOffset = (entry.smoothOffset or Vector3.zero) + (last - pos)
 			local gap = entry.smoothOffset.Magnitude
