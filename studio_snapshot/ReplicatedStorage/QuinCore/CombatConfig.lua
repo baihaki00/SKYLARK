@@ -1185,6 +1185,17 @@ CombatConfig.Cognition = {
 	-- shout (heard by everyone in CalloutRange). Workspace PointDebug = labels over the heads.
 	PointDuration = 1.1,           -- seconds the arm is up (an ally has this long to see it)
 	PointMaxAngle = 115,
+	PointSeeRange = 80,            -- studs within which a point can be made out (and an audience counts)
+	-- The watcher's chain (owner 2026-10-28, "i want realistic chain"): it notices the arm, a
+	-- beat, its head goes to the pointer, then where it points, it thinks, then answers - turning
+	-- back to the pointer to nod / shake, or nodding straight away while still looking.
+	PointNoticeMin = 0.1,          -- seconds from seeing the arm to the head going to the pointer
+	PointNoticeMax = 0.3,
+	PointLookPointer = 0.4,        -- seconds on the pointer
+	PointLookAim = 0.5,            -- seconds on where it points, before thinking
+	PointThinkMin = 0.3,           -- seconds it thinks (impulsive Quins less, trusting ones less)
+	PointThinkMax = 0.8,
+	PointBackToPointer = 0.5,      -- chance it turns back to the pointer to answer
 	PointSeeHalfAngle = 60,        -- degrees each side of its facing it notices a point (a gesture needs
 	                               -- to be in front of it: the 200 degree sight cone let a Quin "see" a
 	                               -- point from behind it, owner 2026-10-28)           -- degrees off its facing it will point (behind it, it does not)

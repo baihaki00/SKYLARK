@@ -270,29 +270,10 @@ local function respond(follower, leader, kind, info)
 	-- reaction time: quick when it trusts the leader
 	local delay = (CFG.ReactMin or 0.3) + (1 - t) * ((CFG.ReactMax or 1.4) - (CFG.ReactMin or 0.3)) + math.random() * 0.3
 	local follows = math.random() < p
-	local pointed = pointing()
-	if pointed then delay = math.min(delay, 0.5) end -- (it saw the arm: the look comes at once)
-	task.delay(delay, function()
+
+	-- what following or refusing does (after the answer)
+	local function outcome(pointed)
 		if not (follower.Parent and leader.Parent) then return end
-		SocialSystem.lookAt(follower, leader, pointed and 0.45 or 0.8)
-		if pointed then
-			-- then where the leader points, then its answer
-			task.delay(0.45, function()
-				if not follower.Parent then return end
-				if info.target and info.target.Parent then
-					SocialSystem.lookAt(follower, info.target, 0.6)
-				elseif info.point then
-					follower:SetAttribute("LookPoint", info.point)
-					follower:SetAttribute("LookUntil", Workspace:GetServerTimeNow() + 0.6)
-				end
-			end)
-			task.delay(1.0, function()
-				if not follower.Parent then return end
-				follower:SetAttribute(follows and "NodAt" or "ShakeAt", Workspace:GetServerTimeNow())
-				Callouts().debugTag(follower, (follows and "with you: " or "no: ") .. string.lower(kind),
-					follows and Color3.fromRGB(140, 255, 140) or Color3.fromRGB(255, 150, 150))
-			end)
-		end
 		if follows then
 			stats.follow += 1
 			followScore[leader] = (followScore[leader] or 0) + 1
@@ -300,7 +281,7 @@ local function respond(follower, leader, kind, info)
 			if kind == "Attack" and info.target then
 				follower:SetAttribute("SocialFocus", info.target.Name)
 				follower:SetAttribute("SocialFocusUntil", SocialSystem.now() + (CFG.FocusTime or 8))
-				task.delay(0.9, function() SocialSystem.lookAt(follower, info.target, 1.0) end)
+				task.delay(pointed and 0.5 or 0.9, function() SocialSystem.lookAt(follower, info.target, 1.0) end)
 			elseif kind == "Regroup" and info.point then
 				local jitter = Vector3.new(math.random() * 16 - 8, 0, math.random() * 16 - 8)
 				SocialSystem.setMoveIntent(follower, info.point + jitter, danger > 0.4 and "run" or "jog", CFG.RegroupTime or 5)
@@ -312,9 +293,9 @@ local function respond(follower, leader, kind, info)
 		else
 			stats.ignore += 1
 			table.insert(info.ignorers, follower)
-			-- refusal: looks at the leader, then back at its own enemy, and keeps fighting
+			-- refusal: back to its own enemy, and keeps fighting
 			if myTarget then
-				task.delay(pointed and 1.5 or 0.9, function() SocialSystem.lookAt(follower, myTarget, 1.0) end)
+				task.delay(pointed and 0.6 or 0.9, function() SocialSystem.lookAt(follower, myTarget, 1.0) end)
 			end
 			-- witnesses: allies close to the one who refused, not busy themselves
 			for _, w in ipairs(SocialSystem.fighters()) do
@@ -344,6 +325,20 @@ local function respond(follower, leader, kind, info)
 				end
 			end
 		end
+	end
+
+	if pointing() then
+		-- it saw the arm: the watcher's chain (Callouts.react), quicker the more it trusts the leader
+		local label = (follows and "with you: " or "no: ") .. string.lower(kind)
+		if not Callouts().react(follower, leader, info.target or info.point, follows, label, function() outcome(true) end, t) then
+			outcome(true) -- (busy reacting to another point: it still decides, without the show)
+		end
+		return
+	end
+	task.delay(delay, function()
+		if not (follower.Parent and leader.Parent) then return end
+		SocialSystem.lookAt(follower, leader, 0.8)
+		outcome(false)
 	end)
 end
 
@@ -441,6 +436,8 @@ local function considerSignals(byTeam)
 				local function canPoint(aim)
 					if not pointing() then return true end
 					if not aim or leader:GetAttribute("Attacking") == true or NO_POINT_STATES[leader:GetAttribute("CurrentState") or ""] then return false end
+					-- it points only when one of its followers would see it
+					if not Callouts().hasAudience(leader, root, function(m) return m:GetAttribute("FollowingLeader") == leader.Name end) then return false end
 					local pos = typeof(aim) == "Vector3" and aim or (rootOf(aim) and rootOf(aim).Position)
 					if not pos then return false end
 					local off = Vector3.new(pos.X - root.Position.X, 0, pos.Z - root.Position.Z)

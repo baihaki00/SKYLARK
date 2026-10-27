@@ -116,6 +116,11 @@ function Callouts.maybeCall(board, quinModel, rootPart, fresh, now)
 			inFront = off.Magnitude < 0.5 or look.Magnitude < 0.01
 				or look.Unit:Dot(off.Unit) >= math.cos(math.rad(cfg("PointMaxAngle", 115)))
 		end
+		if inFront and point and not recentlyCalled(list, percept.model, now) and not Callouts.hasAudience(quinModel, rootPart) then
+			-- nobody it can see is looking its way: a point would be for no one (owner 2026-10-28)
+			board.nextCallout = now + 0.6
+			return
+		end
 		if inFront and not recentlyCalled(list, percept.model, now) then
 			local awareness = Pers.get(quinModel, "Awareness")
 			local chance = cfg("CalloutChanceBase", 0.35) + cfg("CalloutChanceAwareness", 0.5) * awareness
@@ -150,7 +155,7 @@ function Callouts.sees(quinModel, rootPart, other)
 	if not callerRoot then return false end
 	local cog = CombatConfig.Cognition
 	local offset = callerRoot.Position - rootPart.Position
-	if offset.Magnitude > math.min(cfg("CalloutRange", 110), cog.VisionRange or 260) then return false end
+	if offset.Magnitude > math.min(cfg("PointSeeRange", 80), cog.VisionRange or 260) then return false end
 	local flat = Vector3.new(offset.X, 0, offset.Z)
 	local look = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
 	if flat.Magnitude > 1 and look.Magnitude > 0.01
@@ -159,12 +164,90 @@ function Callouts.sees(quinModel, rootPart, other)
 	end
 	return SpatialModule.checkLineOfSight(SpatialModule.getEyePosition(rootPart), SpatialModule.getEyePosition(callerRoot), { quinModel, other })
 end
+-- Does this Quin know someone would see it point: an ally it can see itself (in its own sight
+-- cone, near enough) that is facing it with nothing in between. accept(ally) narrows who counts
+-- (a leader: its followers).
+function Callouts.hasAudience(quinModel, rootPart, accept)
+	local folder = Workspace:FindFirstChild("QuinServer")
+	if not folder then return false end
+	local team = quinModel:GetAttribute("Team") or "None"
+	local look = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+	local cone = math.cos(math.rad(CombatConfig.Cognition.VisionHalfAngle or 100))
+	for _, m in ipairs(folder:GetChildren()) do
+		if m ~= quinModel and (m:GetAttribute("Team") or "None") == team and (not accept or accept(m)) then
+			local mRoot = m:FindFirstChild("HumanoidRootPart")
+			local hum = m:FindFirstChildOfClass("Humanoid")
+			if mRoot and hum and hum.Health > 0 then
+				local off = Vector3.new(mRoot.Position.X - rootPart.Position.X, 0, mRoot.Position.Z - rootPart.Position.Z)
+				if off.Magnitude <= cfg("PointSeeRange", 80) and (off.Magnitude < 1 or look.Magnitude < 0.01 or look.Unit:Dot(off.Unit) >= cone)
+					and Callouts.sees(m, mRoot, quinModel) then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
 local function seesCaller(quinModel, rootPart, call)
 	return Callouts.sees(quinModel, rootPart, call.caller)
 end
 
 -- What it makes of a point it saw: go after that enemy, or not. A leaning (temperament, what it
 -- is doing, how far, how hurt the enemy is), never a rule. Returns go, why.
+-- The watcher's whole reaction to a point it saw, as a chain in time:
+--   notice (a beat) -> head to the pointer -> head to where it points -> thinks -> answers:
+--   turns back to the pointer then nods / shakes, or nods straight away still looking there.
+-- aim: a Quin or a place. quick (0..1, e.g. trust in a leader) shortens the thinking; so does
+-- an impulsive temperament. onAnswer() runs at the answer. Used by callouts, pack leaders and
+-- the smoke test, so the chain is the same everywhere.
+local function lookAtThing(quin, thing, seconds)
+	local serverNow = Workspace:GetServerTimeNow()
+	if typeof(thing) == "Instance" then
+		quin:SetAttribute("SocialLookAt", thing.Name)
+		quin:SetAttribute("SocialLookUntil", serverNow + seconds)
+	elseif typeof(thing) == "Vector3" then
+		quin:SetAttribute("SocialLookUntil", serverNow) -- (a place: the social look would win)
+		quin:SetAttribute("LookPoint", thing)
+		quin:SetAttribute("LookUntil", serverNow + seconds)
+	end
+end
+
+function Callouts.react(watcher, pointer, aim, go, label, onAnswer, quick)
+	local reacting = watcher:GetAttribute("PointReactUntil")
+	if reacting and reacting > Workspace:GetServerTimeNow() then return false end -- (one at a time)
+	local function r(a, b) return a + math.random() * (b - a) end
+	local notice = r(cfg("PointNoticeMin", 0.1), cfg("PointNoticeMax", 0.3))
+	local onPointer = cfg("PointLookPointer", 0.4) * r(0.85, 1.2)
+	local onAim = cfg("PointLookAim", 0.5) * r(0.85, 1.2)
+	local impulsive = Pers.get(watcher, "Aggression")
+	local think = r(cfg("PointThinkMin", 0.3), cfg("PointThinkMax", 0.8)) * (1.25 - 0.5 * impulsive) * (1 - 0.3 * (quick or 0))
+	local back = math.random() < cfg("PointBackToPointer", 0.5)
+	local total = notice + onPointer + onAim + think + (back and 0.3 or 0) + 0.6
+	watcher:SetAttribute("PointReactUntil", Workspace:GetServerTimeNow() + total)
+	task.spawn(function()
+		task.wait(notice)
+		if not (watcher.Parent and pointer.Parent) then return end
+		Callouts.debugTag(watcher, "? " .. pointer.Name, Color3.fromRGB(200, 220, 255))
+		lookAtThing(watcher, pointer, onPointer)
+		task.wait(onPointer)
+		if not watcher.Parent then return end
+		if typeof(aim) ~= "Instance" or aim.Parent then
+			lookAtThing(watcher, aim, onAim + think + (back and 0.05 or 0.7))
+		end
+		task.wait(onAim + think)
+		if not watcher.Parent then return end
+		if back and pointer.Parent then
+			lookAtThing(watcher, pointer, 0.9)
+			task.wait(0.3) -- (the head gets there before the nod)
+		end
+		watcher:SetAttribute(go and "NodAt" or "ShakeAt", Workspace:GetServerTimeNow())
+		Callouts.debugTag(watcher, label, go and Color3.fromRGB(140, 255, 140) or Color3.fromRGB(255, 150, 150))
+		if onAnswer then onAnswer() end
+	end)
+	return true
+end
+
 function Callouts.decide(quinModel, rootPart, board, call)
 	local state = quinModel:GetAttribute("CurrentState") or ""
 	local target = quinModel:GetAttribute("CurrentTarget")
@@ -223,10 +306,16 @@ function Callouts.listen(board, quinModel, rootPart, now, learn)
 		for id in pairs(board.seenCalls) do
 			if not list[1] or id < list[1].id then board.seenCalls[id] = nil end
 		end
-		if saw and not board.pointSeen then
+		if saw then
 			local go, why = Callouts.decide(quinModel, rootPart, board, saw)
-			board.pointSeen = { caller = saw.caller, enemy = saw.enemy, at = now, go = go, why = why }
-			Callouts.debugTag(quinModel, "? " .. saw.caller.Name, Color3.fromRGB(200, 220, 255))
+			local enemy = saw.enemy
+			Callouts.react(quinModel, saw.caller, enemy, go, (go and "on it: " or "nah: ") .. why, function()
+				quinModel:SetAttribute("PointAnswer", (go and "on it: " or "nah: ") .. why)
+				quinModel:SetAttribute("PointAnswerAt", Workspace:GetServerTimeNow())
+				if go and enemy.Parent and quinModel:GetAttribute("CurrentTarget") ~= enemy.Name then
+					require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule")).setTarget(quinModel, enemy, "Pointed")
+				end
+			end)
 		end
 		return saw
 	end
