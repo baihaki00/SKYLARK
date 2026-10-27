@@ -1537,4 +1537,9 @@ CombatConfig.Look_MovingYawMax = 45       -- degrees the head turns at most whil
 CombatConfig.Look_MovingLetGoStart = 70   -- degrees off: starts letting go of a target further round
 CombatConfig.Look_MovingLetGoEnd = 95     -- degrees off: head back to forward
 
+-- Flip points (2026-10-28, step 3.2): buffers so a decision does not flip on one line
+CombatConfig.Chase_FatigueRecoverMargin = 15 -- energy over FatigueThreshold before a winded chaser sprints again
+CombatConfig.Retreat_LostSightBuffer = 12    -- studs past Retreat_LostSightMinDistance before "lost them"
+CombatConfig.Retreat_FleeAgainCloser = 10    -- studs nearer than when circling began before a keep-away Quin flees again
+
 return CombatConfig

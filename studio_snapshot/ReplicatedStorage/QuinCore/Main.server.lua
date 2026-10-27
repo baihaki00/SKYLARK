@@ -52,6 +52,20 @@ local Momentum = require(QuinCore:WaitForChild("Modules"):WaitForChild("Momentum
 local lastBodyTick = os.clock()
 local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
+-- The least time a state runs before the Quin may choose to leave it (interrupts excepted)
+local function minDwellFor(name)
+	if name == "Chase" then
+		return CombatConfig.StateDwellMin_Chase or 0.8
+	elseif name == "Retreat" then
+		return CombatConfig.StateDwellMin_Retreat or 1.2
+	elseif name == "Circling" then
+		return CombatConfig.StateDwellMin_Circling or 1.0
+	elseif name == "Fight" then
+		return CombatConfig.StateDwellMin_Fight or 0.6
+	end
+	return 0
+end
+
 -- States in which a Quin stands on the ground by its own choice (and so needs room to stand)
 local STANDING_STATES = { Idle = true, Fight = true, Circling = true, Chase = true, Retreat = true, Overwatch = true }
 -- A Quin piloted by a player (PilotedBy, Player Quin match mode) takes its decisions from the
@@ -617,8 +631,20 @@ task.spawn(function()
 		end
 
 		-- Handle forced states from external forces (e.g., getting hit)
-		local forceStateStr = StateRequest.take(Quin)
+		local forceStateStr, forceWhy, forcePriority = StateRequest.take(Quin)
 		local forceState = forceStateStr and States[forceStateStr] or nil
+		-- The brain's own orders (go idle, retreat, chase) wait out the state's minimum stay like
+		-- the state's own choices do; only real interrupts (a hit, a clash, getting up, match
+		-- control) cut in at once. Forced, the brain's orders skipped the dwell, and states
+		-- lasting under a second were 43% of all (2026-10-28, 16v16). The order waits in the
+		-- queue, so a hit set between ticks still wins over it.
+		-- (Workspace or the Quin's FlipFixOff = true: they cut in, as before)
+		if forceState and forceState ~= currentState and forcePriority ~= nil and forcePriority <= StateRequest.BRAIN
+			and workspace:GetAttribute("FlipFixOff") ~= true and Quin:GetAttribute("FlipFixOff") ~= true
+			and os.clock() - stateStartTime < minDwellFor(currentState.name) then
+			StateRequest.ask(Quin, forceStateStr, forcePriority, forceWhy)
+			forceState = nil
+		end
 		
 		local newState = forceState
 		-- Under something lower than itself it cannot stand, wait or fight: it knows, and gets out
@@ -761,16 +787,7 @@ task.spawn(function()
 				or newState.name == "Piloted" or currentState.name == "Piloted")
 			
 			local dwellElapsed = os.clock() - stateStartTime
-			local minDwell = 0
-			if currentState.name == "Chase" then
-				minDwell = CombatConfig.StateDwellMin_Chase or 0.8
-			elseif currentState.name == "Retreat" then
-				minDwell = CombatConfig.StateDwellMin_Retreat or 1.2
-			elseif currentState.name == "Circling" then
-				minDwell = CombatConfig.StateDwellMin_Circling or 1.0
-			elseif currentState.name == "Fight" then
-				minDwell = CombatConfig.StateDwellMin_Fight or 0.6
-			end
+			local minDwell = minDwellFor(currentState.name)
 
 			if isInterrupt or dwellElapsed >= minDwell then
 				RuntimeTracer.checkpoint(Quin, string.format("Transition: %s → %s (dwell=%.2fs)", currentState.name, newState.name, dwellElapsed))

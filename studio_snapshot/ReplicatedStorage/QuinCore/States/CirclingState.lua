@@ -238,7 +238,19 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- A Quin that has decided to get away is here to keep its distance and catch its breath,
 	-- not to duel: it takes no part in the standoff below, and it runs again when pressed.
 	local keepingAway = fighter:GetAttribute("TacticalState") == "RETREATING"
-	if keepingAway and distance < (CombatConfig.Retreat_FleeAgainDistance or 40) then
+	-- Pressed means the threat came closer: within FleeAgainDistance and Retreat_FleeAgainCloser
+	-- nearer than when it started circling. (Any distance under 40 sent a Quin that had just left
+	-- a retreat at 20-40 studs straight back into it. Workspace or the Quin's FlipFixOff = true:
+	-- any distance under the line, as before)
+	data.keepAwayFrom = data.keepAwayFrom or distance
+	local fleeAgainAt = CombatConfig.Retreat_FleeAgainDistance or 40
+	if workspace:GetAttribute("FlipFixOff") ~= true and fighter:GetAttribute("FlipFixOff") ~= true then
+		fleeAgainAt = math.min(fleeAgainAt, data.keepAwayFrom - (CombatConfig.Retreat_FleeAgainCloser or 10))
+	end
+	if not keepingAway then
+		data.keepAwayFrom = nil
+	end
+	if keepingAway and distance < fleeAgainAt then
 		return States.Retreat
 	end
 

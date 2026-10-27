@@ -303,8 +303,14 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 	else
 		data.unseenSince = nil
 	end
+	-- (got away a little further than Circling's flee-again line: on the same 40 it left and came
+	-- straight back. Workspace or the Quin's FlipFixOff = true: the same line, as before)
+	local lostAt = CombatConfig.Retreat_LostSightMinDistance or 40
+	if workspace:GetAttribute("FlipFixOff") ~= true and fighter:GetAttribute("FlipFixOff") ~= true then
+		lostAt += CombatConfig.Retreat_LostSightBuffer or 12
+	end
 	local lostThem = data.unseenSince ~= nil and (now - data.unseenSince) >= (CombatConfig.Retreat_LostSightTime or 2.5)
-		and nearestThreatDist >= (CombatConfig.Retreat_LostSightMinDistance or 40)
+		and nearestThreatDist >= lostAt
 	fighter:SetAttribute("RetreatUnseen", data.unseenSince ~= nil)
 	if #enemies == 0 or nearestThreatDist >= safeDist or lostThem then
 		if elapsed >= minRetreatDur then

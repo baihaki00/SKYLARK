@@ -516,7 +516,16 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- out of breath, strolling up to an opponent it has put on the ground, or stalking from range.
 	local shouldWalk = false
 	local paceReason = "Sprint"
-	if energy < (CombatConfig.FatigueThreshold or 25) then
+	-- Out of breath below FatigueThreshold; it runs again only with some breath back
+	-- (Chase_FatigueRecoverMargin): on the one line, energy rising walking and falling sprinting
+	-- flipped it between walk and sprint every fraction of a second.
+	-- (Workspace or the Quin's FlipFixOff = true: the one line, as before)
+	local fatigueLine = CombatConfig.FatigueThreshold or 25
+	if data.fatigued and workspace:GetAttribute("FlipFixOff") ~= true and fighter:GetAttribute("FlipFixOff") ~= true then
+		fatigueLine += CombatConfig.Chase_FatigueRecoverMargin or 15
+	end
+	data.fatigued = energy < fatigueLine
+	if data.fatigued then
 		shouldWalk = true
 		paceReason = "Fatigue"
 	elseif targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" then

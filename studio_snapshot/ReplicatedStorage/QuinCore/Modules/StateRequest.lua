@@ -3,7 +3,7 @@
 -- Knockback, a clash pulls the partner up, the brain orders a chase. One request waits at a time
 -- (the ForceState attribute); Main takes it at the start of the Quin's next tick.
 --   StateRequest.ask(quin, "Knockback", StateRequest.HIT, "why")  -> true if it now waits
---   StateRequest.take(quin) -> name, why   (Main; clears it)
+--   StateRequest.take(quin) -> name, why, priority   (Main; clears it)
 -- A request waits unless something more important is already waiting: a social order or the
 -- brain can no longer write over a Knockback set between ticks (before, the last write won, and a
 -- Quin that had been hit walked on instead of flying back).
@@ -40,6 +40,7 @@ function StateRequest.take(quin)
 	local name = quin:GetAttribute("ForceState")
 	if name == nil then return nil end
 	local why = quin:GetAttribute("ForceStateWhy")
+	local priority = quin:GetAttribute("ForceStatePriority")
 	quin:SetAttribute("ForceState", nil)
 	quin:SetAttribute("ForceStatePriority", nil)
 	quin:SetAttribute("ForceStateWhy", nil)
@@ -49,7 +50,7 @@ function StateRequest.take(quin)
 		warn(string.format("[StateRequest] %s: no state named %s (dropped)", quin.Name, tostring(name)))
 		return nil
 	end
-	return name, why
+	return name, why, priority
 end
 
 return StateRequest
