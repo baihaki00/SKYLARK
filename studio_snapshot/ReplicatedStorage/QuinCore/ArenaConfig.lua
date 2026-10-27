@@ -311,8 +311,10 @@ ArenaConfig.ArenaGeneration = {
     -- Lantern Siege arenas (ArenaGenerator.setPurpose): Shrine sites (fractions of anchor-to-centre;
     -- the defenders' pair mirrors these) kept clear, ringed with low cover open toward the middle
     LanternSiege = {
-        SiteForward = 0.35, SiteSide = 0.55, SiteClear = 12,
-        CoverPieces = 4, CoverRing = { 17, 23 }, CoverWidth = { 8, 16 }, CoverHeight = { 4, 6 }, CoverDepth = { 3, 6 },
+        -- its own layout (ArenaGenerator generateSiege), in fractions of the arena's half size
+        ShrineForward = 0.47, ShrineSide = 0.5, -- the Shrines from the centre: toward the defenders, across
+        EdgeInset = 50,                         -- the upper walkways, in from the side walls
+        GateHalfAngle = 14,                     -- Shrine B's gates, degrees each side
         -- its own look (owner 2026-10-27: "go entirely with new color, ArenaGround color"): dusk
         -- stone instead of grass, darker slate cover round the sites, a sand floor
         PieceColors = { Color3.fromRGB(150, 116, 86), Color3.fromRGB(118, 90, 70) },

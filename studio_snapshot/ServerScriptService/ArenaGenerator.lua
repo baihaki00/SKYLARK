@@ -88,7 +88,179 @@ local function irange(rng, r)
 end
 
 -- A layout: { seed, option, alphaAnchor, betaAnchor, pieces = { {cf, size, kind} }, spawns = { TeamAlpha = {}, TeamBeta = {} } }
+-- ============================================================================
+-- Lantern Siege layout (owner 2026-10-27: "this is special event": its own arena, not the
+-- 16v16 one with Shrine spots in it). One shape, varied in its details every match:
+--   * centre: the Lantern's pedestal in a plaza, pillars round it, several ways out
+--   * attackers' half: staging with lanes out of the spawn
+--   * Shrine A: open, low cover only, a watch tower beside it (easy to see, hard to hold)
+--   * Shrine B: a walled yard with three narrow gates - front, outer, back (easy to hold, blind)
+--   * to each Shrine three kinds of way: MAIN straight and open, UPPER a raised walkway along
+--     the edge (sees everything, seen by everyone), SIDE a walled corridor that comes in from
+--     behind (hidden, longer)
+-- Not mirrored: one side attacks, one defends (the roles swap, the field does not).
+-- Local frame: f runs from the attackers' spawn toward the defenders', s across.
+-- ============================================================================
+
+local function generateSiege(seed)
+	local center, halfX, halfZ, floorY = metrics()
+	if not center then return nil end
+	local L = CFG.LanternSiege or {}
+	local rng = Random.new(seed)
+	-- edges only (a straight field), either way round
+	local edges = {}
+	for _, o in ipairs(CFG.SpawnOptions) do
+		if o.Alpha[1] == 0 or o.Alpha[2] == 0 then table.insert(edges, o) end
+	end
+	local option = edges[rng:NextInteger(1, #edges)]
+	local flip = rng:NextNumber() < 0.5 and -1 or 1
+	local alphaAnchor = center + Vector3.new(option.Alpha[1] * halfX * flip, 0, option.Alpha[2] * halfZ * flip)
+	local betaAnchor = mirrorPoint(center, alphaAnchor)
+	local F = Vector3.new(betaAnchor.X - alphaAnchor.X, 0, betaAnchor.Z - alphaAnchor.Z).Unit
+	local S = Vector3.new(-F.Z, 0, F.X)
+	local half = math.min(halfX, halfZ)
+	local sA = rng:NextNumber() < 0.5 and -1 or 1 -- which side Shrine A is on
+	local sB = -sA
+
+	local pieces = {}
+	local function j(a) return rng:NextNumber(-a, a) end
+	local function at(f, s) return center + F * f + S * s end
+	-- a box: w across (s), d along (f), h tall, bottom above the floor, turned by yaw
+	local function box(f, s, w, d, h, bottom, kind, yaw)
+		local p = at(f, s)
+		local pos = Vector3.new(p.X, floorY + bottom + h / 2, p.Z)
+		local cf = CFrame.lookAt(pos, pos + F)
+		if yaw then cf *= CFrame.Angles(0, yaw, 0) end
+		table.insert(pieces, { cf = cf, size = Vector3.new(w, h, d), kind = kind })
+	end
+
+	local shrineF = (L.ShrineForward or 0.47) * half + j(8)
+	local shrineS = (L.ShrineSide or 0.5) * half + j(10)
+	local edgeS = half - (L.EdgeInset or 50)
+
+	-- centre plaza: the pedestal, pillars on the diagonals, low walls front and back
+	box(0, 0, 14, 14, 2, 0, "Pedestal")
+	local pr = 28 + j(4)
+	for _, c in ipairs({ { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }) do
+		box(c[1] * pr + j(2), c[2] * pr + j(2), 7, 7, 16 + j(3), 0, "Pillar")
+	end
+	for _, f in ipairs({ -58, 58 }) do
+		box(f + j(4), j(18), 24 + j(6), 3, 4.5, 0, "Cover")
+	end
+
+	-- attackers' half: lane walls out of the spawn, a low platform, scattered cover
+	local laneS = 70 + j(10)
+	for _, sign in ipairs({ -1, 1 }) do
+		box(-0.5 * half + j(8), sign * laneS, 3, 60 + j(12), 12, 0, "Wall")
+		box(-0.25 * half + j(8), sign * (laneS + 70 + j(15)), 14 + j(4), 4, 4.5, 0, "Cover")
+	end
+	box(-0.42 * half, j(10), 24, 24, 5.5, 0, "Low")
+	for _ = 1, 3 + rng:NextInteger(0, 2) do
+		box(-0.3 * half + j(40), j(half * 0.75), 8 + j(3), 3 + rng:NextNumber(0, 3), 4 + rng:NextNumber(0, 1), 0, "Cover", rng:NextNumber(0, math.pi))
+	end
+
+	-- MAIN ways: from the plaza to each Shrine, open, two low covers on the line
+	for _, sign in ipairs({ sA, sB }) do
+		for _, t in ipairs({ 0.38, 0.68 }) do
+			local f, s = shrineF * t, sign * shrineS * t
+			box(f + j(4), s + (rng:NextNumber() < 0.5 and -1 or 1) * (10 + j(3)), 10 + j(3), 3, 4.5, 0, "Cover", rng:NextNumber(0, math.pi))
+		end
+	end
+
+	-- UPPER ways: a walkway along each edge (walked under too), stepping stones up at the start
+	local deckTop = 14 + j(2)
+	local deckF0, deckF1 = 0.05 * half, shrineF + 20
+	for _, sign in ipairs({ sA, sB }) do
+		local segs = 3
+		local len = (deckF1 - deckF0) / segs
+		for k = 0, segs - 1 do
+			box(deckF0 + (k + 0.5) * len, sign * edgeS, 16, len + 0.2, 2, deckTop - 2, "Deck")
+		end
+		box(deckF0 - 9, sign * edgeS, 10, 10, 2, deckTop / 2 - 2, "Stone")
+	end
+
+	-- SIDE ways: a walled corridor that starts by the plaza and comes in behind each Shrine
+	local corS = shrineS * 0.62 + j(6)
+	local corF0, corF1 = shrineF * 0.35, shrineF + 45 + j(6)
+	for _, sign in ipairs({ sA, sB }) do
+		for _, w in ipairs({ -11, 11 }) do
+			box((corF0 + corF1) / 2, sign * corS + w, 3, corF1 - corF0, 13, 0, "Wall")
+		end
+	end
+
+	-- Shrine A: open, low cover round it, a watch tower beside it (stones up)
+	local aF, aS = shrineF, sA * shrineS
+	for k = 1, 4 do
+		local a = (k - 1) * math.pi / 2 + math.pi / 4 + j(0.3)
+		local r = 21 + j(3)
+		box(aF + math.cos(a) * r, aS + math.sin(a) * r, 9 + j(3), 3, 4.5, 0, "Cover", a)
+	end
+	local tF, tS = aF + 32, aS - sA * 34
+	box(tF, tS, 14, 14, 2, 16, "Tower")
+	box(tF - 16, tS, 10, 10, 2, 9, "Stone")
+	box(tF - 30, tS - sA * 6, 10, 10, 2, 3, "Stone")
+
+	-- Shrine B: a walled yard, gates to the front (the plaza), the outer edge and the back
+	local bF, bS = shrineF, sB * shrineS
+	local R = 30
+	local function angleTo(f, s) return math.atan2(s - bS, f - bF) end
+	local gates = { angleTo(0, 0), angleTo(bF, sB * edgeS), angleTo(half, bS) }
+	local gateHalf = math.rad(L.GateHalfAngle or 14)
+	local step = math.rad(18)
+	local a = 0
+	while a < math.pi * 2 - 0.01 do
+		local mid = a + step / 2
+		local open = false
+		for _, g in ipairs(gates) do
+			local d = math.abs((mid - g + math.pi) % (math.pi * 2) - math.pi)
+			if d < gateHalf + step / 2 then open = true break end
+		end
+		if not open then
+			box(bF + math.cos(mid) * R, bS + math.sin(mid) * R, 2 * R * math.sin(step / 2) + 1, 3, 14, 0, "Fort", -mid + math.pi / 2)
+		end
+		a += step
+	end
+	for _, k in ipairs({ -1, 1 }) do
+		box(bF + 16 * k, bS + j(4), 6, 6, 14, 0, "Pillar")
+	end
+
+	-- the defenders' back: cover to fall back to
+	for _ = 1, 3 do
+		box(0.72 * half + j(20), j(half * 0.6), 10 + j(3), 3, 4.5, 0, "Cover", rng:NextNumber(0, math.pi))
+	end
+
+	-- spawn groups round the anchors (as the open arena)
+	local function spawnsAt(anchor)
+		local out = {}
+		for _ = 1, 400 do
+			if #out >= CFG.MaxSpawnPoints then break end
+			local an = rng:NextNumber(0, math.pi * 2)
+			local d = math.sqrt(rng:NextNumber()) * CFG.SpawnClusterRadius
+			local p = anchor + Vector3.new(math.cos(an) * d, 0, math.sin(an) * d)
+			local free = true
+			for _, q in ipairs(out) do
+				if (q - p).Magnitude < CFG.SpawnSpacing then free = false break end
+			end
+			if free then table.insert(out, p) end
+		end
+		return out
+	end
+
+	local function flat(f, s)
+		local p = at(f, s)
+		return Vector3.new(p.X, floorY, p.Z)
+	end
+	return {
+		seed = seed, option = "Siege " .. option.Name, center = center, floorY = floorY,
+		alphaAnchor = alphaAnchor, betaAnchor = betaAnchor, pieces = pieces, trees = {},
+		spawns = { TeamAlpha = spawnsAt(alphaAnchor), TeamBeta = spawnsAt(betaAnchor) },
+		shrines = { A = flat(aF, aS), B = flat(bF, bS) },
+		pedestal = Vector3.new(center.X, floorY + 2, center.Z),
+	}
+end
+
 local function generate(seed)
+	if purpose == "LanternSiege" then return generateSiege(seed) end
 	local center, halfX, halfZ, floorY = metrics()
 	if not center then return nil end
 	local rng = Random.new(seed)
@@ -155,37 +327,6 @@ local function generate(seed)
 			end
 		end
 		return nil
-	end
-
-	-- Lantern Siege: two Shrine sites on each half (the defenders' pair is the mirror of this
-	-- half's), kept open with nothing overhead and ringed by low cover, so a site can be held
-	local siteSpots = nil
-	if purpose == "LanternSiege" then
-		siteSpots = {}
-		local toC = Vector3.new(center.X - alphaAnchor.X, 0, center.Z - alphaAnchor.Z)
-		local span = toC.Magnitude
-		local dirA = span > 1 and toC.Unit or Vector3.new(1, 0, 0)
-		local sideA = Vector3.new(-dirA.Z, 0, dirA.X)
-		local L = CFG.LanternSiege or {}
-		for i = 1, 2 do
-			local sign = i == 1 and 1 or -1
-			local site = alphaAnchor + dirA * span * (L.SiteForward or 0.35) + sideA * sign * span * (L.SiteSide or 0.55)
-			site = Vector3.new(site.X, 0, site.Z)
-			table.insert(siteSpots, site)
-			-- low cover round it, a gap toward the middle so it can be walked onto
-			local n = L.CoverPieces or 4
-			for k = 1, n do
-				local a = math.atan2(dirA.Z, dirA.X) + math.pi * (0.35 + 1.3 * (k - 1) / math.max(1, n - 1)) + rng:NextNumber(-0.15, 0.15)
-				local d = range(rng, L.CoverRing or { 17, 23 })
-				local spot = site + Vector3.new(math.cos(a) * d, 0, math.sin(a) * d)
-				local size = Vector3.new(range(rng, L.CoverWidth or { 8, 16 }), range(rng, L.CoverHeight or { 4, 6 }), range(rng, L.CoverDepth or { 3, 6 }))
-				if fits(spot, radiusOf(size), floorY, floorY + size.Y) then
-					add(CFrame.new(spot.X, floorY + size.Y / 2, spot.Z) * CFrame.Angles(0, -a, 0), size, "Cover")
-				end
-			end
-			-- the site itself stays clear, ground to sky
-			table.insert(placed, { pos = site, r = L.SiteClear or 12, y0 = floorY - 5, y1 = floorY + 1000 })
-		end
 	end
 
 	local P = CFG.Pieces
@@ -332,11 +473,6 @@ local function generate(seed)
 		seed = seed, option = option.Name, center = center, floorY = floorY,
 		alphaAnchor = alphaAnchor, betaAnchor = betaAnchor, pieces = pieces, trees = trees,
 		spawns = { TeamAlpha = alphaSpawns, TeamBeta = betaSpawns },
-		-- (Lantern Siege: the defenders' Shrines, on the beta half)
-		shrines = siteSpots and {
-			A = mirrorPoint(center, siteSpots[1]) * Vector3.new(1, 0, 1) + Vector3.new(0, floorY, 0),
-			B = mirrorPoint(center, siteSpots[2]) * Vector3.new(1, 0, 1) + Vector3.new(0, floorY, 0),
-		} or nil,
 	}
 end
 
@@ -801,7 +937,7 @@ local function materialize(layout, seconds)
 		part.Size = p.size
 		local height = p.cf.Position.Y + p.size.Y / 2 - floorY
 		local delay = seconds * 0.8 * (height / topMost)
-		local colors = L and (p.kind == "Cover" and L.CoverColors or L.PieceColors) or CFG.GrassColors
+		local colors = L and ((p.kind == "Cover" or p.kind == "Fort") and L.CoverColors or L.PieceColors) or CFG.GrassColors
 		local shade = colors[1]:Lerp(colors[2], rng:NextNumber())
 		task.delay(delay, function()
 			if not part.Parent then return end
