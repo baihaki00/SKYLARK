@@ -210,7 +210,12 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 				if rise and rise >= (CombatConfig.Locomotion_StepHeight or 1.5) and rise <= (CombatConfig.Hurdle_MaxRise or 11) then
 					hopHeight = rise + 2.5
 				end
-				if flatVel < 1.5 and humanoid.MoveDirection.Magnitude > 0.5 then
+				-- (how far it really got since the last tick: steering writes the velocity, so a Quin
+				-- shoving into a step still read as moving)
+				local here = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z)
+				local made = job.lastPos and (here - job.lastPos).Magnitude / math.max(now - job.lastAt, 0.03) or flatVel
+				job.lastPos, job.lastAt = here, now
+				if math.min(flatVel, made) < 1.5 and humanoid.MoveDirection.Magnitude > 0.5 then
 					job.pushSince = job.pushSince or now
 					if now - job.pushSince > 0.8 then hopHeight = hopHeight or 8 end
 					if now - job.pushSince > 2 then job.detourUntil, job.pushSince = now + 4, nil end

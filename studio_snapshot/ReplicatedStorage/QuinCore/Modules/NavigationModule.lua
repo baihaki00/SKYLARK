@@ -65,7 +65,12 @@ function NavigationModule.lowObstacle(rootPart, humanoid, direction, distance)
 	local from = Vector3.new(rootPart.Position.X, feetY + 3.2, rootPart.Position.Z)
 	local params = sweepParams(rootPart.Parent)
 	local hit = Workspace:Spherecast(from, 1.2, dir * distance, params)
-	if not hit or hit.Normal.Y > 0.5 then return nil end
+	if not hit or hit.Normal.Y > 0.5 then
+		-- a knee-high step passes under that sweep (its bottom is 2 studs up): a lower one (owner
+		-- 2026-10-27, "stuck, bro just kept walking": a Quin walked into the 2-stud orb pedestal)
+		hit = Workspace:Spherecast(Vector3.new(from.X, feetY + 1.1, from.Z), 0.6, dir * distance, params)
+		if not hit or hit.Normal.Y > 0.5 then return nil end
+	end
 	local probe = hit.Position + dir * 0.8
 	local top = Workspace:Raycast(Vector3.new(probe.X, feetY + 16, probe.Z), Vector3.new(0, -16, 0), params)
 	if not top then return nil end
