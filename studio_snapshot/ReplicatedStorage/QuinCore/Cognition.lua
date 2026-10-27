@@ -29,6 +29,7 @@ local Memory = require(script:WaitForChild("Memory"))
 local SelfAwareness = require(script:WaitForChild("SelfAwareness"))
 local EnvironmentAwareness = require(script:WaitForChild("EnvironmentAwareness"))
 local SituationAwareness = require(script:WaitForChild("SituationAwareness"))
+local Interest = require(script:WaitForChild("Interest"))
 
 local Cognition = {
 	Layers = Layers,
@@ -188,6 +189,7 @@ function Cognition.update(quinModel, targetModel)
 	board.attention = Attention.rank(quinModel, board.percepts, Layers.isEnabled("Attention"))
 	board.contacts = Memory.update(board, quinModel, rootPart, board.percepts, now, Layers.isEnabled("Memory"))
 	board.self = SelfAwareness.assess(board, quinModel, rootPart, humanoid, now)
+	Interest.update(board, quinModel, rootPart, now) -- (what catches its eye beyond its own fight)
 
 	local nearbyAllies, nearbyEnemies = SituationAwareness.nearby(board.contacts)
 	board.environment = EnvironmentAwareness.survey(quinModel, rootPart, nearbyEnemies, nearbyAllies)
