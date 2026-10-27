@@ -20,7 +20,11 @@ if rootPart then
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
-	
+	-- The root part is the assembly's root (Roblox picked the skinned mesh, its T-pose box being the
+	-- biggest part): what replicates is then the root's place, and a client can draw the mesh off
+	-- it through the root joint (AIGhostHandler's teleport smoothing).
+	rootPart.RootPriority = 127
+
 	if not Quin:GetAttribute("IsPlayerControlled") then
 		rootPart:SetNetworkOwner(nil) -- Server owns movement
 	end

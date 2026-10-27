@@ -84,6 +84,10 @@ if renderMode == "Direct" then
 		if entry.reaction then
 			entry.reaction:destroy()
 		end
+		local motor = entry.smoothOffset and model:FindFirstChild("HumanoidRootPart") and model.HumanoidRootPart:FindFirstChild("RootJoint")
+		if motor then
+			motor.C0 = entry.baseC0
+		end
 		presentations[model] = nil
 		if model and model.Parent then
 			model:SetAttribute("PresentationMode", nil)
@@ -178,6 +182,58 @@ if renderMode == "Direct" then
 		return false
 	end
 
+	-- A root moved by the server with a CFrame write (a landing set-down, a turn, a state's entry)
+	-- reaches this client as a teleport: the client drops the ~0.25 s of motion it still had
+	-- buffered and the body jumps there in one frame (measured 2026-10-27: a dive's last 80-110
+	-- studs, a knockback fall's last 40). Here the body is drawn on where it was and the gap drains
+	-- at the speed it was moving, through the root joint's C0 (its Transform does not move a body
+	-- this client does not own). (Workspace TeleportSmoothOff = true: off)
+	local function smoothTeleport(entry, model, dt)
+		local root = model:FindFirstChild("HumanoidRootPart")
+		local motor = root and root:FindFirstChild("RootJoint")
+		if not motor or dt <= 0 then return end
+		if not entry.smoothOffset then
+			entry.baseC0 = motor.C0
+		end
+		local pos = root.Position
+		local last = entry.lastRootPos
+		entry.lastRootPos = pos
+		if not last then return end
+		local step = (pos - last).Magnitude
+		local speed = entry.rootSpeed or 0
+		local state = model:GetAttribute("CurrentState")
+		-- (not in a mid-air clash: ClashOrbit draws that path on this client itself; and only where
+		-- the root, not the mesh, is the body's assembly root, or the offset would move the root)
+		if state == "MidAirClash" and entry.smoothOffset then
+			entry.smoothOffset = nil
+			motor.C0 = entry.baseC0
+		end
+		-- (a dive's last stretch is up to ~230 studs behind on this client)
+		if step > math.max(6, speed * dt * 3) and step < 300 and state ~= "ReEntry" and state ~= "Death"
+			and state ~= "MidAirClash" and root.AssemblyRootPart == root
+			and Workspace:GetAttribute("TeleportSmoothOff") ~= true then
+			entry.smoothOffset = (entry.smoothOffset or Vector3.zero) + (last - pos)
+			local gap = entry.smoothOffset.Magnitude
+			entry.smoothRate = gap / math.clamp(gap / math.max(speed, 30), 0.06, 0.3)
+			entry.smoothCount = (entry.smoothCount or 0) + 1
+		elseif step > 0 then
+			-- (frames with no new replicated position are not a stop)
+			entry.rootSpeed = speed + (step / dt - speed) * math.min(dt * 10, 1)
+		end
+		local offset = entry.smoothOffset
+		if not offset then return end
+		local gap = offset.Magnitude
+		local left = gap - entry.smoothRate * dt
+		if left <= 0.01 or gap > 300 then
+			entry.smoothOffset = nil
+			motor.C0 = entry.baseC0
+			return
+		end
+		offset *= left / gap
+		entry.smoothOffset = offset
+		motor.C0 = CFrame.new(root.CFrame:VectorToObjectSpace(offset)) * entry.baseC0
+	end
+
 	-- The controllers edit, in place, the pose the Animator wrote. The Animator does not write
 	-- on every rendered frame: above about 60 fps some frames have no animation step (1 in 13
 	-- at 235 fps). Editing again on such a frame stacked this frame's offsets on last frame's -
@@ -210,6 +266,9 @@ if renderMode == "Direct" then
 						part.LocalTransparencyModifier = 0
 					end
 				end
+			end
+			if model.Parent then
+				smoothTeleport(entry, model, dt)
 			end
 			if model.Parent and entry.reaction and entry.look then
 				local isDead = model:GetAttribute("CurrentState") == "Death"
