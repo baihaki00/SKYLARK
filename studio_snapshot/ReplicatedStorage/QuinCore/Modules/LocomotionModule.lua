@@ -235,7 +235,10 @@ local function releaseFacing(data, humanoid, rootPart)
 	data.ownsFacing = false
 	local align = rootPart and rootPart:FindFirstChild(FACING_NAME)
 	if align then align.Enabled = false end
-	if humanoid and humanoid.Parent then humanoid.AutoRotate = true end
+	-- (not while a state holds the body's facing: Modules/Facing turned AutoRotate off for it)
+	if humanoid and humanoid.Parent and not (rootPart and rootPart:FindFirstChild("Facing")) then
+		humanoid.AutoRotate = true
+	end
 end
 
 local function claimFacing(data, humanoid, rootPart)

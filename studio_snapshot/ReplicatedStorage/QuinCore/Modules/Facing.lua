@@ -7,6 +7,10 @@
 --   Facing.get(rootPart [, holder...]) -> it, if held (by one of these holders)
 --   Facing.drop(rootPart [, holder...]) -> let go (only if one of these holds it; any if none given)
 -- Main drops it on every state change, so no state can leave a turner behind on the body.
+-- Holding it is owning the body's facing: the humanoid's AutoRotate goes off and the locomotion's
+-- steering facing stops at once (measured 2026-10-27 in the 16v16: in Fight, AutoRotate was still
+-- turning the body toward where it walked 70% of the time the fight held it toward its target, and
+-- the steering facing was on with it 6% of the time). Dropping it gives AutoRotate back.
 -- (Before: IdleGyro, CirclingGyro and FightGyro, each made and destroyed by its own state, and
 -- IdleGyro shared by three users at whichever pace the first one made it with.)
 -- Moves keep their own short-lived aligns (a jump, a skid, a tackle, a clash): the locomotion's
@@ -47,16 +51,31 @@ function Facing.get(rootPart, ...)
 	return nil
 end
 
+local function humanoidOf(rootPart)
+	return rootPart.Parent and rootPart.Parent:FindFirstChildOfClass("Humanoid")
+end
+
 function Facing.drop(rootPart, ...)
 	local align = Facing.get(rootPart, ...)
 	if align then
 		align:Destroy()
+		local humanoid = humanoidOf(rootPart)
+		if humanoid then humanoid.AutoRotate = true end
 	end
+end
+
+-- The body's facing is taken: nothing else turns it while this is held
+local function own(rootPart)
+	local humanoid = humanoidOf(rootPart)
+	if humanoid and humanoid.AutoRotate then humanoid.AutoRotate = false end
+	local steer = rootPart:FindFirstChild("SteerFacing") -- (LocomotionModule: it lets go on its next frame)
+	if steer and steer.Enabled then steer.Enabled = false end
 end
 
 function Facing.hold(rootPart, holder)
 	local align = rootPart:FindFirstChild(NAME)
 	if align and align:GetAttribute("Holder") == holder then
+		own(rootPart)
 		return align
 	end
 	if align then
@@ -77,6 +96,7 @@ function Facing.hold(rootPart, holder)
 	align:SetAttribute("Holder", holder)
 	align:SetAttribute("BaseResponsiveness", tune[1])
 	align.Parent = rootPart
+	own(rootPart)
 	return align
 end
 
