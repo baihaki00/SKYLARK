@@ -1295,8 +1295,6 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			return require(script.Parent:WaitForChild("KnockbackState"))
 		elseif fs == "Airborne" then
 			return require(script.Parent:WaitForChild("AirborneState"))
-		elseif fs == "ProjectileFight" then
-			return require(script.Parent:WaitForChild("ProjectileFightState"))
 		end
 	end
 	

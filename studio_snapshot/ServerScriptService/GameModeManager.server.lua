@@ -470,33 +470,6 @@ function GameModeManager.startJumpProjectileTestMode(styleNumber)
 	Workspace:SetAttribute("MatchStarted", true)
 end
 
--- ======================================
--- PROJECTILE FIGHT TEST MODE (DYNAMIC)
--- ======================================
-function GameModeManager.startProjectileFightScene(scenario)
-	currentMode = "ProjectileFight"
-	roundActive = true
-	QuinSpawner.cleanAll()
-	Workspace:SetAttribute("MatchStarted", false)
-	
-	local positions = QuinSpawner.getSpawnPositions()
-	
-	local quinA = QuinSpawner.spawn("TypeA", positions[1], "TeamAlpha")
-	
-	task.wait(0.1) 
-	
-	if quinA then quinA:SetAttribute("CurrentState", "Idle") end
-	
-	Workspace:SetAttribute("CurrentMode", "ProjectileFight")
-	broadcastStatus("Clean Slate: Single Quin Spawned")
-	showCountdown()
-	Workspace:SetAttribute("MatchStarted", true)
-	
-	if quinA then 
-		quinA:SetAttribute("ForceState", "CleanSlate")
-	end
-end
-
 function GameModeManager.startTestAnimationMode()
 	currentMode = "AnimationLab"
 	roundActive = false
@@ -540,7 +513,7 @@ function GameModeManager.startTestAnimationMode()
 end
 
 function GameModeManager.startCleanSlateJumpState()
-	currentMode = "ProjectileFight"
+	currentMode = "CleanSlateJumpState"
 	roundActive = true
 	QuinSpawner.cleanAll()
 	Workspace:SetAttribute("MatchStarted", false)
@@ -727,8 +700,6 @@ commandEvent.OnServerEvent:Connect(function(player, command, arg1)
 		GameModeManager.startTournament()
 	elseif command == "jump_test" then
 		GameModeManager.startJumpProjectileTestMode(tonumber(arg1) or 1)
-	elseif command == "projectile_fight" then
-		GameModeManager.startProjectileFightScene(arg1)
 	elseif command == "toggle_visualizer" then
 		Workspace:SetAttribute("ProjectileVisualizerEnabled", arg1)
 		print("[GameMode] Visualizer toggled: ", arg1)
@@ -747,38 +718,6 @@ commandEvent.OnServerEvent:Connect(function(player, command, arg1)
 		if quin then
 			quin:SetAttribute("ForceState", "CleanSlate")
 			print("[GameMode] CleanSlate forced on " .. quin.Name)
-		end
-	elseif command == "deterministic_scenario" then
-		QuinSpawner.cleanAll()
-		task.wait(0.1)
-		
-		local config = arg1 or {}
-		local positions = QuinSpawner.getSpawnPositions()
-		
-		local quinA = QuinSpawner.spawn("TypeA", positions[1], "TeamAlpha")
-		local quinB = QuinSpawner.spawn("TypeA", positions[2], "TeamBeta")
-		
-		task.wait(0.1)
-		
-		if quinA and quinB then
-			quinA.Name = "QuinA_Leader"
-			quinB.Name = "QuinB_Follower"
-			
-			quinA:SetAttribute("IsLeader", true)
-			quinB:SetAttribute("IsLeader", false)
-			
-			quinA:SetAttribute("TargetQuin", quinB.Name)
-			quinB:SetAttribute("TargetQuin", quinA.Name)
-			
-			quinA:SetAttribute("DeterministicAction", config.LeaderAction)
-			quinB:SetAttribute("DeterministicIntercept", config.InterceptType)
-			quinB:SetAttribute("DeterministicOutcome", config.Outcome)
-			quinB:SetAttribute("DeterministicWinner", config.Winner)
-			
-			quinA:SetAttribute("ForceState", "ProjectileFight")
-			quinB:SetAttribute("ForceState", "Interception")
-			
-			print("[GameMode] Deterministic Scenario Started")
 		end
 	end
 end)
@@ -812,9 +751,6 @@ task.delay(3, function()
 		broadcastStatus("Auto-starting Tournament...")
 		GameModeManager.startTournament()
 		
-	elseif GAME_MODE == 6 then
-		broadcastStatus("Auto-starting Projectile Fight Scene...")
-		GameModeManager.startProjectileFightScene("1-Quin Projectile")
 	elseif GAME_MODE == 7 then
 		broadcastStatus("Auto-starting Clean Slate Jumping State...")
 		GameModeManager.startCleanSlateJumpState()
