@@ -168,23 +168,6 @@ function SpatialModule.getObstacleAvoidanceDirection(rootPart, checkDistance)
 	return -flatFwd
 end
 
--- Predict intercept point for anime-style arc movement
-function SpatialModule.predictIntercept(myPos, mySpeed, targetPos, targetVel)
-	if targetVel.Magnitude < 1 then
-		return targetPos -- Target is stationary
-	end
-	
-	-- Simple intercept: estimate time to reach target, project target's position
-	local dist = (targetPos - myPos).Magnitude
-	local timeToReach = dist / math.max(mySpeed, 1)
-	
-	-- Clamp prediction to 2 seconds max
-	timeToReach = math.min(timeToReach, 2.0)
-	
-	local predictedPos = targetPos + targetVel * timeToReach * 0.6
-	return predictedPos
-end
-
 -- Check if rootPart is grounded
 function SpatialModule.isGrounded(rootPart)
 	local params = RaycastParams.new()

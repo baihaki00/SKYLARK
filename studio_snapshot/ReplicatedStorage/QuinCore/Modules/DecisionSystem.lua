@@ -306,6 +306,38 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 		because("WaitingThemOut", "Waiting for the other side to move first")
 	end
 
+	-- What it set out to do this tick (TaskChoice, handed over by Modules/Brain) bends how it goes
+	-- about it. Leanings, not rules. Measured in Lantern Siege before this: guards scored "show off"
+	-- (AuraFarm) 9% of the time and carriers and escorts "pursue" whoever was nearest.
+	local job = tacticalContext.Task
+	if job then
+		local jobUrgency = job.urgency or 0.5
+		if job.point then
+			-- a job on the field (carry, escort, guard, retake ...): no showing off, no running after
+			-- someone off it, and the more urgent the job, the less ground it gives (a carrier still
+			-- gets away freely: getting away is its job)
+			scores["AuraFarm"] = (scores["AuraFarm"] or 0) * 0.2
+			scores["Pursue"] = (scores["Pursue"] or 0) * 0.5
+			if job.name ~= "Carry" then
+				scores["Retreat"] = (scores["Retreat"] or 0) * (1 - 0.5 * jobUrgency)
+			end
+			if job.name == "Guard" or job.name == "HoldPlant" then
+				scores["Guard"] = (scores["Guard"] or 0) + 20
+			end
+			because("TaskJob", "On a job: " .. tostring(job.why or job.name))
+		elseif job.name == "Rescue" then
+			-- going to a hurt ally: a protective one does not turn back halfway
+			scores["Retreat"] = (scores["Retreat"] or 0) * (1 - 0.5 * protectiveness)
+			scores["Pursue"] = (scores["Pursue"] or 0) + 20
+			scores["AuraFarm"] = (scores["AuraFarm"] or 0) * 0.2
+			because("TaskRescue", "Going to help: " .. tostring(job.why))
+		elseif job.name == "Hunt" then
+			scores["Pursue"] = (scores["Pursue"] or 0) + 20
+			scores["AuraFarm"] = (scores["AuraFarm"] or 0) * 0.5
+			because("TaskHunt", "Hunting: " .. tostring(job.why))
+		end
+	end
+
 	-- Select action with highest utility score
 	local bestAction = "Attack"
 	local bestScore = -math.huge
