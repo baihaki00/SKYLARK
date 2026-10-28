@@ -417,7 +417,8 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	end
 
 	-- Optional toggleable debug telemetry matching specification
-	local debugEnabled = workspace:GetAttribute("TacticalDebugEnabled") or quinModel:GetAttribute("TacticalDebug")
+	local debugEnabled = (workspace:GetAttribute("TacticalDebugEnabled") and (workspace:GetAttribute("DebugScopeQuin") or quinModel.Name) == quinModel.Name) -- (DebugSwitches scope: Workspace DebugScopeQuin, unset = every Quin)
+		or quinModel:GetAttribute("TacticalDebug")
 	if debugEnabled then
 		DecisionSystem.logTacticalTelemetry(quinModel, tacticalContext, bestAction, tacticalState, decisionReasons)
 	end

@@ -114,6 +114,12 @@ local function select(model)
 	selected = model
 	highlight.Adornee = model
 	highlight.Parent = model and gui or nil
+	-- (the selected Quin everywhere: the menu's cards, the debug scope, the 3D overlays)
+	if model then
+		shared.SpectatedQuin = model
+		_G.SpectatedQuin = model
+		Workspace:SetAttribute("SpectatedQuin", model.Name)
+	end
 end
 
 -- The clicked Quin, to the menu's Inspect tab: what it is doing and why, the clips held on it

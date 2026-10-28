@@ -557,7 +557,7 @@ function LookController:updateLook(dt)
 			end
 		end
 		-- (debug: what the head is doing and why; client-only attribute, Workspace LookDebug)
-		if self.aiModel and Workspace:GetAttribute("LookDebug") then
+		if self.aiModel and Workspace:GetAttribute("LookDebug") and (Workspace:GetAttribute("DebugScopeQuin") or self.aiModel.Name) == self.aiModel.Name then -- (DebugSwitches scope: Workspace DebugScopeQuin, unset = every Quin)
 			self.aiModel:SetAttribute("LookDbg", mode)
 		end
 

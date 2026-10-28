@@ -415,6 +415,9 @@ local function refreshInfo(force)
 	timeLabel.Text = followed
 		and ("<b>%s</b>  ·  %s  ·  colour = its state  ·  white tick = a clip starts  ·  gold tick = task / tactics change  ·  drag to scrub"):format(QuinTimeline.escape(followed), when)
 		or (when .. "  ·  drag to scrub  ·  click a Quin to follow it: the timeline shows its states and clips")
+	if endT - cursor >= 1e-3 then
+		timeLabel.Text ..= "  ·  <font color='#FFC83C'>labels + 3D overlays hidden (they show the pause moment)</font>"
+	end
 	-- (a few times a second: the rows are rebuilt only when they change)
 	local now = os.clock()
 	if not force and now - dockSince < 0.15 then
@@ -428,8 +431,21 @@ end
 ----------------------------------------------------------------------------------------
 -- Camera
 ----------------------------------------------------------------------------------------
+-- The followed Quin is the selected Quin everywhere (the menu's cards, the debug scope, the 3D
+-- overlays): Workspace SpectatedQuin / shared.SpectatedQuin, as a card click sets them
+local function selectQuin(name)
+	local real
+	for _, model in ipairs(CollectionService:GetTagged("Quin")) do
+		if model.Name == name then real = model break end
+	end
+	shared.SpectatedQuin = real
+	_G.SpectatedQuin = real
+	Workspace:SetAttribute("SpectatedQuin", real and name or "")
+end
+
 local function follow(name)
 	followed = name
+	selectQuin(name)
 	local ghost = name and ghosts[name]
 	if ghost and ghost.root then
 		local offset = camera.CFrame.Position - ghost.root.Position
@@ -560,6 +576,8 @@ end
 -- (PAUSE opens it, PLAY closes it: GodPauseClient)
 shared.QuinReplay = {
 	open = function() if allowedToOpen() then setOpen(true) end end,
+	-- at the pause: the live labels and 3D overlays are right (scrubbed back they are hidden, QuinDebugHUD)
+	atPause = function() return not open or not recording or endT - cursor < 1e-3 end,
 	close = function() setOpen(false) end,
 	isOpen = function() return open end,
 }

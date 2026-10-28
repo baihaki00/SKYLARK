@@ -458,6 +458,64 @@ local function addLayerToggle(group, text, isOn, toggle)
 	return refresh
 end
 
+-- SCOPE (owner 2026-10-28: "shows for current quin that is selected, and add a toggle between this
+-- quin / all quin"): one switch for the labels, the prints and the 3D overlays. "This Quin" is the
+-- selected Quin (a card, or a Quin clicked while paused); the server is told through
+-- DebugSwitches (Workspace DebugScopeQuin), the 3D overlays through RuntimeVisualizer.
+local scopeAll = false
+local scopeBar = Instance.new("Frame")
+scopeBar.LayoutOrder = 1
+scopeBar.Size = UDim2.new(1, 0, 0, 26)
+scopeBar.BackgroundTransparency = 1
+scopeBar.Parent = switchScroll
+local function scopeButton(x, width)
+	local b = Instance.new("TextButton")
+	b.Position = UDim2.new(x, x > 0 and 2 or 0, 0, 0)
+	b.Size = UDim2.new(width, x > 0 and -2 or -2, 1, 0)
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 11
+	b.TextTruncate = Enum.TextTruncate.AtEnd
+	b.Parent = scopeBar
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+	return b
+end
+local thisButton = scopeButton(0, 0.62)
+local allButton = scopeButton(0.62, 0.38)
+thisButton.Name = "ScopeThis" -- (names: test handles)
+allButton.Name = "ScopeAll"
+allButton.Text = "All Quins"
+
+local function selectedQuin()
+	local model = shared.SpectatedQuin or _G.SpectatedQuin
+	return typeof(model) == "Instance" and model.Parent and model or nil
+end
+
+local function refreshScope()
+	local model = selectedQuin()
+	thisButton.Text = "This Quin: " .. (model and model.Name or "pick one (card / click)")
+	for _, pair in ipairs({ { thisButton, not scopeAll }, { allButton, scopeAll } }) do
+		pair[1].BackgroundColor3 = pair[2] and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(24, 30, 44)
+		pair[1].TextColor3 = pair[2] and Color3.new(0, 0, 0) or Color3.fromRGB(200, 210, 230)
+	end
+end
+
+-- (asks the server only when the scope it holds is not the one wanted; "" = no Quin selected)
+local askedScope, askedAt = nil, 0
+local function syncScope()
+	local model = selectedQuin()
+	local want = not scopeAll and (model and model.Name or "") or nil
+	if Workspace:GetAttribute(DebugSwitches.SCOPE) ~= want and (askedScope ~= want or os.clock() - askedAt > 1) then
+		askedScope, askedAt = want, os.clock()
+		DebugSwitches.requestScope(want)
+	end
+	if RuntimeVisualizer and RuntimeVisualizer.isWatchingAll() ~= scopeAll then RuntimeVisualizer.setWatchAll(scopeAll) end
+	refreshScope()
+end
+thisButton.MouseButton1Click:Connect(function() scopeAll = false syncScope() end)
+allButton.MouseButton1Click:Connect(function() scopeAll = true syncScope() end)
+refreshScope()
+
 do
 	local labels = addGroup("Labels & prints")
 	for _, switch in ipairs(DebugSwitches.List) do
@@ -478,9 +536,6 @@ do
 				RuntimeVisualizer.setLayerEnabled(layer.id, not RuntimeVisualizer.isLayerEnabled(layer.id))
 			end)
 		end
-		addLayerToggle(overlays, "All Quins (off: spectated only)", RuntimeVisualizer.isWatchingAll, function()
-			RuntimeVisualizer.setWatchAll(not RuntimeVisualizer.isWatchingAll())
-		end)
 	end
 
 	local ai = addGroup("AI layers (all Quins)")
@@ -764,6 +819,71 @@ local function rebuildRows(rows, cursorT)
 		end)
 	end
 end
+
+-- ============================================================
+-- Labels over the heads (DebugSwitches): Look / Gait / Foot write a value on the Quin, shown here
+-- for the Quins in scope; scrubbed back while paused, every label is hidden (they show the pause
+-- moment, not the scrubber's: QuinReplay)
+-- ============================================================
+local VALUE_LABELS = {
+	{ switch = "LookDebug", attribute = "LookDbg", label = "look" },
+	{ switch = "GaitDebug", attribute = "GaitSide", label = "gait side" },
+	{ switch = "FootDebug", attribute = "FootDbg", label = "foot L" },
+	{ switch = "FootDebug", attribute = "FootDbgR", label = "foot R" },
+}
+local SERVER_LABELS = { PointTag = true, InterestTag = true }
+
+local function valueTag(root)
+	local gui = root:FindFirstChild("DebugValuesTag")
+	if gui then return gui end
+	gui = Instance.new("BillboardGui")
+	gui.Name = "DebugValuesTag"
+	gui.Size = UDim2.fromOffset(280, 64)
+	gui.StudsOffset = Vector3.new(0, 4.5, 0)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	local text = Instance.new("TextLabel")
+	text.Size = UDim2.fromScale(1, 1)
+	text.BackgroundTransparency = 1
+	text.Font = Enum.Font.Code
+	text.TextSize = 13
+	text.TextColor3 = Color3.fromRGB(150, 230, 255)
+	text.TextStrokeTransparency = 0
+	text.TextYAlignment = Enum.TextYAlignment.Bottom
+	text.Parent = gui
+	gui.Parent = root
+	return gui
+end
+
+local labelSince = 0
+RunService.Heartbeat:Connect(function(dt)
+	labelSince += dt
+	if labelSince < 0.2 then return end
+	labelSince = 0
+	syncScope()
+	local replay = shared.QuinReplay
+	local scrubbedBack = replay and replay.atPause and not replay.atPause()
+	for _, model in ipairs(game:GetService("CollectionService"):GetTagged("Quin")) do
+		local root = model:FindFirstChild("HumanoidRootPart")
+		if root then
+			local lines = {}
+			if not scrubbedBack and DebugSwitches.inScope(model) then
+				for _, value in ipairs(VALUE_LABELS) do
+					local v = DebugSwitches.isOn(value.switch) and model:GetAttribute(value.attribute)
+					if v ~= nil and v ~= false then table.insert(lines, value.label .. ": " .. tostring(v)) end
+				end
+			end
+			if #lines > 0 then
+				valueTag(root).TextLabel.Text = table.concat(lines, "\n")
+			elseif root:FindFirstChild("DebugValuesTag") then
+				root.DebugValuesTag:Destroy()
+			end
+			for _, child in ipairs(root:GetChildren()) do
+				if SERVER_LABELS[child.Name] and child:IsA("BillboardGui") then child.Enabled = not scrubbedBack end
+			end
+		end
+	end
+end)
 
 -- ============================================================
 -- shared.DebugDock: the menu, for GodPauseClient and QuinReplay
@@ -1300,8 +1420,12 @@ RunService.Heartbeat:Connect(function()
 	-- 3D Debug Visualizers (LoS, LKP, Trajectories, Platform Intent)
 	-- Only while the Spectator HUD is open: closed, nothing is drawn over the Quins
 	if RuntimeVisualizer then
-		if isHudVisible and not hideOverride then
-			RuntimeVisualizer.update(curSpectated or quins[1], quins)
+		-- (for the selected Quin only - never a stand-in; scrubbed back while paused they would draw
+		-- the pause moment, so they are taken off until the scrubber is back at the pause)
+		local replay = shared.QuinReplay
+		local scrubbedBack = replay and replay.atPause and not replay.atPause()
+		if isHudVisible and not hideOverride and not scrubbedBack then
+			RuntimeVisualizer.update(curSpectated, quins)
 			visualizerDrawn = true
 		elseif visualizerDrawn then
 			RuntimeVisualizer.stop()

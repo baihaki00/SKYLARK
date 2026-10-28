@@ -37,6 +37,7 @@ end
 -- Studio labels over a head (Workspace PointDebug): what it pointed at, or what it made of a point
 function Callouts.debugTag(model, text, color)
 	if Workspace:GetAttribute("PointDebug") ~= true then return end
+	if (Workspace:GetAttribute("DebugScopeQuin") or model.Name) ~= model.Name then return end -- (DebugSwitches scope: Workspace DebugScopeQuin, unset = every Quin)
 	local root = model:FindFirstChild("HumanoidRootPart")
 	if not root then return end
 	local old = root:FindFirstChild("PointTag")

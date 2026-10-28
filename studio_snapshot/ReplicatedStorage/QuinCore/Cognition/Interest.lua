@@ -55,6 +55,7 @@ end
 
 local function tag(quinModel, text, color)
 	if Workspace:GetAttribute("InterestDebug") ~= true then return end
+	if (Workspace:GetAttribute("DebugScopeQuin") or quinModel.Name) ~= quinModel.Name then return end -- (DebugSwitches scope: Workspace DebugScopeQuin, unset = every Quin)
 	local root = quinModel:FindFirstChild("HumanoidRootPart")
 	if not root then return end
 	local old = root:FindFirstChild("InterestTag")

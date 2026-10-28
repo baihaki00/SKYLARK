@@ -408,7 +408,7 @@ local function driveDiagonal(humanoid, st, tracks, weights, lens, plants, cycleD
 
 	st.dirMode = wSide > 0.5 and "strafe" or (direction < 0 and "back" or "forward")
 	local model = humanoid.Parent
-	if model and workspace:GetAttribute("GaitDebug") then
+	if model and workspace:GetAttribute("GaitDebug") and (workspace:GetAttribute("DebugScopeQuin") or model.Name) == model.Name then -- (DebugSwitches scope: Workspace DebugScopeQuin, unset = every Quin)
 		model:SetAttribute("GaitSide", math.floor(wSide * 100 + 0.5) / 100)
 	end
 	return {

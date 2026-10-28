@@ -1130,7 +1130,7 @@ function ProceduralCombatReactionController:update(dt)
 			end
 
 			-- (debug: why the left foot is or is not planted; client-only attribute)
-			if self.aiModel and workspace:GetAttribute("FootDebug") then
+			if self.aiModel and workspace:GetAttribute("FootDebug") and (workspace:GetAttribute("DebugScopeQuin") or self.aiModel.Name) == self.aiModel.Name then -- (DebugSwitches scope: Workspace DebugScopeQuin, unset = every Quin)
 				local reason = footsFree and "free" or (not hit and "nohit") or (pushed and "pushed")
 					or (self.step[side] and "step") or (self.plant[side] and "lock")
 					or (self.plantArmed[side] and "armed") or "waitLift"
