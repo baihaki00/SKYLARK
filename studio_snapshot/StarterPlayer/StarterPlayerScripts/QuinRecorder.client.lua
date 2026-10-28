@@ -218,7 +218,8 @@ sync()
 
 -- After the camera, so the pose read is the one drawn this frame (procedural layers included)
 RunService:BindToRenderStep("QuinRecorder", Enum.RenderPriority.Camera.Value + 2, function()
-	if recording then record() end
+	-- (nothing moves while the game is frozen - GameFreeze - so no frames are kept then)
+	if recording and Workspace:GetAttribute("GameFrozen") ~= true then record() end
 end)
 
 shared.QuinRecorder = {
@@ -235,6 +236,8 @@ shared.QuinRecorder = {
 		end
 		return { frames = table.clone(frames), tracks = copy }
 	end,
+	-- a clip's name in the animation registry (the tracks are all called "Animation")
+	clipName = clipName,
 	-- the live buffer itself (not a copy: it grows and is trimmed as the fight goes on)
 	live = function()
 		return { frames = frames, tracks = tracks }

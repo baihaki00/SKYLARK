@@ -8,7 +8,9 @@
 -- sounds pause and particles stop in the air; the bodies keep their drawn pose (AIGhostHandler
 -- edits the pose with no time passing).
 --
--- Studio, Admins: QuinCore.GameFreezeEvent:FireServer("toggle" | "freeze" | "resume").
+-- Studio, Admins: QuinCore.GameFreezeEvent:FireServer("toggle" | "freeze" | "resume" | "step", seconds).
+-- "step" lets the frozen game run for that long (one frame: 1/60) and freezes it again; while it
+-- steps (Workspace GameStepping) the clients leave the sounds and particles held.
 -- (Not frozen: the match and mode timers that are not on GameClock, and loose physics parts.)
 
 local RunService = game:GetService("RunService")
@@ -50,6 +52,11 @@ local function holdClips()
 	end
 end
 
+-- The speed a held clip had before the freeze (nil: not held)
+function GameFreeze.heldSpeed(track)
+	return heldTracks[track]
+end
+
 local function releaseClips()
 	for _, connection in ipairs(playedConnections) do connection:Disconnect() end
 	playedConnections = {}
@@ -74,6 +81,11 @@ if RunService:IsServer() then
 					angular = root.AssemblyAngularVelocity,
 				}
 				root.Anchored = true
+				-- (a body moved by physics and then anchored never sends that last move to the
+				-- clients - after a one-frame step none of them showed it moving. A written CFrame
+				-- is sent, so the frozen picture is where the server has the body; 0.001 studs, as
+				-- writing the same CFrame again is not sent)
+				root.CFrame += Vector3.new(0, 0.001, 0)
 			end
 		end
 		holdClips()
@@ -99,13 +111,33 @@ if RunService:IsServer() then
 		Workspace:SetAttribute("GameFrozen", false)
 	end
 
+	local stepping = false
+	function GameFreeze.step(seconds)
+		if stepping or not GameClock.frozen() then return end
+		stepping = true
+		Workspace:SetAttribute("GameStepping", true)
+		GameFreeze.resume()
+		-- (from the next physics step: the resume can land after this frame's, and a one-frame
+		-- step then ran no physics at all - 0 of 32 Quins moved)
+		RunService.PreSimulation:Wait()
+		local ran = 0
+		repeat ran += RunService.Heartbeat:Wait() until ran >= seconds - 1e-3
+		GameFreeze.freeze()
+		Workspace:SetAttribute("GameStepping", nil)
+		stepping = false
+	end
+
 	if not QuinCore:FindFirstChild("GameFreezeEvent") then
 		local remote = Instance.new("RemoteEvent")
 		remote.Name = "GameFreezeEvent"
 		remote.Parent = QuinCore
 	end
-	QuinCore.GameFreezeEvent.OnServerEvent:Connect(function(player, action)
+	QuinCore.GameFreezeEvent.OnServerEvent:Connect(function(player, action, seconds)
 		if not RunService:IsStudio() or player:GetAttribute("SkylarkRole") ~= "Admin" then return end
+		if action == "step" then
+			GameFreeze.step(math.clamp(tonumber(seconds) or 1 / 60, 1 / 60, 1))
+			return
+		end
 		if action == "freeze" or (action == "toggle" and not GameClock.frozen()) then
 			GameFreeze.freeze()
 		elseif action == "resume" or action == "toggle" then
@@ -146,12 +178,17 @@ else
 	end
 
 	GameClock.changed:Connect(function(frozen)
+		if Workspace:GetAttribute("GameStepping") then
+			-- (a step: the clips run for it, the sounds and particles stay held)
+			if frozen then holdClips() else releaseClips() end
+			return
+		end
 		if frozen then freezeHere() else resumeHere() end
 	end)
 	if GameClock.frozen() then freezeHere() end
 
-	function GameFreeze.request(action)
-		QuinCore:WaitForChild("GameFreezeEvent"):FireServer(action or "toggle")
+	function GameFreeze.request(action, seconds)
+		QuinCore:WaitForChild("GameFreezeEvent"):FireServer(action or "toggle", seconds)
 	end
 end
 
