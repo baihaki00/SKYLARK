@@ -4,6 +4,7 @@
 -- Returns the next state, or nil when there is nothing to climb (the chase goes on).
 -- (Cut out of ChaseState.update as it was: QuinCore audit 2026-10-27, step 7.)
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
@@ -21,7 +22,7 @@ local Climb = {}
 function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inShowdown)
 	-- Vertical gap awareness: target is perched on high ground
 	local verticalGap = targetHRP.Position.Y - rootPart.Position.Y
-	local lastPJ = fighter:GetAttribute("LastPositioningJumpTime") or 0 -- tick() timestamp
+	local lastPJ = fighter:GetAttribute("LastPositioningJumpTime") or 0 -- GameClock.tick() timestamp
 	local flatDistToTgt = Vector3.new(targetHRP.Position.X - rootPart.Position.X, 0, targetHRP.Position.Z - rootPart.Position.Z).Magnitude
 
 	-- An enemy it has seen high in the air may be met up there
@@ -53,8 +54,8 @@ function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inSh
 	-- so the jump was never taken for those: 67 spot hops to 4 jumps up in a 96 s match.)
 	local jumpable = targetPerched and verticalGap >= (CombatConfig.HighGround_InterceptJumpMinReach or 8.0)
 		and verticalGap <= (CombatConfig.Jump_MaxReach or 25.0)
-	data.jumpClimbSince = jumpable and (data.jumpClimbSince or tick()) or nil
-	local jumpFirst = jumpable and tick() - data.jumpClimbSince < (CombatConfig.HighGround_ClimbPatience or 5)
+	data.jumpClimbSince = jumpable and (data.jumpClimbSince or GameClock.tick()) or nil
+	local jumpFirst = jumpable and GameClock.tick() - data.jumpClimbSince < (CombatConfig.HighGround_ClimbPatience or 5)
 	local stoneClimb = not jumpFirst and (verticalGap >= (CombatConfig.Nav_StoneMinClimb or 8)
 		or (verticalGap >= 2 and not NavigationModule.isReachable(rootPart, targetHRP)))
 	if not inShowdown and stoneClimb and LocomotionModule.isOnGround(rootPart, humanoid) and not LocomotionModule.isSliding(fighter) then
@@ -62,8 +63,8 @@ function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inSh
 		if stone then
 			fighter:SetAttribute("ObstacleAwareness", string.format("Stepping stone: %.0f up, %.0f across", stone.rise, stone.hop))
 			-- (owner 2026-10-27: tone the stone hops down - one every StoneHopCooldown, not 0.6 s)
-			if tick() - (fighter:GetAttribute("LastStoneHopTime") or 0) >= (CombatConfig.Nav_StoneHopCooldown or 2.5) then
-				fighter:SetAttribute("LastStoneHopTime", tick())
+			if GameClock.tick() - (fighter:GetAttribute("LastStoneHopTime") or 0) >= (CombatConfig.Nav_StoneHopCooldown or 2.5) then
+				fighter:SetAttribute("LastStoneHopTime", GameClock.tick())
 				-- A stone it is facing, within a jump's reach and range, and wide enough to land
 				-- a running jump on, is simply jumped on to; the spot hop (a projectile arc) is
 				-- for the rest: too high, too far, a small top, or not lined up.
@@ -85,7 +86,7 @@ function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inSh
 					LocomotionModule.steer(fighter, humanoid, rootPart, stone.point, 16.0, 0.1)
 					return States.Chase
 				end
-				fighter:SetAttribute("LastProjectileJumpTime", tick())
+				fighter:SetAttribute("LastProjectileJumpTime", GameClock.tick())
 				fighter:SetAttribute("JumpWhy", "spot hop to a stepping stone (it is up high)") -- (JumpLog, team step 5)
 				local ProjectileJumpState = States.ProjectileJump
 				ProjectileJumpState.aimAtPoint(fighter, stone.point)
@@ -117,13 +118,13 @@ function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inSh
 				return States.Chase
 			end
 			local facingEdge = toEdge.Magnitude > 0.1 and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85
-			if solution and facingEdge and energy >= climbEnergyCost and (tick() - lastPJ) >= 2.0 and canLeave then
+			if solution and facingEdge and energy >= climbEnergyCost and (GameClock.tick() - lastPJ) >= 2.0 and canLeave then
 				fighter:SetAttribute("ObstacleAwareness", "High-Ground Intercept Jump")
 				fighter:SetAttribute("JumpWhy", "jump up to it on high ground") -- (JumpLog, team step 5)
 				if LocomotionModule.jump(fighter, humanoid, rootPart, solution.height, solution.speed, "jump") then
 					-- (where it means to land, so a jump coming down short can dash on to it)
 					require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AirDash")).noteJump(fighter, edge + toEdge.Unit * (depth or 4))
-					fighter:SetAttribute("LastPositioningJumpTime", tick())
+					fighter:SetAttribute("LastPositioningJumpTime", GameClock.tick())
 					fighter:SetAttribute("Energy", energy - climbEnergyCost)
 					return States.Chase
 				end
@@ -144,9 +145,9 @@ function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inSh
 			local cooldown = (CombatConfig.ProjectileJump_Cooldown or 14.0) / (workspace:GetAttribute("GameSpeedMultiplier") or 1.0)
 			if CombatConfig.EnableProjectileJump ~= false and fighter:GetAttribute("EnableProjectileJump") ~= false
 				and energy >= (CombatConfig.ProjectileJumpMinEnergy or 40)
-				and (tick() - lastProjectileJump) >= cooldown
+				and (GameClock.tick() - lastProjectileJump) >= cooldown
 				and flatDistToTgt <= (CombatConfig.ProjectileJumpMaxDistance or 800) then
-				fighter:SetAttribute("LastProjectileJumpTime", tick())
+				fighter:SetAttribute("LastProjectileJumpTime", GameClock.tick())
 				fighter:SetAttribute("ObstacleAwareness", "Projectile jump to target on high ground")
 				local stylePool = { 1, 1, 2, 3, 4, 5, 5, 6, 7 }
 				fighter:SetAttribute("JumpStyle", stylePool[math.random(1, #stylePool)])

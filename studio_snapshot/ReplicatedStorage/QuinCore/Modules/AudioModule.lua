@@ -1,6 +1,7 @@
 --// AudioModule.lua
 -- Centralized audio playback with high bass and long roll-off distances
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 
@@ -204,7 +205,7 @@ function AudioModule.playFootstep(fighter, volume)
 	
 	-- Anti-duplication debounce. (0.15 s dropped real steps: at a sprint every other step comes
 	-- 0.15 s after the last. Steps doubled by blended clips are already silenced by clip weight.)
-	local now = os.clock()
+	local now = GameClock.now()
 	if lastFootstepTimes[fighter] and (now - lastFootstepTimes[fighter]) < 0.08 then
 		return
 	end

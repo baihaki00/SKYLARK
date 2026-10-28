@@ -12,6 +12,7 @@
 -- probes); later phases show them on the body (owner: later). A player's Quin has them too, but
 -- they only shape AI choices.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
@@ -35,7 +36,7 @@ end
 local function of(quin)
 	local f = feelings[quin]
 	if not f then
-		f = { confidence = 0.5, fury = 0, caution = 0, thrill = 0, exhaustion = 0, lastLanded = 0, lastTaken = 0, at = os.clock() }
+		f = { confidence = 0.5, fury = 0, caution = 0, thrill = 0, exhaustion = 0, lastLanded = 0, lastTaken = 0, at = GameClock.now() }
 		feelings[quin] = f
 	end
 	return f
@@ -47,7 +48,7 @@ local function clamp01(x) return math.clamp(x, 0, 1) end
 function Drives.onExchange(attacker, target, damage, status, heavy)
 	if not Drives.enabled() or not attacker or not target then return end
 	local a, t = of(attacker), of(target)
-	local now = os.clock()
+	local now = GameClock.now()
 	if status == "Hit" then
 		a.confidence = clamp01(a.confidence + cfg("ConfidencePerHit", 0.08))
 		t.confidence = clamp01(t.confidence - cfg("ConfidenceLossPerHit", 0.1))
@@ -105,7 +106,7 @@ end
 function Drives.update(quin, humanoid)
 	if not Drives.enabled() then return end
 	local f = of(quin)
-	local now = os.clock()
+	local now = GameClock.now()
 	local dt = math.min(now - f.at, 0.5)
 	f.at = now
 	local relax = cfg("Relax", 0.06) * dt -- per second back toward rest

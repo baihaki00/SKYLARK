@@ -12,6 +12,7 @@
 --     sprinting to the spot and braking (the stop-run plant all of them did at once)
 -- Off: CombatConfig.Pace_Enabled = false, or Workspace attribute PaceOff = true (live A/B).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -60,7 +61,7 @@ end
 
 -- The gear (and its speed) for an urgency, held with commitment. why: shown on the debug HUD.
 function Pace.gear(fighter, urgency, why)
-	local now = os.clock()
+	local now = GameClock.now()
 	local s = state[fighter]
 	if not s then
 		s = { gear = nil, lowSince = nil }

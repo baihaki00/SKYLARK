@@ -6,6 +6,7 @@
 -- 4. Super Wall-Clearing Leap (Vy = 260, Vxz = 150) soaring over the 148-stud arena wall
 -- 5. Crest the apex, descent, land on the arena floor into combat stance!
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -67,9 +68,9 @@ function ReEntryState.enter(fighter, humanoid, rootPart)
 	humanoid.AutoRotate = true
 
 	reEntryData[fighter] = {
-		enterTime = tick(),
+		enterTime = GameClock.tick(),
 		phase = insideFootprint and "run_in" or "walk", -- jog back in, or walk -> run -> leap from outside
-		phaseStartTime = tick(),
+		phaseStartTime = GameClock.tick(),
 		dirToCenter = dirToCenter,
 		hasLeaped = false,
 		lastFootstepTime = 0,
@@ -115,7 +116,7 @@ function ReEntryState.update(fighter, humanoid, rootPart, DEBUG)
 		return States.Idle
 	end
 
-	local now = tick()
+	local now = GameClock.tick()
 	local totalElapsed = now - data.enterTime
 	local phaseElapsed = now - data.phaseStartTime
 	local locoDt = math.clamp(now - (data.lastLocoTime or (now - 0.05)), 1 / 60, 0.25)

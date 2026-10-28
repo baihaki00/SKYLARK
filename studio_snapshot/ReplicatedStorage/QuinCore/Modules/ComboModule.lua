@@ -2,6 +2,7 @@
 -- Combo sequence engine
 -- Tracks combo state per fighter, handles combo chains and transitions
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ComboModule = {}
@@ -49,7 +50,7 @@ end
 -- Start or continue a combo
 function ComboModule.nextAttack(fighter, sequenceType)
 	local state = getState(fighter)
-	local now = tick()
+	local now = GameClock.tick()
 	
 	sequenceType = sequenceType or "Light"
 	local sequence = COMBO_SEQUENCES[sequenceType]

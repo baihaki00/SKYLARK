@@ -14,6 +14,7 @@
 -- SocialAvoidUntil (a duellist others leave alone), ShowdownRole (Duelist / Interceptor /
 -- Watcher), Workspace ShowdownStats (JSON), and raises the arena event "LeaderShowdown".
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
@@ -33,7 +34,7 @@ local decidedAt = {}    -- pairKey -> when this pair last decided
 local active = {}       -- list of { a, b, kind, since, apartSince }
 local stats = { recognised = 0, outcomes = {}, intercepts = 0, spaceMakers = 0, ended = {} }
 
-local function now() return os.clock() end
+local function now() return GameClock.now() end
 local function rootOf(m) return m and m:FindFirstChild("HumanoidRootPart") end
 local function humOf(m) return m and m:FindFirstChildOfClass("Humanoid") end
 local function alive(m) local h = humOf(m) return m and m.Parent and h and h.Health > 0 end
@@ -131,7 +132,7 @@ local function rally(showdown)
 					if not m:GetAttribute("ShowdownRole") then m:SetAttribute("ShowdownRole", "Watcher") end
 					showdown.helpers[m] = false
 					stats.spaceMakers += 1
-					task.delay(math.random() * 2, function()
+					GameClock.delay(math.random() * 2, function()
 						if m.Parent and showdown.a.Parent then
 							SocialSystem.lookAt(m, math.random() < 0.5 and showdown.a or showdown.b, 1.0 + math.random())
 						end

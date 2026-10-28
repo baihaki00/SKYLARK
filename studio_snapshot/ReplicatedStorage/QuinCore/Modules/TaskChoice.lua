@@ -20,6 +20,7 @@
 -- Later tasks (guard a route, escort, scout, retake) slot in here once a mode has objectives.
 -- Off switch: CombatConfig.Task_Enabled = false (Fight always, the old behaviour).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -222,7 +223,7 @@ end
 function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggression, protect)
 	local myPos = rootPart.Position
 	if view.planted then
-		local left = math.max(0, view.planted.endsAt - workspace:GetServerTimeNow())
+		local left = math.max(0, view.planted.endsAt - GameClock.serverNow())
 		local inside = (myPos - view.planted.position).Magnitude <= view.planted.blast + 4
 		-- (a defender still defusing stays: it may yet make it; the rest go when it is time)
 		local defusing = view.planted.defuser == quinModel.Name
@@ -315,7 +316,7 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 			local ring = site.position + (myPos - site.position) * Vector3.new(1, 0, 1)
 			ring = (ring - site.position).Magnitude > 0.1 and site.position + (ring - site.position).Unit * 10 or site.position
 			local defusing = view.planted and view.planted.defuser
-			local left = view.planted and math.max(0, view.planted.endsAt - workspace:GetServerTimeNow()) or nil
+			local left = view.planted and math.max(0, view.planted.endsAt - GameClock.serverNow()) or nil
 			tasks.HoldPlant = {
 				score = cfg("Objective_HoldValue", 110) + (defusing and 40 or 0) - flat(site.position, myPos) * 0.2,
 				point = ring, speed = run, engage = engage * (defusing and 1.5 or 1), urgency = (defusing or view.planting) and 1 or 0.6,
@@ -329,7 +330,7 @@ function TaskChoice.objectiveTasks(tasks, quinModel, rootPart, view, board, aggr
 		if view.planted then
 			-- the less time on it, the more it matters; with one already kneeling on it, the
 			-- others keep the attackers off rather than stand in line
-			local left = math.max(0, view.planted.endsAt - workspace:GetServerTimeNow())
+			local left = math.max(0, view.planted.endsAt - GameClock.serverNow())
 			local mine = view.planted.defuser == quinModel.Name
 			local someone = view.planted.defuser and not mine
 			local away = (myPos - view.planted.position) * Vector3.new(1, 0, 1)
@@ -405,7 +406,7 @@ function TaskChoice.choose(quinModel, rootPart, context)
 	if cfg("Task_Enabled", true) == false or not context then return nil end
 	local board = Blackboard.peek(quinModel)
 	if not board or not board.contacts then return nil end
-	local now = os.clock()
+	local now = GameClock.now()
 
 	local tasks = score(quinModel, rootPart, context, board)
 	local pinned = tasks.pinned
@@ -439,7 +440,7 @@ function TaskChoice.choose(quinModel, rootPart, context)
 
 	if not held or held.name ~= bestName then
 		board.task = { name = bestName, since = now }
-		quinModel:SetAttribute("TaskAt", tick())
+		quinModel:SetAttribute("TaskAt", GameClock.tick())
 	end
 	board.task.enemy, board.task.ally, board.task.why, board.task.spot = best.enemy, best.ally, best.why, best.spot
 	if quinModel:GetAttribute("TaskSpot") ~= best.spot then quinModel:SetAttribute("TaskSpot", best.spot) end

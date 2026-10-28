@@ -9,6 +9,7 @@
 -- (Server.server.lua: StrikeMarkers.preload) so none is read in the middle of a fight; a clip that
 -- has not been read yet, or has no markers, returns nil and the caller uses its config ratios.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
 
@@ -18,12 +19,12 @@ local AnimationConfig = require(QuinCore:WaitForChild("AnimationConfig"))
 local StrikeMarkers = {}
 
 local cache = {}   -- asset id -> { length, hitStart, hitEnd, recover, limb } | false (no usable markers)
-local loading = {} -- asset id -> os.clock() the read started
+local loading = {} -- asset id -> GameClock.now() the read started
 
 local RETRY_AFTER = 5 -- seconds before a read that never finished is tried again
 
 local function read(id)
-	loading[id] = os.clock()
+	loading[id] = GameClock.now()
 	local ok, sequence = pcall(function()
 		return KeyframeSequenceProvider:GetKeyframeSequenceAsync(id)
 	end)
@@ -63,7 +64,7 @@ function StrikeMarkers.get(id)
 	if not id or id == "" then return nil end
 	local entry = cache[id]
 	if entry ~= nil then return entry or nil end
-	if not loading[id] or os.clock() - loading[id] > RETRY_AFTER then
+	if not loading[id] or GameClock.now() - loading[id] > RETRY_AFTER then
 		task.spawn(read, id)
 	end
 	return nil

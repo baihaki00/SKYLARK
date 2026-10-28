@@ -8,6 +8,7 @@
 --   JumpLog.why(fighter) - the reason a caller set (attribute JumpWhy) and clears it
 --   JumpLog.reset() - clears the counts (a probe starts a window)
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ServerStorage = game:GetService("ServerStorage")
 local RunService = game:GetService("RunService")
 
@@ -18,7 +19,7 @@ local function store()
 	if not folder then
 		folder = Instance.new("Configuration")
 		folder.Name = "JumpLog"
-		folder:SetAttribute("Since", os.clock())
+		folder:SetAttribute("Since", GameClock.now())
 		folder.Parent = ServerStorage
 	end
 	return folder
@@ -29,7 +30,7 @@ function JumpLog.mark(fighter, kind, reason)
 	reason = (reason and reason ~= "") and reason or "?"
 	fighter:SetAttribute("JumpKind", kind)
 	fighter:SetAttribute("JumpReason", reason)
-	fighter:SetAttribute("JumpAt", tick())
+	fighter:SetAttribute("JumpAt", GameClock.tick())
 	-- (attribute names take letters, digits and _ only: "Dash__dash_to_close_the_gap")
 	local folder = store()
 	local key = (kind .. "__" .. reason):gsub("[^%w_]", "_"):sub(1, 100)

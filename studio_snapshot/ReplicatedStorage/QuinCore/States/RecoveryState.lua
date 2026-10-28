@@ -2,6 +2,7 @@
 -- Getting back up from a stun, knockdown, or prone tumble: restores the upright orientation,
 -- plays the get-up that matches the knockdown, and hands back to combat when it finishes.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
@@ -143,7 +144,7 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 	end
 
 	recoveryData[fighter] = {
-		enterTime = tick(),
+		enterTime = GameClock.tick(),
 		clipPath = clipPath,
 		duration = duration,
 	}
@@ -175,7 +176,7 @@ function RecoveryState.exit(fighter, humanoid, rootPart)
 	fighter:SetAttribute("KnockdownHeavy", nil)
 	fighter:SetAttribute("FallSide", nil)
 	-- Clear GetUpProtection after a brief 0.3s poise buffer so character is not instantly re-knocked
-	task.delay(0.30, function()
+	GameClock.delay(0.30, function()
 		if fighter and fighter.Parent then
 			fighter:SetAttribute("GetUpProtection", nil)
 		end
@@ -192,7 +193,7 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = recoveryData[fighter]
 	if not data then return States.Idle end
 
-	if tick() - data.enterTime >= data.duration then
+	if GameClock.tick() - data.enterTime >= data.duration then
 		local chaseRange = CombatConfig.ChaseRange or 800
 		local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, chaseRange)
 		if not target then

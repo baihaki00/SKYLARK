@@ -6,6 +6,7 @@
 -- projectile jump available, and want to - by chance, more for aggressive Quins. Each sighting
 -- is weighed once.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -19,7 +20,7 @@ local AirInterceptModule = {}
 local function canProjectileJump(fighter)
 	return CombatConfig.EnableProjectileJump ~= false and fighter:GetAttribute("EnableProjectileJump") ~= false
 		and (fighter:GetAttribute("Energy") or 100) >= (CombatConfig.ProjectileJumpMinEnergy or 40)
-		and (tick() - (fighter:GetAttribute("LastProjectileJumpTime") or 0)) >= (CombatConfig.ProjectileJump_Cooldown or 14.0)
+		and (GameClock.tick() - (fighter:GetAttribute("LastProjectileJumpTime") or 0)) >= (CombatConfig.ProjectileJump_Cooldown or 14.0)
 end
 
 -- The airborne enemy this Quin decides to go up after right now, or nil
@@ -37,7 +38,7 @@ function AirInterceptModule.consider(fighter, rootPart)
 			local offGround = humanoid and (humanoid.PlatformStand or humanoid.FloorMaterial == Enum.Material.Air)
 			-- One interceptor per jumper, and none into a clash already going on up there
 			-- (two or three Quins went up after the same one and ended in three-way clashes)
-			local claimed = os.clock() - (contact.model:GetAttribute("InterceptedAt") or 0) < (CombatConfig.Intercept_ClaimTime or 3.0)
+			local claimed = GameClock.now() - (contact.model:GetAttribute("InterceptedAt") or 0) < (CombatConfig.Intercept_ClaimTime or 3.0)
 			local clashing = contact.model:GetAttribute("CurrentState") == "MidAirClash"
 			-- One already diving is at the floor before anyone gets up to it
 			local diving = root and root.AssemblyLinearVelocity.Y < -(CombatConfig.Intercept_MaxTargetFallSpeed or 100)
@@ -65,7 +66,7 @@ function AirInterceptModule.consider(fighter, rootPart)
 	end
 
 	-- One decision per sighting
-	local now = os.clock()
+	local now = GameClock.now()
 	board.interceptWeighed = board.interceptWeighed or setmetatable({}, { __mode = "k" })
 	if now - (board.interceptWeighed[nearest] or 0) < (CombatConfig.Intercept_RollInterval or 3.0) then return nil end
 	board.interceptWeighed[nearest] = now
@@ -81,8 +82,8 @@ function AirInterceptModule.commit(fighter, enemy)
 	fighter:SetAttribute("ObstacleAwareness", "Going up after a jumper")
 	fighter:SetAttribute("JumpStyle", 8) -- the intercept flight: straight at the enemy, tracking it
 	TargetingModule.setTarget(fighter, enemy, "Intercept")
-	fighter:SetAttribute("LastInterceptTime", os.clock())
-	enemy:SetAttribute("InterceptedAt", os.clock())
+	fighter:SetAttribute("LastInterceptTime", GameClock.now())
+	enemy:SetAttribute("InterceptedAt", GameClock.now())
 end
 
 return AirInterceptModule

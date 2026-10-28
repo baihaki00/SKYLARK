@@ -15,6 +15,7 @@
 -- frame to the floor: a turn in the air (styles 4 and 6) is a dive leg like the last one (boom,
 -- vapour cone, flying clip, head first) that goes straight into the next leg with no stop, and
 -- the swoop is flown along its curve at that one speed.
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -78,7 +79,7 @@ local pointRequests = setmetatable({}, { __mode = "k" }) -- fighter -> { positio
 -- If the state machine does not take the transition on that tick, the request lapses.
 function ProjectileJumpState.aimAtPoint(fighter, position, style)
 	-- (style: a player's jump to a spot may be a high launch with a dive; otherwise one arc)
-	pointRequests[fighter] = { position = position, time = os.clock(), style = style }
+	pointRequests[fighter] = { position = position, time = GameClock.now(), style = style }
 end
 
 -- The stand-in target for a jump to a spot: the flight code aims at a Model's root, so a spot
@@ -150,7 +151,7 @@ local function setDownLatched(data)
 	local switch = Workspace:GetAttribute("PJSetDownLatch")
 	local on = switch == true or (switch == nil and CombatConfig.ProjectileJump_SetDownLatch ~= false)
 	return on and data.settingDown == true and not data.touchedDown
-		and os.clock() - (data.settingDownAt or 0) < SET_DOWN_MAX_TIME
+		and GameClock.now() - (data.settingDownAt or 0) < SET_DOWN_MAX_TIME
 end
 
 -- Set-down snap (pass 22E, see the touchdown guard). Live A/B: Workspace attribute PJSetDownSnap;
@@ -173,7 +174,7 @@ end
 
 local function switchPhase(data, newPhase)
 	data.phase = newPhase
-	data.phaseTime = tick()
+	data.phaseTime = GameClock.tick()
 	if data.fighter then
 		data.fighter:SetAttribute("PJPhase", newPhase) -- for the debug HUD and probes
 	end
@@ -286,7 +287,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	local style = fighter:GetAttribute("JumpStyle")
 	-- An interception is for the tick that asked for it; left over from a jump that never
 	-- started, it is not a style for an ordinary jump
-	if style == INTERCEPT_STYLE and os.clock() - (fighter:GetAttribute("LastInterceptTime") or 0) > POINT_REQUEST_LIFETIME then
+	if style == INTERCEPT_STYLE and GameClock.now() - (fighter:GetAttribute("LastInterceptTime") or 0) > POINT_REQUEST_LIFETIME then
 		style = nil
 	end
 	if not style then
@@ -299,7 +300,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	local target = targetVal and targetVal.Value
 	local pointRequest = pointRequests[fighter]
 	pointRequests[fighter] = nil
-	if pointRequest and os.clock() - pointRequest.time <= POINT_REQUEST_LIFETIME then
+	if pointRequest and GameClock.now() - pointRequest.time <= POINT_REQUEST_LIFETIME then
 		target = createPointTarget(pointRequest.position, humanoid, rootPart)
 		style = pointRequest.style or 1
 		fighter:SetAttribute("JumpStyle", style)
@@ -335,8 +336,8 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		phase = "Init",
 		style = style,
 		target = target,
-		startTime = tick(),
-		phaseTime = tick(),
+		startTime = GameClock.tick(),
+		phaseTime = GameClock.tick(),
 		jumpCount = 1,
 		startPos = rootPart.Position,
 		apexPos = nil,
@@ -407,7 +408,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 		-- A turn leg ends on its frame and goes straight into what follows, still at dive speed.
 		-- (It used to be stopped here and wait for the next 10 Hz update to start the dive: the
 		-- body hung at zero speed in between, or kept the leg's speed when the update came first.)
-		if (data.phase == "Strafe" or data.phase == "ComboStrafe") and tick() - data.phaseTime >= data.legDuration then
+		if (data.phase == "Strafe" or data.phase == "ComboStrafe") and GameClock.tick() - data.phaseTime >= data.legDuration then
 			if data.phase == "ComboStrafe" then
 				data.comboIndex += 1
 				comboNext(data, humanoid, rootPart, lv)
@@ -550,7 +551,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 				lv.MaxAxesForce = Vector3.new(math.huge, math.huge, math.huge)
 				lv.VectorVelocity = Vector3.new(0, -gap / math.max(dt, 1 / 240), 0)
 				if not data.settingDown then
-					data.settingDownAt = os.clock()
+					data.settingDownAt = GameClock.now()
 				end
 				data.settingDown = true
 			end
@@ -571,7 +572,7 @@ function ProjectileJumpState.exit(fighter, humanoid, rootPart)
 		if exiting.guardConn then exiting.guardConn:Disconnect() end
 		stopAnim(exiting.animTrack)
 	end
-	fighter:SetAttribute("LastProjectileJumpTime", tick())
+	fighter:SetAttribute("LastProjectileJumpTime", GameClock.tick())
 	fighter:SetAttribute("JumpStyle", nil)
 	fighter:SetAttribute("PJPhase", nil)
 	stateData[fighter] = nil
@@ -591,7 +592,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	local targetPos = targetPosPart.Position
-	local now = tick()
+	local now = GameClock.tick()
 	local timeInPhase = now - data.phaseTime
 
 	local lv = rootPart:FindFirstChild("PJ_LinearVelocity") or rootPart:FindFirstChild("PJ_Velocity")
@@ -1050,7 +1051,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 				local smoke = VfxModule.createSlideSmoke(rootPart)
 				-- The client lays the body back against the slide while this is set
 				fighter:SetAttribute("LandingSlide", true)
-				task.delay(slideDuration, function()
+				GameClock.delay(slideDuration, function()
 					VfxModule.stopSlideSmoke(smoke)
 					if fighter.Parent then fighter:SetAttribute("LandingSlide", nil) end
 				end)
@@ -1096,7 +1097,7 @@ function ProjectileJumpState.update(fighter, humanoid, rootPart, DEBUG)
 						end
 						local falloff = 1 - (oDist / shockRadius)
 						KnockbackModule.applyGroundKnockback(other, awayDir, stumbleForce * (0.5 + 0.5 * falloff), stumbleDuration)
-						other:SetAttribute("ImpactTime", workspace:GetServerTimeNow())
+						other:SetAttribute("ImpactTime", GameClock.serverNow())
 						other:SetAttribute("ImpactDir", awayDir)
 						other:SetAttribute("ImpactMag", math.clamp(0.4 + 0.6 * falloff, 0.3, 1.0))
 						other:SetAttribute("ImpactType", "SLAM")

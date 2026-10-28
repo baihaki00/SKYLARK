@@ -19,6 +19,7 @@
 -- the edge and circles it, watching. Most stay on their own business (InterestActChance).
 -- Watching stops when the brawl is old news or over, or an enemy comes near or hits it.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -90,7 +91,7 @@ local function events(quinModel, percepts)
 			table.insert(fighting, p)
 		end
 		local sensed = p.channel == "sight" or p.channel == "hearing"
-		if not mine and p.channel == "hearing" and (m:GetAttribute("LoudUntil") or 0) > Workspace:GetServerTimeNow() then
+		if not mine and p.channel == "hearing" and (m:GetAttribute("LoudUntil") or 0) > GameClock.serverNow() then
 			table.insert(found, { kind = "loud", pos = p.position, size = 1, score = 60, members = { m } })
 		end
 		if not mine and p.channel == "sight" and m:GetAttribute("SocialRole") == "Leader" and FIGHTING[state] then
@@ -155,7 +156,7 @@ act = function(board, quinModel, rootPart, cur, now, aggression)
 	-- watching: circle the edge, head on it, until it is over or something comes for it
 	local watch = board.interestWatch
 	if watch then
-		local threat = (quinModel:GetAttribute("ImpactTime") or 0) > Workspace:GetServerTimeNow() - 1
+		local threat = (quinModel:GetAttribute("ImpactTime") or 0) > GameClock.serverNow() - 1
 		if not threat then
 			local board2 = board.contacts and board.contacts.enemies or {}
 			for _, c in ipairs(board2) do
@@ -176,7 +177,7 @@ act = function(board, quinModel, rootPart, cur, now, aggression)
 			end
 			local spot = cur.pos + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
 			lazy("SocialSystem").setMoveIntent(quinModel, spot, here.Magnitude > radius * 1.6 and "jog" or "walk", 1.5)
-			local serverNow = Workspace:GetServerTimeNow()
+			local serverNow = GameClock.serverNow()
 			if (quinModel:GetAttribute("SocialLookUntil") or 0) <= serverNow then
 				quinModel:SetAttribute("LookPoint", cur.pos + Vector3.new(0, 2, 0))
 				quinModel:SetAttribute("LookUntil", serverNow + 0.6)
@@ -204,13 +205,13 @@ act = function(board, quinModel, rootPart, cur, now, aggression)
 		local enemy = nearestEnemy(quinModel, rootPart, cur.memberSet)
 		if enemy and lazy("TargetingModule").setTarget(quinModel, enemy, "Interest") then
 			quinModel:SetAttribute("InterestAct", "join")
-			quinModel:SetAttribute("InterestActAt", Workspace:GetServerTimeNow())
+			quinModel:SetAttribute("InterestActAt", GameClock.serverNow())
 		end
 	elseif (Vector3.new(cur.pos.X - rootPart.Position.X, 0, cur.pos.Z - rootPart.Position.Z)).Magnitude <= cfg("InterestWatchFar", 120) then
 		-- (only a brawl near enough to reach while it lasts: one far off just gets its glances)
 		board.interestWatch = { event = cur, sign = math.random() < 0.5 and -1 or 1, startedAt = now }
 		quinModel:SetAttribute("InterestAct", "watch")
-		quinModel:SetAttribute("InterestActAt", Workspace:GetServerTimeNow())
+		quinModel:SetAttribute("InterestActAt", GameClock.serverNow())
 	end
 end
 
@@ -323,7 +324,7 @@ function Interest.update(board, quinModel, rootPart, now)
 	if cur ~= board.interest then
 		board.interest = cur
 		quinModel:SetAttribute("InterestKind", cur and cur.kind or nil)
-		quinModel:SetAttribute("InterestSince", cur and Workspace:GetServerTimeNow() or nil) -- (probes: a new event)
+		quinModel:SetAttribute("InterestSince", cur and GameClock.serverNow() or nil) -- (probes: a new event)
 		tag(quinModel, cur and ("! " .. cur.kind .. (cur.size > 1 and (" x" .. cur.size) or "")) or nil, Color3.fromRGB(255, 170, 60))
 	end
 	act(board, quinModel, rootPart, cur, now, aggression)
@@ -334,7 +335,7 @@ function Interest.update(board, quinModel, rootPart, now)
 		if not ENGAGED[state] and (cur.fresh or now >= (cur.nextGlance or 0)) then
 			cur.fresh = false
 			cur.nextGlance = now + 2.5 + math.random() * 2.5 * (1 - aware)
-			local serverNow = Workspace:GetServerTimeNow()
+			local serverNow = GameClock.serverNow()
 			if (quinModel:GetAttribute("SocialLookUntil") or 0) <= serverNow then
 				quinModel:SetAttribute("LookPoint", cur.pos + Vector3.new(0, 2, 0))
 				quinModel:SetAttribute("LookUntil", serverNow + 0.7 + 0.5 * aware)

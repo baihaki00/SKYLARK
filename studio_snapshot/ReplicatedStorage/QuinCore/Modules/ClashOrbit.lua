@@ -36,6 +36,7 @@
 -- publishes the seed and start (attributes on the leader); each client (ClashOrbit.startClient,
 -- from a LocalScript) runs the same path and draws both bodies from it every frame.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -855,7 +856,7 @@ function ClashOrbit.run(leader, follower, center)
 	local style = math.random() < cfg("LeapChance", 0.25) and "Leap" or "Dogfight"
 	local sim = ClashOrbit.newSim(style, seed, center, lRoot.Position, fRoot.Position, stand)
 	handle.style = style
-	local startAt = Workspace:GetServerTimeNow()
+	local startAt = GameClock.serverNow()
 	leader:SetAttribute("OrbitStyle", style)
 	leader:SetAttribute("OrbitPartner", follower.Name)
 	leader:SetAttribute("OrbitC0", center)
@@ -902,15 +903,15 @@ function ClashOrbit.run(leader, follower, center)
 	handle.stop = function() finish("stopped") end
 
 	local hums = { L = lHum, F = fHum }
-	local start = os.clock()
+	local start = GameClock.now()
 	conn = RunService.Heartbeat:Connect(function()
-		local grace = os.clock() - start < 0.4 -- (the follower enters the clash a tick later)
+		local grace = GameClock.now() - start < 0.4 -- (the follower enters the clash a tick later)
 		if not inClash(leader) or (not grace and not inClash(follower)) then
 			finish("broken")
 			return
 		end
 		-- step the path up to now (fixed steps, as the clients do)
-		local now = Workspace:GetServerTimeNow() - startAt
+		local now = GameClock.serverNow() - startAt
 		while not sim.done and sim.time + STEP <= now do
 			for _, e in ipairs(sim:step() or {}) do
 				if e.kind == "hit" then
@@ -1001,7 +1002,7 @@ function ClashOrbit.startClient()
 	end)
 
 	RunService:BindToRenderStep("ClashOrbitDraw", Enum.RenderPriority.Camera.Value - 1, function()
-		local now = Workspace:GetServerTimeNow()
+		local now = GameClock.serverNow()
 		for leader, run in pairs(running) do
 			local sim = run.sim
 			if not leader.Parent or not run.lRoot.Parent or not run.fRoot.Parent then

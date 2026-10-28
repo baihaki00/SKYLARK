@@ -3,6 +3,7 @@
 -- holographic glitch and is removed. Nothing is cut short: the clip plays to its end, held on its
 -- last frame, and the body is removed only after the glitch.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -91,7 +92,7 @@ function DeathState.enter(fighter, humanoid, rootPart)
 	if not clipTime or clipTime <= 0.2 then
 		clipTime = CombatConfig.Death_FallbackClipTime or 2.5
 	end
-	task.delay(clipTime * 0.96, function()
+	GameClock.delay(clipTime * 0.96, function()
 		if track and fighter.Parent then
 			track:AdjustSpeed(0)
 		end
@@ -100,12 +101,12 @@ function DeathState.enter(fighter, humanoid, rootPart)
 	-- Then it lies there a moment, breaks up, and only then is removed
 	local rest = CombatConfig.Death_RestTime or 0.6
 	local glitch = CombatConfig.Death_GlitchTime or 1.1
-	task.delay(clipTime + rest, function()
+	GameClock.delay(clipTime + rest, function()
 		if fighter.Parent then
 			VfxModule.holoGlitch(fighter, glitch, "out")
 		end
 	end)
-	task.delay(clipTime + rest + glitch + 0.1, function()
+	GameClock.delay(clipTime + rest + glitch + 0.1, function()
 		if fighter and fighter.Parent then
 			AnimationModule.cleanup(humanoid)
 			fighter:Destroy()

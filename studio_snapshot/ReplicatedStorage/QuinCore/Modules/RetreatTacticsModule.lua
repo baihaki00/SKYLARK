@@ -12,6 +12,7 @@
 --   OPEN_GROUND     put distance between it and the threat
 -- A destination that means running at the pursuer is never chosen.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -148,7 +149,7 @@ function RetreatTacticsModule.evaluate(fighter, enemies, allies, context)
 	end
 
 	-- Geometric Juke Cut: sharp lateral cut vector when pursuer is closing rapidly behind
-	local now = tick()
+	local now = GameClock.tick()
 	local lastJukeTime = fighter:GetAttribute("LastJukeTime") or 0
 	local jukeDuration = CombatConfig.JukeDuration or 0.35
 	local jukeCooldown = CombatConfig.JukeCooldown or 2.0

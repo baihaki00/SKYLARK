@@ -8,6 +8,7 @@
 -- One shared loop, started from Server (a loop connected from a Quin's Main dies with that Quin).
 -- Off switch: CombatConfig.SkyWind.Enabled = false.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
@@ -72,7 +73,7 @@ local function step()
 	local folder = Workspace:FindFirstChild("QuinServer")
 	if not folder then return end
 	params.FilterDescendantsInstances = { folder }
-	local now = os.clock()
+	local now = GameClock.now()
 	for _, fighter in ipairs(folder:GetChildren()) do
 		local humanoid = fighter:FindFirstChildOfClass("Humanoid")
 		local root = fighter:FindFirstChild("HumanoidRootPart")
@@ -117,7 +118,7 @@ function SkyWind.start()
 		while true do
 			local ok, err = pcall(step)
 			if not ok then warn("[SkyWind] " .. tostring(err)) end
-			task.wait(cfg("Interval", 0.15))
+			GameClock.wait(cfg("Interval", 0.15))
 		end
 	end)
 end

@@ -18,6 +18,7 @@
 -- LocomotionModule.slide runs the slide itself and calls back here every glide frame (onGlide).
 -- Publishes: SweptAt / SweepFallSide on the victim, SlideHurdledAt on a hurdler, Workspace TackleStats.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -64,7 +65,7 @@ local function hurdle(victim, humanoid, rootPart)
 	humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 	local AnimationModule = require(Modules:WaitForChild("AnimationModule"))
 	AnimationModule.playConfig(humanoid, "Parkour.SlideHurdle", 1.2, Enum.AnimationPriority.Action3, false)
-	victim:SetAttribute("SlideHurdledAt", os.clock())
+	victim:SetAttribute("SlideHurdledAt", GameClock.now())
 	victim:SetAttribute("ObstacleAwareness", "Hopped over a slide tackle")
 	stats.hurdles += 1
 	publish()
@@ -85,7 +86,7 @@ local function flip(victim, root, humanoid, axis, side, airtime)
 	local start = root.CFrame - root.Position
 	local total = math.rad(cfg("FlipDegrees", 360))
 	local flipTime = airtime * cfg("FlipShare", 0.85)
-	local t0 = os.clock()
+	local t0 = GameClock.now()
 	local switched = false
 
 	local att = Instance.new("Attachment")
@@ -110,7 +111,7 @@ local function flip(victim, root, humanoid, axis, side, airtime)
 			finish()
 			return
 		end
-		local p = math.min((os.clock() - t0) / flipTime, 1)
+		local p = math.min((GameClock.now() - t0) / flipTime, 1)
 		local eased = p * p * (3 - 2 * p)
 		align.CFrame = CFrame.fromAxisAngle(axis, total * eased) * start
 		if not switched and eased >= 0.5 then
@@ -142,8 +143,8 @@ local function sweep(slider, victim, dir, speed)
 	local topple = -dir * cfg("Topple", 1) + Vector3.new(v.X, 0, v.Z) / cfg("MomentumSpeed", 30)
 	local side = (look.Magnitude > 0.01 and look.Unit:Dot(topple) >= 0) and "Front" or "Back"
 	victim:SetAttribute("KnockbackType", "air")
-	victim:SetAttribute("LaunchedAt", tick())
-	victim:SetAttribute("SweptAt", os.clock())
+	victim:SetAttribute("LaunchedAt", GameClock.tick())
+	victim:SetAttribute("SweptAt", GameClock.now())
 	victim:SetAttribute("SweepFallSide", side)
 	victim:SetAttribute("LastAttackerName", slider.Name)
 	humanoid.PlatformStand = true

@@ -12,6 +12,7 @@
 -- the wall); the presentation layer leans the body away from the wall
 -- (CombatConfig.WallRunTiltDegrees, read from the WallRunSide attribute).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
@@ -87,8 +88,8 @@ function WallRunState.fastEnough(rootPart, wallSurface)
 end
 
 function WallRunState.enter(fighter, humanoid, rootPart)
-	local now = os.clock()
-	fighter:SetAttribute("LastWallRunTime", tick()) -- readers compare against tick()
+	local now = GameClock.now()
+	fighter:SetAttribute("LastWallRunTime", GameClock.tick()) -- readers compare against GameClock.tick()
 
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	local wallRunSpeed = (CombatConfig.WallRunSpeed or 48) * speedMult
@@ -206,9 +207,9 @@ function WallRunState.update(fighter, humanoid, rootPart, DEBUG)
 		return States.Chase
 	end
 
-	-- Same clock as data.startTime. With tick() here `elapsed` was ~1.7e9 seconds, so every
+	-- Same clock as data.startTime. With GameClock.tick() here `elapsed` was ~1.7e9 seconds, so every
 	-- wall-run hit its max duration on the first update.
-	local nowClock = os.clock()
+	local nowClock = GameClock.now()
 	local elapsed = nowClock - data.startTime
 
 	-- Spent: sinking, back down where it started, or too slow to stay on the wall

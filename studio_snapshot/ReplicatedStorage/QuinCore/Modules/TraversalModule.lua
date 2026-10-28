@@ -2,6 +2,7 @@
 -- Shared spatial probe and parkour planner for player and AI Quins.
 -- The module only plans physically continuous trajectories; LocomotionModule applies them.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local Workspace = game:GetService("Workspace")
 local CombatConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
@@ -360,11 +361,11 @@ function TraversalModule.markTraversal(fighter, plan)
     fighter:SetAttribute("TraversalTargetY", plan.landing and plan.landing.Y or 0)
     fighter:SetAttribute("TraversalObstacleHeight", plan.obstacleHeight or 0)
     fighter:SetAttribute("TraversalFlightTime", plan.flightTime or 0)
-    fighter:SetAttribute("TraversalStartTime", os.clock())
-    task.delay(math.min(0.22, (plan.flightTime or 0.5) * 0.28), function()
+    fighter:SetAttribute("TraversalStartTime", GameClock.now())
+    GameClock.delay(math.min(0.22, (plan.flightTime or 0.5) * 0.28), function()
         if fighter.Parent then fighter:SetAttribute("TraversalPhase", "Airborne") end
     end)
-    task.delay(math.max(0.24, (plan.flightTime or 0.5) * 0.78), function()
+    GameClock.delay(math.max(0.24, (plan.flightTime or 0.5) * 0.78), function()
         if fighter.Parent then fighter:SetAttribute("TraversalPhase", "LandingApproach") end
     end)
 end

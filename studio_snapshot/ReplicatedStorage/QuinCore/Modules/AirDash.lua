@@ -15,6 +15,7 @@
 -- vertical is set once at the start (a little lift, or down toward a target below) and gravity
 -- does the rest: a flat, fast arc, not a hover.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -58,7 +59,7 @@ end
 local function airtime(fighter)
 	local a = air[fighter]
 	if not a then
-		a = { since = os.clock() }
+		a = { since = GameClock.now() }
 		air[fighter] = a
 	end
 	return a
@@ -70,12 +71,12 @@ end
 
 -- A traversal jump says where it means to land (the platform's top, past the edge)
 function AirDash.noteJump(fighter, aimPoint)
-	air[fighter] = { since = os.clock(), aim = aimPoint }
+	air[fighter] = { since = GameClock.now(), aim = aimPoint }
 end
 
 -- The kick off a wall: the next check is a wall dash (after the kick has carried it clear)
 function AirDash.noteWallKick(fighter)
-	air[fighter] = { since = os.clock(), wall = true }
+	air[fighter] = { since = GameClock.now(), wall = true }
 end
 
 -- The dash itself. vertical: the body's vertical speed at the start (nil: a small lift)
@@ -100,17 +101,17 @@ local function perform(fighter, humanoid, rootPart, point, travel, vertical, rea
 	-- the pose: the start of the ninja jump (the push-off), cut when the burst ends
 	local track = AnimationModule.playConfig(humanoid, "Movement.AirDash", cfg("ClipSpeed", 1.4), Enum.AnimationPriority.Action3, false)
 	if track then
-		task.delay(duration + cfg("ClipHold", 0.1), function()
+		GameClock.delay(duration + cfg("ClipHold", 0.1), function()
 			if track.IsPlaying then track:Stop(cfg("ClipFade", 0.15)) end
 		end)
 	end
 	-- the ground dash's own sound and vapour cone
 	AudioModule.playDash(rootPart)
 	VfxModule.createVaporCone(rootPart, cfg("ConeTime", 0.4))
-	fighter:SetAttribute("LastDashTime", tick())
+	fighter:SetAttribute("LastDashTime", GameClock.tick())
 	fighter:SetAttribute("Energy", math.max(0, (fighter:GetAttribute("Energy") or 100) - cfg("EnergyCost", 15)))
 	fighter:SetAttribute("AirDashReason", reason)
-	fighter:SetAttribute("AirDashAt", os.clock())
+	fighter:SetAttribute("AirDashAt", GameClock.now())
 	stats[reason] = (stats[reason] or 0) + 1
 	publish()
 	return true
@@ -125,9 +126,9 @@ function AirDash.consider(fighter, humanoid, rootPart, target)
 	end
 	local a = airtime(fighter)
 	if a.used then return false end
-	local inAir = os.clock() - a.since
+	local inAir = GameClock.now() - a.since
 	if inAir < (a.wall and cfg("WallKickTime", 0.24) or cfg("MinAirTime", 0.12)) then return false end
-	if tick() - (fighter:GetAttribute("LastDashTime") or 0) < cfg("Cooldown", 5) then return skip(fighter, "cooldown") end
+	if GameClock.tick() - (fighter:GetAttribute("LastDashTime") or 0) < cfg("Cooldown", 5) then return skip(fighter, "cooldown") end
 	if (fighter:GetAttribute("Energy") or 100) < cfg("MinEnergy", 20) then return skip(fighter, "energy") end
 
 	local v = rootPart.AssemblyLinearVelocity
@@ -203,7 +204,7 @@ end
 -- height, with no air left for a dash.)
 function AirDash.fromWall(fighter, humanoid, rootPart, target, normal, release)
 	if CombatConfig.AirDash_Enabled == false then return false end
-	if tick() - (fighter:GetAttribute("LastDashTime") or 0) < cfg("Cooldown", 5) then return skip(fighter, "cooldown") end
+	if GameClock.tick() - (fighter:GetAttribute("LastDashTime") or 0) < cfg("Cooldown", 5) then return skip(fighter, "cooldown") end
 	if (fighter:GetAttribute("Energy") or 100) < cfg("MinEnergy", 20) then return skip(fighter, "energy") end
 	local targetRoot = target and target.Parent and target:FindFirstChild("HumanoidRootPart")
 	if not targetRoot then return false end
@@ -226,7 +227,7 @@ function AirDash.fromWall(fighter, humanoid, rootPart, target, normal, release)
 		return skip(fighter, "wall: declined")
 	end
 	release()
-	air[fighter] = { since = os.clock(), used = true, wall = true }
+	air[fighter] = { since = GameClock.now(), used = true, wall = true }
 	local travel = math.clamp(d - (CombatConfig.CombatRange or 8.2) * 0.9, 6, cfg("MaxTravel", 40))
 	local vertical = toTarget.Y < -4 and math.max(toTarget.Y / (cfg("Duration", 0.26) * 2), -cfg("MaxDropSpeed", 45)) or nil
 	fighter:SetAttribute("ObstacleAwareness", "Dash off the wall at the target")

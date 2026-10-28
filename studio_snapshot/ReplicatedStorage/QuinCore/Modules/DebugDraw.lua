@@ -9,6 +9,7 @@
 --   client : RuntimeVisualizer draws what arrives (and its own client-side layers)
 -- Layers and the spectated Quin are chosen in the Spectator HUD (DebugDraw.configure).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -97,7 +98,7 @@ local function submit(layerId, owner, primitive)
 			table.insert(pending, { ownerName(owner), primitive })
 		end
 	else
-		table.insert(live, { os.clock() + primitive[6], primitive })
+		table.insert(live, { GameClock.now() + primitive[6], primitive })
 	end
 end
 
@@ -174,7 +175,7 @@ if IS_SERVER then
 	end)
 else
 	event.OnClientEvent:Connect(function(batch)
-		local now = os.clock()
+		local now = GameClock.now()
 		for _, primitive in ipairs(batch) do
 			table.insert(live, { now + primitive[6], primitive })
 		end
@@ -203,7 +204,7 @@ else
 
 	-- Client: visit every primitive still on screen (expired ones are dropped)
 	function DebugDraw.forEachLive(visit)
-		local now = os.clock()
+		local now = GameClock.now()
 		local kept = 0
 		for i = 1, #live do
 			local entry = live[i]

@@ -11,6 +11,7 @@
 -- only does what its player presses (design doc 10.3). Runs every frame from a loop the Server
 -- starts (Instinct.start), not at the states' 10 Hz.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -77,7 +78,7 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 		stats.hop += 1
 		defender:SetAttribute("JumpWhy", "hop a low strike") -- (JumpLog, team step 5)
 		LocomotionModule.jump(defender, humanoid, rootPart, cfg("HopHeight", 6), 0, "hop")
-		defender:SetAttribute("InstinctAt", os.clock())
+		defender:SetAttribute("InstinctAt", GameClock.now())
 		defender:SetAttribute("Instinct", "hop")
 		return
 	end
@@ -89,9 +90,9 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 		local evaded = require(QuinCore.Modules.Evasion).evade(defender, humanoid, rootPart, attacker, attackerRoot, contactAt)
 		if evaded then
 			if evaded == "right" then
-				defender:SetAttribute("CounterUntil", tick() + (CombatConfig.Flow_CounterWindow or 0.7) + 0.3)
+				defender:SetAttribute("CounterUntil", GameClock.tick() + (CombatConfig.Flow_CounterWindow or 0.7) + 0.3)
 			end
-			defender:SetAttribute("InstinctAt", os.clock())
+			defender:SetAttribute("InstinctAt", GameClock.now())
 			defender:SetAttribute("Instinct", "evade")
 			return
 		end
@@ -108,8 +109,8 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 		local soundPart = defender:FindFirstChild("Sounds")
 		local swish = soundPart and soundPart:FindFirstChild("swish")
 		if swish then swish.Volume = 0.3 swish:Play() end
-		defender:SetAttribute("CounterUntil", tick() + (CombatConfig.Flow_CounterWindow or 0.7))
-		defender:SetAttribute("InstinctAt", os.clock())
+		defender:SetAttribute("CounterUntil", GameClock.tick() + (CombatConfig.Flow_CounterWindow or 0.7))
+		defender:SetAttribute("InstinctAt", GameClock.now())
 		defender:SetAttribute("Instinct", "slip")
 		return
 	end
@@ -118,12 +119,12 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 		stats.guard += 1
 		defender:SetAttribute("IsGuarding", true)
 		AnimationModule.playConfig(humanoid, "Reactions.Block", 1.0, Enum.AnimationPriority.Action4, false)
-		task.delay(timeLeft + cfg("GuardHold", 0.2), function()
+		GameClock.delay(timeLeft + cfg("GuardHold", 0.2), function()
 			if defender.Parent and defender:GetAttribute("IsGuarding") == true then
 				defender:SetAttribute("IsGuarding", false)
 			end
 		end)
-		defender:SetAttribute("InstinctAt", os.clock())
+		defender:SetAttribute("InstinctAt", GameClock.now())
 		defender:SetAttribute("Instinct", "guard")
 		return
 	end
@@ -142,7 +143,7 @@ end
 local function step()
 	local folder = Workspace:FindFirstChild("QuinServer")
 	if not folder or not Instinct.enabled() then return end
-	local now = tick()
+	local now = GameClock.tick()
 	local quins = folder:GetChildren()
 	for _, attacker in ipairs(quins) do
 		if attacker:GetAttribute("Attacking") == true then
@@ -185,7 +186,7 @@ function Instinct.start()
 	if RunService:IsStudio() then
 		task.spawn(function()
 			while true do
-				task.wait(5)
+				GameClock.wait(5)
 				Workspace:SetAttribute("InstinctStats", string.format("seen %d guard %d slip %d hop %d none %d", stats.seen, stats.guard, stats.slip, stats.hop, stats.none))
 			end
 		end)

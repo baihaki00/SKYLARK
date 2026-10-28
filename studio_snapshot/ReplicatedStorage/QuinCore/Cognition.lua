@@ -9,6 +9,7 @@
 -- to see what each contributes; a switched-off layer returns its neutral result.
 -- Tuning: CombatConfig.Cognition.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local CollectionService = game:GetService("CollectionService")
 local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -163,7 +164,7 @@ local function drawDebug(quinModel, rootPart, board, sensesOn)
 		end
 		-- its own shout, for a moment: a line from it to the enemy it called
 		local called = board.called
-		local cRoot = called and os.clock() - called.at < 1.5 and called.enemy:FindFirstChild("HumanoidRootPart")
+		local cRoot = called and GameClock.now() - called.at < 1.5 and called.enemy:FindFirstChild("HumanoidRootPart")
 		if cRoot then
 			DebugDraw.line("Tracks", quinModel, rootPart.Position + Vector3.new(0, 3, 0), cRoot.Position, Color3.fromRGB(255, 255, 255))
 			DebugDraw.text("Tracks", quinModel, rootPart.Position + Vector3.new(0, 8, 0), "! " .. called.enemy.Name, Color3.fromRGB(255, 255, 255))
@@ -179,7 +180,7 @@ function Cognition.update(quinModel, targetModel)
 	local humanoid = quinModel:FindFirstChildOfClass("Humanoid")
 	if not rootPart or not humanoid or humanoid.Health <= 0 then return nil end
 
-	local now = os.clock()
+	local now = GameClock.now()
 	local board = Blackboard.get(quinModel)
 	local others = livingOthers(quinModel)
 	local sensesOn = Layers.isEnabled("Senses")

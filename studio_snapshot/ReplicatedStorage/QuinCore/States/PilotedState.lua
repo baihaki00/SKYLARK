@@ -27,6 +27,7 @@
 -- Getting hit is the same as for any Quin: Main hands the body to Knockback, Recovery and Death
 -- and back to this state afterwards (Main: PILOT_STATES).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -115,7 +116,7 @@ local function setGuard(fighter, humanoid, data, held)
 		local track = AnimationModule.playConfig(humanoid, "Reactions.Block", 1.0, Enum.AnimationPriority.Action4, false)
 		data.guardTrack = track
 		-- the block clip is a raise: held on its guard frame while the button is held
-		task.delay(cfg("GuardHoldAfter", 0.15), function()
+		GameClock.delay(cfg("GuardHoldAfter", 0.15), function()
 			if data.guardTrack == track and track and track.IsPlaying then
 				track:AdjustSpeed(0)
 			end
@@ -142,7 +143,7 @@ local function strike(fighter, humanoid, rootPart, data, input)
 	end
 	-- (the same energy cost per strike as an AI strike)
 	fighter:SetAttribute("Energy", math.max(0, (fighter:GetAttribute("Energy") or 100) - (CombatConfig.EnergyDrain_Attack or 2)))
-	fighter:SetAttribute("LastActivityTime", os.clock())
+	fighter:SetAttribute("LastActivityTime", GameClock.now())
 	fighter:SetAttribute("CurrentIdleStance", "Ready")
 	fightState().throwStrike(fighter, humanoid, rootPart, target, "Light", data)
 end
@@ -237,7 +238,7 @@ function PilotedState.enter(fighter, humanoid, rootPart)
 		lastAttackTime = 0,
 		actionEndTime = 0,
 		attackFinishTime = 0,
-		lastClock = os.clock(),
+		lastClock = GameClock.now(),
 	}
 	-- (facing is the steer's, as for an AI Quin: with AutoRotate off and no facing of its own the
 	-- steer reads the body as strafing and keeps its facing, so it walked backwards and sideways)
@@ -277,10 +278,10 @@ function PilotedState.update(fighter, humanoid, rootPart)
 		PilotedState.enter(fighter, humanoid, rootPart)
 		data = pilotData[fighter]
 	end
-	local clock = os.clock()
+	local clock = GameClock.now()
 	local dt = math.clamp(clock - data.lastClock, 1 / 120, 0.1)
 	data.lastClock = clock
-	local now = tick()
+	local now = GameClock.tick()
 
 	local input = PilotInput.get(fighter)
 	-- (a client that stopped sending is not left running in a straight line)
@@ -348,7 +349,7 @@ function PilotedState.update(fighter, humanoid, rootPart)
 			if LocomotionModule.jump(fighter, humanoid, rootPart, cfg("JumpHeight", 11), hSpeed > 2 and hSpeed or 0, "free") then
 				data.jumpAskedAt = nil
 				if data.jumpLetGo then
-					task.delay(0.05, function()
+					GameClock.delay(0.05, function()
 						LocomotionModule.cutJump(fighter, humanoid, rootPart)
 					end)
 				end

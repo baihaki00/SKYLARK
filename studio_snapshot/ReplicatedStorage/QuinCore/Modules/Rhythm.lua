@@ -9,6 +9,7 @@
 --             (a dash in, or a heavy strike)
 -- Strikes are noted where they start (FightState.throwStrike, for AI and player alike).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 
@@ -35,7 +36,7 @@ function Rhythm.noteStrike(quin)
 		list = {}
 		recent[quin] = list
 	end
-	table.insert(list, os.clock())
+	table.insert(list, GameClock.now())
 	while #list > 12 do table.remove(list, 1) end
 end
 
@@ -51,7 +52,7 @@ end
 -- The tempo for `quin` fighting `opponent` now: "breath", "explode" or nil
 function Rhythm.tempo(quin, opponent, engaged)
 	if not Rhythm.enabled() or not opponent then return nil end
-	local now = os.clock()
+	local now = GameClock.now()
 	-- a stand-off broken from circling (CirclingState): the first action comes hard
 	if quin:GetAttribute("ExplodeNext") then
 		quin:SetAttribute("ExplodeNext", nil)

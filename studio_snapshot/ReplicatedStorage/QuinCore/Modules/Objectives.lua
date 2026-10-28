@@ -9,6 +9,7 @@
 -- one being carried is known to the attackers (it is theirs), and to a defender only where it
 -- believes the carrier is (its own eyes, memory, a teammate's callout).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -83,7 +84,7 @@ function Objectives.view(quin)
 		role = role, carrier = carrier, iCarry = carrier == quin and state == "Carried",
 		lantern = { state = state, position = position },
 		shrines = shrines, planted = planted, planting = planting,
-		roundLeft = math.max(0, (f:GetAttribute("RoundEndsAt") or 0) - Workspace:GetServerTimeNow()),
+		roundLeft = math.max(0, (f:GetAttribute("RoundEndsAt") or 0) - GameClock.serverNow()),
 	}
 end
 

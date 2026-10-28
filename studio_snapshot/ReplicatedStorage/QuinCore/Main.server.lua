@@ -1,6 +1,7 @@
 --// AI_Main.server.lua
 -- Server-side: Handles FSM logic, AI death, state sync, and health display
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local CollectionService = game:GetService("CollectionService")
 local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,7 +13,7 @@ local humanoid = Quin:FindFirstChildOfClass("Humanoid")
 local rootPart = Quin:FindFirstChild("HumanoidRootPart")
 
 -- Wait for attributes to load (from Spawner)
-task.wait(0.1)
+GameClock.wait(0.1)
 
 Quin.PrimaryPart = rootPart
 if rootPart then
@@ -49,7 +50,7 @@ local EdgeAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("Edg
 local BodyStamina = require(QuinCore:WaitForChild("Modules"):WaitForChild("BodyStamina"))
 local Drives = require(QuinCore:WaitForChild("Modules"):WaitForChild("Drives"))
 local Momentum = require(QuinCore:WaitForChild("Modules"):WaitForChild("Momentum"))
-local lastBodyTick = os.clock()
+local lastBodyTick = GameClock.now()
 local StateRequest = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("StateRequest")) -- (asking a Quin to change state)
 
 -- The least time a state runs before the Quin may choose to leave it (interrupts excepted)
@@ -108,7 +109,7 @@ Quin:SetAttribute("QuinRenderMode", renderMode)
 
 local currentState = States.Idle
 local previousState = nil
-local stateStartTime = os.clock()
+local stateStartTime = GameClock.now()
 
 -- Init State
 Quin:SetAttribute("CurrentState", currentState.name)
@@ -400,7 +401,7 @@ task.spawn(function()
 		end
 		
 		-- (with the bars and the labels both off there is nothing to keep fresh)
-		task.wait((showBars or showLabels) and 0.03 or 0.25)
+		GameClock.wait((showBars or showLabels) and 0.03 or 0.25)
 	end
 end)
 
@@ -436,13 +437,13 @@ end)
 task.spawn(function()
 	-- (every Quin of a match is spawned in the same frame: without this they all think on the
 	-- same tick, ten times a second, and act on news on the same frame - start, stop, turn)
-	task.wait(math.random() * 0.1)
+	GameClock.wait(math.random() * 0.1)
 	while enableAI and Quin.Parent and humanoid.Health > 0 do
 		-- === Player-Controlled Bypass ===
 		-- When a human player is piloting this Quin, bypass autonomous AI decisions, FSM movement, and AI arena safety net
 		if Quin:GetAttribute("IsPlayerControlled") == true then
 			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-			task.wait(math.clamp(0.05 / speedMult, 0.015, 0.05))
+			GameClock.wait(math.clamp(0.05 / speedMult, 0.015, 0.05))
 			continue
 		end
 
@@ -465,7 +466,7 @@ task.spawn(function()
 			local goal = p + tangent * 10 - radial * math.clamp(distance - lapRadius, -3, 3) * 1.5
 			LocomotionModule.steer(Quin, humanoid, rootPart, goal, speed, 0.05)
 			GaitModule.update(humanoid, rootPart, 0.05)
-			task.wait(0.05)
+			GameClock.wait(0.05)
 			continue
 		end
 
@@ -476,7 +477,7 @@ task.spawn(function()
 		if devGoal and (game:GetService("RunService"):IsStudio() or workspace:GetAttribute("CurrentMode") == "PoseViewer") then
 			LocomotionModule.steer(Quin, humanoid, rootPart, devGoal, Quin:GetAttribute("DevGoalSpeed") or 40, 0.1)
 			GaitModule.update(humanoid, rootPart, 0.1)
-			task.wait(0.1)
+			GameClock.wait(0.1)
 			continue
 		end
 
@@ -491,13 +492,13 @@ task.spawn(function()
 				rootPart.AssemblyLinearVelocity = Vector3.zero
 			end
 			local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
-			task.wait(math.clamp(0.15 / speedMult, 0.05, 0.2))
+			GameClock.wait(math.clamp(0.15 / speedMult, 0.05, 0.2))
 			continue
 		end
 
 		-- The body's effort: mana spent running hard and recovered when slow, whatever the state
 		do
-			local nowBody = os.clock()
+			local nowBody = GameClock.now()
 			BodyStamina.update(Quin, humanoid, rootPart, math.min(nowBody - lastBodyTick, 0.25))
 			lastBodyTick = nowBody
 			Drives.update(Quin, humanoid) -- (combat feelings drift back and are published)
@@ -641,7 +642,7 @@ task.spawn(function()
 		-- (Workspace or the Quin's FlipFixOff = true: they cut in, as before)
 		if forceState and forceState ~= currentState and forcePriority ~= nil and forcePriority <= StateRequest.BRAIN
 			and workspace:GetAttribute("FlipFixOff") ~= true and Quin:GetAttribute("FlipFixOff") ~= true
-			and os.clock() - stateStartTime < minDwellFor(currentState.name) then
+			and GameClock.now() - stateStartTime < minDwellFor(currentState.name) then
 			StateRequest.ask(Quin, forceStateStr, forcePriority, forceWhy)
 			forceState = nil
 		end
@@ -708,7 +709,7 @@ task.spawn(function()
 			local shown = newState or currentState
 			local name = shown and shown.name
 			if name ~= "Knockback" and name ~= "Recovery" and name ~= "Death" and name ~= "ProjectileJump" then
-				if (Quin:GetAttribute("StunEndTime") or 0) > tick() then
+				if (Quin:GetAttribute("StunEndTime") or 0) > GameClock.tick() then
 					if name ~= "Fight" then humanoid.WalkSpeed = 0 end
 				elseif humanoid.MoveDirection.Magnitude > 0.1
 					or (rootPart:FindFirstChild("ImpulseLV") and rootPart.ImpulseLV:GetAttribute("Priority") == 1) then
@@ -731,7 +732,7 @@ task.spawn(function()
 		-- duel's (MomentumDuel opens far more often under the same switch)
 		if newState and newState ~= currentState and newState.name == "ProjectileJump" and forceState == nil
 			and RunService:IsStudio() and workspace:GetAttribute("DuelDashOnly") == true and not isPiloted() then
-			Quin:SetAttribute("LastProjectileJumpTime", tick())
+			Quin:SetAttribute("LastProjectileJumpTime", GameClock.tick())
 			newState = currentState
 		end
 		-- No rocket jump from under a platform (owner 2026-10-27: Quins launched into the underside
@@ -764,7 +765,7 @@ task.spawn(function()
 					Quin:SetAttribute("JumpSkip", "ceiling")
 					-- (the refusal spends the jump's cooldown: a way in that does not set it asked again
 					-- every tick and the Quin stood still until it left the platform's shadow)
-					Quin:SetAttribute("LastProjectileJumpTime", tick())
+					Quin:SetAttribute("LastProjectileJumpTime", GameClock.tick())
 					newState = currentState
 				end
 			end
@@ -786,7 +787,7 @@ task.spawn(function()
 					or newState.name == "ProjectileJump" or newState.name == "WallRun"
 				or newState.name == "Piloted" or currentState.name == "Piloted")
 			
-			local dwellElapsed = os.clock() - stateStartTime
+			local dwellElapsed = GameClock.now() - stateStartTime
 			local minDwell = minDwellFor(currentState.name)
 
 			if isInterrupt or dwellElapsed >= minDwell then
@@ -810,7 +811,7 @@ task.spawn(function()
 				Quin:SetAttribute("CurrentState", newState.name)
 				previousState = currentState
 				currentState = newState
-				stateStartTime = os.clock()
+				stateStartTime = GameClock.now()
 			end
 		end
 
@@ -821,6 +822,6 @@ task.spawn(function()
 
 		local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 		-- (a state whose end has to be caught on time asks for a shorter tick: tickInterval)
-		task.wait(math.clamp((currentState.tickInterval or 0.1) / speedMult, 0.015, 0.1))
+		GameClock.wait(math.clamp((currentState.tickInterval or 0.1) / speedMult, 0.015, 0.1))
 	end
 end)

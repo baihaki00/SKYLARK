@@ -14,6 +14,7 @@
 -- A Quin is piloted by the player whose UserId is in its PilotedBy attribute; input for any
 -- other Quin is ignored. The server owns the body throughout (no network ownership change).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -67,7 +68,7 @@ local function readAim(point, targetName)
 	end
 	local folder = Workspace:FindFirstChild("QuinServer")
 	local target = type(targetName) == "string" and folder and folder:FindFirstChild(targetName) or nil
-	return { point = point, target = target, at = os.clock() }
+	return { point = point, target = target, at = GameClock.now() }
 end
 
 -- The projectile jump asked for (style, point, target), once; nil if none (or older than 0.5 s)
@@ -75,7 +76,7 @@ function PilotInput.takeProjectileJump(quin)
 	local s = stateFor(quin)
 	local pj = s.pj
 	s.pj = nil
-	if pj and os.clock() - pj.at <= 0.5 then return pj end
+	if pj and GameClock.now() - pj.at <= 0.5 then return pj end
 	return nil
 end
 
@@ -84,7 +85,7 @@ function PilotInput.takeDive(quin)
 	local s = inputs[quin]
 	local dive = s and s.dive
 	if s then s.dive = nil end
-	if dive and os.clock() - dive.at <= 0.5 then return dive end
+	if dive and GameClock.now() - dive.at <= 0.5 then return dive end
 	return nil
 end
 
@@ -93,7 +94,7 @@ end
 function PilotInput.pressedRecently(quin, action, window)
 	local s = inputs[quin]
 	local at = s and s.pressedAt and s.pressedAt[action]
-	return at ~= nil and os.clock() - at <= window
+	return at ~= nil and GameClock.now() - at <= window
 end
 
 function PilotInput.clear(quin)
@@ -123,7 +124,7 @@ function PilotInput.reclaimBody(quin)
 	local root = quin:FindFirstChild("HumanoidRootPart")
 	if root then pcall(function() root:SetNetworkOwner(nil) end) end
 	quin:SetAttribute("PilotClientMoves", nil)
-	quin:SetAttribute("PilotReclaimedAt", os.clock())
+	quin:SetAttribute("PilotReclaimedAt", GameClock.now())
 end
 
 -- Creates the RemoteEvent and listens. Called once from Server.server.lua (a script that lives
@@ -137,7 +138,7 @@ function PilotInput.start()
 	end
 	local function handle(quin, kind, a, b, c)
 		local s = stateFor(quin)
-		s.at = os.clock()
+		s.at = GameClock.now()
 		if kind == "move" then
 			if typeof(a) ~= "Vector3" or a.X ~= a.X or a.Z ~= a.Z then return end
 			local flat = Vector3.new(a.X, 0, a.Z)
@@ -151,7 +152,7 @@ function PilotInput.start()
 			end
 			if ACTIONS[a] then
 				s.pressedAt = s.pressedAt or {}
-				s.pressedAt[a] = os.clock()
+				s.pressedAt[a] = GameClock.now()
 			end
 		elseif kind == "pj" then
 			local aim = PJ_STYLES[a] and readAim(b, c)
@@ -170,7 +171,7 @@ function PilotInput.start()
 	end
 	remote.OnServerEvent:Connect(function(player, kind, a, b, c)
 		local quin = PilotInput.quinOf(player)
-		if quin and os.clock() > (stateFor(quin).testUntil or 0) then handle(quin, kind, a, b, c) end
+		if quin and GameClock.now() > (stateFor(quin).testUntil or 0) then handle(quin, kind, a, b, c) end
 	end)
 
 	-- Studio test hook: Workspace attribute PilotTestInput = JSON {"kind":..., "a":..., "b":...,
@@ -193,7 +194,7 @@ function PilotInput.start()
 				if quin:GetAttribute("PilotedBy") then
 					-- (the live client sends a still "move" every 0.25 s while no key is down: it
 					-- waits while the hook drives, or the hook's moves were overwritten)
-					stateFor(quin).testUntil = os.clock() + 1.5
+					stateFor(quin).testUntil = GameClock.now() + 1.5
 					handle(quin, msg.kind, arg(msg.a), arg(msg.b), arg(msg.c))
 					break
 				end

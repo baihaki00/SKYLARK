@@ -6,6 +6,7 @@
 --   duration = Impact_HitStopBase + Impact_HitStopHeavyExtra x weight (0 light .. 1 heavy)
 -- Only Action-priority tracks hold (strikes and reactions), not the gait or the idle.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
 
@@ -28,7 +29,7 @@ local function hold(model, seconds)
 		end
 	end
 	if #held == 0 then return end
-	task.delay(seconds, function()
+	GameClock.delay(seconds, function()
 		for _, h in ipairs(held) do
 			-- (only if nothing else has set its speed meanwhile)
 			if h.track.IsPlaying and h.track.Speed == 0 then

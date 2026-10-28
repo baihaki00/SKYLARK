@@ -12,6 +12,7 @@
 --   touch    within arm's reach, or the Quin that just hit it
 -- Neutral (layer off): every living enemy is noticed wherever it is, as before this layer existed.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -28,7 +29,7 @@ local LOS_ALWAYS_WITHIN = 45 -- line of sight is always resolved inside the loca
 -- How far off the noise `other` makes right now can be heard by a Quin whose hearing reach is
 -- `hearing` (0: it makes none)
 local function noiseReach(other, otherRoot, cfg, hearing)
-	if (other:GetAttribute("LoudUntil") or 0) > workspace:GetServerTimeNow() then
+	if (other:GetAttribute("LoudUntil") or 0) > GameClock.serverNow() then
 		return cfg.HearingLoudRange or 160
 	end
 	if other:GetAttribute("Attacking") == true or NOISY_STATES[other:GetAttribute("CurrentState") or ""] == true then
@@ -61,7 +62,7 @@ function Senses.sense(quinModel, rootPart, others, enabled, gazePitch)
 	local hearing = Senses.hearingRange(quinModel)
 
 	local attackerName = quinModel:GetAttribute("LastAttackerName")
-	local hitAge = workspace:GetServerTimeNow() - (quinModel:GetAttribute("ImpactTime") or 0)
+	local hitAge = GameClock.serverNow() - (quinModel:GetAttribute("ImpactTime") or 0)
 
 	local percepts = {}
 	for _, other in ipairs(others) do

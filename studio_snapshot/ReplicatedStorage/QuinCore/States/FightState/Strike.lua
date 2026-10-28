@@ -5,6 +5,7 @@
 -- victim). FightState.throwStrike calls it for the AI and the player alike.
 -- (Moved out of FightState as it was: QuinCore audit 2026-10-27, step 7.)
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local HitboxModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("HitboxModule"))
@@ -82,7 +83,7 @@ local function chooseStrike(fighter, target, distance, punches, kicks)
 		return pool[math.random(1, math.max(#pool, 1))], nil
 	end
 	local wPunch, wKick, reason = 1, 1, nil
-	local now = tick()
+	local now = GameClock.tick()
 	if target:GetAttribute("StrikeResult") == "Whiff" and now - (target:GetAttribute("StrikeEndAt") or 0) < (CombatConfig.Answers_OpenWindow or 0.6) then
 		wPunch *= CombatConfig.Answers_PunishWeight or 3
 		reason = "punish"
@@ -173,7 +174,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	fighter:SetAttribute("StrikeTiming", markers and "markers" or "ratios") -- (debug HUD, probes)
 
 	-- Set telegraphing attributes for causal defense (impact window driven by config)
-	local now = tick()
+	local now = GameClock.tick()
 	fighter:SetAttribute("Attacking", true)
 	local windupUntil = now + impactDelay
 	fighter:SetAttribute("AttackWindupUntil", windupUntil)
@@ -187,18 +188,18 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	fighter:SetAttribute("StrikeSide", limbSide)
 	-- The strike is over at its finish: then Attacking goes false, unless a newer strike has begun
 	-- (its own AttackWindupUntil). A hit-stop moves the finish on (HitStop): the clear waits for it.
-	-- (It compared tick() with attackFinishTime once, at the original finish: after a hit-stop had
+	-- (It compared GameClock.tick() with attackFinishTime once, at the original finish: after a hit-stop had
 	-- moved the finish, that check failed and Attacking stayed true until the next strike.)
 	local function strikeOver()
 		if not fighter.Parent or fighter:GetAttribute("AttackWindupUntil") ~= windupUntil then return end
-		local remaining = (data.attackFinishTime or 0) - tick()
+		local remaining = (data.attackFinishTime or 0) - GameClock.tick()
 		if remaining > 0.01 and remaining < 1 then
-			task.delay(remaining, strikeOver)
+			GameClock.delay(remaining, strikeOver)
 			return
 		end
 		fighter:SetAttribute("Attacking", false)
 	end
-	task.delay(finishDelay, strikeOver)
+	GameClock.delay(finishDelay, strikeOver)
 		
 	-- Step into the strike with momentum, but only as far as the gap: the attacker closes to
 	-- striking distance and never drives into (or through) its target
@@ -220,7 +221,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	stepIn(impactDelay)
 	-- ...and again halfway through the wind-up, at a target that kept moving
 	if CombatConfig.Combat_StrikeTracking ~= false then
-		task.delay(impactDelay * 0.5, function()
+		GameClock.delay(impactDelay * 0.5, function()
 			if fighter:GetAttribute("AttackWindupUntil") == windupUntil and fighter:GetAttribute("StrikeInterrupted") ~= windupUntil then
 				stepIn(impactDelay * 0.5)
 			end
@@ -232,7 +233,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	if soundPart then
 		local punch = soundPart:FindFirstChild("punch1")
 		if punch then
-			task.delay(math.max(0, impactDelay - 0.04), function()
+			GameClock.delay(math.max(0, impactDelay - 0.04), function()
 				punch.Volume = 0.15
 				punch.PlaybackSpeed = math.random(18, 26) / 10
 				punch:Play()
@@ -259,7 +260,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 					if not landed then result = status end
 					if DEBUG then print("[Fight] Combo broken by " .. status .. "!") end
 					ComboModule.resetCombo(fighter)
-					data.lastAttackTime = tick() + 0.3 -- Stagger them slightly
+					data.lastAttackTime = GameClock.tick() + 0.3 -- Stagger them slightly
 				elseif applied then
 					landed = true
 					result = "Hit"
@@ -293,7 +294,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 
 	-- The window is over: what became of this strike
 	local function conclude()
-		fighter:SetAttribute("StrikeEndAt", tick())
+		fighter:SetAttribute("StrikeEndAt", GameClock.tick())
 		remember(fighter, target, animData, result)
 		-- A strike that connects with nothing ends the chain: the next attack opens a new combo
 		-- instead of throwing the finisher at empty air
@@ -311,24 +312,24 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		-- again (whiffed clips used to play out in full: 0.6-1 s of swinging at air)
 		local recover = CombatConfig.Combat_WhiffRecovery
 		if result == "Whiff" and recover then
-			task.delay(recover * 0.5, function()
+			GameClock.delay(recover * 0.5, function()
 				if fighter.Parent and fighter:GetAttribute("AttackWindupUntil") == windupUntil then
 					AnimationModule.stopCategory(humanoid, "Attacks", recover)
 				end
 			end)
-			task.delay(recover, function()
+			GameClock.delay(recover, function()
 				-- (the strike is over: defenders and the HUD stop reading it as an attack)
 				if fighter.Parent and fighter:GetAttribute("AttackWindupUntil") == windupUntil then
 					fighter:SetAttribute("Attacking", false)
 				end
 			end)
-			local until_ = tick() + recover
+			local until_ = GameClock.tick() + recover
 			data.actionEndTime = math.min(data.actionEndTime or until_, until_)
 			data.attackFinishTime = math.min(data.attackFinishTime or until_, until_)
 		end
 	end
 
-	task.delay(impactDelay, function()
+	GameClock.delay(impactDelay, function()
 		if not fighter.Parent or (target and not target.Parent) then return end
 		-- Hit while winding up: the strike never comes out and the chain is broken
 		-- (also when the Quin was knocked or forced out of its fight before the blow: no strike
@@ -345,7 +346,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 			conclude()
 			return
 		end
-		local opened = os.clock()
+		local opened = GameClock.now()
 		local conn
 		conn = RunService.Heartbeat:Connect(function()
 			-- (the window also closes when the Quin is knocked out of its fight or dies mid-swing)
@@ -353,7 +354,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 			if stillSwinging then
 				check()
 			end
-			if not stillSwinging or struck[target] or os.clock() - opened >= span then
+			if not stillSwinging or struck[target] or GameClock.now() - opened >= span then
 				conn:Disconnect()
 				conclude()
 			end

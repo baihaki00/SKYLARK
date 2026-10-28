@@ -27,6 +27,7 @@
 -- SocialWatchPoint (where a watcher faces, IdleState), SocialHunt (DecisionSystem: hunting),
 -- Workspace RespectCustomActive / RespectStats, arena events (crowd).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -47,12 +48,12 @@ local SocialRespect = {}
 
 local rec = {}          -- opponent -> recognition
 local lastHP = {}       -- model -> health last tick
-local matchStart = os.clock()
+local matchStart = GameClock.now()
 local thresholdMul = nil
 local custom = nil      -- the running custom
 local stats = { candidates = 0, accepted = 0, outcomes = {}, comebackReactions = {}, standoffBreaks = {} }
 
-local function now() return os.clock() end
+local function now() return GameClock.now() end
 local function rootOf(m) return m and m:FindFirstChild("HumanoidRootPart") end
 local function humOf(m) return m and m:FindFirstChildOfClass("Humanoid") end
 local function alive(m) local h = humOf(m) return m and m.Parent and h and h.Health > 0 end
@@ -232,7 +233,7 @@ local function sinkPlatform(platform)
 	for i, p in ipairs(platform.parts) do
 		TweenService:Create(p, TweenInfo.new(2.5, Enum.EasingStyle.Sine, Enum.EasingDirection.In), { CFrame = platform.down[i] }):Play()
 	end
-	task.delay(2.7, function() platform.folder:Destroy() end)
+	GameClock.delay(2.7, function() platform.folder:Destroy() end)
 end
 
 -- The same round dais for a match fought on it (Player Quin match mode): rises at `center` from a
@@ -299,7 +300,7 @@ local function onStage(o, s, stage)
 		SocialSystem.lookAt(o, s, 1.2)
 		local ally = nearestAlly(o, 30)
 		if ally then
-			task.delay(1.3, function() SocialSystem.acknowledge(o, ally) end)
+			GameClock.delay(1.3, function() SocialSystem.acknowledge(o, ally) end)
 		end
 	elseif stage == 2 then
 		setRole(o, "Watching")
@@ -418,7 +419,7 @@ acceptCustom = function(s, opponents)
 	for _, o in ipairs(opponents) do
 		if looks < 3 and flatDist(o, s) < 60 then
 			looks += 1
-			task.delay(looks * 1.1, function() SocialSystem.lookAt(s, o, 1.0) end)
+			GameClock.delay(looks * 1.1, function() SocialSystem.lookAt(s, o, 1.0) end)
 		end
 	end
 
@@ -435,7 +436,7 @@ acceptCustom = function(s, opponents)
 				local pace = pickPace()
 				custom.watch[o] = { pref = flat(spot - center).Magnitude, nextThink = now() + delay + rand(CFG.WatchThink or { 2, 5 }) }
 				o:SetAttribute("SocialWatchPoint", center)
-				task.delay(delay, function()
+				GameClock.delay(delay, function()
 					if custom and custom.spots[o] and o.Parent then
 						SocialSystem.setMoveIntent(o, spot, pace, 40)
 					end
@@ -630,7 +631,7 @@ local function endCustom(outcome)
 			end
 		end
 		-- spectators drift back at their own time
-		if m:GetAttribute("RespectRole") then task.delay(math.random() * 4, release) else release() end
+		if m:GetAttribute("RespectRole") then GameClock.delay(math.random() * 4, release) else release() end
 	end
 	if c.survivor.Parent then
 		c.survivor:SetAttribute("RespectCandidate", nil)
@@ -696,7 +697,7 @@ local function comeback()
 	setRole(s, nil)
 	s:SetAttribute("TargetOverride", nil)
 	SocialSystem.raiseEvent("UnexpectedLeaderDefeat", { text = s.Name .. " beat " .. c.leader.Name })
-	task.delay(1.5, function()
+	GameClock.delay(1.5, function()
 		if custom == c and c.phase == "Comeback" then
 			SocialSystem.raiseEvent("HonorableComeback", { text = s.Name })
 		end
@@ -714,10 +715,10 @@ local function comeback()
 		SocialSystem.lookAt(o, s, 1.0)
 		local other = others[(i % #others) + 1]
 		if other ~= o then
-			task.delay(0.9 + math.random() * 0.4, function() SocialSystem.lookAt(o, other, 0.7) end)
+			GameClock.delay(0.9 + math.random() * 0.4, function() SocialSystem.lookAt(o, other, 0.7) end)
 		end
 	end
-	task.delay(rand(CFG.ShockTime or { 1.4, 2.4 }), function()
+	GameClock.delay(rand(CFG.ShockTime or { 1.4, 2.4 }), function()
 		if not (custom == c and c.phase == "Comeback" and alive(s)) then return end
 		local W = CFG.ComebackReactions or { pack = 0.6, avenge = 0.15, reserved = 0.25 }
 		local pack = {}
@@ -743,10 +744,10 @@ local function comeback()
 		for i, o in ipairs(pack) do
 			local other = pack[(i % #pack) + 1]
 			if other ~= o then SocialSystem.acknowledge(o, other, 0) end
-			task.delay(0.6 + math.random() * 0.8, function() hunt(o) end)
+			GameClock.delay(0.6 + math.random() * 0.8, function() hunt(o) end)
 		end
 		if #pack > 0 then
-			task.delay(1.2, function()
+			GameClock.delay(1.2, function()
 				if custom == c then SocialSystem.raiseEvent("ComebackHunt", { text = s.Name }) end
 			end)
 		end
@@ -799,8 +800,8 @@ local function updateComeback(c)
 			SocialSystem.clearMoveIntent(o)
 			local other = watchers[(i % #watchers) + 1]
 			if other ~= o then SocialSystem.lookAt(o, other, 0.9) end
-			task.delay(1.0, function() SocialSystem.lookAt(o, s, 1.6) end)
-			task.delay(rand({ 0.8, 1.2 }) * (CFG.StillnessTime or 2.5), function()
+			GameClock.delay(1.0, function() SocialSystem.lookAt(o, s, 1.6) end)
+			GameClock.delay(rand({ 0.8, 1.2 }) * (CFG.StillnessTime or 2.5), function()
 				if custom == c and wasHunting and o.Parent then hunt(o) end
 			end)
 		end
@@ -877,7 +878,7 @@ local function updateCustom(dt)
 			local dir = bearing(rl and flat(rl.Position - c.center) or Vector3.zero)
 			c.walkDir = dir
 			SocialSystem.setMoveIntent(l, c.center + dir * half, "walk", 30)
-			task.delay(1.2, function()
+			GameClock.delay(1.2, function()
 				if custom == c then
 					SocialSystem.lookAt(s, l, 1.5)
 					SocialSystem.setMoveIntent(s, c.center - dir * half, "walk", 30)
@@ -982,7 +983,7 @@ end
 local function reset()
 	if custom then endCustom("match reset") end
 	rec, lastHP = {}, {}
-	matchStart = os.clock()
+	matchStart = GameClock.now()
 	thresholdMul = nil
 	stats = { candidates = 0, accepted = 0, outcomes = {}, comebackReactions = {}, standoffBreaks = {} }
 	Workspace:SetAttribute("RespectStats", nil)

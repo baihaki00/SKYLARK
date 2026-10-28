@@ -9,6 +9,7 @@
 --   * Travel form  - when the intended direction is not along the circle (retreating, rescuing,
 --     leaving an edge) the body faces where it is going and the shared gait carries it.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
@@ -114,7 +115,7 @@ local function livingSides(fighter)
 end
 
 function CirclingState.enter(fighter, humanoid, rootPart)
-	fighter:SetAttribute("CirclingSince", os.clock()) -- (Rhythm: a stand-off that goes on too long breaks)
+	fighter:SetAttribute("CirclingSince", GameClock.now()) -- (Rhythm: a stand-off that goes on too long breaks)
 	local aggression = Pers.get(fighter, "Aggression")
 	local confidence = Pers.get(fighter, "Confidence")
 	local mobility = Pers.get(fighter, "MobilityPreference")
@@ -142,7 +143,7 @@ function CirclingState.enter(fighter, humanoid, rootPart)
 		duration = 2.2 + math.random() * 1.8
 	end
 
-	local now = tick()
+	local now = GameClock.tick()
 	circlingData[fighter] = {
 		enterTime = now,
 		lastUpdateTime = now,
@@ -262,10 +263,10 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- A stand-off that has gone quiet too long breaks: someone explodes into it (Modules/Rhythm).
 	-- (The fight's own tempo check never saw these lulls: they happen out here, circling.)
 	if not keepingAway and CombatConfig.Rhythm_Enabled ~= false and distance < 20
-		and os.clock() - (fighter:GetAttribute("CirclingSince") or os.clock()) >= (CombatConfig.Rhythm_LullTime or 4)
+		and GameClock.now() - (fighter:GetAttribute("CirclingSince") or GameClock.now()) >= (CombatConfig.Rhythm_LullTime or 4)
 		and math.random() < (CombatConfig.Rhythm_ExplodeChance or 0.5) * (0.5 + (Pers.get(fighter, "Aggression"))) then
 		fighter:SetAttribute("ExplodeNext", true)
-		fighter:SetAttribute("CirclingSince", os.clock())
+		fighter:SetAttribute("CirclingSince", GameClock.now())
 		return States.Fight
 	end
 
@@ -276,8 +277,8 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 		if NavigationModule.isReachable(rootPart, targetHRP) then
 			data.unreachableSince = nil
 		else
-			data.unreachableSince = data.unreachableSince or tick()
-			if tick() - data.unreachableSince > 0.5 then
+			data.unreachableSince = data.unreachableSince or GameClock.tick()
+			if GameClock.tick() - data.unreachableSince > 0.5 then
 				return States.Chase
 			end
 		end
@@ -296,7 +297,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	local maxCircleRange = (CombatConfig.CombatRange or 8.2) * 4.5
 	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true)
 
-	local now = tick()
+	local now = GameClock.tick()
 	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway and not standoffGap then
 		if now - data.enterTime >= data.duration or distance < minCircleRange then
 			-- Tension snapped at close quarters: dash/attack into FightState!
@@ -429,7 +430,7 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 					return CirclingState
 				end
 			else
-				fighter:SetAttribute("FocusDashReadyAt", tick() + 1.0) -- (this time it runs: asked again in a moment)
+				fighter:SetAttribute("FocusDashReadyAt", GameClock.tick() + 1.0) -- (this time it runs: asked again in a moment)
 			end
 		end
 	end

@@ -3,6 +3,7 @@
 -- Layered multiplicatively onto evaluated FBX skeletal Bone.Transforms:
 -- FinalPose = AnimatedPose * ReactionOffset * LookAtOffset
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -472,7 +473,7 @@ function ProceduralCombatReactionController:update(dt)
 
 	if isAirborne then
 		if not self.wasAirborne then
-			self.airSince = os.clock()
+			self.airSince = GameClock.now()
 		end
 		self.wasAirborne = true
 		if velY < self.maxFallSpeed then
@@ -512,7 +513,7 @@ function ProceduralCombatReactionController:update(dt)
 				-- it had no give at all and the body was simply on top (owner: "it just snapped on
 				-- it"). Any real jump now lands through the knees, deeper the longer it flew. (Not a
 				-- projectile jump: owner wants the dive as it was.)
-				local airTime = os.clock() - (self.airSince or os.clock())
+				local airTime = GameClock.now() - (self.airSince or GameClock.now())
 				if airTime >= (CombatConfig.Landing_HopMinAirTime or 0.2) and serverState ~= "ProjectileJump" then
 					local dip = math.clamp((CombatConfig.Landing_HopDipMin or 0.2) + airTime * 0.35, 0, CombatConfig.Landing_HopDipMax or 0.45)
 					-- (the hips spring, k 260 / d 28, sinks about 0.025 studs per unit of kick,
@@ -588,7 +589,7 @@ function ProceduralCombatReactionController:update(dt)
 
 		local skidTime = serverModel and serverModel:GetAttribute("SkidTurnTime") or 0
 		local skidDur = serverModel and serverModel:GetAttribute("SkidTurnDuration") or 0.32
-		local skidElapsed = os.clock() - skidTime
+		local skidElapsed = GameClock.now() - skidTime
 
 		local isChattering = serverModel and serverModel:GetAttribute("DirectionalChatter") == true
 		local isSkidding = (skidElapsed >= 0 and skidElapsed < skidDur)
@@ -908,7 +909,7 @@ function ProceduralCombatReactionController:update(dt)
 		local plantOn = Layers.isOn("FootPlant", serverModel) -- live A/B switch
 		local stepOn = plantOn and CombatConfig.FootIK_Step ~= false
 		local stepLead = CombatConfig.FootIK_StepLead or 0.1
-		local now = os.clock()
+		local now = GameClock.now()
 		local plantContact = CombatConfig.FootIK_PlantContact or 0.15
 		-- A foot is planted only once the clip has stopped it, not merely brought it low. The walk
 		-- sets the left heel down about four frames before the foot stops reaching forward;

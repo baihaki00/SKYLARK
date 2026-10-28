@@ -18,6 +18,7 @@
 -- Switches: CombatConfig.BodyAwareness.Enabled; Workspace attributes BodyAwareness = false (all
 -- of it) and BodyPersonalSpace = false (the personal-space rule only).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
@@ -31,7 +32,7 @@ local roster = {} -- { model, root } of the living Quins
 local rosterAt = 0
 
 local function refreshRoster()
-	local now = os.clock()
+	local now = GameClock.now()
 	if now - rosterAt < ROSTER_REFRESH then return end
 	rosterAt = now
 	roster = {}

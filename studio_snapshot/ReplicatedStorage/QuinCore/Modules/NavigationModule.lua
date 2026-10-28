@@ -8,6 +8,7 @@
 -- Paths come from PathfindingService, computed in the background (the state loop never waits)
 -- and refreshed when old or when the target has moved.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -107,7 +108,7 @@ local function requestPath(fighter, rootPart, goal)
 			path:ComputeAsync(start, goal)
 		end)
 		entry.computing = false
-		entry.time = os.clock()
+		entry.time = GameClock.now()
 		entry.goal = goal
 		if ok and path.Status == Enum.PathStatus.Success then
 			entry.waypoints = path:GetWaypoints()
@@ -121,7 +122,7 @@ end
 -- The next point to steer to on a way round, or nil (no path yet / none found)
 function NavigationModule.detourWaypoint(fighter, rootPart, targetPosition)
 	local entry = paths[fighter]
-	local now = os.clock()
+	local now = GameClock.now()
 	local stale = not entry or not entry.time or now - entry.time > (CombatConfig.Nav_PathRefresh or 1.0)
 		or (entry.goal and (entry.goal - targetPosition).Magnitude > 10)
 	if stale then

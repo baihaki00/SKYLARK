@@ -20,6 +20,7 @@
 -- Off switch: CombatConfig.MomentumDuel.Enabled = false (Momentum's moves stay).
 -- Shared loop started from Server (MomentumDuel.start).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -128,7 +129,7 @@ local function endDuel(duel, why)
 		if mind[f] and mind[f].duel == duel then mind[f] = nil end
 		if f.Parent then
 			f:SetAttribute("MomentumDuelWith", nil)
-			f:SetAttribute("MomentumDuelAt", os.clock())
+			f:SetAttribute("MomentumDuelAt", GameClock.now())
 		end
 	end
 	endings[why] = (endings[why] or 0) + 1
@@ -213,16 +214,16 @@ end
 
 local function startDuel(a, b)
 	local duel = {
-		a = a, b = b, started = os.clock(), contacts = 0, brawl = 0, intensity = 1,
+		a = a, b = b, started = GameClock.now(), contacts = 0, brawl = 0, intensity = 1,
 		maxContacts = math.random(cfg("ContactsMin", 2), cfg("ContactsMax", 7)),
 	}
 	table.insert(duels, duel)
-	mind[a] = { duel = duel, other = b, nextThink = os.clock() + reaction(a), airDashes = 0 }
-	mind[b] = { duel = duel, other = a, nextThink = os.clock() + reaction(b), airDashes = 0 }
+	mind[a] = { duel = duel, other = b, nextThink = GameClock.now() + reaction(a), airDashes = 0 }
+	mind[b] = { duel = duel, other = a, nextThink = GameClock.now() + reaction(b), airDashes = 0 }
 	a:SetAttribute("MomentumDuelWith", b.Name)
 	b:SetAttribute("MomentumDuelWith", a.Name)
-	a:SetAttribute("MomentumDuelAt", os.clock())
-	b:SetAttribute("MomentumDuelAt", os.clock())
+	a:SetAttribute("MomentumDuelAt", GameClock.now())
+	b:SetAttribute("MomentumDuelAt", GameClock.now())
 	stats.started += 1
 	leapAt(a, b, cfg("OpenerApexMin", 40), cfg("OpenerApexMax", 100), "open the duel")
 	publish()
@@ -238,7 +239,7 @@ function MomentumDuel.contact(dasher, other)
 	duel.contacts += 1
 	stats.contacts += 1
 	duel.intensity *= math.random(cfg("FadeMin", 70), cfg("FadeMax", 92)) / 100
-	local now = os.clock()
+	local now = GameClock.now()
 	local function rethink(quick)
 		for _, f in ipairs({ dasher, other }) do
 			local fm = mind[f]
@@ -376,7 +377,7 @@ local function over(duel)
 	end
 	local onGround = not Momentum.inAir(duel.a) and not Momentum.inAir(duel.b)
 	if (ra.Position - rb.Position).Magnitude > cfg("BreakDistance", 320) then return "too far" end
-	if os.clock() - duel.started > cfg("MaxTime", 20) then return "time" end
+	if GameClock.now() - duel.started > cfg("MaxTime", 20) then return "time" end
 	if onGround then
 		if duel.contacts >= duel.maxContacts then return "enough" end
 		if duel.intensity < cfg("MinIntensity", 0.3) then return "lull" end
@@ -419,7 +420,7 @@ local function scanOpeners()
 	if #duels >= maxDuels then return end
 	local folder = Workspace:FindFirstChild("QuinServer")
 	if not folder then return end
-	local now = os.clock()
+	local now = GameClock.now()
 	local boost = RunService:IsStudio() and (Workspace:GetAttribute("MomentumDuelAlways") or duelDashOnly()) and 20 or 1
 	local cooldown = duelDashOnly() and 2 or cfg("Cooldown", 10)
 	for _, q in ipairs(folder:GetChildren()) do
@@ -456,7 +457,7 @@ function MomentumDuel.start()
 			for i = #duels, 1, -1 do endDuel(duels[i], "switched off") end
 			return
 		end
-		local now = os.clock()
+		local now = GameClock.now()
 		for i = #duels, 1, -1 do
 			local duel = duels[i]
 			local why = over(duel)
@@ -510,7 +511,7 @@ function MomentumDuel.start()
 					a.HumanoidRootPart.CFrame = CFrame.new(c + Vector3.new(-90, 15, 0))
 					b.HumanoidRootPart.CFrame = CFrame.new(c + Vector3.new(90, 15, 0))
 					Workspace:SetAttribute("MomentumDemoPair", a.Name .. " vs " .. b.Name)
-					task.wait(0.8)
+					GameClock.wait(0.8)
 					startDuel(a, b)
 				end
 			end

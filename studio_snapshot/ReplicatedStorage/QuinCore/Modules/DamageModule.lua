@@ -2,6 +2,7 @@
 -- Calculates and applies damage between fighters
 -- Handles crits, defense, combo scaling, super meter, causal guarding, and hitstop
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AudioModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AudioModule"))
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
@@ -33,7 +34,7 @@ function DamageModule.calculate(attackerModel, targetModel, comboStep, damageMul
 	local finalDamage = baseDamage * (damageMultiplier or 1.0) * comboBonus * critMultiplier * attackSpeed
 
 	-- Phase 12 Spectacle: AuraSurge offensive boost
-	if (attackerModel:GetAttribute("AuraSurgeUntil") or 0) > tick() then
+	if (attackerModel:GetAttribute("AuraSurgeUntil") or 0) > GameClock.tick() then
 		finalDamage = finalDamage * 1.20
 	end
 
@@ -226,7 +227,7 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		if hrp and attackerHRP then
 			local dir = (hrp.Position - attackerHRP.Position).Unit
 			KnockbackModule.applySlide(targetModel, dir, 45, 0.5)
-			targetModel:SetAttribute("StunEndTime", tick() + 1.2) -- Massive stun
+			targetModel:SetAttribute("StunEndTime", GameClock.tick() + 1.2) -- Massive stun
 			AudioModule.playSlam(hrp.Position)
 		end
 	end
@@ -242,7 +243,7 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		local hitStopDuration = isHeavy and 0.08 or 0.05
 		
 		-- Replicate hitstop timestamp to client visual ghosts
-		local serverTime = workspace:GetServerTimeNow()
+		local serverTime = GameClock.serverNow()
 		attackerModel:SetAttribute("HitStopUntil", serverTime + hitStopDuration)
 		targetModel:SetAttribute("HitStopUntil", serverTime + hitStopDuration)
 		
@@ -265,7 +266,7 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		
 		-- A strike the victim was still winding up is knocked out of its hands (a strike about
 		-- to land goes through: that is a trade; a Quin knocked flying loses its strike either way)
-		local windupLeft = (targetModel:GetAttribute("AttackWindupUntil") or 0) - tick()
+		local windupLeft = (targetModel:GetAttribute("AttackWindupUntil") or 0) - GameClock.tick()
 		if targetModel:GetAttribute("Attacking") == true and (isKnocked or windupLeft > (CombatConfig.Combat_TradeWindow or 0.08)) then
 			targetModel:SetAttribute("StrikeInterrupted", targetModel:GetAttribute("AttackWindupUntil"))
 			AnimationModule.stopCategory(targetHum, "Attacks", 0.1)
@@ -273,7 +274,7 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 
 		-- Hit Stun Duration
 		local stunDuration = isHeavy and 0.5 or 0.35
-		targetModel:SetAttribute("StunEndTime", tick() + stunDuration)
+		targetModel:SetAttribute("StunEndTime", GameClock.tick() + stunDuration)
 		
 		-- Hit Animation Overlay (Action3 so it never cancels the defender's own attack track;
 		-- during a simultaneous exchange both jabs now play out instead of being wiped by the flinch)

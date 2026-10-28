@@ -2,6 +2,7 @@
 -- Intelligent pathfinding chase with obstacle jumping and smooth lean
 -- Single Source of Truth: ReplicatedStorage.QuinCore.AnimationConfig
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
@@ -93,7 +94,7 @@ function ChaseState.enter(fighter, humanoid, rootPart)
 		fighter:SetAttribute("InitialPacingOverride", nil)
 	end
 	local mobility = Pers.get(fighter, "MobilityPreference")
-	local now = tick()
+	local now = GameClock.tick()
 	
 	local maxSpeed = fighter:GetAttribute("Speed") or 40
 	local initialSpeed = math.clamp(humanoid.WalkSpeed, 0, maxSpeed)
@@ -314,7 +315,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		return States.Circling
 	end
 	
-	local now = tick()
+	local now = GameClock.tick()
 
 	-- === 4. Line-of-Sight (LoS) & Last Known Position (LKP) Tracking (Sections 41 & 44) ===
 	local myEyePos = SpatialModule.getEyePosition(rootPart)
@@ -367,7 +368,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				if Vector3.new(v.X, 0, v.Z).Magnitude < 4 then
 					AnimationModule.playConfig(humanoid, "Idles.SurveyIdle", 1.2, Enum.AnimationPriority.Action2, false)
 				else
-					fighter:SetAttribute("GlanceBackUntil", workspace:GetServerTimeNow() + 0.8)
+					fighter:SetAttribute("GlanceBackUntil", GameClock.serverNow() + 0.8)
 				end
 			elseif (now - data.surveyingAtLKP) >= 0.9 then
 				data.surveyingAtLKP = nil
@@ -505,7 +506,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 				-- On the move only the head and shoulders look back (LookController).
 				local v = rootPart.AssemblyLinearVelocity
 				if Vector3.new(v.X, 0, v.Z).Magnitude > 6 then
-					fighter:SetAttribute("GlanceBackUntil", workspace:GetServerTimeNow() + 0.8)
+					fighter:SetAttribute("GlanceBackUntil", GameClock.serverNow() + 0.8)
 				else
 					AnimationModule.playConfig(humanoid, "Awareness.RearThreatGlance", 1.3, Enum.AnimationPriority.Action2, false)
 				end
@@ -570,7 +571,7 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	-- After a soft landing it walks on for a moment (unless someone is on it)
-	if os.clock() < (fighter:GetAttribute("CasualUntil") or 0) and distance > 14
+	if GameClock.now() < (fighter:GetAttribute("CasualUntil") or 0) and distance > 14
 		and fighter:GetAttribute("IsUnderRearThreat") ~= true then
 		shouldWalk = true
 		paceReason = "CasualDrop"

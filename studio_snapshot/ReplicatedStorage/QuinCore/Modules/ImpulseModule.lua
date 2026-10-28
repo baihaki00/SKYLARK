@@ -11,6 +11,7 @@
 --     and on a tie the newer one does. A body is never pushed back and forth.
 -- Vertical motion is left to gravity; launches into the air are ballistic and do not use this.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local RunService = game:GetService("RunService")
 
 local ImpulseModule = {}
@@ -78,7 +79,7 @@ local function requestFactor(request, now)
 end
 
 local function step()
-	local now = os.clock()
+	local now = GameClock.now()
 	for model, body in pairs(bodies) do
 		if not model.Parent or not body.root.Parent or not body.mover.Parent then
 			release(model)
@@ -210,7 +211,7 @@ function ImpulseModule.push(model, tag, direction, speed, duration, opts)
 		maxForce = opts.maxForce or DEFAULT_MAX_FORCE,
 		rampIn = rampIn,
 		startFactor = startFactor,
-		startTime = os.clock(),
+		startTime = GameClock.now(),
 	}
 	return true
 end

@@ -3,6 +3,7 @@
 -- Authoritative 2-power system (Offensive + Defensive) per element across Fire, Water, Stone, Lightning, Wind
 -- In accordance with Master Project Plan (Section 10) & Quin Combat Balance Bible
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 
@@ -216,7 +217,7 @@ function SpecialState.enter(fighter, humanoid, rootPart)
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 
 	specialData[fighter] = {
-		enterTime = tick(),
+		enterTime = GameClock.tick(),
 		move = move,
 		phase = "windup",
 		hitsDealt = 0,
@@ -257,7 +258,7 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 		return States.Recovery
 	end
 	
-	local elapsed = tick() - data.enterTime
+	local elapsed = GameClock.tick() - data.enterTime
 	local move = data.move
 	local target, distance = TargetingModule.getNearest(rootPart, move.range * 2)
 	local speedMult = data.speedMult or 1.0
@@ -275,7 +276,7 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 	if data.phase == "windup" then
 		if elapsed >= (move.windupDuration / speedMult) then
 			data.phase = "active"
-			data.phaseStartTime = tick()
+			data.phaseStartTime = GameClock.tick()
 			
 			-- Dash forward for offensive gap-closers
 			if move.isDash then
@@ -304,13 +305,13 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	-- PHASE 2: Active Hit Detection
 	if data.phase == "active" then
-		local phaseElapsed = tick() - data.phaseStartTime
+		local phaseElapsed = GameClock.tick() - data.phaseStartTime
 		local effectiveActive = move.activeDuration / speedMult
 		
 		-- Hit interval
 		local hitInterval = effectiveActive / math.max(1, move.hitCount)
-		if data.hitsDealt < move.hitCount and (tick() - data.lastHitTime) >= hitInterval then
-			data.lastHitTime = tick()
+		if data.hitsDealt < move.hitCount and (GameClock.tick() - data.lastHitTime) >= hitInterval then
+			data.lastHitTime = GameClock.tick()
 			data.hitsDealt = data.hitsDealt + 1
 			
 			local hitModels
@@ -330,7 +331,7 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 					if h then
 						local baseSpd = hitModel:GetAttribute("Speed") or 40
 						h.WalkSpeed = math.max(16, baseSpd * 0.75)
-						task.delay(1.5 / speedMult, function()
+						GameClock.delay(1.5 / speedMult, function()
 							if hitModel.Parent and h then h.WalkSpeed = baseSpd end
 						end)
 					end
@@ -341,7 +342,7 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Active phase completes -> transition to Recovery
 		if phaseElapsed >= effectiveActive then
 			data.phase = "recovery"
-			data.phaseStartTime = tick()
+			data.phaseStartTime = GameClock.tick()
 			
 			-- Apply knockback launch to remaining nearby opponents
 			local finalHits
@@ -371,7 +372,7 @@ function SpecialState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	-- PHASE 3: Recovery
 	if data.phase == "recovery" then
-		local phaseElapsed = tick() - data.phaseStartTime
+		local phaseElapsed = GameClock.tick() - data.phaseStartTime
 		if phaseElapsed >= (move.recoveryDuration / speedMult) then
 			local t, d = TargetingModule.getNearest(rootPart, CombatConfig.CombatRange or 8.2)
 			if t and d <= (CombatConfig.CombatRange or 8.2) * 1.5 then

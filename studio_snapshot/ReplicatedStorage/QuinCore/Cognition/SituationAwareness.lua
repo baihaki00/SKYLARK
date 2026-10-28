@@ -5,6 +5,7 @@
 -- condition and its surroundings - never from the world directly.
 -- Returns the tactical context consumed by TargetingModule, DecisionSystem and the states.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -155,10 +156,10 @@ function SituationAwareness.assess(quinModel, rootPart, self, contacts, nearbyAl
 	-- A gang-up it came through (at least 1.5 s, still standing) counts for its habits (Temperament)
 	if isSurrounded then
 		if not quinModel:GetAttribute("SurroundedSince") then
-			quinModel:SetAttribute("SurroundedSince", os.clock())
+			quinModel:SetAttribute("SurroundedSince", GameClock.now())
 		end
 	elseif quinModel:GetAttribute("SurroundedSince") then
-		if os.clock() - quinModel:GetAttribute("SurroundedSince") >= 1.5 and (self.healthRatio or 0) > 0 then
+		if GameClock.now() - quinModel:GetAttribute("SurroundedSince") >= 1.5 and (self.healthRatio or 0) > 0 then
 			PersonalitySystem.recordCombatOutcome(quinModel, "SurroundSurvived")
 		end
 		quinModel:SetAttribute("SurroundedSince", nil)

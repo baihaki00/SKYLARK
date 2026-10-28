@@ -2,6 +2,7 @@
 -- Finds, evaluates, and selects optimal targets for Quin combat
 -- Implements explainable utility-based target selection biased by personality & local battlefield state
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local CollectionService = game:GetService("CollectionService")
 local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -47,7 +48,7 @@ local function isHolding(quinModel)
 	local name = quinModel:GetAttribute("CurrentTarget")
 	if not name or name == "" then return false end
 	local persistence = Pers.get(quinModel, "TargetPersistence")
-	return heldFor(quinModel, name, os.clock()) < (CombatConfig.Targeting_MinHold or 2.0) * (0.5 + persistence)
+	return heldFor(quinModel, name, GameClock.now()) < (CombatConfig.Targeting_MinHold or 2.0) * (0.5 + persistence)
 end
 
 local function assign(fighter, name, reason)
@@ -55,7 +56,7 @@ local function assign(fighter, name, reason)
 		fighter:SetAttribute("TargetChangedBy", reason)
 	end
 	fighter:SetAttribute("CurrentTarget", name)
-	heldFor(fighter, name, os.clock()) -- (a new target starts a new hold)
+	heldFor(fighter, name, GameClock.now()) -- (a new target starts a new hold)
 end
 
 -- Reasons a state may give that do not break the hold: a passer-by is no cause to drop a target
@@ -122,7 +123,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 		if quinModel:GetAttribute("PackIntent") ~= "Rescuer" or quinModel:GetAttribute("PackIntentAlly") ~= task.ally then
 			quinModel:SetAttribute("PackIntent", "Rescuer")
 			quinModel:SetAttribute("PackIntentAlly", task.ally or "")
-			quinModel:SetAttribute("PackIntentAt", tick())
+			quinModel:SetAttribute("PackIntentAt", GameClock.tick())
 		end
 		return task.enemy, 500, why
 	end
@@ -194,8 +195,8 @@ function TargetingModule.selectTarget(quinModel, localState)
 	-- quick back-and-forth switches in a 16v16 were this)
 	local struckName = nil
 	local settling = answeredAt[quinModel]
-		and os.clock() - answeredAt[quinModel] < (CombatConfig.Targeting_StruckSettle or 2.0) * (0.5 + (Pers.get(quinModel, "TargetPersistence")))
-	if not settling and workspace:GetServerTimeNow() - (quinModel:GetAttribute("ImpactTime") or 0) <= (CombatConfig.Targeting_StruckMemory or 1.5) then
+		and GameClock.now() - answeredAt[quinModel] < (CombatConfig.Targeting_StruckSettle or 2.0) * (0.5 + (Pers.get(quinModel, "TargetPersistence")))
+	if not settling and GameClock.serverNow() - (quinModel:GetAttribute("ImpactTime") or 0) <= (CombatConfig.Targeting_StruckMemory or 1.5) then
 		struckName = quinModel:GetAttribute("LastAttackerName")
 	end
 
@@ -445,7 +446,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 			quinModel:SetAttribute("LastSeenTargetPosition", nil)
 		end
 		if bestCandidate.Name == struckName and quinModel:GetAttribute("CurrentTarget") ~= struckName then
-			answeredAt[quinModel] = os.clock()
+			answeredAt[quinModel] = GameClock.now()
 		end
 		assign(quinModel, bestCandidate.Name, "Select")
 		quinModel:SetAttribute("LastTargetName", bestCandidate.Name)
@@ -476,7 +477,7 @@ function TargetingModule.selectTarget(quinModel, localState)
 		if quinModel:GetAttribute("PackIntent") ~= intent or quinModel:GetAttribute("PackIntentAlly") ~= intentAlly then
 			quinModel:SetAttribute("PackIntent", intent)
 			quinModel:SetAttribute("PackIntentAlly", intentAlly)
-			quinModel:SetAttribute("PackIntentAt", tick())
+			quinModel:SetAttribute("PackIntentAt", GameClock.tick())
 		end
 		if bestHasLoS then
 			quinModel:SetAttribute("LastSeenTargetPosition", bestCandidate.HumanoidRootPart.Position)

@@ -4,6 +4,7 @@
 -- Uses Luau's debug.info reflection to provide exact source script and line numbers.
 -- Single Source of Truth: ReplicatedStorage.QuinCore.Modules.RuntimeTracer
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local DebugReadouts = require(script.Parent:WaitForChild("DebugReadouts"))
 
@@ -73,7 +74,7 @@ end
 
 -- Formats current clock time into MM:SS.mmm
 local function formatTimestamp()
-	local now = os.clock()
+	local now = GameClock.now()
 	local mins = math.floor(now / 60) % 60
 	local secs = now % 60
 	return string.format("%02d:%06.3f", mins, secs)

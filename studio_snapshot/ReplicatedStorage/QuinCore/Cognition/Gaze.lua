@@ -11,6 +11,7 @@
 --              does, mid-fight nothing does. On high ground it also looks down over the edge.
 -- While it glances up it does not see what is level with it: looking has a price.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -191,7 +192,7 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 					-- eyes' cone where it was; a guard heard steps behind it and stood on)
 					if contact.channel ~= "sight" then
 						quinModel:SetAttribute("TurnTo", contact.position)
-						quinModel:SetAttribute("TurnUntil", Workspace:GetServerTimeNow() + gcfg(cfg, "TurnToHold", 1.6))
+						quinModel:SetAttribute("TurnUntil", GameClock.serverNow() + gcfg(cfg, "TurnToHold", 1.6))
 					end
 				end
 				if not closestDist or d < closestDist then closest, closestDist = m, d end
@@ -214,7 +215,7 @@ function Gaze.update(board, quinModel, rootPart, targetModel, now)
 	--          it holds each look is its habit: a restless Quin looks quickly, a steady one holds.
 	local still = rootPart.AssemblyLinearVelocity.Magnitude < gcfg(cfg, "GazeStandSpeed", 4)
 	if still and state == "Idle" and now >= gaze.glanceUntil and gcfg(cfg, "GazeStandLooks", true) ~= false then
-		local serverNow = Workspace:GetServerTimeNow()
+		local serverNow = GameClock.serverNow()
 		gaze.greeted = gaze.greeted or setmetatable({}, { __mode = "k" })
 		local greet
 		for _, contact in ipairs(board.contacts.allies or {}) do

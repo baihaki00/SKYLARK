@@ -5,6 +5,7 @@
 -- Instinct answers strikes otherwise.
 -- (Moved out of FightState as it was: QuinCore audit 2026-10-27, step 7.)
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ComboModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ComboModule"))
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
@@ -24,7 +25,7 @@ local function decideAction(fighter, target, distance, data)
 	end
 	local specialPref = Pers.get(fighter, "SpecialPreference")
 	local specialCooldown = fighter:GetAttribute("SpecialCooldown") or 8
-	local now = tick()
+	local now = GameClock.tick()
 	
 	-- Can we use a special?
 	local canSpecial = (now - data.lastSpecialTime) >= specialCooldown

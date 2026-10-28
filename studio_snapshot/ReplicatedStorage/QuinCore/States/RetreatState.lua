@@ -7,6 +7,7 @@
 -- 4. Hysteresis commitment lock (prevents stop-and-go decision flapping).
 -- 5. Full telemetry emission (RETREAT_STARTED, RETREAT_SURVIVED, RETREAT_COUNTERATTACK, RETREAT_TO_HIGH_GROUND).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 local QuinRoster = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("QuinRoster")) -- (GetTagged("Quin") once a frame, shared)
@@ -67,7 +68,7 @@ local function gatherSides(fighter)
 end
 
 function RetreatState.enter(fighter, humanoid, rootPart)
-	local now = tick()
+	local now = GameClock.tick()
 	local maxSpeed = fighter:GetAttribute("Speed") or 40
 	-- Preserve existing running velocity; do NOT reset to 0
 	local initialSpeed = humanoid.WalkSpeed
@@ -168,7 +169,7 @@ function RetreatState.update(fighter, humanoid, rootPart, DEBUG)
 		return States.Recovery
 	end
 
-	local now = tick()
+	local now = GameClock.tick()
 	local elapsed = now - data.enterTime
 	local enemies, allies = gatherSides(fighter)
 

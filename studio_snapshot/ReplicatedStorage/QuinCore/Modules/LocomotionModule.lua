@@ -3,6 +3,7 @@
 -- Adheres strictly to the 6 Immutable Ground Rules (README.md)
 -- Single Source of Truth: ReplicatedStorage.QuinCore.CombatConfig
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -387,11 +388,11 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			or (data.reversal and data.reversal.clipTrack ~= data.turnClip)) then
 			stopTurnClip(data, humanoid)
 		end
-		if data.ownsFacing and (not data.steerTarget or os.clock() > (data.steerUntil or 0) or activeSlides[fighter]
+		if data.ownsFacing and (not data.steerTarget or GameClock.now() > (data.steerUntil or 0) or activeSlides[fighter]
 			or humanoid.PlatformStand or otherAlignActive(rootPart)) then
 			releaseFacing(data, humanoid, rootPart)
 		end
-		local steering = data.steerTarget and os.clock() <= (data.steerUntil or 0)
+		local steering = data.steerTarget and GameClock.now() <= (data.steerUntil or 0)
 		if not steering or activeSlides[fighter] or humanoid.PlatformStand or fighter:GetAttribute("IsPlayerControlled") == true then
 			if data.reversal then
 				-- (a reversal only lives under continuous steering)
@@ -403,7 +404,7 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 
 		frameDt = math.clamp(frameDt, 0.001, 0.05)
 		local target = data.steerSpeed or humanoid.WalkSpeed
-		if os.clock() < math.max(data.landingHoldUntil or 0, fighter:GetAttribute("LandingHoldUntil") or 0) then
+		if GameClock.now() < math.max(data.landingHoldUntil or 0, fighter:GetAttribute("LandingHoldUntil") or 0) then
 			target = 0 -- absorbing a landing: brake first, move on as the body rises
 		end
 		local toTarget = data.steerTarget - rootPart.Position
@@ -411,7 +412,7 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 		local decel = tune("Locomotion_BrakingDeceleration", 140.0)
 
 		local reversal = data.reversal
-		if reversal and (os.clock() - reversal.started > 1.2 or isHumanoidAirborne(humanoid)) then
+		if reversal and (GameClock.now() - reversal.started > 1.2 or isHumanoidAirborne(humanoid)) then
 			data.reversal = nil
 			reversal = nil
 		end
@@ -426,14 +427,14 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			local floorSpeed = straight and tune("Locomotion_ReversalFlipSpeed", 2) or pivotSpeed
 			if reversal.phase == "brake" then
 				local v = rootPart.AssemblyLinearVelocity
-				if Vector3.new(v.X, 0, v.Z).Magnitude <= floorSpeed + 1 or os.clock() - reversal.started > 0.45
+				if Vector3.new(v.X, 0, v.Z).Magnitude <= floorSpeed + 1 or GameClock.now() - reversal.started > 0.45
 					or not groundAhead(rootPart, reversal.dir) then
 					reversal.phase = "pivot"
 					if straight then
 						reversal.straight = true
 						local look = flatUnit(rootPart.CFrame.LookVector, reversal.dir)
 						reversal.faceAngle = math.atan2(look.X, look.Z)
-						data.driveOutUntil = os.clock() + tune("Locomotion_ReversalDriveOutTime", 0) + 0.25
+						data.driveOutUntil = GameClock.now() + tune("Locomotion_ReversalDriveOutTime", 0) + 0.25
 					end
 				else
 					decel = tune("Locomotion_ReversalBrake", 150)
@@ -449,7 +450,7 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 				if flat.Magnitude < 0.1 or (heading and heading:Dot(flat.Unit) > alignedCos and look:Dot(flat.Unit) > alignedCos - 0.1) then
 					data.reversal = nil -- facing the new way: drive out
 					reversal = nil
-					data.driveOutUntil = os.clock() + (tune("Locomotion_ReversalDriveOutTime", 0))
+					data.driveOutUntil = GameClock.now() + (tune("Locomotion_ReversalDriveOutTime", 0))
 				end
 			end
 		end
@@ -494,7 +495,7 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 		local speed = humanoid.WalkSpeed
 		if speed < target then
 			local accel = tune("Locomotion_Acceleration", 80.0)
-			if os.clock() < (data.driveOutUntil or 0) then
+			if GameClock.now() < (data.driveOutUntil or 0) then
 				accel = math.max(accel, tune("Locomotion_ReversalDriveOutAccel", accel)) -- (out of a pivot)
 			end
 			speed = math.min(speed + accel * frameDt, target)
@@ -597,7 +598,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 		local held
 		targetPosition, held = SpatialModule.keepOnSurface(rootPart, targetPosition, reference)
 		fighter:SetAttribute("EdgeHeld", held or nil)
-	elseif data.airSpeedCap and os.clock() < (data.airCapUntil or 0) then
+	elseif data.airSpeedCap and GameClock.now() < (data.airCapUntil or 0) then
 		-- In the air nothing pushes the body forward: the run could not speed it up past its
 		-- launch (it carried a shortened jump on at 40 studs/s and into the next obstacle)
 		targetSpeed = data.airSpeedHold and data.airSpeedCap
@@ -610,7 +611,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	if useDriver then
 		data.steerTarget = targetPosition
 		data.steerSpeed = targetSpeed
-		data.steerUntil = os.clock() + 0.25
+		data.steerUntil = GameClock.now() + 0.25
 		ensureSteerDriver(fighter, humanoid, rootPart)
 		fighter:SetAttribute("PacingVelocity", math.floor(humanoid.WalkSpeed + 0.5))
 	else
@@ -630,8 +631,8 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	-- (LookController). Published only when it changes by 15 degrees or more, at most 5 times a second.
 	if flatDesired.Magnitude > 2 then
 		local intentYaw = math.atan2(intentDirection.X, intentDirection.Z)
-		if not data.intentYaw or (os.clock() - (data.intentAt or 0) > 0.2 and math.abs(shortestAngleDelta(intentYaw, data.intentYaw)) > 0.26) then
-			data.intentYaw, data.intentAt = intentYaw, os.clock()
+		if not data.intentYaw or (GameClock.now() - (data.intentAt or 0) > 0.2 and math.abs(shortestAngleDelta(intentYaw, data.intentYaw)) > 0.26) then
+			data.intentYaw, data.intentAt = intentYaw, GameClock.now()
 			fighter:SetAttribute("SteerIntent", math.round(math.deg(intentYaw)))
 		end
 	end
@@ -645,7 +646,7 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 	end
 
 	local skidThreshold = CombatConfig.Locomotion_SkidSpeedThreshold or 14.0
-	local now = os.clock()
+	local now = GameClock.now()
 
 	-- How long it has held its top speed (the stop-run plant needs a real run behind it)
 	local runVel = rootPart.AssemblyLinearVelocity
@@ -726,9 +727,9 @@ function LocomotionModule.steer(fighter, humanoid, rootPart, targetPosition, tar
 			local skidToken = data.skidToken
 			if fromSpeed > plantSpeed then
 				task.spawn(function()
-					local rampStart = os.clock()
+					local rampStart = GameClock.now()
 					while humanoid.Parent and data.skidToken == skidToken do
-						local p = (os.clock() - rampStart) / 0.14
+						local p = (GameClock.now() - rampStart) / 0.14
 						if p >= 1 then break end
 						humanoid.WalkSpeed = math.min(humanoid.WalkSpeed, fromSpeed + (plantSpeed - fromSpeed) * p)
 						RunService.Heartbeat:Wait()
@@ -778,7 +779,7 @@ end
 function LocomotionModule.cutStopRun(fighter, humanoid, window)
 	local data = locoData[fighter]
 	if not data or not data.stopRunEndTime then return false end
-	local now = os.clock()
+	local now = GameClock.now()
 	if now >= data.stopRunEndTime or now - (data.lastStopRunTime or 0) > (window or CombatConfig.StopRun_StrikeCutWindow or 0.35) then
 		return false
 	end
@@ -801,7 +802,7 @@ function LocomotionModule.brake(fighter, humanoid, rootPart, dt)
 	local currentVel = rootPart.AssemblyLinearVelocity
 	local flatVel = Vector3.new(currentVel.X, 0, currentVel.Z)
 	local speed = flatVel.Magnitude
-	local now = os.clock()
+	local now = GameClock.now()
 
 	-- Nothing to brake against in the air: the body carries its flight until it lands. (The
 	-- ground brake ran in the air too, and a jump stopped dead across the ground in mid-flight.)
@@ -980,10 +981,10 @@ local function runSkidOver(fighter, humanoid, rootPart, speed, rise, direction)
 	AudioModule.playJump(fighter, 0.5)
 
 	local baseY = rootPart.Position.Y
-	local start = os.clock()
+	local start = GameClock.now()
 	local conn
 	conn = RunService.Heartbeat:Connect(function(dt)
-		local t = os.clock() - start
+		local t = GameClock.now() - start
 		if t >= duration or not fighter.Parent or humanoid.Health <= 0 then
 			conn:Disconnect()
 			mover:Destroy()
@@ -1064,7 +1065,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 			height = plan.height
 			forwardImpulse = plan.horizontalVelocity.Magnitude
 			jumpType = plan.animationType
-			task.delay((plan.flightTime or 0.6) + 0.45, function()
+			GameClock.delay((plan.flightTime or 0.6) + 0.45, function()
 				if fighter and fighter.Parent then
 					TraversalModule.clearTraversal(fighter)
 					fighter:SetAttribute("TraversalVelocityX", 0)
@@ -1122,7 +1123,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	end
 
 	local data = getLocoData(fighter)
-	local now = os.clock()
+	local now = GameClock.now()
 
 	-- Enforce jump debounce to eliminate rapid-fire double-hopping
 	-- (an obstacle crossing only needs to be back on the ground: bars in a row are taken
@@ -1177,13 +1178,13 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
             else
                 -- First use: the asset is still loading. Once it arrives, put the clip where
                 -- it would be by now, so the feet still come down with the body.
-                local launched = os.clock()
+                local launched = GameClock.now()
                 task.spawn(function()
-                    while track.Length == 0 and os.clock() - launched < 0.5 do
-                        task.wait()
+                    while track.Length == 0 and GameClock.now() - launched < 0.5 do
+                        GameClock.wait()
                     end
                     if track.IsPlaying and track.Length > 0 then
-                        track.TimePosition = math.min(0.08 + (os.clock() - launched) * track.Speed, 0.95)
+                        track.TimePosition = math.min(0.08 + (GameClock.now() - launched) * track.Speed, 0.95)
                     end
                 end)
             end
@@ -1232,7 +1233,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	local savedJumpPower = humanoid.JumpPower
 	humanoid.UseJumpPower = true
 	humanoid.JumpPower = upImpulse
-	task.delay(0.15, function()
+	GameClock.delay(0.15, function()
 		if humanoid.Parent and humanoid.JumpPower == upImpulse then
 			humanoid.JumpPower = savedJumpPower
 		end
@@ -1253,7 +1254,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
     end
     rootPart.AssemblyLinearVelocity = plannedHorizontal + Vector3.new(0, upImpulse, 0)
     data.airSpeedCap = math.max(plannedHorizontal.Magnitude, 2)
-    data.airCapUntil = os.clock() + (flightTime or 2 * upImpulse / gravity) + 0.15
+    data.airCapUntil = GameClock.now() + (flightTime or 2 * upImpulse / gravity) + 0.15
     -- (The chase's own pace took over as soon as the body was in the air: braking for its
     -- target, it slowed a jump down to half its speed and landed it 40 % short.)
     data.airSpeedHold = flightTime ~= nil
@@ -1306,12 +1307,12 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 	-- Dynamic AlignOrientation lifetime matching calculated ballistic arc
 	Debris:AddItem(align, flightTime + 0.25)
 	Debris:AddItem(att, flightTime + 0.25)
-	local jumpStartTime = os.clock()
+	local jumpStartTime = GameClock.now()
 	local landedHandled = false
 	local function onLanded()
 		if landedHandled then return end
 		landedHandled = true
-		data.lastLandTime = os.clock()
+		data.lastLandTime = GameClock.now()
 		if data.activeLandedConn then
 			data.activeLandedConn:Disconnect()
 			data.activeLandedConn = nil
@@ -1338,7 +1339,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 		AnimationModule.stopConfig(humanoid, "Movement.Fall")
 
 		-- Audio feedback on landing via QuinCore AudioModule (only if genuinely airborne)
-		local airTime = os.clock() - jumpStartTime
+		local airTime = GameClock.now() - jumpStartTime
 		if airTime >= 0.18 and rootPart and rootPart.Parent then
 			AudioModule.playFallOnGround(rootPart.Position)
 			VfxModule.createLandingDust(rootPart, math.clamp(airTime / 1.2, 0.25, 0.8))
@@ -1358,12 +1359,12 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
             local across = Vector3.new(landingVelocity.X, 0, landingVelocity.Z).Magnitude
             local landingClip = across <= (CombatConfig.Landing_SoftMaxSpeed or 8) and "Parkour.LandingSoft" or "Parkour.LandingHard"
             local absorb = AnimationModule.getEffectiveDuration(humanoid, landingClip, 1.0) * LANDING_ABSORB_RATIO
-            data.landingHoldUntil = os.clock() + absorb
+            data.landingHoldUntil = GameClock.now() + absorb
             if landingClip == "Parkour.LandingSoft" then
-                fighter:SetAttribute("CasualUntil", os.clock() + absorb + (CombatConfig.Landing_CasualWalkTime or 2.5))
+                fighter:SetAttribute("CasualUntil", GameClock.now() + absorb + (CombatConfig.Landing_CasualWalkTime or 2.5))
             end
             AnimationModule.playConfig(humanoid, landingClip, 1.0, Enum.AnimationPriority.Action3, true)
-            task.delay(absorb, function()
+            GameClock.delay(absorb, function()
                 if humanoid.Parent then
                     AnimationModule.stopConfig(humanoid, landingClip, 0.25)
                 end
@@ -1390,7 +1391,7 @@ function LocomotionModule.jump(fighter, humanoid, rootPart, height, forwardImpul
 
 	-- Safety fallback timer: if server Humanoid StateChanged fails to fire on small vaults/hops,
 	-- clean up tracks after calculated ballistic arc + safety margin
-	task.delay(flightTime + 0.15, function()
+	GameClock.delay(flightTime + 0.15, function()
 		if not landedHandled and humanoid and humanoid.Parent and rootPart and rootPart.Parent then
 			local isGrounded = SpatialModule.isGrounded(rootPart)
 			if isGrounded or math.abs(rootPart.AssemblyLinearVelocity.Y) < 5 then
@@ -1407,7 +1408,7 @@ end
 function LocomotionModule.cutJump(fighter, humanoid, rootPart)
 	local data = locoData[fighter]
 	if not data or not humanoid or not rootPart then return false end
-	if os.clock() - (data.lastJumpTime or 0) > (CombatConfig.Locomotion_JumpCutWindow or 0.3) then return false end
+	if GameClock.now() - (data.lastJumpTime or 0) > (CombatConfig.Locomotion_JumpCutWindow or 0.3) then return false end
 	local v = rootPart.AssemblyLinearVelocity
 	if v.Y <= 0 or not isHumanoidAirborne(humanoid) then return false end
 	rootPart.AssemblyLinearVelocity = Vector3.new(v.X, v.Y * (CombatConfig.Locomotion_JumpCutKeep or 0.45), v.Z)
@@ -1420,9 +1421,9 @@ end
 
 function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
 	if fighter:GetAttribute("NoDash") then return end -- (carrying the Lantern: LanternSiege)
-	-- tick(): every reader of LastDashTime compares against tick(). Written with os.clock()
+	-- GameClock.tick(): every reader of LastDashTime compares against GameClock.tick(). Written with GameClock.now()
 	-- the cooldown never applied and dashes could chain back to back.
-	fighter:SetAttribute("LastDashTime", tick())
+	fighter:SetAttribute("LastDashTime", GameClock.tick())
 	JumpLog.mark(fighter, "Dash", JumpLog.why(fighter)) -- (every dash says why: JumpLog)
 
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
@@ -1462,12 +1463,12 @@ function LocomotionModule.dash(fighter, humanoid, rootPart, targetPos, distance)
 	AudioModule.playDash(rootPart)
 	VfxModule.createVaporCone(rootPart, 0.4)
 	-- (and the dust trail for the length of the dash, as the duel dash has)
-	task.delay(slideDuration, VfxModule.createDashTrail(rootPart))
+	GameClock.delay(slideDuration, VfxModule.createDashTrail(rootPart))
 
 	-- Physical propulsion
 	KnockbackModule.applySlide(fighter, dashDir, dashSpeed, slideDuration)
 
-	task.delay(slideDuration, function()
+	GameClock.delay(slideDuration, function()
 		if humanoid and humanoid.Parent then
 			AnimationModule.stopConfig(humanoid, "Movement.Dash", 0.1)
 		end
@@ -1554,8 +1555,8 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 		end
 	end
 
-	local now = os.clock()
-	fighter:SetAttribute("LastSlideTime", tick()) -- readers compare against tick()
+	local now = GameClock.now()
+	fighter:SetAttribute("LastSlideTime", GameClock.tick()) -- readers compare against GameClock.tick()
 	fighter:SetAttribute("LastActivityTime", now)
 
 	-- Energy drain
@@ -1628,7 +1629,7 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 		end)
 	end
 
-	local startClock = os.clock()
+	local startClock = GameClock.now()
 	slide.conn = RunService.Heartbeat:Connect(function()
 		if not fighter.Parent or not humanoid.Parent or humanoid.Health <= 0 or not rootPart.Parent then
 			endSlide(fighter, humanoid, rootPart, false)
@@ -1642,7 +1643,7 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 
 		-- Follow the clip's own clock once it is playing; until the asset has loaded,
 		-- advance on wall time at the clip rate so physics never stalls.
-		local t = (os.clock() - startClock) * rate
+		local t = (GameClock.now() - startClock) * rate
 		if track and track.IsPlaying and track.Length > 0 then
 			t = track.TimePosition
 		end
@@ -1669,7 +1670,7 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 					break
 				end
 			end
-			if low and os.clock() - startClock < 4 then
+			if low and GameClock.now() - startClock < 4 then
 				if track and track.IsPlaying and track.Length > 0 then
 					track.TimePosition = math.max(dropT + 0.1, stopT - 0.35)
 				end
@@ -1705,8 +1706,8 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 		end
 
 		-- The glide leaves a streak on the turf
-		if t >= dropT and t < stopT and os.clock() - slide.lastMark >= 0.07 then
-			slide.lastMark = os.clock()
+		if t >= dropT and t < stopT and GameClock.now() - slide.lastMark >= 0.07 then
+			slide.lastMark = GameClock.now()
 			VfxModule.createGroundMark(rootPart, dir, speed * 0.08 + 0.6, 1.0, 3.5)
 		end
 	end)

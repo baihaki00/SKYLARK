@@ -11,6 +11,7 @@
 -- overlaps the floor's footprint, so "over the wall's top" and "on the floor beside the wall"
 -- can share an X and Z.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -59,7 +60,7 @@ function ArenaTrespass.update(fighter: Model, rootPart: BasePart, stateName: str
 		record = { time = 0 }
 		records[fighter] = record
 	end
-	local now = os.clock()
+	local now = GameClock.now()
 	local where = ArenaTrespass.locate(fighter, rootPart)
 
 	if where == "Ground" then

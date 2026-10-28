@@ -3,6 +3,7 @@
 -- Two fighters meet in the air, fly the multi-dash orbit together (Modules/ClashOrbit), then one of
 -- two climaxes: Mutual Tie blast-back OR Meteor Downward Smash into ground recovery.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
@@ -119,7 +120,7 @@ function MidAirClashState.enter(fighter, humanoid, rootPart)
 				fighter:SetAttribute("ClashCenterY", center.Y)
 				fighter:SetAttribute("ClashCenterZ", center.Z)
 				fighter:SetAttribute("ClashPhase", "Init")
-				fighter:SetAttribute("ClashPhaseStart", tick())
+				fighter:SetAttribute("ClashPhaseStart", GameClock.tick())
 				fighter:SetAttribute("ClashRelocations", 0)
 
 				-- Sometimes there is no brawl: the one that came in faster smashes the other
@@ -143,11 +144,11 @@ function MidAirClashState.enter(fighter, humanoid, rootPart)
 	fighter:SetAttribute("CurrentState", "MidAirClash")
 	
 	clashData[fighter] = {
-		startTime = tick(),
+		startTime = GameClock.tick(),
 		target = target,
 		role = role,
 		phase = "Init",
-		phaseStart = tick(),
+		phaseStart = GameClock.tick(),
 		winnerName = nil,
 		animTrack = nil
 	}
@@ -179,14 +180,14 @@ function MidAirClashState.exit(fighter, humanoid, rootPart)
 	fighter:SetAttribute("ClashRelocations", nil)
 	fighter:SetAttribute("ClashWinner", nil)
 	fighter:SetAttribute("ClashResult", nil)
-	fighter:SetAttribute("LastClashTime", os.clock())
+	fighter:SetAttribute("LastClashTime", GameClock.now())
 	
 	clashData[fighter] = nil
 end
 
 local function switchPhase(data, newPhase)
 	data.phase = newPhase
-	data.phaseStart = tick()
+	data.phaseStart = GameClock.tick()
 end
 
 function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
@@ -199,7 +200,7 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	-- The partner left the clash (or is clashing with someone else): nobody to fight up here.
 	-- Not once a result is written (the leader leaves first and clears its own partner).
-	if not fighter:GetAttribute("ClashResult") and tick() - data.startTime > 0.3
+	if not fighter:GetAttribute("ClashResult") and GameClock.tick() - data.startTime > 0.3
 		and target:GetAttribute("MidAirClashPartner") ~= fighter.Name then
 		return States.Airborne
 	end
@@ -210,7 +211,7 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 		return States.Airborne
 	end
 	
-	local now = tick()
+	local now = GameClock.tick()
 	local timeInPhase = now - data.phaseStart
 	local totalElapsed = now - data.startTime
 	
@@ -332,7 +333,7 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 				VfxModule.shakeScreen(rootPart.Position, 500, 10)
 				
 				-- Hover in air momentarily then drop to re-engage
-				task.delay(0.45, function()
+				GameClock.delay(0.45, function()
 					if humanoid and humanoid.Health > 0 then
 						humanoid.PlatformStand = false
 					end
@@ -373,7 +374,7 @@ function MidAirClashState.update(fighter, humanoid, rootPart, DEBUG)
 
 				fighter:SetAttribute("KnockbackType", "hard_ground")
 				StateRequest.ask(fighter, "Knockback", StateRequest.HIT, "struck")
-				fighter:SetAttribute("LaunchedAt", tick())
+				fighter:SetAttribute("LaunchedAt", GameClock.tick())
 				
 				DamageModule.chip(target, fighter, 20) -- the one smashed down takes it (this used to hit the winner)
 				

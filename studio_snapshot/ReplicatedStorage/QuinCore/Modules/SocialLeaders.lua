@@ -18,6 +18,7 @@
 -- LeaderSignalAt, SocialFocus / SocialFocusUntil (an attack signal it chose to follow),
 -- SocialGuard / SocialGuardUntil (protect), plus Workspace SocialStats (JSON telemetry).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
@@ -55,7 +56,7 @@ local demotedAt = {}    -- model -> when it lost the role (it does not lead agai
 local nextElection = 0
 local stats = { signals = {}, follow = 0, ignore = 0, witness = {}, transfers = {}, emerged = 0 }
 
-local function now() return os.clock() end
+local function now() return GameClock.now() end
 
 local function rootOf(m) return m:FindFirstChild("HumanoidRootPart") end
 local function humOf(m) return m:FindFirstChildOfClass("Humanoid") end
@@ -146,7 +147,7 @@ local function promote(team, m, standing)
 	-- allies close by notice: a look, sometimes a nod
 	for _, ally in ipairs(SocialSystem.fighters()) do
 		if ally ~= m and ally:GetAttribute("Team") == team and flatDist(ally, m) < (CFG.NoticeRadius or 40) and math.random() < 0.5 then
-			task.delay(math.random() * 1.2, function()
+			GameClock.delay(math.random() * 1.2, function()
 				if math.random() < 0.5 then SocialSystem.acknowledge(ally, m) else SocialSystem.lookAt(ally, m, 1.0) end
 			end)
 		end
@@ -281,7 +282,7 @@ local function respond(follower, leader, kind, info)
 			if kind == "Attack" and info.target then
 				follower:SetAttribute("SocialFocus", info.target.Name)
 				follower:SetAttribute("SocialFocusUntil", SocialSystem.now() + (CFG.FocusTime or 8))
-				task.delay(pointed and 0.5 or 0.9, function() SocialSystem.lookAt(follower, info.target, 1.0) end)
+				GameClock.delay(pointed and 0.5 or 0.9, function() SocialSystem.lookAt(follower, info.target, 1.0) end)
 			elseif kind == "Regroup" and info.point then
 				local jitter = Vector3.new(math.random() * 16 - 8, 0, math.random() * 16 - 8)
 				SocialSystem.setMoveIntent(follower, info.point + jitter, danger > 0.4 and "run" or "jog", CFG.RegroupTime or 5)
@@ -295,14 +296,14 @@ local function respond(follower, leader, kind, info)
 			table.insert(info.ignorers, follower)
 			-- refusal: back to its own enemy, and keeps fighting
 			if myTarget then
-				task.delay(pointed and 0.6 or 0.9, function() SocialSystem.lookAt(follower, myTarget, 1.0) end)
+				GameClock.delay(pointed and 0.6 or 0.9, function() SocialSystem.lookAt(follower, myTarget, 1.0) end)
 			end
 			-- witnesses: allies close to the one who refused, not busy themselves
 			for _, w in ipairs(SocialSystem.fighters()) do
 				if w ~= follower and w ~= leader and w:GetAttribute("Team") == follower:GetAttribute("Team")
 					and w:GetAttribute("CurrentState") ~= "Fight" and flatDist(w, follower) < (CFG.WitnessRadius or 30) then
 					local r = math.random()
-					task.delay(0.4 + math.random() * 0.8, function()
+					GameClock.delay(0.4 + math.random() * 0.8, function()
 						if not (w.Parent and follower.Parent) then return end
 						if r < 0.35 then
 							SocialSystem.lookAt(w, follower, 1.2) -- a look at the one who refused
@@ -335,7 +336,7 @@ local function respond(follower, leader, kind, info)
 		end
 		return
 	end
-	task.delay(delay, function()
+	GameClock.delay(delay, function()
 		if not (follower.Parent and leader.Parent) then return end
 		SocialSystem.lookAt(follower, leader, 0.8)
 		outcome(false)
@@ -363,13 +364,13 @@ local function signal(leader, team, kind, info, members)
 			leader:SetAttribute("PointAtName", nil)
 			leader:SetAttribute("PointAtPos", info.aim)
 			leader:SetAttribute("LookPoint", info.aim)
-			leader:SetAttribute("LookUntil", Workspace:GetServerTimeNow() + POINT_DURATION)
+			leader:SetAttribute("LookUntil", GameClock.serverNow() + POINT_DURATION)
 		else
 			leader:SetAttribute("PointAtName", info.aim.Name)
 			leader:SetAttribute("PointAtPos", nil)
 			SocialSystem.lookAt(leader, info.aim, POINT_DURATION)
 		end
-		leader:SetAttribute("PointAt", Workspace:GetServerTimeNow())
+		leader:SetAttribute("PointAt", GameClock.serverNow())
 		Callouts().debugTag(leader, "lead: " .. string.lower(kind) .. (info.target and (" " .. info.target.Name) or ""), Color3.fromRGB(255, 200, 80))
 		SocialSystem.nod(leader, POINT_DURATION)
 		table.insert(pending, info)
@@ -389,7 +390,7 @@ local function signal(leader, team, kind, info, members)
 					end
 				end
 				waiting = still
-				task.wait(0.15)
+				GameClock.wait(0.15)
 			end
 			stats.missedPoint = (stats.missedPoint or 0) + #waiting
 		end)
@@ -402,7 +403,7 @@ local function signal(leader, team, kind, info, members)
 		if m ~= leader and d < nd then nearest, nd = m, d end
 	end
 	if nearest then SocialSystem.lookAt(leader, nearest, 0.7) end
-	task.delay(0.7, function()
+	GameClock.delay(0.7, function()
 		if info.target then SocialSystem.lookAt(leader, info.target, 0.9) end
 		SocialSystem.nod(leader, 0.3)
 	end)

@@ -9,6 +9,7 @@
 -- Neutral (layer off): nobody calls and nobody hears; Memory's quiet sharing between Quins
 -- standing close together still works.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -134,11 +135,11 @@ function Callouts.maybeCall(board, quinModel, rootPart, fresh, now)
 			})
 			board.called = { enemy = percept.model, at = now }
 			quinModel:SetAttribute("CalloutOf", percept.model.Name)
-			quinModel:SetAttribute("CalloutAt", workspace:GetServerTimeNow())
+			quinModel:SetAttribute("CalloutAt", GameClock.serverNow())
 			if point then
 				quinModel:SetAttribute("PointAtName", percept.model.Name)
 				quinModel:SetAttribute("PointAtPos", nil)
-				quinModel:SetAttribute("PointAt", workspace:GetServerTimeNow()) -- (LookController raises the arm)
+				quinModel:SetAttribute("PointAt", GameClock.serverNow()) -- (LookController raises the arm)
 				Callouts.debugTag(quinModel, "point: " .. percept.model.Name, Color3.fromRGB(255, 230, 120))
 			end
 			return
@@ -202,7 +203,7 @@ end
 -- an impulsive temperament. onAnswer() runs at the answer. Used by callouts, pack leaders and
 -- the smoke test, so the chain is the same everywhere.
 local function lookAtThing(quin, thing, seconds)
-	local serverNow = Workspace:GetServerTimeNow()
+	local serverNow = GameClock.serverNow()
 	if typeof(thing) == "Instance" then
 		quin:SetAttribute("SocialLookAt", thing.Name)
 		quin:SetAttribute("SocialLookUntil", serverNow + seconds)
@@ -215,7 +216,7 @@ end
 
 function Callouts.react(watcher, pointer, aim, go, label, onAnswer, quick)
 	local reacting = watcher:GetAttribute("PointReactUntil")
-	if reacting and reacting > Workspace:GetServerTimeNow() then return false end -- (one at a time)
+	if reacting and reacting > GameClock.serverNow() then return false end -- (one at a time)
 	local function r(a, b) return a + math.random() * (b - a) end
 	local notice = r(cfg("PointNoticeMin", 0.1), cfg("PointNoticeMax", 0.3))
 	local onPointer = cfg("PointLookPointer", 0.4) * r(0.85, 1.2)
@@ -224,24 +225,24 @@ function Callouts.react(watcher, pointer, aim, go, label, onAnswer, quick)
 	local think = r(cfg("PointThinkMin", 0.3), cfg("PointThinkMax", 0.8)) * (1.25 - 0.5 * impulsive) * (1 - 0.3 * (quick or 0))
 	local back = math.random() < cfg("PointBackToPointer", 0.5)
 	local total = notice + onPointer + onAim + think + (back and 0.3 or 0) + 0.6
-	watcher:SetAttribute("PointReactUntil", Workspace:GetServerTimeNow() + total)
+	watcher:SetAttribute("PointReactUntil", GameClock.serverNow() + total)
 	task.spawn(function()
-		task.wait(notice)
+		GameClock.wait(notice)
 		if not (watcher.Parent and pointer.Parent) then return end
 		Callouts.debugTag(watcher, "? " .. pointer.Name, Color3.fromRGB(200, 220, 255))
 		lookAtThing(watcher, pointer, onPointer)
-		task.wait(onPointer)
+		GameClock.wait(onPointer)
 		if not watcher.Parent then return end
 		if typeof(aim) ~= "Instance" or aim.Parent then
 			lookAtThing(watcher, aim, onAim + think + (back and 0.05 or 0.7))
 		end
-		task.wait(onAim + think)
+		GameClock.wait(onAim + think)
 		if not watcher.Parent then return end
 		if back and pointer.Parent then
 			lookAtThing(watcher, pointer, 0.9)
-			task.wait(0.3) -- (the head gets there before the nod)
+			GameClock.wait(0.3) -- (the head gets there before the nod)
 		end
-		watcher:SetAttribute(go and "NodAt" or "ShakeAt", Workspace:GetServerTimeNow())
+		watcher:SetAttribute(go and "NodAt" or "ShakeAt", GameClock.serverNow())
 		Callouts.debugTag(watcher, label, go and Color3.fromRGB(140, 255, 140) or Color3.fromRGB(255, 150, 150))
 		if onAnswer then onAnswer() end
 	end)
@@ -297,7 +298,7 @@ function Callouts.listen(board, quinModel, rootPart, now, learn)
 					if learn(call) then
 						quinModel:SetAttribute("HeardCalloutOf", call.enemy.Name)
 						quinModel:SetAttribute("HeardCalloutFrom", call.caller.Name)
-						quinModel:SetAttribute("HeardCalloutAt", workspace:GetServerTimeNow())
+						quinModel:SetAttribute("HeardCalloutAt", GameClock.serverNow())
 					end
 					saw = call
 				end
@@ -311,7 +312,7 @@ function Callouts.listen(board, quinModel, rootPart, now, learn)
 			local enemy = saw.enemy
 			Callouts.react(quinModel, saw.caller, enemy, go, (go and "on it: " or "nah: ") .. why, function()
 				quinModel:SetAttribute("PointAnswer", (go and "on it: " or "nah: ") .. why)
-				quinModel:SetAttribute("PointAnswerAt", Workspace:GetServerTimeNow())
+				quinModel:SetAttribute("PointAnswerAt", GameClock.serverNow())
 				if go and enemy.Parent and quinModel:GetAttribute("CurrentTarget") ~= enemy.Name then
 					require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule")).setTarget(quinModel, enemy, "Pointed")
 				end
@@ -335,7 +336,7 @@ function Callouts.listen(board, quinModel, rootPart, now, learn)
 		board.heard = { from = heard.caller, enemy = heard.enemy, at = now }
 		quinModel:SetAttribute("HeardCalloutOf", heard.enemy.Name)
 		quinModel:SetAttribute("HeardCalloutFrom", heard.caller.Name)
-		quinModel:SetAttribute("HeardCalloutAt", workspace:GetServerTimeNow())
+		quinModel:SetAttribute("HeardCalloutAt", GameClock.serverNow())
 	end
 	return heard
 end

@@ -3,6 +3,7 @@
 -- Operates as a client-side post-animation layer on top of evaluated FBX bone transforms
 -- Implements graduated biomechanical distribution and smooth gaze tracking.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 
 local LookController = {}
@@ -162,7 +163,7 @@ function LookController:resolveTargetPosition()
 		-- Looking back over the shoulder while running (the full-body glance clip froze the legs):
 		-- at the threat behind if there is one, else to one side
 		local glanceUntil = serverModel:GetAttribute("GlanceBackUntil")
-		if not isPlayer and glanceUntil and workspace:GetServerTimeNow() < glanceUntil and self.rootPart then
+		if not isPlayer and glanceUntil and GameClock.serverNow() < glanceUntil and self.rootPart then
 			local threatName = serverModel:GetAttribute("ClosestRearThreat")
 			local qServer = Workspace:FindFirstChild("QuinServer") or Workspace
 			local threat = threatName and qServer:FindFirstChild(threatName)
@@ -181,7 +182,7 @@ function LookController:resolveTargetPosition()
 		-- Social body language (SocialSystem): a look at another Quin - the leader, an ally it
 		-- nods to, one that ignored a signal, a duel it watches
 		local socialUntil = serverModel:GetAttribute("SocialLookUntil")
-		if not isPlayer and socialUntil and workspace:GetServerTimeNow() < socialUntil then
+		if not isPlayer and socialUntil and GameClock.serverNow() < socialUntil then
 			local name = serverModel:GetAttribute("SocialLookAt")
 			local qServer = Workspace:FindFirstChild("QuinServer") or Workspace
 			local qGhost = Workspace:FindFirstChild("QuinGhost") or Workspace:FindFirstChild("AIGhosts")
@@ -199,7 +200,7 @@ function LookController:resolveTargetPosition()
 		-- scans from its post, the spot a teammate called (IdleState, Cognition.Gaze)
 		local lookUntil = serverModel:GetAttribute("LookUntil")
 		local lookPoint = serverModel:GetAttribute("LookPoint")
-		if not isPlayer and lookUntil and typeof(lookPoint) == "Vector3" and workspace:GetServerTimeNow() < lookUntil then
+		if not isPlayer and lookUntil and typeof(lookPoint) == "Vector3" and GameClock.serverNow() < lookUntil then
 			return lookPoint + Vector3.new(0, 2.5, 0), "LOOK"
 		end
 
@@ -269,7 +270,7 @@ function LookController:resolveTargetPosition()
 					-- 59% of the targets such a ray found hidden).
 					-- (Workspace LookSight = false switches both sight rules off, for A/B)
 					if not isPlayer and self.headBone and Workspace:GetAttribute("LookSight") ~= false then
-						local now = os.clock()
+						local now = GameClock.now()
 						if self.sightName ~= targetName then
 							self.sightName, self.lastSeenPos, self.sightAt = targetName, nil, 0
 						end
@@ -350,7 +351,7 @@ function LookController:preparePoint()
 	local model = self.aiModel
 	local at = model and model:GetAttribute("PointAt")
 	if not at or Workspace:GetAttribute("PointOff") == true then return end
-	local t = Workspace:GetServerTimeNow() - at
+	local t = GameClock.serverNow() - at
 	if t < 0 or t >= POINT_DURATION then return end
 	-- at a Quin (PointAtName), or at a place (PointAtPos: a spot, a thing, where to go)
 	local targetPos
@@ -458,8 +459,8 @@ end
 function LookController:update(dt)
 	local stale = not self.headBone or not self.headBone:IsDescendantOf(self.ghostModel)
 		or not self.arms.Right or not self.arms.Right.upper:IsDescendantOf(self.ghostModel)
-	if stale and os.clock() >= (self.rebindAt or 0) then
-		self.rebindAt = os.clock() + 1
+	if stale and GameClock.now() >= (self.rebindAt or 0) then
+		self.rebindAt = GameClock.now() + 1
 		self:bindBones()
 		self.boneWrites = nil
 	end
@@ -486,7 +487,7 @@ function LookController:updateLook(dt)
 	local nodPitch = 0
 	local nodAt = self.aiModel and self.aiModel:GetAttribute("NodAt")
 	if nodAt then
-		local t = workspace:GetServerTimeNow() - nodAt
+		local t = GameClock.serverNow() - nodAt
 		if t >= 0 and t < NOD_DURATION then
 			local wave = math.sin(2 * math.pi * t / NOD_DURATION)
 			nodPitch = -NOD_DEPTH * wave * wave * (1 - 0.4 * t / NOD_DURATION)
@@ -495,7 +496,7 @@ function LookController:updateLook(dt)
 	local shakeYaw = 0
 	local shakeAt = self.aiModel and self.aiModel:GetAttribute("ShakeAt")
 	if shakeAt then
-		local t = workspace:GetServerTimeNow() - shakeAt
+		local t = GameClock.serverNow() - shakeAt
 		if t >= 0 and t < SHAKE_DURATION then
 			shakeYaw = SHAKE_AMP * math.sin(4 * math.pi * t / SHAKE_DURATION) * (1 - t / SHAKE_DURATION)
 		end

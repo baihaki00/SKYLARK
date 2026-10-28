@@ -25,6 +25,7 @@
 -- The shared loop is started from Server (Momentum.start): a loop started from a Quin's Main dies
 -- with that Quin.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -81,7 +82,7 @@ end
 -- Seconds since the move's current part began (a leap, a dash, a throw)
 function Momentum.phaseAge(fighter)
 	local rec = moves[fighter]
-	return rec and os.clock() - (rec.phaseAt or rec.started) or math.huge
+	return rec and GameClock.now() - (rec.phaseAt or rec.started) or math.huge
 end
 
 -- Off the ground: in a move, or falling or jumping on its own
@@ -204,7 +205,7 @@ local function take(fighter, humanoid, root)
 		state = fighter:GetAttribute("CurrentState"),
 		params = worldParams(fighter),
 		loops = {}, disabled = {},
-		bounces = 0, started = os.clock(),
+		bounces = 0, started = GameClock.now(),
 	}
 	-- whatever facing constraint the state left on is held off while the move turns the body
 	for _, child in ipairs(root:GetChildren()) do
@@ -274,7 +275,7 @@ local function setBallistic(rec, velocity, kind)
 	rec.target, rec.point = nil, nil
 	rec.lv.MaxAxesForce = Vector3.zero
 	rec.root.AssemblyLinearVelocity = containVelocity(rec.root.Position, velocity)
-	rec.phaseAt = os.clock()
+	rec.phaseAt = GameClock.now()
 	rec.fighter:SetAttribute("MomentumMove", rec.kind)
 end
 
@@ -344,7 +345,7 @@ function Momentum.dash(fighter, target, speed)
 	if not humanoid then return false end
 	local rec = take(fighter, humanoid, root)
 	rec.kind = "dash"
-	rec.phaseAt = os.clock()
+	rec.phaseAt = GameClock.now()
 	if typeof(target) == "Vector3" then
 		rec.target, rec.point = nil, target
 	else
@@ -396,7 +397,7 @@ local function bounce(rec, velocity, normal, at)
 	AudioModule.playDash(rec.root)
 	VfxModule.createShockwave(at, 4, 0.15)
 	if target then
-		rec.redash = { target = target, at = os.clock() + cfg("BounceRedashDelay", 0.22) }
+		rec.redash = { target = target, at = GameClock.now() + cfg("BounceRedashDelay", 0.22) }
 	end
 end
 
@@ -420,7 +421,7 @@ local function contact(rec, other)
 			-- across the arena in a punch pose)
 			local track = AnimationModule.play(humanoid, list[math.random(1, #list)], Enum.AnimationPriority.Action4, false, 1.6)
 			if track then
-				task.delay(cfg("ContactStrikeHold", 0.18), function()
+				GameClock.delay(cfg("ContactStrikeHold", 0.18), function()
 					if track.IsPlaying then track:Stop(0.15) end
 				end)
 			end
@@ -433,8 +434,8 @@ local function contact(rec, other)
 	VfxModule.shakeScreen(mid, 250, 6)
 	local victim = math.random() < 0.5 and rec.humanoid or oHum
 	require(script.Parent:WaitForChild("DamageModule")).chip(victim == oHum and rec.fighter or other, victim.Parent, cfg("ContactDamage", 2))
-	rec.fighter:SetAttribute("MomentumContactAt", os.clock())
-	other:SetAttribute("MomentumContactAt", os.clock())
+	rec.fighter:SetAttribute("MomentumContactAt", GameClock.now())
+	other:SetAttribute("MomentumContactAt", GameClock.now())
 
 	local outcome = Momentum.contactHook and Momentum.contactHook(rec.fighter, other) or nil
 	if outcome and outcome.ground then
@@ -488,7 +489,7 @@ land = function(rec, velocity, standPos)
 	local fighter, humanoid, root = rec.fighter, rec.humanoid, rec.root
 	local fall = -velocity.Y
 	finish(rec, false)
-	fighter:SetAttribute("MomentumLandedAt", os.clock())
+	fighter:SetAttribute("MomentumLandedAt", GameClock.now())
 	-- thrown off a mid-air hit and coming down hard: it falls and gets up (Recovery's get-up),
 	-- not snapped upright onto its feet in one frame (owner: "looks like they snapped on the ground")
 	if rec.kind == "thrown" and (fall >= cfg("ThrownGetUpFall", 60) or h.Magnitude >= cfg("ThrownGetUpSpeed", 60)) then
@@ -563,7 +564,7 @@ local function step(rec, dt)
 		finish(rec, true)
 		return
 	end
-	local now = os.clock()
+	local now = GameClock.now()
 	if now - rec.started > cfg("MaxMoveTime", 6) then
 		finish(rec, false)
 		return
@@ -677,8 +678,8 @@ local function quin(name)
 end
 
 local function waitUntil(fn, timeout)
-	local t0 = os.clock()
-	while not fn() and os.clock() - t0 < timeout do
+	local t0 = GameClock.now()
+	while not fn() and GameClock.now() - t0 < timeout do
 		RunService.Heartbeat:Wait()
 	end
 end
@@ -699,7 +700,7 @@ local function demo(a, b)
 		-- the first leaps high toward the other (off to a side)
 		local gap = flat(r2.Position - r1.Position).Magnitude
 		Momentum.leap(first, towardSpot(first, r1.Position, r2.Position, gap * 0.7, math.random(-40, 40)), math.random(50, 90))
-		task.wait(math.random(25, 55) / 100)
+		GameClock.wait(math.random(25, 55) / 100)
 		local roll = math.random()
 		if roll < 0.5 then
 			-- the other goes up after it; at the top, the first dashes at it
@@ -710,7 +711,7 @@ local function demo(a, b)
 			-- the one in the air dashes down at the one on the ground; it dashes first to meet it
 			waitUntil(function() return r1.AssemblyLinearVelocity.Y < 0 end, 1.5)
 			Momentum.dash(first, second)
-			task.wait(0.08)
+			GameClock.wait(0.08)
 			Momentum.dash(second, first)
 		else
 			-- the one on the ground runs on and hops; the one in the air dashes at it
@@ -719,7 +720,7 @@ local function demo(a, b)
 			Momentum.dash(first, second)
 		end
 		waitUntil(function() return not moves[a] and not moves[b] end, 6)
-		task.wait(0.6)
+		GameClock.wait(0.6)
 	end
 end
 
@@ -748,7 +749,7 @@ function Momentum.startDevCommand()
 				a.HumanoidRootPart.CFrame = CFrame.new(c + Vector3.new(-80, 15, 0))
 				b.HumanoidRootPart.CFrame = CFrame.new(c + Vector3.new(80, 15, 0))
 				Workspace:SetAttribute("MomentumDemoPair", a.Name .. " vs " .. b.Name)
-				task.wait(0.8)
+				GameClock.wait(0.8)
 			end
 		end
 		if not a then

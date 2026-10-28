@@ -14,6 +14,7 @@
 --   Knockback trail            -> createKnockbackTrail
 --   Impact (hit burst)         -> createStylizedHit
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
@@ -369,7 +370,7 @@ function VfxModule.createKnockbackTrail(part, duration)
 	emitter.Color = ColorSequence.new(elem.trailColor)
 	emitter.Parent = attachment
 
-	task.delay(duration, function()
+	GameClock.delay(duration, function()
 		emitter.Enabled = false
 		Debris:AddItem(attachment, 1.0)
 	end)
@@ -746,7 +747,7 @@ local function fadeDecal(entry, seconds)
 	if entry.canvas.Parent then
 		TweenService:Create(entry.canvas, TweenInfo.new(seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { GroupTransparency = 1 }):Play()
 	end
-	task.delay(seconds, function()
+	GameClock.delay(seconds, function()
 		local index = table.find(activeDecals, entry)
 		if index then table.remove(activeDecals, index) end
 		markCount = #activeDecals
@@ -810,7 +811,7 @@ local function groundDecal(position, forward, sizeX, sizeZ, hold, fade)
 	local entry = { carrier = carrier, canvas = canvas }
 	table.insert(activeDecals, entry)
 	markCount = #activeDecals
-	task.delay(hold, function()
+	GameClock.delay(hold, function()
 		fadeDecal(entry, fade)
 	end)
 	return canvas
@@ -900,7 +901,7 @@ function VfxModule.createFootprint(fighter, side)
 	if not rootPart then return end
 	local velocity = rootPart.AssemblyLinearVelocity
 	local flat = Vector3.new(velocity.X, 0, velocity.Z)
-	local now = os.clock()
+	local now = GameClock.now()
 	if flat.Magnitude < FOOTPRINT_MIN_SPEED or now - (lastFootprint[fighter] or 0) < FOOTPRINT_INTERVAL then return end
 
 	local bones = footBones(fighter)
@@ -1057,9 +1058,9 @@ function VfxModule.holoGlitch(model, duration, direction)
 
 	task.spawn(function()
 		local rng = Random.new()
-		local started = os.clock()
+		local started = GameClock.now()
 		while model.Parent do
-			local progress = math.clamp((os.clock() - started) / duration, 0, 1)
+			local progress = math.clamp((GameClock.now() - started) / duration, 0, 1)
 			local solid = arriving and progress or (1 - progress) -- how much of it is there
 			local tear = progress < 1 and rng:NextNumber() < 0.18
 			local shown = tear and 0 or math.clamp(solid + rng:NextNumber(-0.3, 0.3), 0, 1)
@@ -1073,7 +1074,7 @@ function VfxModule.holoGlitch(model, duration, direction)
 			end
 			glow.FillTransparency = rng:NextNumber(0.25, 0.85)
 			if progress >= 1 then break end
-			task.wait(rng:NextNumber(HOLO_FLICKER_MIN, HOLO_FLICKER_MAX))
+			GameClock.wait(rng:NextNumber(HOLO_FLICKER_MIN, HOLO_FLICKER_MAX))
 		end
 		glow:Destroy()
 	end)

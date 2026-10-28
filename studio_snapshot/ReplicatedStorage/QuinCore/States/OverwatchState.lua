@@ -12,6 +12,7 @@
 -- Retreating allies prefer a platform a friend already holds (RetreatTacticsModule), so the
 -- wounded gather on the same one.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -164,8 +165,8 @@ function OverwatchState.enter(fighter, humanoid, rootPart)
 	local watchMin = CombatConfig.Overwatch_WatchMin or 4
 	local watchMax = CombatConfig.Overwatch_WatchMax or 12
 	watchData[fighter] = {
-		enterTime = os.clock(),
-		lastUpdate = os.clock(),
+		enterTime = GameClock.now(),
+		lastUpdate = GameClock.now(),
 		watchFor = watchMax + (watchMin - watchMax) * aggression,
 		route = nil,
 		routeIndex = 1,
@@ -188,7 +189,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 		return States.Chase
 	end
 
-	local now = os.clock()
+	local now = GameClock.now()
 	local dt = math.clamp(now - data.lastUpdate, 0.016, 0.25)
 	data.lastUpdate = now
 	local watched = now - data.enterTime
@@ -227,7 +228,7 @@ function OverwatchState.update(fighter, humanoid, rootPart, DEBUG)
 	if watched >= watchFor and fighter:GetAttribute("RecommendedAction") ~= "Retreat" then
 		local canDive = CombatConfig.EnableProjectileJump ~= false and fighter:GetAttribute("EnableProjectileJump") ~= false
 			and (fighter:GetAttribute("Energy") or 100) >= (CombatConfig.ProjectileJumpMinEnergy or 40)
-			and (tick() - (fighter:GetAttribute("LastProjectileJumpTime") or 0)) >= (CombatConfig.ProjectileJump_Cooldown or 14.0)
+			and (GameClock.tick() - (fighter:GetAttribute("LastProjectileJumpTime") or 0)) >= (CombatConfig.ProjectileJump_Cooldown or 14.0)
 		local prey = canDive and nearestEnemy(fighter, function(contact)
 			return contact.visible and contact.position.Y < rootPart.Position.Y - SAME_LEVEL
 		end)

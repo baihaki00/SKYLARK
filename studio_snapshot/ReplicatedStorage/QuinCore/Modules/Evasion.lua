@@ -17,6 +17,7 @@
 --
 -- While a move runs, Fight and Circling hold (Evasion.busy) so nothing else steers or turns the body.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -101,7 +102,7 @@ function Evasion.preload()
 	if RunService:IsStudio() then
 		task.spawn(function()
 			while true do
-				task.wait(5)
+				GameClock.wait(5)
 				Workspace:SetAttribute("EvasionStats", string.format("dash %d refused %d evade right %d wrong %d",
 					stats.dash, stats.dashRefused, stats.evadeRight, stats.evadeWrong))
 			end
@@ -152,7 +153,7 @@ end
 
 local function stillFree(fighter, humanoid)
 	if not fighter.Parent or humanoid.Health <= 0 or fighter:GetAttribute("IsInert") == true then return false end
-	if (fighter:GetAttribute("StunEndTime") or 0) > tick() then return false end
+	if (fighter:GetAttribute("StunEndTime") or 0) > GameClock.tick() then return false end
 	local state = fighter:GetAttribute("CurrentState")
 	return state == "Fight" or state == "Circling"
 end
@@ -161,12 +162,12 @@ end
 -- to follow it (what it actually covered is measured), capped at maxSpeed: a path that asks for
 -- more than physics can give is caught up on rather than lost.
 local function drive(fighter, humanoid, rootPart, move, displacement, dirAt, travelEnd, tag, maxForce, maxSpeed)
-	local start = os.clock()
+	local start = GameClock.now()
 	local lastT = 0
 	local covered = 0
 	local conn
 	conn = RunService.Heartbeat:Connect(function()
-		local t = os.clock() - start
+		local t = GameClock.now() - start
 		local targetRoot = move.target and move.target.Parent and move.target
 		if active[fighter] ~= move or not stillFree(fighter, humanoid) then
 			conn:Disconnect()
@@ -214,13 +215,13 @@ end
 -- True while a dash or an evade has the body (the states hold off)
 function Evasion.busy(fighter)
 	local move = active[fighter]
-	return move ~= nil and os.clock() < move.until_
+	return move ~= nil and GameClock.now() < move.until_
 end
 
 function Evasion.dashReady(fighter)
 	if fighter:GetAttribute("PilotedBy") or cfg("FocusDash_Enabled", true) == false then return false end
 	if active[fighter] then return false end
-	if tick() < (fighter:GetAttribute("FocusDashReadyAt") or 0) then return false end
+	if GameClock.tick() < (fighter:GetAttribute("FocusDashReadyAt") or 0) then return false end
 	return (fighter:GetAttribute("Energy") or 100) >= cfg("FocusDash_MinEnergy", 15)
 end
 
@@ -257,7 +258,7 @@ function Evasion.focusDash(fighter, humanoid, rootPart, targetRoot, want, opts)
 		distance *= 0.55
 		if not clearPath(rootPart, startDir, distance) then
 			stats.dashRefused += 1
-			fighter:SetAttribute("FocusDashReadyAt", tick() + 0.6)
+			fighter:SetAttribute("FocusDashReadyAt", GameClock.tick() + 0.6)
 			return nil
 		end
 	end
@@ -274,15 +275,15 @@ function Evasion.focusDash(fighter, humanoid, rootPart, targetRoot, want, opts)
 
 	local move = { kind = kind, target = targetRoot }
 	move.freeAt = math.max(m.Recover / playSpeed, travelEnd)
-	move.until_ = os.clock() + move.freeAt
+	move.until_ = GameClock.now() + move.freeAt
 	active[fighter] = move
 
 	local energy = fighter:GetAttribute("Energy") or 100
 	fighter:SetAttribute("Energy", math.max(0, energy - cfg("FocusDash_EnergyCost", 6)))
 	local cdMin, cdMax = cfg("FocusDash_CooldownMin", 1.6), cfg("FocusDash_CooldownMax", 3.2)
-	fighter:SetAttribute("FocusDashReadyAt", tick() + cdMin + math.random() * (cdMax - cdMin))
+	fighter:SetAttribute("FocusDashReadyAt", GameClock.tick() + cdMin + math.random() * (cdMax - cdMin))
 	fighter:SetAttribute("FocusDash", kind)
-	fighter:SetAttribute("FocusDashAt", os.clock())
+	fighter:SetAttribute("FocusDashAt", GameClock.now())
 	stats.dash += 1
 
 	local LocomotionModule = require(Modules:WaitForChild("LocomotionModule"))
@@ -297,7 +298,7 @@ function Evasion.focusDash(fighter, humanoid, rootPart, targetRoot, want, opts)
 	local VfxModule = require(Modules:WaitForChild("VfxModule"))
 	VfxModule.createVaporCone(rootPart, 0.35)
 	local stopTrail = VfxModule.createDashTrail(rootPart)
-	task.delay(travelEnd, stopTrail)
+	GameClock.delay(travelEnd, stopTrail)
 
 	drive(fighter, humanoid, rootPart, move,
 		function(t) return sample(path, t, step) * distance end,
@@ -325,7 +326,7 @@ function Evasion.evade(defender, humanoid, rootPart, attacker, attackerRoot, con
 	if cfg("QuickEvade_Enabled", true) == false or active[defender] then return nil end
 	local state = defender:GetAttribute("CurrentState")
 	if state ~= "Fight" and state ~= "Circling" then return nil end -- (on the run it slides as before)
-	local now = tick()
+	local now = GameClock.tick()
 	local timeLeft = contactAt - now
 	if timeLeft <= 0 then return nil end
 
@@ -365,7 +366,7 @@ function Evasion.evade(defender, humanoid, rootPart, attacker, attackerRoot, con
 
 	local move = { kind = kind, target = attackerRoot }
 	move.freeAt = m.Recover / playSpeed
-	move.until_ = os.clock() + move.freeAt
+	move.until_ = GameClock.now() + move.freeAt
 	active[defender] = move
 
 	local AnimationModule = require(Modules:WaitForChild("AnimationModule"))
@@ -391,14 +392,14 @@ function Evasion.evade(defender, humanoid, rootPart, attacker, attackerRoot, con
 		defender:SetAttribute("EvadeSafeUntil", contactAt + cfg("QuickEvade_SafeAfterContact", 0.25))
 	end
 	defender:SetAttribute("Evade", kind .. (wrong and " (wrong)" or ""))
-	defender:SetAttribute("EvadeAt", os.clock())
+	defender:SetAttribute("EvadeAt", GameClock.now())
 	return wrong and "wrong" or "right"
 end
 
 -- DamageModule: does this target slip this attacker's strike right now?
 function Evasion.slips(targetModel, attackerModel)
 	local untilT = targetModel:GetAttribute("EvadeSafeUntil")
-	return untilT ~= nil and tick() < untilT and targetModel:GetAttribute("EvadeFrom") == attackerModel.Name
+	return untilT ~= nil and GameClock.tick() < untilT and targetModel:GetAttribute("EvadeFrom") == attackerModel.Name
 end
 
 return Evasion

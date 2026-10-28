@@ -3,6 +3,7 @@
 -- Dragon Ball Sparking Zero / Genos inspired
 -- Single Source of Truth: ReplicatedStorage.QuinCore.AnimationConfig
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 local CollectionService = game:GetService("CollectionService")
@@ -83,7 +84,7 @@ local function tryRaiseGuard(fighter, humanoid, data, now, attacker, chance)
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	fighter:SetAttribute("IsGuarding", true)
 	AnimationModule.playConfig(humanoid, "Reactions.Block", 1.0, Enum.AnimationPriority.Action4, false)
-	task.delay((windupUntil - now) + 0.2 / speedMult, function()
+	GameClock.delay((windupUntil - now) + 0.2 / speedMult, function()
 		if fighter.Parent and fighter:GetAttribute("IsGuarding") == true then
 			fighter:SetAttribute("IsGuarding", false)
 		end
@@ -149,7 +150,7 @@ function FightState.throwStrike(fighter, humanoid, rootPart, target, weight, dat
 	local moveData = ComboModule.nextAttack(fighter, weight or "Light")
 	if not moveData then return nil end
 	Rhythm.noteStrike(fighter) -- (the fight's tempo: Modules/Rhythm)
-	local now = tick()
+	local now = GameClock.tick()
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	data.currentAction = (weight == "Heavy") and "heavy" or "light"
 	local attackDuration, cancelDelay = executeAttack(fighter, humanoid, rootPart, target, moveData, data, DEBUG)
@@ -160,7 +161,7 @@ end
 
 function FightState.enter(fighter, humanoid, rootPart)
 	RuntimeTracer.checkpoint(fighter, "Enter FightState")
-	fighter:SetAttribute("EngagedSince", os.clock()) -- (Rhythm: a long quiet while engaged)
+	fighter:SetAttribute("EngagedSince", GameClock.now()) -- (Rhythm: a long quiet while engaged)
 	-- Momentum continuity (Rule 3): no speed snap on entry. The distance-management
 	-- brake decelerates the body while the shared gait keeps stepping (or the StopRun
 	-- plant plays from a sprint), so Chase -> Fight reads as one braking motion.
@@ -175,7 +176,7 @@ function FightState.exit(fighter, humanoid, rootPart)
 	ComboModule.resetCombo(fighter)
 	fighter:SetAttribute("Attacking", false)
 	fighter:SetAttribute("CurrentIdleStance", "Ready")
-	fighter:SetAttribute("LastActivityTime", os.clock())
+	fighter:SetAttribute("LastActivityTime", GameClock.now())
 	-- Cleanly stop any attack or hit reaction tracks so they do not linger into subsequent states (e.g. CirclingState)
 	AnimationModule.stopCategory(humanoid, "Attacks", 0.1)
 	AnimationModule.stopCategory(humanoid, "Reactions", 0.1)
@@ -205,7 +206,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 
 	local data = getData(fighter)
-	local now = tick()
+	local now = GameClock.tick()
 	
 	-- Check forced state change (from being hit, disengaging, or tactical override)
 	local forcedState = StateRequest.take(fighter)
@@ -292,7 +293,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			fighter:SetAttribute("AttackWindupUntil", now + impactDelay)
 			
 			local counterWindup = now + impactDelay
-			task.delay(impactDelay, function()
+			GameClock.delay(impactDelay, function()
 				if not fighter.Parent or not counterTarget.Parent then return end
 				fighter:SetAttribute("Attacking", false)
 				-- (hit or knocked out of the fight while winding up: the riposte never comes out)
@@ -563,7 +564,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	if tempo == "explode" and (action == "light" or action == "dodge" or action == "block") then
 		local dashOk = distance >= (CombatConfig.DashMinDistance or 15) and (fighter:GetAttribute("Energy") or 0) >= (CombatConfig.DashMinEnergy or 25)
 		action = dashOk and "dash" or "heavy"
-		fighter:SetAttribute("EngagedSince", os.clock())
+		fighter:SetAttribute("EngagedSince", GameClock.now())
 	end
 	-- Dodge into counter (phase 2): inside the window a dodge opened, the answer is a strike
 	if (fighter:GetAttribute("CounterUntil") or 0) > now then
@@ -620,7 +621,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		if moveData then
 			-- Check for launch transition
 			if moveData.isLaunch then
-				task.delay((attackDuration + 0.05) / speedMult, function()
+				GameClock.delay((attackDuration + 0.05) / speedMult, function()
 					if fighter.Parent and fighter:GetAttribute("CurrentState") == "Fight" then
 						StateRequest.ask(fighter, "Airborne", StateRequest.FOLLOW, "launch follow-up")
 					end
@@ -653,7 +654,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- (full-body clip: on the move only the head and shoulders look back)
 		local v = rootPart.AssemblyLinearVelocity
 		if Vector3.new(v.X, 0, v.Z).Magnitude > 6 then
-			fighter:SetAttribute("GlanceBackUntil", workspace:GetServerTimeNow() + 0.6)
+			fighter:SetAttribute("GlanceBackUntil", GameClock.serverNow() + 0.6)
 		else
 			AnimationModule.playConfig(humanoid, "Awareness.RearThreatGlance", 1.0, Enum.AnimationPriority.Action2, false)
 		end
@@ -665,7 +666,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		data.attackFinishTime = now + (0.45 / speedMult)
 		fighter:SetAttribute("IsGuarding", true)
 		AnimationModule.playConfig(humanoid, "Reactions.Block", 1.0, Enum.AnimationPriority.Action4, false)
-		task.delay(0.45 / speedMult, function()
+		GameClock.delay(0.45 / speedMult, function()
 			if fighter.Parent and fighter:GetAttribute("IsGuarding") == true then
 				fighter:SetAttribute("IsGuarding", false)
 			end
@@ -742,7 +743,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			local awareness = Pers.get(fighter, "Awareness")
 			if math.random() < (0.3 + awareness * 0.4) then
 				fighter:SetAttribute("IsGuarding", true)
-				task.delay(0.35 / speedMult, function()
+				GameClock.delay(0.35 / speedMult, function()
 					if fighter.Parent then fighter:SetAttribute("IsGuarding", false) end
 				end)
 			end
@@ -776,7 +777,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- Damage telegraph
 		fighter:SetAttribute("Attacking", true)
 		fighter:SetAttribute("AttackWindupUntil", now + 0.22 / speedMult)
-		task.delay(0.55 / speedMult, function()
+		GameClock.delay(0.55 / speedMult, function()
 			if fighter.Parent then
 				fighter:SetAttribute("Attacking", false)
 			end
@@ -790,7 +791,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- 2026-10-27: Quins were knocked back with no strike seen: this hit landed the frame the clip
 		-- started). Hit or knocked out of the fight while winding up, the counter never comes out.
 		local windupUntil = fighter:GetAttribute("AttackWindupUntil")
-		task.delay(0.22 / speedMult, function()
+		GameClock.delay(0.22 / speedMult, function()
 			if not fighter.Parent or humanoid.Health <= 0 or fighter:GetAttribute("CurrentState") ~= "Fight"
 				or fighter:GetAttribute("StrikeInterrupted") == windupUntil then
 				return
@@ -808,14 +809,14 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 					applyHitOutcome(rootPart, hitModel, DESPERATE_COUNTER_MOVE, DamageModule.resolveOutcome(fighter, hitModel, DESPERATE_COUNTER_MOVE, damageInfo))
 				end
 			end
-			fighter:SetAttribute("StrikeEndAt", tick())
+			fighter:SetAttribute("StrikeEndAt", GameClock.tick())
 		end)
 		
 		-- After counter, briefly guard
-		task.delay(0.3 / speedMult, function()
+		GameClock.delay(0.3 / speedMult, function()
 			if fighter.Parent then
 				fighter:SetAttribute("IsGuarding", true)
-				task.delay(0.4 / speedMult, function()
+				GameClock.delay(0.4 / speedMult, function()
 					if fighter.Parent then fighter:SetAttribute("IsGuarding", false) end
 				end)
 			end

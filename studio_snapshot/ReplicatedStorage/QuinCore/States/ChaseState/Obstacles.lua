@@ -6,6 +6,7 @@
 -- whether it walks now.
 -- (Cut out of ChaseState.update as it was: QuinCore audit 2026-10-27, step 7.)
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local CombatConfig = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("CombatConfig"))
@@ -133,9 +134,9 @@ function Obstacles.update(fighter, humanoid, rootPart, data, target, targetHRP, 
 			readyToJump = faceDistance <= skidTakeoff + skidLead
 		end
 		if skidRise and readyToJump and not isJumpSuppressed and not humanoid.Jump and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
-			if tick() >= (fighter:GetAttribute("SkidPendingUntil") or 0) then
+			if GameClock.tick() >= (fighter:GetAttribute("SkidPendingUntil") or 0) then
 				local wait = math.max(0, (faceDistance - skidTakeoff) / math.max(speedNow, 1))
-				fighter:SetAttribute("SkidPendingUntil", tick() + wait + 0.3)
+				fighter:SetAttribute("SkidPendingUntil", GameClock.tick() + wait + 0.3)
 				fighter:SetAttribute("SkidPlan", string.format("%s face %.1f takeoff %.1f wait %.2f length %.1f rise %.1f v %.0f%s",
 					crossType, faceDistance, skidTakeoff, wait, skidLength or -1, skidRise, speedNow,
 					crossSpeed and string.format(" (setting up the next: v %.0f)", crossSpeed) or ""))
@@ -143,15 +144,15 @@ function Obstacles.update(fighter, humanoid, rootPart, data, target, targetHRP, 
 				local facePos = obsInfo.hitPosition
 				local crossDir = Vector3.new(flatVelNow.X, 0, flatVelNow.Z).Unit
 				local plannedRise, plannedTakeoff, plannedLength, plannedHeight, plannedSpeed = skidRise, skidTakeoff, skidLength, crossHeight, crossSpeed
-				task.delay(wait, function()
+				GameClock.delay(wait, function()
 					-- Just off a landing the body can still read as airborne for a few frames; the
 					-- jump would be refused and it ran into the obstacle. Wait for the ground (briefly).
 					local function inAir()
 						return not LocomotionModule.isOnGround(rootPart, humanoid)
 					end
-					local deadline = os.clock() + 0.35
-					while inAir() and os.clock() < deadline do
-						task.wait()
+					local deadline = GameClock.now() + 0.35
+					while inAir() and GameClock.now() < deadline do
+						GameClock.wait()
 					end
 					if fighter.Parent and humanoid.Health > 0 and fighter:GetAttribute("CurrentState") == "Chase"
 						and not inAir() then

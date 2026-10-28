@@ -10,6 +10,7 @@
 -- (Before: the same steps inline in Main, and the action read target facts Cognition had made
 -- for last tick's target.)
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local Modules = QuinCore:WaitForChild("Modules")
@@ -80,7 +81,7 @@ function Brain.tick(Quin, rootPart, stateName)
 		Quin:SetAttribute("ObjectivePaceWhy", task.paceWhy)
 		Quin:SetAttribute("ObjectiveFace", task.face)
 		Quin:SetAttribute("ObjectiveEngage", task.engage or 16)
-		Quin:SetAttribute("ObjectiveUntil", workspace:GetServerTimeNow() + 1.0)
+		Quin:SetAttribute("ObjectiveUntil", GameClock.serverNow() + 1.0)
 		local sHRP = selectedTarget and selectedTarget:FindFirstChild("HumanoidRootPart")
 		local tDist = sHRP and (sHRP.Position - rootPart.Position).Magnitude or math.huge
 		local away = stateName == "Chase" or stateName == "Circling" or stateName == "Overwatch"
@@ -126,7 +127,7 @@ function Brain.tick(Quin, rootPart, stateName)
 	-- States a decision to retreat pulls the Quin out of: a fight, and a chase back
 	-- into one (a Quin at 5% health used to flee, turn round and chase, eight times over)
 	local isMeleeCommitted = (stateName == "Fight" or stateName == "Special" or stateName == "Chase")
-	local nowClock = os.clock()
+	local nowClock = GameClock.now()
 
 	if bestAction == "Retreat" and isMeleeCommitted and showdownRole ~= "Duelist" then
 		local lastBreakoff = Quin:GetAttribute("LastRetreatBreakoff") or 0

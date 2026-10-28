@@ -2,6 +2,7 @@
 -- Hit reaction state: stagger, wall bounce, recovery
 -- Entered when a fighter takes a hit with knockback
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -65,7 +66,7 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 	if flatLook.Magnitude > 0.01 then flatLook = flatLook.Unit else flatLook = Vector3.new(0,0,-1) end
 	
 	knockbackData[fighter] = {
-		enterTime = tick(),
+		enterTime = GameClock.tick(),
 		stunDuration = math.max(stunDuration, 0.1),
 		kbType = kbType,
 		isHardKnockback = isHardKnockback,
@@ -97,7 +98,7 @@ function KnockbackState.enter(fighter, humanoid, rootPart)
 		-- stabiliser holding off until it is down; otherwise the usual random tumble
 		local sweptAt = fighter:GetAttribute("SweptAt")
 		local sweepSide = fighter:GetAttribute("SweepFallSide")
-		if sweptAt and os.clock() - sweptAt < 0.5 and (sweepSide == "Back" or sweepSide == "Front") then
+		if sweptAt and GameClock.now() - sweptAt < 0.5 and (sweepSide == "Back" or sweepSide == "Front") then
 			knockbackData[fighter].swept = sweepSide
 			rootPart.AssemblyAngularVelocity = Vector3.zero
 		else
@@ -207,7 +208,7 @@ function wallTech(fighter, humanoid, rootPart, data, hit, normal)
 	VfxModule.createShockwave(hit.Position, 10, 0.35, fighter:GetAttribute("Element"))
 	VfxModule.createDust(hit.Position, 5)
 	fighter:SetAttribute("KnockbackType", nil)
-	fighter:SetAttribute("WallTechAt", os.clock())
+	fighter:SetAttribute("WallTechAt", GameClock.now())
 	fighter:SetAttribute("WallTechs", (fighter:GetAttribute("WallTechs") or 0) + 1) -- (probes)
 	require(ReplicatedStorage.QuinCore.Modules.AirDash).noteWallKick(fighter)
 	RuntimeTracer.checkpoint(fighter, "Wall tech off " .. hit.Instance.Name)
@@ -228,7 +229,7 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = knockbackData[fighter]
 	if not data then return States.Idle end
 	
-	local elapsed = tick() - data.enterTime
+	local elapsed = GameClock.tick() - data.enterTime
 	
 	-- Debug: Print timing of the recovery countdown
 	local remainingStun = data.stunDuration - elapsed
@@ -250,7 +251,7 @@ function KnockbackState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 
 		local launchTime = fighter:GetAttribute("LaunchedAt") or 0
-		local isImmune = (tick() - launchTime) < 0.35
+		local isImmune = (GameClock.tick() - launchTime) < 0.35
 		
 		local isBeingLaunched = rootPart:FindFirstChild("KB_LinearVelocity") ~= nil or isImmune
 		

@@ -15,6 +15,7 @@
 --   Workspace ArenaEventLevel / ArenaEvent   how notable the battle is right now
 -- Later passes register their ticks with SocialSystem.addTicker.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -29,10 +30,10 @@ local CFG = CombatConfig.Social or {}
 local tickers = {} -- { name = string, fn = function(dt, now) }
 local partsLoaded = false
 local loopGeneration = 0
-local lastBeat = -math.huge -- os.clock() of the loop's last tick
+local lastBeat = -math.huge -- GameClock.now() of the loop's last tick
 
 local function serverNow()
-	return Workspace:GetServerTimeNow()
+	return GameClock.serverNow()
 end
 SocialSystem.now = serverNow
 
@@ -68,12 +69,12 @@ function SocialSystem.nod(quin, delay)
 	local function go()
 		if quin.Parent then quin:SetAttribute("NodAt", serverNow()) end
 	end
-	if delay and delay > 0 then task.delay(delay, go) else go() end
+	if delay and delay > 0 then GameClock.delay(delay, go) else go() end
 end
 
 -- Look at someone, then nod: "agreed" / "I see you"
 function SocialSystem.acknowledge(quin, other, delay)
-	task.delay(delay or 0, function()
+	GameClock.delay(delay or 0, function()
 		SocialSystem.lookAt(quin, other, (CFG.LookTime or 1.2) + (CFG.NodDuration or 0.6))
 		SocialSystem.nod(quin, 0.35)
 	end)
@@ -271,7 +272,7 @@ end
 -- So start() restarts a loop that has stopped beating, and only the newest loop runs.
 function SocialSystem.start()
 	if CFG.Enabled == false then return end
-	if os.clock() - lastBeat < 2 then return end -- running
+	if GameClock.now() - lastBeat < 2 then return end -- running
 	Workspace:SetAttribute("ArenaEventLevel", Workspace:GetAttribute("ArenaEventLevel") or "Normal")
 	-- the parts of the social layer register their tickers when loaded
 	if not partsLoaded then
@@ -284,14 +285,14 @@ function SocialSystem.start()
 	end
 	loopGeneration += 1
 	local generation = loopGeneration
-	lastBeat = os.clock()
+	lastBeat = GameClock.now()
 	task.spawn(function()
-		local last = os.clock()
+		local last = GameClock.now()
 		local ticks = 0
 		while generation == loopGeneration do
-			lastBeat = os.clock()
-			task.wait(1 / (CFG.TickRate or 4))
-			local now = os.clock()
+			lastBeat = GameClock.now()
+			GameClock.wait(1 / (CFG.TickRate or 4))
+			local now = GameClock.now()
 			local dt = now - last
 			last = now
 			ticks += 1

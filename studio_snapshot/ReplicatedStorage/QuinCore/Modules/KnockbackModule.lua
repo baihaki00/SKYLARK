@@ -5,6 +5,7 @@
 -- Pushes along the ground go through ImpulseModule (one force channel per Quin); launches into
 -- the air are ballistic (a velocity set once, then gravity).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -66,7 +67,7 @@ function KnockbackModule.applyKnockback(targetModel, direction, force, duration)
 	local effectiveForce = force * (1 - resist) / weight
 	if effectiveForce <= 0 then return end
 	
-	targetModel:SetAttribute("LaunchedAt", tick())
+	targetModel:SetAttribute("LaunchedAt", GameClock.tick())
 	humanoid.PlatformStand = true
 	
 	-- Flatten direction to ensure consistent horizontal push even if the hit came from above
@@ -93,7 +94,7 @@ function KnockbackModule.applyKnockback(targetModel, direction, force, duration)
 	end
 
 	-- Procedural Combat Reaction Telemetry
-	targetModel:SetAttribute("ImpactTime", tick())
+	targetModel:SetAttribute("ImpactTime", GameClock.tick())
 	targetModel:SetAttribute("ImpactDir", flatDirection)
 	targetModel:SetAttribute("ImpactMag", math.clamp(effectiveForce / 100, 0.5, 1.0))
 	targetModel:SetAttribute("ImpactType", "KNOCKBACK")
@@ -120,13 +121,13 @@ function KnockbackModule.applyLaunch(targetModel, verticalForce, horizontalForce
 		horizontalForce = math.min(horizontalForce, 12)
 	end
 	
-	targetModel:SetAttribute("LaunchedAt", tick())
+	targetModel:SetAttribute("LaunchedAt", GameClock.tick())
 	humanoid.PlatformStand = true
 	
 	targetHRP.AssemblyLinearVelocity = Vector3.new(0, verticalForce * 1.2, 0) + targetHRP.CFrame.LookVector * (-horizontalForce * 1.2)
 
 	-- Procedural Combat Reaction Telemetry
-	targetModel:SetAttribute("ImpactTime", tick())
+	targetModel:SetAttribute("ImpactTime", GameClock.tick())
 	targetModel:SetAttribute("ImpactDir", Vector3.new(0, 1, 0) - targetHRP.CFrame.LookVector * 0.4)
 	targetModel:SetAttribute("ImpactMag", 0.9)
 	targetModel:SetAttribute("ImpactType", "LAUNCH")
@@ -165,7 +166,7 @@ function KnockbackModule.applySlam(targetModel, downForce)
 	Debris:AddItem(att, 0.35)
 
 	-- Procedural Combat Reaction Telemetry
-	targetModel:SetAttribute("ImpactTime", tick())
+	targetModel:SetAttribute("ImpactTime", GameClock.tick())
 	targetModel:SetAttribute("ImpactDir", Vector3.new(0, -1, 0))
 	targetModel:SetAttribute("ImpactMag", 1.0)
 	targetModel:SetAttribute("ImpactType", "SLAM")

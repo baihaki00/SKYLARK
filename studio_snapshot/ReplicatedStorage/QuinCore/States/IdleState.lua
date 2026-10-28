@@ -2,6 +2,7 @@
 -- Guard stance idle, detects enemies (Quins, not players)
 -- Single Source of Truth: ReplicatedStorage.QuinCore.AnimationConfig
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("TargetingModule"))
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
@@ -113,7 +114,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 	-- A task with a place to go (TaskChoice: carry, guard, escort ...): walk there, and stand
 	-- once there, unless an enemy it can see comes within reach of the job (ObjectiveEngage)
 	local goTo = fighter:GetAttribute("ObjectiveGoTo")
-	if typeof(goTo) == "Vector3" and workspace:GetServerTimeNow() <= (fighter:GetAttribute("ObjectiveUntil") or 0) then
+	if typeof(goTo) == "Vector3" and GameClock.serverNow() <= (fighter:GetAttribute("ObjectiveUntil") or 0) then
 		local engage = fighter:GetAttribute("ObjectiveEngage") or 16
 		local threat = false
 		for _, contact in ipairs(Cognition.knownEnemies(fighter) or {}) do
@@ -121,7 +122,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 		end
 		if not threat then
 			local job = jobData[fighter]
-			local now = os.clock()
+			local now = GameClock.now()
 			local flat = Vector3.new(goTo.X - rootPart.Position.X, 0, goTo.Z - rootPart.Position.Z)
 			-- A new spot (a new job, or the old spot moved well away): it takes it in first, head
 			-- turned that way, then goes - quick for an alert Quin, slower for a dull one. Already
@@ -132,7 +133,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 				jobData[fighter] = job
 				if job.goAt > now then
 					fighter:SetAttribute("LookPoint", goTo)
-					fighter:SetAttribute("LookUntil", workspace:GetServerTimeNow() + (job.goAt - now) + 0.3)
+					fighter:SetAttribute("LookUntil", GameClock.serverNow() + (job.goAt - now) + 0.3)
 				end
 			end
 			-- How fast the spot itself moves (a place beside a walking carrier): it keeps pace with it
@@ -155,7 +156,7 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 				-- on its post it faces the way it watches (a guard looks out, not at the Shrine), and
 				-- turns to whatever it just heard behind it (Gaze: TurnTo)
 				local turnTo = fighter:GetAttribute("TurnTo")
-				if typeof(turnTo) == "Vector3" and workspace:GetServerTimeNow() <= (fighter:GetAttribute("TurnUntil") or 0) then
+				if typeof(turnTo) == "Vector3" and GameClock.serverNow() <= (fighter:GetAttribute("TurnUntil") or 0) then
 					face = turnTo
 				end
 				if job.arrived and typeof(face) == "Vector3" and rootPart.AssemblyLinearVelocity.Magnitude < 3 then
@@ -222,16 +223,16 @@ function IdleState.update(fighter, humanoid, rootPart, DEBUG)
 
 	local data = idleData[fighter]
 	if not data then
-		data = { reactionDelay = 0.2, openingAction = "Run", matchStartTime = tick(), isMidCombat = true }
+		data = { reactionDelay = 0.2, openingAction = "Run", matchStartTime = GameClock.tick(), isMidCombat = true }
 		idleData[fighter] = data
 	end
 
 	if not data.matchStartTime then
-		data.matchStartTime = tick()
+		data.matchStartTime = GameClock.tick()
 	end
 
 	-- Staged Reaction Delay (Avengers opening cadence only when NOT in active combat)
-	local timeSinceStart = tick() - data.matchStartTime
+	local timeSinceStart = GameClock.tick() - data.matchStartTime
 	if timeSinceStart < data.reactionDelay then
 		if not data.isMidCombat then
 			humanoid.WalkSpeed = 0

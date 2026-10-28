@@ -2,6 +2,7 @@
 -- Handles aerial combat: air pursuit, air combos, meteor slam
 -- Entered after launching an enemy or being launched
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 
@@ -24,14 +25,14 @@ local airborneData = {} -- per-fighter tracking
 function AirborneState.enter(fighter, humanoid, rootPart)
 	if not airborneData[fighter] then
 		airborneData[fighter] = {
-			enterTime = tick(),
+			enterTime = GameClock.tick(),
 			airComboStep = 0,
 			hasJumped = false,
 			lastAirAttack = 0,
 		}
 	end
 	local data = airborneData[fighter]
-	data.enterTime = tick()
+	data.enterTime = GameClock.tick()
 	data.airComboStep = 0
 	data.hasJumped = false
 	data.lastAirAttack = 0
@@ -79,7 +80,7 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 		return States.Idle
 	end
 	
-	local elapsed = tick() - data.enterTime
+	local elapsed = GameClock.tick() - data.enterTime
 	local maxAirTime = 4.0
 	
 	-- Timeout: fall back to ground
@@ -115,8 +116,8 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 	local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
 	local targetOffGround = targetHumanoid ~= nil and (targetHumanoid.PlatformStand or targetHumanoid.FloorMaterial == Enum.Material.Air)
 	local clashCooldown = CombatConfig.MidAirClash_Cooldown or 3.0
-	local clashedRecently = os.clock() - (fighter:GetAttribute("LastClashTime") or 0) < clashCooldown
-		or os.clock() - (target:GetAttribute("LastClashTime") or 0) < clashCooldown
+	local clashedRecently = GameClock.now() - (fighter:GetAttribute("LastClashTime") or 0) < clashCooldown
+		or GameClock.now() - (target:GetAttribute("LastClashTime") or 0) < clashCooldown
 	-- (a clash between two others is not joined: that made three-way clashes)
 	if not clashedRecently and targetState ~= "Knockback" and targetState ~= "MidAirClash"
 		and (targetState == "Airborne" or targetState == "ProjectileJump" or targetState == "MidAirClash" or targetOffGround) and distance < 35 then
@@ -164,15 +165,15 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 	
 	-- Air combo attack
 	local attackCooldown = 0.4
-	if distance <= 8 and (tick() - data.lastAirAttack) > attackCooldown then
-		data.lastAirAttack = tick()
+	if distance <= 8 and (GameClock.tick() - data.lastAirAttack) > attackCooldown then
+		data.lastAirAttack = GameClock.tick()
 		data.airComboStep = data.airComboStep + 1
 		
 		local moveData = ComboModule.nextAttack(fighter, "Aerial")
 		if moveData then
 			AnimationModule.play(humanoid, AnimationIds.Attack, Enum.AnimationPriority.Action4, false, 1.3)
 			
-			task.delay(moveData.duration * 0.3, function()
+			GameClock.delay(moveData.duration * 0.3, function()
 				local hitModels = HitboxModule.castInFront(rootPart, moveData.hitboxSize, Vector3.new(0, 0, -3), fighter)
 				for _, hitModel in ipairs(hitModels) do
 					local damageInfo = DamageModule.calculate(fighter, hitModel, data.airComboStep, moveData.damageMultiplier)
@@ -220,11 +221,11 @@ function AirborneState.update(fighter, humanoid, rootPart, DEBUG)
 			
 			-- After meteor slam, return to ground
 			if moveData.isSlam then
-				task.delay(moveData.duration, function()
+				GameClock.delay(moveData.duration, function()
 					KnockbackModule.applySlam(fighter, 150)
 					
 					-- Self impact VFX
-					task.delay(0.2, function()
+					GameClock.delay(0.2, function()
 						AudioModule.playSlam(rootPart.Position)
 						VfxModule.createShockwave(rootPart, 15, 0.5)
 						VfxModule.createDust(rootPart, 5)

@@ -20,6 +20,7 @@
 --    empty, so a moving Quin never shows the idle pose (no shuffling).
 -- Single Source of Truth for tuning: ReplicatedStorage.QuinCore.CombatConfig (Gait_*)
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -429,7 +430,7 @@ function GaitModule.update(humanoid, rootPart, dt)
 	dt = math.clamp(dt or 1 / 60, 0, 0.25)
 	local st = getState(humanoid)
 	-- Several drivers (state + base-layer fill) may call in the same frame: drive once
-	if os.clock() - st.lastDriven < 0.015 then return nil end
+	if GameClock.now() - st.lastDriven < 0.015 then return nil end
 
 	if isAirborneState(humanoid) then
 		if st.airTime >= AIR_GRACE then
@@ -437,7 +438,7 @@ function GaitModule.update(humanoid, rootPart, dt)
 		end
 		return nil
 	end
-	if hasLocomotionAction(humanoid) or os.clock() < st.launchUntil then return nil end
+	if hasLocomotionAction(humanoid) or GameClock.now() < st.launchUntil then return nil end
 
 	local tracks = {}
 	local own = {}
@@ -447,7 +448,7 @@ function GaitModule.update(humanoid, rootPart, dt)
 		own[tracks[i]] = true
 	end
 
-	st.lastDriven = os.clock()
+	st.lastDriven = GameClock.now()
 	local vel = rootPart.AssemblyLinearVelocity
 	local planarSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
 	-- Light smoothing filters contact-solver noise. The rate has to keep up with a sprint start
@@ -629,8 +630,8 @@ end
 function GaitModule.notifyLaunch(humanoid)
 	if not humanoid then return end
 	local st = getState(humanoid)
-	st.launchUntil = os.clock() + LAUNCH_WINDOW
-	st.launchedAt = os.clock() -- (a fall that began with a launch is the jump's to land)
+	st.launchUntil = GameClock.now() + LAUNCH_WINDOW
+	st.launchedAt = GameClock.now() -- (a fall that began with a launch is the jump's to land)
 	releaseGroundLoops(humanoid, 0.1)
 end
 
@@ -709,7 +710,7 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 
 		-- Never no pose: with every clip faded out (a Circling Quin between its survey and a
 		-- strike) the rig showed its bind pose - the T-pose seen mid-match
-		local nowCheck = os.clock()
+		local nowCheck = GameClock.now()
 		if nowCheck - (st.lastPoseCheck or 0) > 0.1 then
 			st.lastPoseCheck = nowCheck
 			local animator = humanoid:FindFirstChildOfClass("Animator")
@@ -737,7 +738,7 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 				-- the active driver resumes the gait (it already has the landing speed).
 				AnimationModule.stop(humanoid, FALL_PATH, 0.1)
 				AnimationModule.ensureBaseIdle(humanoid)
-				st.lastDriven = os.clock() -- give the driver its first frame after touchdown
+				st.lastDriven = GameClock.now() -- give the driver its first frame after touchdown
 
 				-- The unhurried drop: it walked off an edge (no jump, nothing threw it) and came
 				-- straight down. It takes the soft landing and stands through it (LandingHoldUntil
@@ -745,17 +746,17 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 				-- speed across the ground, and every jump, lands the way its own code says.
 				local velocity = rootPart.AssemblyLinearVelocity
 				local across = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
-				local walkedOff = os.clock() - (st.launchedAt or 0) > st.airTime + 0.5
+				local walkedOff = GameClock.now() - (st.launchedAt or 0) > st.airTime + 0.5
 				local stateName = model:GetAttribute("CurrentState") or ""
 				if walkedOff and st.airTime >= (CombatConfig.Landing_SoftMinAirTime or 0.28)
 					and across <= (CombatConfig.Landing_SoftMaxSpeed or 8)
 					and not humanoid.PlatformStand and not CONTRACT_EXEMPT_STATES[stateName]
 					and stateName ~= "Knockback" and stateName ~= "Recovery" and stateName ~= "ProjectileJump" then
 					local hold = AnimationModule.getEffectiveDuration(humanoid, "Parkour.LandingSoft", 1.0) * 0.55
-					model:SetAttribute("LandingHoldUntil", os.clock() + hold)
-					model:SetAttribute("CasualUntil", os.clock() + hold + (CombatConfig.Landing_CasualWalkTime or 2.5))
+					model:SetAttribute("LandingHoldUntil", GameClock.now() + hold)
+					model:SetAttribute("CasualUntil", GameClock.now() + hold + (CombatConfig.Landing_CasualWalkTime or 2.5))
 					AnimationModule.playConfig(humanoid, "Parkour.LandingSoft", 1.0, Enum.AnimationPriority.Action3, true)
-					task.delay(hold, function()
+					GameClock.delay(hold, function()
 						if humanoid.Parent then
 							AnimationModule.stopConfig(humanoid, "Parkour.LandingSoft", 0.25)
 						end
@@ -766,7 +767,7 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 
 			-- Base-layer fill: self-propelled ground motion with no locomotion clip owning the legs
 			local stateName = model:GetAttribute("CurrentState") or ""
-			local t = os.clock()
+			local t = GameClock.now()
 			if t - (st.lastAuto or 0) >= AUTO_DRIVE_INTERVAL then
 				local fillDt = math.clamp(t - (st.lastAuto or (t - AUTO_DRIVE_INTERVAL)), 0.016, 0.1)
 				st.lastAuto = t
@@ -783,7 +784,7 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 			end
 
 			-- Orphaned gait: no state is driving it any more
-			if (os.clock() - st.lastDriven) > GAIT_ORPHAN_TIME
+			if (GameClock.now() - st.lastDriven) > GAIT_ORPHAN_TIME
 				and not CONTRACT_EXEMPT_STATES[model:GetAttribute("CurrentState") or ""]
 				and not hasLocomotionAction(humanoid)
 				and GaitModule.isActive(humanoid) then

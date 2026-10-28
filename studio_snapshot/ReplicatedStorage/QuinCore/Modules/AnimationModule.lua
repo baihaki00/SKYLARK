@@ -3,6 +3,7 @@
 -- Caches tracks per humanoid to prevent memory leaks
 -- Single Source of Truth: ReplicatedStorage.QuinCore.AnimationConfig
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local AnimationModule = {}
@@ -177,7 +178,7 @@ end
 local groupCache = {}
 local function clipGroup(paths)
 	local cached = groupCache[paths]
-	if cached and os.clock() - cached.builtAt < 1.0 then
+	if cached and GameClock.now() - cached.builtAt < 1.0 then
 		return cached.ids
 	end
 	local ac = getAnimationConfig()
@@ -187,7 +188,7 @@ local function clipGroup(paths)
 			local entry = ac.get(path)
 			if entry and entry.id then ids[entry.id] = true end
 		end
-		groupCache[paths] = { ids = ids, builtAt = os.clock() }
+		groupCache[paths] = { ids = ids, builtAt = GameClock.now() }
 	end
 	return ids
 end
@@ -377,7 +378,7 @@ function AnimationModule.ensureBaseIdle(humanoid)
 	if not humanoid or not humanoid.Parent then return nil end
 	local ac = getAnimationConfig()
 	local fighter = humanoid.Parent
-	local now = os.clock()
+	local now = GameClock.now()
 
 	-- Check if actively fighting/in combat
 	local inCombat = fighter and (
@@ -831,7 +832,7 @@ function AnimationModule.applyHitStop(humanoid, duration)
 		end
 	end
 
-	task.delay(duration, function()
+	GameClock.delay(duration, function()
 		if freeze.token ~= token then return end -- a later hit stop extends the freeze
 		for track, originalSpeed in pairs(freeze.speeds) do
 			if track.IsPlaying and track.Speed == 0 then

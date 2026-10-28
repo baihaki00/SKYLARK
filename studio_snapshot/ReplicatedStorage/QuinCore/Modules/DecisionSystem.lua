@@ -2,6 +2,7 @@
 -- Single general Quin decision engine: evaluates candidate actions based on
 -- situational usefulness + tactical battlefield state + individual personality preferences.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local DebugDraw = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
@@ -69,7 +70,7 @@ function DecisionSystem.evaluateAction(quinModel, tacticalContext, distanceToTar
 	-- 2. DASH: Athletic gap closer from 10 up to 60 studs (with 8s cooldown)
 	local dashBase = 20
 	local lastDash = quinModel:GetAttribute("LastDashTime") or 0
-	local isDashOnCooldown = (tick() - lastDash) < 8.0 -- LastDashTime is a tick() timestamp
+	local isDashOnCooldown = (GameClock.tick() - lastDash) < 8.0 -- LastDashTime is a GameClock.tick() timestamp
 	if not isDashOnCooldown and dist >= 10 and dist <= 60 and energyRatio > 0.35 then
 		dashBase = dashBase + 45
 		if isTargetIso then dashBase = dashBase + 20 end -- Gap close on isolated enemy

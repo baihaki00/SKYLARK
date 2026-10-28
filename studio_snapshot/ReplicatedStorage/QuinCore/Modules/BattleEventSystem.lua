@@ -2,6 +2,7 @@
 -- Detects emergent battlefield conditions (Isolated Target, Outnumbered, Surround, Clutch, Rescue)
 -- Decoupled observability instrument: emits structured telemetry without altering combat physics.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local BattleEventSystem = {}
 
 local listeners = {}
@@ -12,7 +13,7 @@ function BattleEventSystem.emit(eventName, data)
 	data = data or {}
 	local quinId = data.QuinId or (data.Model and data.Model.Name) or "Unknown"
 	local key = eventName .. "_" .. tostring(quinId)
-	local now = tick()
+	local now = GameClock.tick()
 
 	-- 3-second debounce per entity per event type
 	if eventCooldowns[key] and (now - eventCooldowns[key] < 3.0) then

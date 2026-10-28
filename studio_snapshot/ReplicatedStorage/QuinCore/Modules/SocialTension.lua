@@ -24,6 +24,7 @@
 -- Publishes: SocialUrgency (0-1: DecisionSystem retreats less and pursues more), SocialPosture
 -- (Waiting / Restless), Workspace TensionStats; events StalemateTense, StalemateBroken (crowd).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
@@ -130,8 +131,8 @@ local function clockPressure(dt)
 	if devClockLeft then
 		devClockLeft = math.max(0, devClockLeft - dt)
 		total, left = CFG.NominalMatchTime or 300, devClockLeft
-	elseif endsAt and endsAt - Workspace:GetServerTimeNow() > -5 then -- (older than that: left over from a match that was cut off)
-		total, left = Workspace:GetAttribute("MatchLength") or 600, endsAt - Workspace:GetServerTimeNow()
+	elseif endsAt and endsAt - GameClock.serverNow() > -5 then -- (older than that: left over from a match that was cut off)
+		total, left = Workspace:GetAttribute("MatchLength") or 600, endsAt - GameClock.serverNow()
 	elseif fightStart then
 		total = CFG.NominalMatchTime or 300
 		left = total - (SocialSystem.now() - fightStart)
@@ -150,7 +151,7 @@ local function makeMove(m, allies)
 		if a ~= m and d < nd then nearest, nd = a, d end
 	end
 	if nearest then SocialSystem.acknowledge(m, nearest) end
-	task.delay(nearest and 0.9 or 0.2, function()
+	GameClock.delay(nearest and 0.9 or 0.2, function()
 		if not m.Parent then return end
 		local state = m:GetAttribute("CurrentState")
 		if state == "Idle" or state == "Circling" or state == "Retreat" then
