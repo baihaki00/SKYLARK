@@ -277,72 +277,77 @@ gui.DisplayOrder = 50
 gui.Enabled = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- (at the top, under the debug bar (GodPauseClient); the followed Quin's state, clips and changes
--- go to the debug menu's Inspect tab, QuinDebugHUD)
+-- (at the top, in the GAME bar's place: that bar hides while the replay is open (GodPauseClient),
+-- so one button per action is on screen. The followed Quin's state, clips and changes go to the
+-- debug menu's Inspect tab, QuinDebugHUD)
+local REPLAY_GOLD = Color3.fromRGB(255, 200, 60)
+local BUTTON_COLOR = Color3.fromRGB(32, 40, 58)
+
 local panel = Instance.new("Frame")
 panel.AnchorPoint = Vector2.new(0.5, 0)
-panel.Position = UDim2.new(0.5, 0, 0, 46)
-panel.Size = UDim2.new(0, 820, 0, 74)
+panel.Position = UDim2.new(0.5, 0, 0, 8)
+panel.Size = UDim2.new(0, 960, 0, 96)
 panel.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
 panel.BackgroundTransparency = 0.12
 panel.BorderSizePixel = 0
+panel.Active = true -- (the wheel over it does not reach the camera)
 panel.Parent = gui
 Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
 local panelStroke = Instance.new("UIStroke", panel)
-panelStroke.Color = Color3.fromRGB(255, 200, 60)
+panelStroke.Color = REPLAY_GOLD
 panelStroke.Transparency = 0.4
 
-local function button(text, x, width, color)
+local row = Instance.new("Frame")
+row.Position = UDim2.new(0, 8, 0, 6)
+row.Size = UDim2.new(1, -16, 0, 26)
+row.BackgroundTransparency = 1
+row.Parent = panel
+local rowList = Instance.new("UIListLayout")
+rowList.FillDirection = Enum.FillDirection.Horizontal
+rowList.VerticalAlignment = Enum.VerticalAlignment.Center
+rowList.Padding = UDim.new(0, 4)
+rowList.SortOrder = Enum.SortOrder.LayoutOrder
+rowList.Parent = row
+
+local buttonCount = 0
+local function button(text, width, color)
+	buttonCount += 1
 	local b = Instance.new("TextButton")
-	b.Position = UDim2.new(0, x, 0, 8)
+	b.LayoutOrder = buttonCount
 	b.Size = UDim2.new(0, width, 0, 24)
-	b.BackgroundColor3 = color or Color3.fromRGB(32, 40, 58)
+	b.BackgroundColor3 = color or BUTTON_COLOR
 	b.TextColor3 = Color3.fromRGB(235, 240, 255)
-	b.Font = Enum.Font.GothamBold
-	b.TextSize = 11
+	b.Font = Enum.Font.SourceSansBold -- (Gotham drew "0.1" as "0J")
+	b.TextSize = 14
 	b.Text = text
 	b.AutoButtonColor = true
-	b.Parent = panel
+	b.BorderSizePixel = 0
+	b.Parent = row
 	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
 	return b
 end
 
-local title = Instance.new("TextLabel")
-title.Position = UDim2.new(0, 10, 0, 8)
-title.Size = UDim2.new(0, 70, 0, 24)
-title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamBlack
-title.TextSize = 12
-title.TextColor3 = Color3.fromRGB(255, 200, 60)
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "REPLAY"
-title.Parent = panel
-
-local playButton = button("▶ Play [X]", 76, 84, Color3.fromRGB(30, 140, 100))
-local backButton = button("◀ [,]", 164, 44)
-local forwardButton = button("[.] ▶", 212, 44)
+-- what this is: a replay on this machine only, and what the real game is doing meanwhile
+local title = button("REPLAY", 150, REPLAY_GOLD)
+title.AutoButtonColor = false
+title.Active = false
+title.TextColor3 = Color3.new(0, 0, 0)
+local playButton = button("Pause replay [X]", 118, Color3.fromRGB(30, 140, 100))
+local backButton = button("< 1 frame [,]", 88)
+local forwardButton = button("1 frame [.] >", 88)
 local speedButtons = {}
-for i, s in ipairs(SPEEDS) do
-	speedButtons[s] = button(s .. "x", 262 + (i - 1) * 44, 40)
+for _, s in ipairs(SPEEDS) do
+	speedButtons[s] = button(s .. "x", 38)
 end
-local latestButton = button("Live", 442, 70)
-local freeButton = button("Free camera", 516, 86)
-local closeButton = button("Close [F6]", 732, 78, Color3.fromRGB(120, 40, 40))
-
-local timeLabel = Instance.new("TextLabel")
-timeLabel.Position = UDim2.new(0, 606, 0, 8)
-timeLabel.Size = UDim2.new(0, 122, 0, 24)
-timeLabel.BackgroundTransparency = 1
-timeLabel.Font = Enum.Font.Code
-timeLabel.TextSize = 12
-timeLabel.TextColor3 = Color3.fromRGB(220, 230, 255)
-timeLabel.Parent = panel
+local latestButton = button("Back to live", 88)
+local freeButton = button("Stop following", 100)
+local closeButton = button("Close replay [F6]", 120, Color3.fromRGB(120, 40, 40))
 
 -- Timeline
 local bar = Instance.new("TextButton")
 bar.Text = ""
 bar.AutoButtonColor = false
-bar.Position = UDim2.new(0, 10, 0, 40)
+bar.Position = UDim2.new(0, 10, 0, 38)
 bar.Size = UDim2.new(1, -20, 0, 26)
 bar.BackgroundColor3 = Color3.fromRGB(24, 28, 40)
 bar.BorderSizePixel = 0
@@ -357,6 +362,18 @@ playhead.BorderSizePixel = 0
 playhead.ZIndex = 5
 playhead.Parent = bar
 
+-- under the timeline: whose it is, where the cursor is, what the colours and ticks mean
+local timeLabel = Instance.new("TextLabel")
+timeLabel.Position = UDim2.new(0, 10, 0, 68)
+timeLabel.Size = UDim2.new(1, -20, 0, 22)
+timeLabel.BackgroundTransparency = 1
+timeLabel.Font = Enum.Font.SourceSans
+timeLabel.TextSize = 14
+timeLabel.RichText = true
+timeLabel.TextXAlignment = Enum.TextXAlignment.Left
+timeLabel.TextColor3 = Color3.fromRGB(200, 210, 230)
+timeLabel.Parent = panel
+
 local function fraction(t)
 	return (t - startT) / math.max(endT - startT, 1e-6)
 end
@@ -365,6 +382,7 @@ local function drawTimeline()
 	segments:ClearAllChildren()
 	if not followed or not recording.tracks[followed] then return end
 	local track = recording.tracks[followed]
+	local width = bar.AbsoluteSize.X
 	local function segment(from, to, state)
 		local f = Instance.new("Frame")
 		f.Position = UDim2.new(fraction(from), 0, 0, 0)
@@ -372,12 +390,13 @@ local function drawTimeline()
 		f.BackgroundColor3 = stateColor(state)
 		f.BorderSizePixel = 0
 		f.Parent = segments
-		if to - from > (endT - startT) * 0.05 then
+		-- (named only where the name fits)
+		if (fraction(to) - fraction(from)) * width > #tostring(state) * 7 + 8 then
 			local l = Instance.new("TextLabel")
 			l.Size = UDim2.fromScale(1, 1)
 			l.BackgroundTransparency = 1
-			l.Font = Enum.Font.GothamBold
-			l.TextSize = 10
+			l.Font = Enum.Font.SourceSansBold
+			l.TextSize = 13
 			l.TextColor3 = Color3.new(0, 0, 0)
 			l.Text = tostring(state)
 			l.Parent = f
@@ -396,8 +415,8 @@ local function drawTimeline()
 		if (isClip or (event.kind == "attr" and MARK_ATTRIBUTES[event.name])) and event.t >= startT and event.t <= endT then
 			local tick = Instance.new("Frame")
 			tick.Position = UDim2.new(fraction(event.t), 0, isClip and 0.62 or 0.81, 0)
-			tick.Size = UDim2.new(0, 1, isClip and 0.19 or 0.19, 0)
-			tick.BackgroundColor3 = isClip and Color3.new(1, 1, 1) or Color3.fromRGB(255, 200, 60)
+			tick.Size = UDim2.new(0, 1, 0.19, 0)
+			tick.BackgroundColor3 = isClip and Color3.new(1, 1, 1) or REPLAY_GOLD
 			tick.BorderSizePixel = 0
 			tick.Parent = segments
 		end
@@ -405,12 +424,15 @@ local function drawTimeline()
 end
 
 local function refreshButtons()
-	playButton.Text = playing and "|| Pause [X]" or "▶ Play [X]"
+	local frozen = Workspace:GetAttribute("GameFrozen") == true
+	title.Text = frozen and "REPLAY (game frozen)" or "REPLAY (game runs on)"
+	playButton.Text = playing and "Pause replay [X]" or "Play replay [X]"
 	for s, b in pairs(speedButtons) do
-		b.BackgroundColor3 = s == speed and Color3.fromRGB(255, 200, 60) or Color3.fromRGB(32, 40, 58)
+		b.BackgroundColor3 = s == speed and REPLAY_GOLD or BUTTON_COLOR
 		b.TextColor3 = s == speed and Color3.new(0, 0, 0) or Color3.fromRGB(235, 240, 255)
 	end
-	freeButton.Text = followed and "Free camera" or "Click a Quin"
+	latestButton.Visible = not live
+	freeButton.Visible = followed ~= nil
 	for name, ghost in pairs(ghosts) do
 		ghost.highlight.OutlineTransparency = name == followed and 0 or 1
 	end
@@ -447,7 +469,11 @@ end
 
 local function refreshInfo(force)
 	playhead.Position = UDim2.new(fraction(cursor), -1, 0, 0)
-	timeLabel.Text = live and "LIVE" or ("%.2f s behind"):format(endT - cursor)
+	latestButton.Visible = not live
+	local when = live and "<font color='#5AE6A0'><b>LIVE</b></font>" or ("<b>%.2f s behind live</b>"):format(endT - cursor)
+	timeLabel.Text = followed
+		and ("<b>%s</b>  ·  %s  ·  colour = its state  ·  white tick = a clip starts  ·  gold tick = task / tactics change  ·  click or drag to scrub"):format(QuinTimeline.escape(followed), when)
+		or (when .. "  ·  click a Quin to follow it: the timeline shows its states and clips")
 	-- (a few times a second: the rows are rebuilt only when they change)
 	local now = os.clock()
 	if not force and now - dockSince < 0.15 then return end
@@ -626,10 +652,11 @@ bar.InputBegan:Connect(function(input)
 		scrubTo(input.Position.X)
 	end
 end)
-UserInputService.InputChanged:Connect(function(input)
+UserInputService.InputChanged:Connect(function(input, processed)
 	if scrubbing and input.UserInputType == Enum.UserInputType.MouseMovement then
 		scrubTo(input.Position.X)
-	elseif open and followOffset and input.UserInputType == Enum.UserInputType.MouseWheel then
+	elseif open and followOffset and input.UserInputType == Enum.UserInputType.MouseWheel and not processed
+		and not (shared.PointerOverMenu and shared.PointerOverMenu()) then
 		followOffset = followOffset * (input.Position.Z > 0 and 0.88 or 1.14)
 	end
 end)
@@ -681,6 +708,7 @@ RunService:BindToRenderStep("QuinReplay", Enum.RenderPriority.Camera.Value - 1, 
 		housekeeping = 0
 		addGhosts()
 		drawTimeline()
+		refreshButtons() -- (the game's state in the title)
 	end
 	if cursor ~= lastDrawn or playing then
 		poseGhosts(cursor)

@@ -33,8 +33,11 @@ end
 local escape = QuinTimeline.escape
 
 ----------------------------------------------------------------------------------------
--- UI: one bar at the top (owner 2026-10-28: the resume beside the steps, not panels everywhere);
--- what the clicked Quin is doing goes to the debug menu's Inspect tab (QuinDebugHUD)
+-- UI: one bar at the top (owner 2026-10-28: the resume beside the steps, not panels everywhere;
+-- "make sure there's no extra buttons that do the same thing"): the GAME bar - its state, freeze /
+-- resume, the steps (only while frozen) and Open replay. While the replay is open this bar hides
+-- and the replay's own bar takes its place (QuinReplay), so one button per action is on screen.
+-- What the clicked Quin is doing goes to the debug menu's Inspect tab (QuinDebugHUD).
 ----------------------------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "GodPauseUI"
@@ -51,6 +54,7 @@ bar.AutomaticSize = Enum.AutomaticSize.X
 bar.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
 bar.BackgroundTransparency = 0.12
 bar.BorderSizePixel = 0
+bar.Active = true -- (the wheel over it does not reach the camera)
 bar.Parent = gui
 Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 8)
 local stroke = Instance.new("UIStroke", bar)
@@ -73,8 +77,8 @@ local function button(text, width)
 	b.Size = UDim2.new(0, width, 0, 24)
 	b.BackgroundColor3 = Color3.fromRGB(32, 40, 58)
 	b.TextColor3 = Color3.fromRGB(235, 240, 255)
-	b.Font = Enum.Font.GothamBold
-	b.TextSize = 11
+	b.Font = Enum.Font.SourceSansBold -- (Gotham drew "0.1" as "0J")
+	b.TextSize = 14
 	b.Text = text
 	b.BorderSizePixel = 0
 	b.Parent = bar
@@ -82,11 +86,14 @@ local function button(text, width)
 	return b
 end
 
-local freezeButton = button("||  FREEZE  [F4]", 130)
-local frameButton = button("Step 1 frame [.]", 116)
-local tenthButton = button("0.1 s", 50)
-local secondButton = button("1 s", 40)
-local replayButton = button("Replay [F6]", 96)
+local stateChip = button("GAME RUNNING", 120)
+stateChip.AutoButtonColor = false
+stateChip.Active = false
+local freezeButton = button("Freeze game [F4]", 130)
+local frameButton = button("Step 1 frame [.]", 112)
+local tenthButton = button("Step 0.1 s", 76)
+local secondButton = button("Step 1 s", 64)
+local replayButton = button("Open replay [F6]", 120)
 local stepButtons = { frameButton, tenthButton, secondButton }
 
 local dot = Instance.new("Frame")
@@ -151,9 +158,15 @@ local function sendInspect()
 	-- the speeds the clips had before the freeze (the recorder's last frame: nothing is recorded
 	-- while frozen; the clips themselves show 0 now)
 	local frames = recorder and recorder.frames
-	local lastPose = frames and frames[#frames] and frames[#frames].quins[name]
+	-- (newest frame first, back over the last second: the newest frames can already show a clip
+	-- held by the server before this machine saw the freeze)
 	local speedBefore = {}
-	for _, clip in ipairs(lastPose and lastPose.clips or {}) do speedBefore[clip.name] = clip.speed end
+	for index = #(frames or {}), math.max(1, #(frames or {}) - 30), -1 do
+		local pose = frames[index].quins[name]
+		for _, clip in ipairs(pose and pose.clips or {}) do
+			if speedBefore[clip.name] == nil and clip.speed ~= 0 then speedBefore[clip.name] = clip.speed end
+		end
+	end
 	if animator then
 		local tracks = animator:GetPlayingAnimationTracks()
 		table.sort(tracks, function(a, b) return a.WeightCurrent > b.WeightCurrent end)
@@ -183,18 +196,14 @@ end
 
 local function refresh()
 	local frozen = GameClock.frozen()
-	bar.Visible = isAdmin()
-	freezeButton.Text = frozen and "▶  RESUME  [F4]" or "||  FREEZE  [F4]"
-	freezeButton.BackgroundColor3 = frozen and Color3.fromRGB(60, 170, 255) or Color3.fromRGB(32, 40, 58)
-	freezeButton.TextColor3 = frozen and Color3.new(0, 0, 0) or Color3.fromRGB(235, 240, 255)
-	stroke.Color = frozen and Color3.new(1, 1, 1) or Color3.fromRGB(60, 170, 255)
-	for _, b in ipairs(stepButtons) do
-		b.AutoButtonColor = frozen
-		b.TextTransparency = frozen and 0 or 0.6
-	end
 	local replay = replayOpen()
-	replayButton.BackgroundColor3 = replay and Color3.fromRGB(255, 200, 60) or Color3.fromRGB(32, 40, 58)
-	replayButton.TextColor3 = replay and Color3.new(0, 0, 0) or Color3.fromRGB(235, 240, 255)
+	bar.Visible = isAdmin() and not replay
+	stateChip.Text = frozen and "GAME FROZEN" or "GAME RUNNING"
+	stateChip.BackgroundColor3 = frozen and Color3.fromRGB(60, 170, 255) or Color3.fromRGB(30, 140, 100)
+	stateChip.TextColor3 = frozen and Color3.new(0, 0, 0) or Color3.new(1, 1, 1)
+	freezeButton.Text = frozen and "Resume game [F4]" or "Freeze game [F4]"
+	stroke.Color = frozen and Color3.fromRGB(60, 170, 255) or Color3.fromRGB(40, 50, 70)
+	for _, b in ipairs(stepButtons) do b.Visible = frozen end
 	local inspecting = frozen and isAdmin() and not replay
 	dot.Visible = inspecting and UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
 	if not inspecting then

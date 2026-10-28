@@ -194,7 +194,35 @@ outerFrame.BackgroundTransparency = 0.20
 outerFrame.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
 outerFrame.BorderSizePixel = 0
 outerFrame.Visible = true
+outerFrame.Active = true -- (the wheel over it scrolls it, not the camera)
 outerFrame.Parent = gui
+
+-- shared.PointerOverMenu(): the pointer is over the debug menu, the GAME bar (GodPauseClient) or
+-- the replay bar (QuinReplay) - the cameras leave the wheel to them (SmoothCamera, QuinReplay)
+local DEBUG_GUIS = { "QuinDebugGui", "GodPauseUI", "QuinReplayUI" }
+local GuiService = game:GetService("GuiService")
+function shared.PointerOverMenu()
+	local playerGui = player:FindFirstChildOfClass("PlayerGui")
+	-- (a locked cursor sits on the centre dot, not on a menu)
+	if not playerGui or UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter then return false end
+	local mouse = UserInputService:GetMouseLocation()
+	local inset = GuiService:GetGuiInset()
+	for _, name in ipairs(DEBUG_GUIS) do
+		local screen = playerGui:FindFirstChild(name)
+		if screen and screen.Enabled then
+			local at = screen.IgnoreGuiInset and mouse or mouse - inset
+			for _, child in ipairs(screen:GetChildren()) do
+				if child:IsA("GuiObject") and child.Visible and child.BackgroundTransparency < 1 then
+					local p, size = child.AbsolutePosition, child.AbsoluteSize
+					if at.X >= p.X and at.X <= p.X + size.X and at.Y >= p.Y and at.Y <= p.Y + size.Y then
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
+end
 
 local outerCorner = Instance.new("UICorner")
 outerCorner.CornerRadius = UDim.new(0, 8)

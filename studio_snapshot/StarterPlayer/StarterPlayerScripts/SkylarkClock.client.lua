@@ -443,7 +443,7 @@ if isOwner then
         local debugOn = SkylarkTime.isDebug()
         local rate = SkylarkTime.rate()
         if debugOn then
-            modeLabel.Text = rate == 0 and "DEBUG, PAUSED" or string.format("DEBUG, %gx", rate)
+            modeLabel.Text = rate == 0 and "SST clock paused (debug)" or string.format("SST clock %gx (debug)", rate)
             modeLabel.TextColor3 = C_AMBER
         else
             modeLabel.Text = "REAL TIME (UTC)"
@@ -514,7 +514,7 @@ local function updateWidget(info)
     debugBadge.Visible = debugOn
     if debugOn then
         local rate = SkylarkTime.rate()
-        debugBadge.Text = rate == 0 and "DEBUG • PAUSED" or string.format("DEBUG • %gx", rate)
+        debugBadge.Text = rate == 0 and "SST CLOCK • PAUSED" or string.format("SST CLOCK • %gx", rate)
     end
 end
 

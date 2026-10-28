@@ -552,7 +552,7 @@ end)
 UserInputService.InputChanged:Connect(function(input, gp)
 	if gp then return end
 	if cameraMode == "DEFAULT" then return end
-	if input.UserInputType == Enum.UserInputType.MouseWheel and menuOpen() then return end
+	if input.UserInputType == Enum.UserInputType.MouseWheel and (menuOpen() or (shared.PointerOverMenu and shared.PointerOverMenu())) then return end
 	if input.UserInputType == Enum.UserInputType.MouseWheel then
 		if cameraMode == "QUIN_SPECTATE" or cameraMode == "AVATAR" then
 			local zoomingIn = input.Position.Z > 0
