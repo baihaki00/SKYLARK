@@ -58,6 +58,7 @@ mainPanel.BackgroundColor3 = Color3.fromRGB(15, 18, 24)
 mainPanel.BackgroundTransparency = 0.15
 mainPanel.BorderSizePixel = 0
 mainPanel.Active = true
+mainPanel.Visible = false -- (starts closed, the pill opens it: owner 2026-10-28)
 mainPanel.ClipsDescendants = false
 mainPanel.Parent = gui
 

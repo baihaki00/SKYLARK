@@ -42,14 +42,23 @@ local function canAdmin(player)
     return type(list) == "string" and ("," .. list:gsub("%s", "") .. ","):find("," .. player.UserId .. ",", 1, true) ~= nil
 end
 
+-- For now (owner 2026-10-28, "spawn me as admin everytime I enter the game"): in Studio everyone
+-- joins as Admin. Workspace JoinAsPlayer = true: join as a Player again (to test the player side).
+local function joinRole(player)
+    if RunService:IsStudio() and Workspace:GetAttribute("JoinAsPlayer") ~= true and canAdmin(player) then
+        return "Admin"
+    end
+    return "Player"
+end
+
 Players.PlayerAdded:Connect(function(player)
     player:SetAttribute("SkylarkCanAdmin", canAdmin(player))
-    player:SetAttribute("SkylarkRole", "Player")
+    player:SetAttribute("SkylarkRole", joinRole(player))
 end)
 for _, player in ipairs(Players:GetPlayers()) do
     player:SetAttribute("SkylarkCanAdmin", canAdmin(player))
     if player:GetAttribute("SkylarkRole") == nil then
-        player:SetAttribute("SkylarkRole", "Player")
+        player:SetAttribute("SkylarkRole", joinRole(player))
     end
 end
 

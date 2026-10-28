@@ -42,7 +42,7 @@ local TASK_LABEL = {
 }
 
 local PANEL_WIDTH = 0.36 -- of the screen's width (between 320 and 700 pixels)
-local minimised = false  -- (kept between matches)
+local minimised = true   -- (kept between matches; starts as the pill: owner 2026-10-28)
 
 local guis = {}      -- the one ScreenGui
 local views = {}     -- per gui

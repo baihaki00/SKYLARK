@@ -311,7 +311,9 @@ local CognitionLayers = require(QuinCore:WaitForChild("Cognition"):WaitForChild(
 local BodyLayers = require(QuinCore:WaitForChild("Modules"):WaitForChild("Procedural"):WaitForChild("Layers"))
 local BODY_PRESETS = { "Default", "Legacy", "None" }
 local bodyToggleCount = #BodyLayers.List + 1 + #BODY_PRESETS -- layers, split, presets
-local toggleCount = #layerList + 1 + bodyToggleCount + #CognitionLayers.Switchable -- layers, scope, body layers, AI layers
+-- Debug labels and prints (Modules/DebugSwitches): the Workspace switches, live, Admin only
+local DebugSwitches = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugSwitches"))
+local toggleCount = #layerList + 1 + bodyToggleCount + #CognitionLayers.Switchable + #DebugSwitches.List -- layers, scope, body layers, AI layers, labels
 local LAYER_PANEL_HEIGHT = RuntimeVisualizer and (math.ceil(toggleCount / 2) * LAYER_ROW_HEIGHT + 8) or 0
 
 local layerPanel = Instance.new("Frame")
@@ -399,6 +401,16 @@ if RuntimeVisualizer then
 		end)
 		-- The switch shows the server's state once it has changed
 		Workspace:GetAttributeChangedSignal("Cognition_" .. layer.id):Connect(refresh)
+	end
+	slot += #CognitionLayers.Switchable
+	for _, switch in ipairs(DebugSwitches.List) do
+		slot += 1
+		local refresh = addLayerToggle(slot, "Show: " .. switch.label, function()
+			return DebugSwitches.isOn(switch.attribute)
+		end, function()
+			DebugSwitches.request(switch.attribute, not DebugSwitches.isOn(switch.attribute))
+		end)
+		Workspace:GetAttributeChangedSignal(switch.attribute):Connect(refresh)
 	end
 end
 

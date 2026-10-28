@@ -5,6 +5,7 @@
 -- before the first Quin spawns
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugDraw"))
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Cognition"))
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DebugSwitches"))
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
