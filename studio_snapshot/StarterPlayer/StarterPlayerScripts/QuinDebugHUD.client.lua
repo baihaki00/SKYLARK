@@ -188,8 +188,8 @@ end)
 
 -- Outer Container Frame (Docked Left)
 local outerFrame = Instance.new("Frame")
-outerFrame.Size = UDim2.new(0, 360, 1, -30)
-outerFrame.Position = UDim2.new(0, 15, 0, 15)
+outerFrame.Size = UDim2.new(0, 400, 1, -64)
+outerFrame.Position = UDim2.new(0, 15, 0, 49) -- (below the Teleport Debug pill)
 outerFrame.BackgroundTransparency = 0.20
 outerFrame.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
 outerFrame.BorderSizePixel = 0
@@ -233,29 +233,7 @@ headerTitle.TextXAlignment = Enum.TextXAlignment.Left
 headerTitle.Text = "QUIN SPECTATOR HUD [H]"
 headerTitle.Parent = headerBar
 
-local pilotBtn = Instance.new("TextButton")
-pilotBtn.Name = "PilotBtn"
-pilotBtn.Size = UDim2.new(0, 76, 0, 22)
-pilotBtn.Position = UDim2.new(1, -252, 0, 3)
-pilotBtn.BackgroundColor3 = Color3.fromRGB(30, 140, 100)
-pilotBtn.TextColor3 = Color3.fromRGB(240, 255, 250)
-pilotBtn.Font = Enum.Font.GothamBold
-pilotBtn.TextSize = 10
-pilotBtn.Text = "🎮 Pilot [P]"
-pilotBtn.Parent = headerBar
-
-local pilotCorner = Instance.new("UICorner")
-pilotCorner.CornerRadius = UDim.new(0, 4)
-pilotCorner.Parent = pilotBtn
-
-pilotBtn.MouseButton1Click:Connect(function()
-	if shared.ToggleQuinControl then
-		local spec = shared.SpectatedQuin or _G.SpectatedQuin
-		local targetName = spec and spec:IsA("Model") and spec.Name or nil
-		shared.ToggleQuinControl(nil, targetName)
-	end
-end)
-
+-- (no Pilot button here: owner 2026-10-28; P still pilots, PlayerQuinController)
 local vizBtn = Instance.new("TextButton")
 vizBtn.Name = "ToggleVizBtn"
 vizBtn.Size = UDim2.new(0, 58, 0, 22)
@@ -299,47 +277,144 @@ local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 4)
 closeCorner.Parent = closeBtn
 
--- Debug layer panel: one checkbox per overlay layer (RuntimeVisualizer) and the scope switch.
--- Every layer starts off.
-local LAYER_ROW_HEIGHT = 20
-local layerList = RuntimeVisualizer and RuntimeVisualizer.getLayers() or {}
--- Cognition switches (QuinCore.Cognition.Layers): take a layer of the Quins' perception out,
--- for every Quin, to see what it contributes. The server owns the state; a toggle asks for it.
+-- ============================================================
+-- TABS (owner 2026-10-28: one menu for all the debugging, not panels all over the screen)
+-- Quins: the cards. Inspect: the Quin looked at in a freeze (GodPauseClient) or the replay
+-- (QuinReplay): its changes in a list that scrolls, a change's before / after card, its report.
+-- Switches: every layer and label switch, in groups that fold.
+-- ============================================================
+local TAB_Y = 32
+local CONTENT_Y = TAB_Y + 26
+local TAB_NAMES = { "Quins", "Inspect", "Switches" }
+local tabContent, tabButtons = {}, {}
+local currentTab = "Quins"
+
+local function showTab(name)
+	currentTab = name
+	for tabName, frame in pairs(tabContent) do
+		frame.Visible = tabName == name
+		local b = tabButtons[tabName]
+		b.BackgroundColor3 = tabName == name and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(24, 30, 44)
+		b.TextColor3 = tabName == name and Color3.new(0, 0, 0) or Color3.fromRGB(200, 210, 230)
+	end
+end
+
+for index, name in ipairs(TAB_NAMES) do
+	local b = Instance.new("TextButton")
+	b.Name = "Tab_" .. name
+	b.Size = UDim2.new(1 / #TAB_NAMES, -6, 0, 22)
+	b.Position = UDim2.new((index - 1) / #TAB_NAMES, 3, 0, TAB_Y)
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 11
+	b.Text = name
+	b.BorderSizePixel = 0
+	b.Parent = outerFrame
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+	b.MouseButton1Click:Connect(function() showTab(name) end)
+	tabButtons[name] = b
+
+	local frame = Instance.new("Frame")
+	frame.Name = "TabContent_" .. name
+	frame.Size = UDim2.new(1, 0, 1, -CONTENT_Y)
+	frame.Position = UDim2.new(0, 0, 0, CONTENT_Y)
+	frame.BackgroundTransparency = 1
+	frame.Visible = false
+	frame.Parent = outerFrame
+	tabContent[name] = frame
+end
+
+local function newScroll(parent, name)
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = name
+	scroll.Size = UDim2.fromScale(1, 1)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.ScrollBarThickness = 5
+	scroll.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 180)
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.CanvasSize = UDim2.new()
+	scroll.Parent = parent
+	local list = Instance.new("UIListLayout")
+	list.Padding = UDim.new(0, 4)
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Parent = scroll
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 6)
+	padding.PaddingRight = UDim.new(0, 10)
+	padding.PaddingTop = UDim.new(0, 4)
+	padding.PaddingBottom = UDim.new(0, 6)
+	padding.Parent = scroll
+	return scroll
+end
+
+-- ============================================================
+-- SWITCHES TAB: the 3D overlays (RuntimeVisualizer) and their scope, the AI layers
+-- (Cognition.Layers, server-owned), the body layers + split + presets (Procedural.Layers) and the
+-- labels / prints (DebugSwitches, Admin only). A group's fold is remembered for the session.
+-- ============================================================
 local CognitionLayers = require(QuinCore:WaitForChild("Cognition"):WaitForChild("Layers"))
--- Body layers (QuinCore.Modules.Procedural.Layers): every procedural rule on the body, each
--- switchable for all Quins, with presets and an every-other-Quin split (client presentation)
 local BodyLayers = require(QuinCore:WaitForChild("Modules"):WaitForChild("Procedural"):WaitForChild("Layers"))
-local BODY_PRESETS = { "Default", "Legacy", "None" }
-local bodyToggleCount = #BodyLayers.List + 1 + #BODY_PRESETS -- layers, split, presets
--- Debug labels and prints (Modules/DebugSwitches): the Workspace switches, live, Admin only
 local DebugSwitches = require(QuinCore:WaitForChild("Modules"):WaitForChild("DebugSwitches"))
-local toggleCount = #layerList + 1 + bodyToggleCount + #CognitionLayers.Switchable + #DebugSwitches.List -- layers, scope, body layers, AI layers, labels
-local LAYER_PANEL_HEIGHT = RuntimeVisualizer and (math.ceil(toggleCount / 2) * LAYER_ROW_HEIGHT + 8) or 0
+local BODY_PRESETS = { "Default", "Legacy", "None" }
+local LAYER_ROW_HEIGHT = 20
 
-local layerPanel = Instance.new("Frame")
-layerPanel.Name = "DebugLayerPanel"
-layerPanel.Size = UDim2.new(1, 0, 0, LAYER_PANEL_HEIGHT)
-layerPanel.Position = UDim2.new(0, 0, 0, 30)
-layerPanel.BackgroundColor3 = Color3.fromRGB(14, 18, 27)
-layerPanel.BackgroundTransparency = 0.2
-layerPanel.BorderSizePixel = 0
-layerPanel.Parent = outerFrame
+local switchScroll = newScroll(tabContent.Switches, "DebugLayerPanel")
 
-local function addLayerToggle(index, text, isOn, toggle)
+local groupOrder = 0
+local function addGroup(title)
+	groupOrder += 1
+	local header = Instance.new("TextButton")
+	header.LayoutOrder = groupOrder * 2
+	header.Size = UDim2.new(1, 0, 0, 22)
+	header.BackgroundColor3 = Color3.fromRGB(30, 38, 56)
+	header.BorderSizePixel = 0
+	header.Font = Enum.Font.GothamBold
+	header.TextSize = 11
+	header.TextColor3 = Color3.fromRGB(255, 215, 0)
+	header.TextXAlignment = Enum.TextXAlignment.Left
+	header.Parent = switchScroll
+	Instance.new("UICorner", header).CornerRadius = UDim.new(0, 4)
+	Instance.new("UIPadding", header).PaddingLeft = UDim.new(0, 8)
+
+	local grid = Instance.new("Frame")
+	grid.LayoutOrder = groupOrder * 2 + 1
+	grid.Size = UDim2.new(1, 0, 0, 0)
+	grid.AutomaticSize = Enum.AutomaticSize.Y
+	grid.BackgroundTransparency = 1
+	grid.Parent = switchScroll
+	local layout = Instance.new("UIGridLayout")
+	layout.CellSize = UDim2.new(0.5, -3, 0, LAYER_ROW_HEIGHT - 3)
+	layout.CellPadding = UDim2.fromOffset(4, 3)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = grid
+
+	local group = { grid = grid, count = 0 }
+	local key = "DebugGroupFolded_" .. title:gsub("%W", "")
+	function group.refresh()
+		local folded = player:GetAttribute(key) == true
+		grid.Visible = not folded
+		header.Text = (folded and "+  " or "-  ") .. title .. "  (" .. group.count .. ")"
+	end
+	header.MouseButton1Click:Connect(function()
+		player:SetAttribute(key, not (player:GetAttribute(key) == true))
+		group.refresh()
+	end)
+	return group
+end
+
+local function addLayerToggle(group, text, isOn, toggle)
+	group.count += 1
 	local button = Instance.new("TextButton")
-	button.Name = "Layer_" .. tostring(index)
-	button.Size = UDim2.new(0.5, -9, 0, LAYER_ROW_HEIGHT - 3)
-	button.Position = UDim2.new(((index - 1) % 2) * 0.5, 6, 0, 4 + math.floor((index - 1) / 2) * LAYER_ROW_HEIGHT)
+	button.Name = "Layer_" .. tostring(group.count)
+	button.LayoutOrder = group.count
 	button.BackgroundColor3 = Color3.fromRGB(24, 30, 44)
 	button.BorderSizePixel = 0
 	button.Font = Enum.Font.Gotham
 	button.TextSize = 10
 	button.TextXAlignment = Enum.TextXAlignment.Left
-	button.Parent = layerPanel
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 3)
-	corner.Parent = button
+	button.TextTruncate = Enum.TextTruncate.AtEnd
+	button.Parent = group.grid
+	Instance.new("UICorner", button).CornerRadius = UDim.new(0, 3)
 
 	local function refresh()
 		local on = isOn()
@@ -351,50 +426,38 @@ local function addLayerToggle(index, text, isOn, toggle)
 		refresh()
 	end)
 	refresh()
+	group.refresh()
 	return refresh
 end
 
-if RuntimeVisualizer then
-	for index, layer in ipairs(layerList) do
-		addLayerToggle(index, layer.label, function()
-			return RuntimeVisualizer.isLayerEnabled(layer.id)
+do
+	local labels = addGroup("Labels & prints")
+	for _, switch in ipairs(DebugSwitches.List) do
+		local refresh = addLayerToggle(labels, switch.label, function()
+			return DebugSwitches.isOn(switch.attribute)
 		end, function()
-			RuntimeVisualizer.setLayerEnabled(layer.id, not RuntimeVisualizer.isLayerEnabled(layer.id))
+			DebugSwitches.request(switch.attribute, not DebugSwitches.isOn(switch.attribute))
 		end)
+		Workspace:GetAttributeChangedSignal(switch.attribute):Connect(refresh)
 	end
-	addLayerToggle(#layerList + 1, "All Quins (off: spectated only)", RuntimeVisualizer.isWatchingAll, function()
-		RuntimeVisualizer.setWatchAll(not RuntimeVisualizer.isWatchingAll())
-	end)
 
-	-- Body layers: one switch each, then the split and the presets
-	local slot = #layerList + 1
-	for _, layer in ipairs(BodyLayers.List) do
-		slot += 1
-		local refresh = addLayerToggle(slot, "Body: " .. layer.label, function()
-			return BodyLayers.isOn(layer.name)
-		end, function()
-			BodyLayers.set(layer.name, not BodyLayers.isOn(layer.name))
-		end)
-		Workspace:GetAttributeChangedSignal(layer.attribute):Connect(refresh)
-	end
-	slot += 1
-	local refreshSplit = addLayerToggle(slot, "Body: split (every other Quin legacy)", function()
-		return Workspace:GetAttribute("LayerSplit") == "odd"
-	end, function()
-		Workspace:SetAttribute("LayerSplit", Workspace:GetAttribute("LayerSplit") ~= "odd" and "odd" or nil)
-	end)
-	Workspace:GetAttributeChangedSignal("LayerSplit"):Connect(refreshSplit)
-	for _, preset in ipairs(BODY_PRESETS) do
-		slot += 1
-		addLayerToggle(slot, "Body preset: " .. preset, function()
-			return false -- a button, not a state
-		end, function()
-			BodyLayers.preset(preset)
+	if RuntimeVisualizer then
+		local overlays = addGroup("3D overlays")
+		for _, layer in ipairs(RuntimeVisualizer.getLayers()) do
+			addLayerToggle(overlays, layer.label, function()
+				return RuntimeVisualizer.isLayerEnabled(layer.id)
+			end, function()
+				RuntimeVisualizer.setLayerEnabled(layer.id, not RuntimeVisualizer.isLayerEnabled(layer.id))
+			end)
+		end
+		addLayerToggle(overlays, "All Quins (off: spectated only)", RuntimeVisualizer.isWatchingAll, function()
+			RuntimeVisualizer.setWatchAll(not RuntimeVisualizer.isWatchingAll())
 		end)
 	end
 
-	for offset, layer in ipairs(CognitionLayers.Switchable) do
-		local refresh = addLayerToggle(slot + offset, "AI: " .. layer.label, function()
+	local ai = addGroup("AI layers (all Quins)")
+	for _, layer in ipairs(CognitionLayers.Switchable) do
+		local refresh = addLayerToggle(ai, layer.label, function()
 			return CognitionLayers.isEnabled(layer.id)
 		end, function()
 			CognitionLayers.request(layer.id, not CognitionLayers.isEnabled(layer.id))
@@ -402,22 +465,278 @@ if RuntimeVisualizer then
 		-- The switch shows the server's state once it has changed
 		Workspace:GetAttributeChangedSignal("Cognition_" .. layer.id):Connect(refresh)
 	end
-	slot += #CognitionLayers.Switchable
-	for _, switch in ipairs(DebugSwitches.List) do
-		slot += 1
-		local refresh = addLayerToggle(slot, "Show: " .. switch.label, function()
-			return DebugSwitches.isOn(switch.attribute)
+
+	local body = addGroup("Body layers (all Quins)")
+	for _, layer in ipairs(BodyLayers.List) do
+		local refresh = addLayerToggle(body, layer.label, function()
+			return BodyLayers.isOn(layer.name)
 		end, function()
-			DebugSwitches.request(switch.attribute, not DebugSwitches.isOn(switch.attribute))
+			BodyLayers.set(layer.name, not BodyLayers.isOn(layer.name))
 		end)
-		Workspace:GetAttributeChangedSignal(switch.attribute):Connect(refresh)
+		Workspace:GetAttributeChangedSignal(layer.attribute):Connect(refresh)
+	end
+	local refreshSplit = addLayerToggle(body, "Split (every other Quin legacy)", function()
+		return Workspace:GetAttribute("LayerSplit") == "odd"
+	end, function()
+		Workspace:SetAttribute("LayerSplit", Workspace:GetAttribute("LayerSplit") ~= "odd" and "odd" or nil)
+	end)
+	Workspace:GetAttributeChangedSignal("LayerSplit"):Connect(refreshSplit)
+	for _, preset in ipairs(BODY_PRESETS) do
+		addLayerToggle(body, "Preset: " .. preset, function()
+			return false -- a button, not a state
+		end, function()
+			BodyLayers.preset(preset)
+		end)
+	end
+end
+
+-- ============================================================
+-- INSPECT TAB (shared.DebugDock.setInspect): fed by the freeze and the replay.
+--   data = { source, title, info, clips, rows = {{t, text}}, pick = function(t) -> rich card,
+--            report = function(t) -> plain text }
+-- Click a change row: its before / after card. Copy report: the card as plain text, selected
+-- for Ctrl+C (and printed to Output).
+-- ============================================================
+-- (the Quin's state, clips and the card stay at the top; only the changes scroll)
+local inspectTop = Instance.new("Frame")
+inspectTop.Name = "InspectTop"
+inspectTop.Size = UDim2.new(1, 0, 0, 0)
+inspectTop.AutomaticSize = Enum.AutomaticSize.Y
+inspectTop.BackgroundTransparency = 1
+inspectTop.Parent = tabContent.Inspect
+local topList = Instance.new("UIListLayout")
+topList.Padding = UDim.new(0, 4)
+topList.SortOrder = Enum.SortOrder.LayoutOrder
+topList.Parent = inspectTop
+local topPadding = Instance.new("UIPadding")
+topPadding.PaddingLeft, topPadding.PaddingRight = UDim.new(0, 6), UDim.new(0, 10)
+topPadding.PaddingTop, topPadding.PaddingBottom = UDim.new(0, 4), UDim.new(0, 4)
+topPadding.Parent = inspectTop
+
+local inspectScroll = newScroll(tabContent.Inspect, "InspectList")
+local function fitRows()
+	local height = inspectTop.AbsoluteSize.Y
+	inspectScroll.Position = UDim2.new(0, 0, 0, height)
+	inspectScroll.Size = UDim2.new(1, 0, 1, -height)
+end
+inspectTop:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitRows)
+fitRows()
+
+local function inspectLabel(order, size, color)
+	local label = Instance.new("TextLabel")
+	label.LayoutOrder = order
+	label.Size = UDim2.new(1, 0, 0, 0)
+	label.AutomaticSize = Enum.AutomaticSize.Y
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.Code
+	label.TextSize = size
+	label.TextColor3 = color
+	label.TextWrapped = true
+	label.RichText = true
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextYAlignment = Enum.TextYAlignment.Top
+	label.Parent = inspectTop
+	return label
+end
+
+local inspectTitle = inspectLabel(1, 13, Color3.fromRGB(255, 215, 0))
+inspectTitle.Font = Enum.Font.GothamBold
+inspectTitle.Text = "Nothing to inspect yet.\nFreeze (F4) and click a Quin, or open the replay (F6) and click a ghost."
+local inspectInfo = inspectLabel(2, 11, Color3.fromRGB(220, 230, 245))
+local inspectClips = inspectLabel(3, 11, Color3.fromRGB(160, 175, 200))
+
+local cardFrame = Instance.new("Frame")
+cardFrame.LayoutOrder = 4
+cardFrame.Size = UDim2.new(1, 0, 0, 0)
+cardFrame.AutomaticSize = Enum.AutomaticSize.Y
+cardFrame.BackgroundColor3 = Color3.fromRGB(26, 32, 48)
+cardFrame.BorderSizePixel = 0
+cardFrame.Visible = false
+cardFrame.Parent = inspectTop
+Instance.new("UICorner", cardFrame).CornerRadius = UDim.new(0, 6)
+local cardPadding = Instance.new("UIPadding")
+cardPadding.PaddingLeft, cardPadding.PaddingRight = UDim.new(0, 6), UDim.new(0, 6)
+cardPadding.PaddingTop, cardPadding.PaddingBottom = UDim.new(0, 4), UDim.new(0, 6)
+cardPadding.Parent = cardFrame
+local cardList = Instance.new("UIListLayout")
+cardList.Padding = UDim.new(0, 4)
+cardList.SortOrder = Enum.SortOrder.LayoutOrder
+cardList.Parent = cardFrame
+
+local cardText = Instance.new("TextLabel")
+cardText.LayoutOrder = 1
+cardText.Size = UDim2.new(1, 0, 0, 0)
+cardText.AutomaticSize = Enum.AutomaticSize.Y
+cardText.BackgroundTransparency = 1
+cardText.Font = Enum.Font.Code
+cardText.TextSize = 11
+cardText.TextColor3 = Color3.fromRGB(230, 235, 245)
+cardText.TextWrapped = true
+cardText.RichText = true
+cardText.TextXAlignment = Enum.TextXAlignment.Left
+cardText.Parent = cardFrame
+
+local cardButtons = Instance.new("Frame")
+cardButtons.LayoutOrder = 2
+cardButtons.Size = UDim2.new(1, 0, 0, 22)
+cardButtons.BackgroundTransparency = 1
+cardButtons.Parent = cardFrame
+local function cardButton(text, x, color)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0, 110, 1, 0)
+	b.Position = UDim2.new(0, x, 0, 0)
+	b.BackgroundColor3 = color
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 11
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.Parent = cardButtons
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+	return b
+end
+local copyButton = cardButton("Copy report", 0, Color3.fromRGB(0, 140, 90))
+local closeCardButton = cardButton("Close card", 116, Color3.fromRGB(70, 80, 100))
+
+local reportBox = Instance.new("TextBox")
+reportBox.LayoutOrder = 3
+reportBox.Size = UDim2.new(1, 0, 0, 0)
+reportBox.AutomaticSize = Enum.AutomaticSize.Y
+reportBox.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+reportBox.BorderSizePixel = 0
+reportBox.ClearTextOnFocus = false
+reportBox.TextEditable = false
+reportBox.MultiLine = true
+reportBox.TextWrapped = true
+reportBox.Font = Enum.Font.Code
+reportBox.TextSize = 10
+reportBox.TextColor3 = Color3.fromRGB(200, 255, 220)
+reportBox.TextXAlignment = Enum.TextXAlignment.Left
+reportBox.Visible = false
+reportBox.Parent = cardFrame
+
+local changesHeader = inspectLabel(5, 11, Color3.fromRGB(170, 170, 170))
+changesHeader.Font = Enum.Font.GothamBold
+changesHeader.Text = ""
+
+local rowsFrame = Instance.new("Frame")
+rowsFrame.LayoutOrder = 6
+rowsFrame.Size = UDim2.new(1, 0, 0, 0)
+rowsFrame.AutomaticSize = Enum.AutomaticSize.Y
+rowsFrame.BackgroundTransparency = 1
+rowsFrame.Parent = inspectScroll
+local rowsList = Instance.new("UIListLayout")
+rowsList.Padding = UDim.new(0, 1)
+rowsList.SortOrder = Enum.SortOrder.LayoutOrder
+rowsList.Parent = rowsFrame
+
+local inspectData = nil
+local pickedT = nil
+local rowSignature = nil
+
+local function showCard(t)
+	pickedT = t
+	if not (inspectData and t and inspectData.pick) then
+		cardFrame.Visible = false
+		return
+	end
+	cardText.Text = inspectData.pick(t)
+	reportBox.Visible = false
+	cardFrame.Visible = true
+end
+
+copyButton.MouseButton1Click:Connect(function()
+	if not (inspectData and pickedT and inspectData.report) then return end
+	local text = inspectData.report(pickedT)
+	print("[QuinDebug report]\n" .. text)
+	reportBox.Text = text
+	reportBox.Visible = true
+	reportBox:CaptureFocus()
+	reportBox.SelectionStart = 1
+	reportBox.CursorPosition = #text + 1
+end)
+closeCardButton.MouseButton1Click:Connect(function()
+	showCard(nil)
+end)
+
+local function rebuildRows(rows)
+	local atBottom = inspectScroll.CanvasPosition.Y >= inspectScroll.AbsoluteCanvasSize.Y - inspectScroll.AbsoluteWindowSize.Y - 30
+	for _, child in ipairs(rowsFrame:GetChildren()) do
+		if child:IsA("TextButton") then child:Destroy() end
+	end
+	-- (the newest 150: a 120 s replay can hold many more)
+	for index = math.max(1, #rows - 149), #rows do
+		local row = rows[index]
+		local b = Instance.new("TextButton")
+		b.LayoutOrder = index
+		b.Size = UDim2.new(1, 0, 0, 16)
+		b.BackgroundColor3 = Color3.fromRGB(20, 26, 38)
+		b.BackgroundTransparency = row.t == pickedT and 0 or 0.6
+		b.BorderSizePixel = 0
+		b.Font = Enum.Font.Code
+		b.TextSize = 11
+		b.TextColor3 = Color3.fromRGB(225, 230, 240)
+		b.RichText = true
+		b.TextXAlignment = Enum.TextXAlignment.Left
+		b.TextTruncate = Enum.TextTruncate.AtEnd
+		b.Text = " " .. row.text
+		b.Parent = rowsFrame
+		b.MouseButton1Click:Connect(function()
+			if inspectData and inspectData.onPick then inspectData.onPick(row.t) end
+			showCard(row.t)
+			rowSignature = nil -- (redraw the highlight)
+		end)
+	end
+	if atBottom then
+		task.defer(function()
+			inspectScroll.CanvasPosition = Vector2.new(0, math.max(0, inspectScroll.AbsoluteCanvasSize.Y - inspectScroll.AbsoluteWindowSize.Y))
+		end)
+	end
+end
+
+-- ============================================================
+-- shared.DebugDock: the menu, for GodPauseClient and QuinReplay
+-- ============================================================
+local DebugDock = {}
+shared.DebugDock = DebugDock
+
+function DebugDock.showTab(name)
+	showTab(name)
+end
+
+function DebugDock.setInspect(data)
+	local sameQuin = inspectData and data and inspectData.title == data.title and inspectData.source == data.source
+	inspectData = data
+	if not data then
+		inspectTitle.Text = "Nothing to inspect yet.\nFreeze (F4) and click a Quin, or open the replay (F6) and click a ghost."
+		inspectInfo.Text, inspectClips.Text, changesHeader.Text = "", "", ""
+		rebuildRows({})
+		rowSignature = nil
+		showCard(nil)
+		return
+	end
+	inspectTitle.Text = ("%s  <font color='#AAAAAA'>(%s)</font>"):format(data.title or "?", data.source or "")
+	inspectInfo.Text = data.info or ""
+	inspectClips.Text = "Clips: " .. (data.clips or "none")
+	local rows = data.rows or {}
+	changesHeader.Text = ("CHANGES (%d)  - click one for its before / after"):format(#rows)
+	local last = rows[#rows]
+	local signature = ("%s|%d|%s|%s"):format(data.title or "", #rows, last and tostring(last.t) or "", tostring(pickedT))
+	if signature ~= rowSignature then
+		rowSignature = signature
+		rebuildRows(rows)
+	end
+	if not sameQuin then
+		showCard(nil)
+	elseif pickedT and cardFrame.Visible and not reportBox.Visible then
+		cardText.Text = data.pick and data.pick(pickedT) or ""
 	end
 end
 
 -- Main Scrollable Card List Frame
 local scrollFrame = Instance.new("ScrollingFrame")
-scrollFrame.Size = UDim2.new(1, 0, 1, -(34 + LAYER_PANEL_HEIGHT))
-scrollFrame.Position = UDim2.new(0, 0, 0, 34 + LAYER_PANEL_HEIGHT)
+scrollFrame.Size = UDim2.fromScale(1, 1)
+scrollFrame.Position = UDim2.new()
 scrollFrame.BackgroundTransparency = 0.35
 scrollFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
 scrollFrame.BorderSizePixel = 0
@@ -425,7 +744,8 @@ scrollFrame.ScrollBarThickness = 5
 scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 180)
 scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
 scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-scrollFrame.Parent = outerFrame
+scrollFrame.Parent = tabContent.Quins
+showTab("Quins")
 
 local scrollCorner = Instance.new("UICorner")
 scrollCorner.CornerRadius = UDim.new(0, 6)
@@ -548,6 +868,12 @@ end
 togglePill.MouseButton1Click:Connect(function()
 	setHudVisibility(not isHudVisible)
 end)
+
+-- (the freeze and the replay open the menu on the Inspect tab)
+function DebugDock.open(tab)
+	setHudVisibility(true)
+	if tab then showTab(tab) end
+end
 
 vizBtn.MouseButton1Click:Connect(function()
 	if RuntimeVisualizer then
@@ -685,16 +1011,6 @@ RunService.Heartbeat:Connect(function()
 			cycleSpectatedQuin(1)
 			curSpectated = shared.SpectatedQuin or _G.SpectatedQuin
 		end
-	end
-
-	-- Sync Pilot Button state in header
-	local isLocalPiloting = (player.Character and player.Character:GetAttribute("IsPlayerControlled") == true)
-	if isLocalPiloting then
-		pilotBtn.Text = "⏹ Exit [P]"
-		pilotBtn.BackgroundColor3 = Color3.fromRGB(200, 110, 30)
-	else
-		pilotBtn.Text = "🎮 Pilot [P]"
-		pilotBtn.BackgroundColor3 = Color3.fromRGB(30, 140, 100)
 	end
 
 	for index, model in ipairs(quins) do

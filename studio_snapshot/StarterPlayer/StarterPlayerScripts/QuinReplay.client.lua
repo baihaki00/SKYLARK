@@ -27,6 +27,7 @@ if not RunService:IsStudio() then return end
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
+local QuinTimeline = require(script.Parent:WaitForChild("QuinTimeline"))
 
 local SPEEDS = { 0.1, 0.3, 0.5, 1 }
 local STATE_COLORS = {
@@ -36,8 +37,6 @@ local STATE_COLORS = {
 	Special = Color3.fromRGB(255, 255, 255), Dead = Color3.fromRGB(40, 40, 40),
 }
 local MARK_ATTRIBUTES = { Task = true, TacticalState = true, PaceGear = true, ObstacleAwareness = true, JumpKind = true }
--- shown in the info line, in this order
-local INFO_ATTRIBUTES = { "CurrentState", "TacticalState", "Task", "TaskWhy", "PaceGear", "PaceWhy", "CurrentTarget", "LookMode", "ReactionType", "ObstacleAwareness" }
 
 local function stateColor(state)
 	if STATE_COLORS[state] then return STATE_COLORS[state] end
@@ -278,10 +277,12 @@ gui.DisplayOrder = 50
 gui.Enabled = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
+-- (at the top, under the debug bar (GodPauseClient); the followed Quin's state, clips and changes
+-- go to the debug menu's Inspect tab, QuinDebugHUD)
 local panel = Instance.new("Frame")
-panel.AnchorPoint = Vector2.new(0.5, 1)
-panel.Position = UDim2.new(0.5, 0, 1, -12)
-panel.Size = UDim2.new(0, 820, 0, 172)
+panel.AnchorPoint = Vector2.new(0.5, 0)
+panel.Position = UDim2.new(0.5, 0, 0, 46)
+panel.Size = UDim2.new(0, 820, 0, 74)
 panel.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
 panel.BackgroundTransparency = 0.12
 panel.BorderSizePixel = 0
@@ -356,47 +357,6 @@ playhead.BorderSizePixel = 0
 playhead.ZIndex = 5
 playhead.Parent = bar
 
-local function infoLabel(y, height, size, color)
-	local l = Instance.new("TextLabel")
-	l.Position = UDim2.new(0, 10, 0, y)
-	l.Size = UDim2.new(1, -20, 0, height)
-	l.BackgroundTransparency = 1
-	l.Font = Enum.Font.Code
-	l.TextSize = size
-	l.TextColor3 = color
-	l.TextXAlignment = Enum.TextXAlignment.Left
-	l.TextYAlignment = Enum.TextYAlignment.Top
-	l.TextWrapped = true
-	l.RichText = true
-	l.Parent = panel
-	return l
-end
-local infoLine = infoLabel(72, 46, 12, Color3.fromRGB(235, 240, 255))
-local clipLine = infoLabel(122, 44, 11, Color3.fromRGB(170, 200, 255))
-
--- Recent changes beside the panel
-local changes = Instance.new("TextLabel")
-changes.AnchorPoint = Vector2.new(1, 0)
-changes.Position = UDim2.new(1, -12, 0, 130)
-changes.Size = UDim2.new(0, 380, 0, 420)
-changes.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
-changes.BackgroundTransparency = 0.2
-changes.BorderSizePixel = 0
-changes.Font = Enum.Font.Code
-changes.TextSize = 11
-changes.TextColor3 = Color3.fromRGB(220, 230, 255)
-changes.TextXAlignment = Enum.TextXAlignment.Left
-changes.TextYAlignment = Enum.TextYAlignment.Bottom
-changes.TextWrapped = true
-changes.RichText = true
-changes.Parent = gui
-Instance.new("UIPadding", changes).PaddingLeft = UDim.new(0, 8)
-Instance.new("UICorner", changes).CornerRadius = UDim.new(0, 6)
-
-local function escape(text)
-	return (tostring(text):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"))
-end
-
 local function fraction(t)
 	return (t - startT) / math.max(endT - startT, 1e-6)
 end
@@ -456,48 +416,43 @@ local function refreshButtons()
 	end
 end
 
-local function refreshInfo()
+local openedAt = 0 -- the recorder time the replay opened: the changes are timed from it
+local dockSince = 0
+
+-- The followed Quin, to the Inspect tab (QuinTimeline): its state and clips at the cursor and its
+-- changes; a change's before / after and report; picking one moves the cursor there
+local function inspectData()
+	if not followed then
+		return { source = "replay", title = "Replay", info = "Click a ghost to follow it and see its state, clips and changes.", rows = {} }
+	end
+	local name, frames = followed, recording.frames
+	local track = recording.tracks[name]
+	local pose = QuinTimeline.poseAt(frames, name, cursor)
+	return {
+		source = "replay",
+		title = name,
+		info = ("<font color='#AAAAAA'>%+.2f s</font>  "):format(cursor - openedAt)
+			.. QuinTimeline.stateLine(QuinTimeline.attributesAt(track, cursor), pose, true, "#FFC83C"),
+		clips = QuinTimeline.clipsLine(pose, true),
+		rows = QuinTimeline.rows(track, openedAt),
+		pick = function(t) return QuinTimeline.card(track, frames, name, t, openedAt, true) end,
+		report = function(t) return QuinTimeline.card(track, frames, name, t, openedAt, false) end,
+		onPick = function(t)
+			cursor = math.clamp(t, startT, endT)
+			playing, live = false, false
+			refreshButtons()
+		end,
+	}
+end
+
+local function refreshInfo(force)
 	playhead.Position = UDim2.new(fraction(cursor), -1, 0, 0)
 	timeLabel.Text = live and "LIVE" or ("%.2f s behind"):format(endT - cursor)
-	if not followed then
-		infoLine.Text = "Click a Quin to follow it and see its state, clips and changes."
-		clipLine.Text = ""
-		changes.Visible = false
-		return
-	end
-	local values = attributesAt(followed, cursor)
-	local pose = poseAt(followed, cursor)
-	local parts = { ("<b>%s</b>"):format(escape(followed)) }
-	for _, key in ipairs(INFO_ATTRIBUTES) do
-		local v = values[key]
-		if v ~= nil and v ~= "" then table.insert(parts, ("%s <font color='#FFC83C'>%s</font>"):format(key, escape(v))) end
-	end
-	if pose then
-		if pose.humanoidState then table.insert(parts, "Humanoid " .. pose.humanoidState) end
-		if pose.velocity then table.insert(parts, ("speed %.1f"):format(Vector3.new(pose.velocity.X, 0, pose.velocity.Z).Magnitude)) end
-	end
-	infoLine.Text = table.concat(parts, "  ·  ")
-	local clips = {}
-	for _, clip in ipairs(pose and pose.clips or {}) do
-		table.insert(clips, ("%s <font color='#FFFFFF'>%.2f</font> (x%.2f, %.2f/%.2fs)"):format(escape(clip.name), clip.weight, clip.speed, clip.time, clip.length))
-	end
-	clipLine.Text = #clips > 0 and ("Clips: " .. table.concat(clips, "  ·  ")) or "Clips: none"
-	-- the last changes up to the cursor
-	local track = recording.tracks[followed]
-	local lines = {}
-	for _, event in ipairs(track and track.events or {}) do
-		if event.t > cursor then break end
-		local when = ("%+.2f"):format(event.t - cursor)
-		if event.kind == "clip" then
-			table.insert(lines, ("<font color='#AAAAAA'>%s</font> ▶ clip %s"):format(when, escape(event.name)))
-		elseif event.name ~= "Mind" and (type(event.value) == "string" or type(event.value) == "boolean") then
-			-- (only what switches: numbers drift every few frames and the *At/*Until are clocks)
-			table.insert(lines, ("<font color='#AAAAAA'>%s</font> %s → <font color='#FFC83C'>%s</font>"):format(when, escape(event.name), escape(event.value)))
-		end
-	end
-	local from = math.max(1, #lines - 29)
-	changes.Text = table.concat(lines, "\n", from, #lines)
-	changes.Visible = true
+	-- (a few times a second: the rows are rebuilt only when they change)
+	local now = os.clock()
+	if not force and now - dockSince < 0.15 then return end
+	dockSince = now
+	if shared.DebugDock then shared.DebugDock.setInspect(inspectData()) end
 end
 
 ----------------------------------------------------------------------------------------
@@ -519,7 +474,7 @@ local function follow(name)
 	end
 	drawTimeline()
 	refreshButtons()
-	refreshInfo()
+	refreshInfo(true)
 end
 
 local function updateCamera()
@@ -578,10 +533,15 @@ local function load()
 	syncBounds()
 	lastDrawn = nil
 	playing, speed, live = true, 1, true
+	openedAt = endT
 	local watched = Workspace:GetAttribute("SpectatedQuin")
 	poseGhosts(cursor)
 	follow(ghosts[watched] and watched or nil)
 	return true
+end
+
+local function allowedToOpen()
+	return player:GetAttribute("SkylarkRole") == "Admin"
 end
 
 local function setOpen(value)
@@ -591,6 +551,8 @@ local function setOpen(value)
 		open = true
 		gui.Enabled = true
 		hideReal(true)
+		if shared.DebugDock then shared.DebugDock.open("Inspect") end
+		refreshInfo(true)
 	else
 		open = false
 		gui.Enabled = false
@@ -599,8 +561,15 @@ local function setOpen(value)
 		recording, followed, followOffset = nil, nil, nil
 		shared.ReplayCameraCFrame = nil
 		shared.QuinRecorderHold = nil
+		if shared.DebugDock then shared.DebugDock.setInspect(nil) end
 	end
 end
+
+-- (the Replay button on the debug bar, GodPauseClient)
+shared.QuinReplay = {
+	toggle = function() if allowedToOpen() then setOpen(not open) end end,
+	isOpen = function() return open end,
+}
 
 local function step(frames)
 	if not recording then return end
@@ -733,7 +702,10 @@ control.OnInvoke = function(what, arg)
 	elseif what == "live" then cursor, playing, speed, live = endT, true, 1, true end
 	local count = 0
 	for _ in pairs(ghosts) do count += 1 end
+	local data = open and recording and inspectData()
+	local lastRow = data and data.rows[#data.rows]
 	return { open = open, ghosts = count, followed = followed, cursor = cursor - startT, span = endT - startT,
-		info = infoLine.Text, clips = clipLine.Text, changes = changes.Text }
+		info = data and data.info, clips = data and data.clips, rows = data and #data.rows,
+		report = lastRow and data.report and data.report(lastRow.t) }
 end
 control.Parent = script

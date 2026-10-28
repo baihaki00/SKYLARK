@@ -1,5 +1,5 @@
 --// GodPauseClient.client.lua
--- The god pause (owner 2026-10-28): F4 or the pill at the top freezes the real game and resumes
+-- The god pause (owner 2026-10-28): F4 or the bar at the top freezes the real game and resumes
 -- it where it was (QuinCore Modules/GameFreeze). While frozen the cameras still fly (B, the
 -- spectator camera) so the frozen fight can be walked round, and:
 --   * click a Quin (the dot in the middle aims when the cursor is locked) to inspect it: what it
@@ -22,22 +22,19 @@ local camera = Workspace.CurrentCamera
 local Modules = ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules")
 local GameClock = require(Modules:WaitForChild("GameClock"))
 local GameFreeze = require(Modules:WaitForChild("GameFreeze")) -- (also starts this machine's side)
+local QuinTimeline = require(script.Parent:WaitForChild("QuinTimeline"))
 
--- shown in the info line, in this order
-local INFO_ATTRIBUTES = { "CurrentState", "TacticalState", "Task", "TaskWhy", "PaceGear", "PaceWhy", "CurrentTarget",
-	"ObstacleAwareness", "LookMode", "ReactionType", "StrikeResult" }
 local FRAME = 1 / 60
 
 local function isAdmin()
 	return player:GetAttribute("SkylarkRole") == "Admin"
 end
 
-local function escape(text)
-	return (tostring(text):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"))
-end
+local escape = QuinTimeline.escape
 
 ----------------------------------------------------------------------------------------
--- UI
+-- UI: one bar at the top (owner 2026-10-28: the resume beside the steps, not panels everywhere);
+-- what the clicked Quin is doing goes to the debug menu's Inspect tab (QuinDebugHUD)
 ----------------------------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "GodPauseUI"
@@ -45,18 +42,52 @@ gui.ResetOnSpawn = false
 gui.DisplayOrder = 60
 gui.Parent = player:WaitForChild("PlayerGui")
 
-local pill = Instance.new("TextButton")
-pill.AnchorPoint = Vector2.new(0.5, 0)
-pill.Position = UDim2.new(0.5, 0, 0, 10)
-pill.Size = UDim2.new(0, 150, 0, 30)
-pill.Font = Enum.Font.GothamBold
-pill.TextSize = 12
-pill.BorderSizePixel = 0
-pill.Parent = gui
-Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 15)
-local stroke = Instance.new("UIStroke", pill)
-stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+local bar = Instance.new("Frame")
+bar.Name = "DebugBar"
+bar.AnchorPoint = Vector2.new(0.5, 0)
+bar.Position = UDim2.new(0.5, 0, 0, 8)
+bar.Size = UDim2.new(0, 0, 0, 32)
+bar.AutomaticSize = Enum.AutomaticSize.X
+bar.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
+bar.BackgroundTransparency = 0.12
+bar.BorderSizePixel = 0
+bar.Parent = gui
+Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 8)
+local stroke = Instance.new("UIStroke", bar)
 stroke.Thickness = 1.5
+local barList = Instance.new("UIListLayout")
+barList.FillDirection = Enum.FillDirection.Horizontal
+barList.VerticalAlignment = Enum.VerticalAlignment.Center
+barList.Padding = UDim.new(0, 4)
+barList.SortOrder = Enum.SortOrder.LayoutOrder
+barList.Parent = bar
+local barPadding = Instance.new("UIPadding")
+barPadding.PaddingLeft, barPadding.PaddingRight = UDim.new(0, 4), UDim.new(0, 4)
+barPadding.Parent = bar
+
+local buttonCount = 0
+local function button(text, width)
+	buttonCount += 1
+	local b = Instance.new("TextButton")
+	b.LayoutOrder = buttonCount
+	b.Size = UDim2.new(0, width, 0, 24)
+	b.BackgroundColor3 = Color3.fromRGB(32, 40, 58)
+	b.TextColor3 = Color3.fromRGB(235, 240, 255)
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 11
+	b.Text = text
+	b.BorderSizePixel = 0
+	b.Parent = bar
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+	return b
+end
+
+local freezeButton = button("||  FREEZE  [F4]", 130)
+local frameButton = button("Step 1 frame [.]", 116)
+local tenthButton = button("0.1 s", 50)
+local secondButton = button("1 s", 40)
+local replayButton = button("Replay [F6]", 96)
+local stepButtons = { frameButton, tenthButton, secondButton }
 
 local dot = Instance.new("Frame")
 dot.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -68,94 +99,6 @@ dot.Parent = gui
 Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
 local dotStroke = Instance.new("UIStroke", dot)
 dotStroke.Color = Color3.new(0, 0, 0)
-
-local panel = Instance.new("Frame")
-panel.AnchorPoint = Vector2.new(0.5, 1)
-panel.Position = UDim2.new(0.5, 0, 1, -168) -- (above the Mind panel, QuinMindPanel)
-panel.Size = UDim2.new(0, 820, 0, 132)
-panel.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
-panel.BackgroundTransparency = 0.12
-panel.BorderSizePixel = 0
-panel.Parent = gui
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
-local panelStroke = Instance.new("UIStroke", panel)
-panelStroke.Color = Color3.fromRGB(60, 170, 255)
-panelStroke.Transparency = 0.3
-
-local function button(text, x, width)
-	local b = Instance.new("TextButton")
-	b.Position = UDim2.new(0, x, 0, 8)
-	b.Size = UDim2.new(0, width, 0, 24)
-	b.BackgroundColor3 = Color3.fromRGB(32, 40, 58)
-	b.TextColor3 = Color3.fromRGB(235, 240, 255)
-	b.Font = Enum.Font.GothamBold
-	b.TextSize = 11
-	b.Text = text
-	b.Parent = panel
-	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
-	return b
-end
-
-local title = Instance.new("TextLabel")
-title.Position = UDim2.new(0, 10, 0, 8)
-title.Size = UDim2.new(0, 90, 0, 24)
-title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamBlack
-title.TextSize = 12
-title.TextColor3 = Color3.fromRGB(60, 170, 255)
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "FROZEN"
-title.Parent = panel
-
-local frameButton = button("Step 1 frame [.]", 100, 120)
-local tenthButton = button("Step 0.1 s", 224, 84)
-local secondButton = button("Step 1 s", 312, 70)
-local hint = Instance.new("TextLabel")
-hint.Position = UDim2.new(0, 392, 0, 8)
-hint.Size = UDim2.new(1, -402, 0, 24)
-hint.BackgroundTransparency = 1
-hint.Font = Enum.Font.Gotham
-hint.TextSize = 11
-hint.TextColor3 = Color3.fromRGB(170, 185, 210)
-hint.TextXAlignment = Enum.TextXAlignment.Right
-hint.Text = "Click a Quin to inspect it  ·  B flies  ·  middle mouse frees the cursor"
-hint.Parent = panel
-
-local function infoLabel(y, height, size, color)
-	local l = Instance.new("TextLabel")
-	l.Position = UDim2.new(0, 10, 0, y)
-	l.Size = UDim2.new(1, -20, 0, height)
-	l.BackgroundTransparency = 1
-	l.Font = Enum.Font.Code
-	l.TextSize = size
-	l.TextColor3 = color
-	l.TextXAlignment = Enum.TextXAlignment.Left
-	l.TextYAlignment = Enum.TextYAlignment.Top
-	l.TextWrapped = true
-	l.RichText = true
-	l.Parent = panel
-	return l
-end
-local infoLine = infoLabel(40, 46, 12, Color3.fromRGB(235, 240, 255))
-local clipLine = infoLabel(88, 40, 11, Color3.fromRGB(170, 200, 255))
-
-local changes = Instance.new("TextLabel")
-changes.AnchorPoint = Vector2.new(1, 0)
-changes.Position = UDim2.new(1, -12, 0, 130)
-changes.Size = UDim2.new(0, 380, 0, 420)
-changes.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
-changes.BackgroundTransparency = 0.2
-changes.BorderSizePixel = 0
-changes.Font = Enum.Font.Code
-changes.TextSize = 11
-changes.TextColor3 = Color3.fromRGB(220, 230, 255)
-changes.TextXAlignment = Enum.TextXAlignment.Left
-changes.TextYAlignment = Enum.TextYAlignment.Bottom
-changes.TextWrapped = true
-changes.RichText = true
-changes.Parent = gui
-Instance.new("UIPadding", changes).PaddingLeft = UDim.new(0, 8)
-Instance.new("UICorner", changes).CornerRadius = UDim.new(0, 6)
 
 local highlight = Instance.new("Highlight")
 highlight.FillTransparency = 1
@@ -179,24 +122,27 @@ local function select(model)
 	highlight.Parent = model and gui or nil
 end
 
-local function refreshInfo()
+-- The clicked Quin, to the menu's Inspect tab: what it is doing and why, the clips held on it
+-- (weight, where in the clip, the speed it had), its changes (the flight recorder, QuinRecorder)
+-- with each one's before / after and report (QuinTimeline)
+local function sendInspect()
+	local dock = shared.DebugDock
+	if not dock then return end
 	if not selected or not selected.Parent then
-		infoLine.Text = "Click a Quin to see what it is doing and why."
-		clipLine.Text = ""
-		changes.Visible = false
+		dock.setInspect({ source = "frozen", title = "Frozen", info = "Click a Quin to see what it is doing and why  ·  B flies  ·  middle mouse frees the cursor", rows = {} })
 		return
 	end
-	local parts = { ("<b>%s</b>"):format(escape(selected.Name)) }
+	local name = selected.Name
+	local parts = {}
 	local humanoid = selected:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		table.insert(parts, ("HP %d"):format(humanoid.Health))
 		table.insert(parts, "Humanoid " .. humanoid:GetState().Name)
 	end
-	for _, key in ipairs(INFO_ATTRIBUTES) do
+	for _, key in ipairs(QuinTimeline.KEYS) do
 		local v = selected:GetAttribute(key)
 		if v ~= nil and v ~= "" then table.insert(parts, ("%s <font color='#3CAAFF'>%s</font>"):format(key, escape(v))) end
 	end
-	infoLine.Text = table.concat(parts, "  ·  ")
 
 	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
 	local clips = {}
@@ -205,7 +151,7 @@ local function refreshInfo()
 	-- the speeds the clips had before the freeze (the recorder's last frame: nothing is recorded
 	-- while frozen; the clips themselves show 0 now)
 	local frames = recorder and recorder.frames
-	local lastPose = frames and frames[#frames] and frames[#frames].quins[selected.Name]
+	local lastPose = frames and frames[#frames] and frames[#frames].quins[name]
 	local speedBefore = {}
 	for _, clip in ipairs(lastPose and lastPose.clips or {}) do speedBefore[clip.name] = clip.speed end
 	if animator then
@@ -213,47 +159,49 @@ local function refreshInfo()
 		table.sort(tracks, function(a, b) return a.WeightCurrent > b.WeightCurrent end)
 		for _, track in ipairs(tracks) do
 			if track.WeightCurrent > 0.01 then
-				local name = nameOf and nameOf(track) or track.Animation.AnimationId:match("%d+") or "?"
-				local held = GameFreeze.heldSpeed(track) or speedBefore[name]
+				local clipName = nameOf and nameOf(track) or track.Animation.AnimationId:match("%d+") or "?"
+				local held = GameFreeze.heldSpeed(track) or speedBefore[clipName]
 				table.insert(clips, ("%s <font color='#FFFFFF'>%.2f</font> (%.2f/%.2fs, x%.2f)"):format(
-					escape(name), track.WeightCurrent,
+					escape(clipName), track.WeightCurrent,
 					track.TimePosition, track.Length, held or track.Speed))
 			end
 		end
 	end
-	clipLine.Text = #clips > 0 and ("Clips: " .. table.concat(clips, "  ·  ")) or "Clips: none"
 
-	-- the last changes before (and during the steps of) this freeze
-	local track = recorder and recorder.tracks[selected.Name]
-	local lines = {}
-	for _, event in ipairs(track and track.events or {}) do
-		local when = ("%+.2f"):format(event.t - (frozenAt or os.clock()))
-		if event.kind == "clip" then
-			table.insert(lines, ("<font color='#AAAAAA'>%s</font> ▶ clip %s"):format(when, escape(event.name)))
-		elseif event.name ~= "Mind" and (type(event.value) == "string" or type(event.value) == "boolean") then
-			table.insert(lines, ("<font color='#AAAAAA'>%s</font> %s → <font color='#3CAAFF'>%s</font>"):format(when, escape(event.name), escape(event.value)))
-		end
-	end
-	changes.Text = #lines > 0 and table.concat(lines, "\n", math.max(1, #lines - 29), #lines) or "(no changes recorded)"
-	changes.Visible = true
+	local track = recorder and recorder.tracks[name]
+	local refT = frozenAt or os.clock()
+	dock.setInspect({
+		source = "frozen",
+		title = name,
+		info = table.concat(parts, "  ·  "),
+		clips = #clips > 0 and table.concat(clips, "  ·  ") or "none",
+		rows = QuinTimeline.rows(track, refT),
+		pick = function(t) return QuinTimeline.card(track, frames, name, t, refT, true) end,
+		report = function(t) return QuinTimeline.card(track, frames, name, t, refT, false) end,
+	})
 end
 
 local function refresh()
 	local frozen = GameClock.frozen()
-	pill.Visible = isAdmin()
-	pill.Text = frozen and "▶  RESUME  [F4]" or "||  FREEZE  [F4]"
-	pill.BackgroundColor3 = frozen and Color3.fromRGB(60, 170, 255) or Color3.fromRGB(18, 22, 30)
-	pill.TextColor3 = frozen and Color3.new(0, 0, 0) or Color3.fromRGB(235, 240, 255)
+	bar.Visible = isAdmin()
+	freezeButton.Text = frozen and "▶  RESUME  [F4]" or "||  FREEZE  [F4]"
+	freezeButton.BackgroundColor3 = frozen and Color3.fromRGB(60, 170, 255) or Color3.fromRGB(32, 40, 58)
+	freezeButton.TextColor3 = frozen and Color3.new(0, 0, 0) or Color3.fromRGB(235, 240, 255)
 	stroke.Color = frozen and Color3.new(1, 1, 1) or Color3.fromRGB(60, 170, 255)
-	local inspecting = frozen and isAdmin() and not replayOpen()
-	panel.Visible = inspecting
+	for _, b in ipairs(stepButtons) do
+		b.AutoButtonColor = frozen
+		b.TextTransparency = frozen and 0 or 0.6
+	end
+	local replay = replayOpen()
+	replayButton.BackgroundColor3 = replay and Color3.fromRGB(255, 200, 60) or Color3.fromRGB(32, 40, 58)
+	replayButton.TextColor3 = replay and Color3.new(0, 0, 0) or Color3.fromRGB(235, 240, 255)
+	local inspecting = frozen and isAdmin() and not replay
 	dot.Visible = inspecting and UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
 	if not inspecting then
-		changes.Visible = false
 		highlight.Parent = nil
 	else
 		highlight.Parent = selected and gui or nil
-		refreshInfo()
+		sendInspect()
 	end
 end
 
@@ -261,6 +209,7 @@ GameClock.changed:Connect(function(frozen)
 	if Workspace:GetAttribute("GameStepping") then return end
 	if frozen then
 		frozenAt = os.clock()
+		if isAdmin() and shared.DebugDock and not replayOpen() then shared.DebugDock.open("Inspect") end
 		-- start on the Quin being watched
 		local watched = Workspace:GetAttribute("SpectatedQuin")
 		if not selected and type(watched) == "string" and watched ~= "" then
@@ -278,12 +227,19 @@ player:GetAttributeChangedSignal("SkylarkRole"):Connect(refresh)
 ----------------------------------------------------------------------------------------
 -- Input
 ----------------------------------------------------------------------------------------
-pill.MouseButton1Click:Connect(function()
+freezeButton.MouseButton1Click:Connect(function()
 	GameFreeze.request("toggle")
 end)
-frameButton.MouseButton1Click:Connect(function() GameFreeze.request("step", FRAME) end)
-tenthButton.MouseButton1Click:Connect(function() GameFreeze.request("step", 0.1) end)
-secondButton.MouseButton1Click:Connect(function() GameFreeze.request("step", 1) end)
+local function stepBy(seconds)
+	if GameClock.frozen() then GameFreeze.request("step", seconds) end
+end
+frameButton.MouseButton1Click:Connect(function() stepBy(FRAME) end)
+tenthButton.MouseButton1Click:Connect(function() stepBy(0.1) end)
+secondButton.MouseButton1Click:Connect(function() stepBy(1) end)
+replayButton.MouseButton1Click:Connect(function()
+	if shared.QuinReplay then shared.QuinReplay.toggle() end
+	task.defer(refresh)
+end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if UserInputService:GetFocusedTextBox() or not isAdmin() then return end
@@ -305,22 +261,24 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			for _, model in ipairs(CollectionService:GetTagged("Quin")) do
 				if hit.Instance:IsDescendantOf(model) then select(model) break end
 			end
+			if shared.DebugDock then shared.DebugDock.open("Inspect") end
 			refresh()
 		end
 	end
 end)
 
--- The panel follows the Quin while the game is stepped, and the dot the cursor's lock
+-- The Inspect tab follows the Quin while the game is stepped, and the dot the cursor's lock
 local since = 0
 RunService.Heartbeat:Connect(function(dt)
 	since += dt
 	if since < 0.2 then return end
 	since = 0
-	if GameClock.frozen() or panel.Visible then refresh() end
+	refresh()
 end)
 refresh()
 
--- Test handle (a Studio test run has its own shared): Inspect:Invoke(quinName?) -> the panel's text
+-- Test handle (a Studio test run has its own shared): Inspect:Invoke(quinName?) -> what went to
+-- the Inspect tab
 local inspect = Instance.new("BindableFunction")
 inspect.Name = "Inspect"
 inspect.OnInvoke = function(name)
@@ -329,7 +287,17 @@ inspect.OnInvoke = function(name)
 			if model.Name == name then select(model) break end
 		end
 	end
+	local sent
+	local dock = shared.DebugDock
+	local real = dock and dock.setInspect
+	if dock then dock.setInspect = function(data) sent = data real(data) end end
 	refresh()
-	return { panel = panel.Visible, info = infoLine.Text, clips = clipLine.Text, changes = changes.Text }
+	if dock then dock.setInspect = real end
+	local rows = {}
+	for _, row in ipairs(sent and sent.rows or {}) do table.insert(rows, row.text) end
+	local lastRow = sent and sent.rows and sent.rows[#sent.rows]
+	return { bar = bar.Visible, title = sent and sent.title, info = sent and sent.info, clips = sent and sent.clips,
+		rows = #rows, lastRows = table.concat(rows, "\n", math.max(1, #rows - 5)),
+		report = lastRow and sent.report and sent.report(lastRow.t) }
 end
 inspect.Parent = script
