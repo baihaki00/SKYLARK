@@ -1,0 +1,42 @@
+---
+name: quincore-phased-plan-20261001
+description: "The approved 6-phase QuinCore plan (quick fixes, combat, debug overlays, cognition layers, traversal/retreat/memory, motion+VFX), which phases are done, and the user's choices"
+metadata:
+  node_type: memory
+  type: project
+  originSessionId: aab93d9f-4a24-4c2a-9a6e-34e1919e40d6
+  modified: 2026-10-01T12:28:19.499Z
+---
+
+On 2026-10-01 the user approved a phased plan (file `C:\Users\User\.claude\plans\wondrous-chasing-gem.md`) covering their 13-item list plus the "next big plan": a layered awareness -> attention -> strategy -> tactics architecture that must be toggleable for ablation and cleanly separated (they explicitly allow refactoring/merging code as long as mechanics do not change much and nothing is patched-on spaghetti).
+
+Order they chose: quick fixes -> combat -> debug overlays (checkboxes in Spectator HUD, "let it be messy") -> cognition architecture (`QuinCore/Cognition/`, blackboard per Quin, each layer with a neutral output when disabled) -> calculated jumps / OB platforms as combat+retreat places / parkour retreat / memory+prediction -> 360 tilt, IK-assisted locomotion experiment behind a flag, minimal stylised VFX (landing dust, slide smoke, foot/slide marks).
+
+Choices: **F makes the body fly** (avatar or worn Quin; free camera moved to **B**). One phase = one Studio backup, one commit, one audit note, then a short report so they can redirect.
+
+**Done (commit `7805cde`, `audits/2026-10-01_16v16_pass6_quickfixes_combat.md`):** Phase 0 and Phase 1. Combat now: `Modules/ImpulseModule` is the single horizontal force channel; `DamageModule.resolveOutcome` decides flinch / ground knockback / air launch by chance (`CombatConfig.Combat_*`); ~87% of hits flinch-slide, ~10% launch.
+
+**Phase 2 done (commit `9bc4045`, `audits/2026-10-01_16v16_pass7_debug_overlays.md`):** `Modules/DebugDraw` (server reasoning -> client, per-layer, per-Quin) + rewritten `RuntimeVisualizer`; 11 layers with checkboxes in the Spectator HUD. New layers = add an entry to `DebugDraw.Layers` and call `DebugDraw.line/sphere/text`. The spawn "ghost torso" was the live template rigs in Workspace; spawner now uses `ReplicatedStorage.QuinType` only and the world rigs are parked in `ServerStorage.WorldRigs_removed_20261001`.
+
+**Phase 3 done (commit `8a78ec9`, `audits/2026-10-01_16v16_pass8_cognition.md`):** `QuinCore.Cognition` (ModuleScript with child modules Senses, Attention, Memory, SelfAwareness, EnvironmentAwareness, SituationAwareness, Blackboard, Layers). `TacticalPerception` is a facade; `TargetingModule.getNearest` uses contacts. Switches `CombatConfig.Cognition.{Senses,Attention,Memory}` + HUD "AI:" toggles (workspace `Cognition_<Name>`). Neutral mode verified identical to the old perception. States still use the target's true position; no search behaviour yet.
+
+**Pass 9 done (commit `0b48f37`, `audits/2026-10-01_16v16_pass9_hits_tempo_escape.md`)** from the user's notes (PJ rare, no mid-air clash, females hard to hit, fights look timid, chase triangles, circling/retreat "like kids"): gender-neutral hit body in `HitboxModule`, strike range gating, PJ tuning + mid-air clash trigger, escape plans at arena scale in `RetreatTacticsModule`, trail hunting in Chase, "hunted" target score, Circling paced by condition. Retreat was only verified with forced retreats.
+
+**Pass 10 done (commit `dc5efa6`, `audits/2026-10-01_16v16_pass10_swings_retreat_jumps_vfx.md`):** strike interrupt on hit, lunge force, retreat finishes its run / pulls out of Chase / keeps away in Circling, `TraversalModule.validateArc` + `Jump_MaxReach` (PJ for higher targets), force lean on the spine, per-Quin style experiment (HUD switch, off), ground VFX (landing dust, slide smoke, marks). All six plan phases now have a first implementation. Still open: fights on platforms are rare, no way onto a high platform without an enemy target there, IK foot placement not done, most retreats still ~3 s, VFX and text labels not visually verified by me (screen capture cannot show them reliably).
+
+**Pass 11 done (commit `43680a5`, `audits/2026-10-01_16v16_pass11_platforms_projectile_jump.md`):** `Modules/PlatformCatalogue` classifies the all-named-"OB" parts by geometry (Step ≤2.2, Vault ≤6.8, Jump ≤12, ProjectileJump above; floating if underside ≥9 up); `TraversalModule.solveJumpOnto`; `ProjectileJumpState.aimAtPoint` (retreat onto high platforms works). The "slow smash dash" was a `LinearVelocity` without `ForceLimitMode = PerAxis` (MaxAxesForce ignored, force 1000) — check this on any new mover; slam speed now 480. Still open: Quins do not stay/fight on platforms, IK foot placement, reroute for rejected jumps, landing scatter 5-25 studs is the original design (ask before changing).
+
+**Pass 12 done (commit `2dd19f1`, `audits/2026-10-01_16v16_pass12_landing_clash_sky_overwatch.md`):** PJ landing slide by arrival angle + back-lean to full stop (`ProjectileJump_Landing*`), mid-air clash outcomes (immediate smash / brawl-win / tie, leader writes `ClashResult` on both, loser smashed down, winner free-falls), `Cognition/Gaze` (eye pitch, sky glances, vertical FOV in Senses), `Modules/AirInterceptModule` + jump style 8 (straight rocket line, steered per frame), `States/OverwatchState` (hold high platforms, look down, dive/intercept; retreat rendezvous). Intercepts: 5/6 became clashes; most are started by ProjectileJumpState's generic 40-stud jumper check, so count clashes, not `InterceptHits`. Open: one 235-stud intercept never closed (maybe lower `Intercept_MaxRange`), IK foot placement, jump reroute. Arena audio/aria/orchestrator scripts had changed in Studio outside the passes (committed separately, `94936ac`) — the owner edits those; don't touch them.
+
+**Pass 13 done (commit `668a91d`, `audits/2026-10-01_16v16_pass13_foot_placement.md`):** owner asked Intercept_MaxRange 200 (done), "Quins have no eyes, they're mannequins" (gaze = head; comments changed), foot IK. Legs now solved in ProceduralCombatReactionController (two-bone into Bone.Transform; IKControls kept but disabled) with plant / release-fade / procedural arc steps; workspace `FootPlant` A/B switch. Moving foot slide median 6-32 -> 1-2 studs/s, glide 41% -> 21%. Also fixed AIGhostHandler overwriting `GazePitch` (head never pitched). Open: straight legs 4.8%, ankle-to-slope alignment/toe flex unimplemented, fight-idle stance clip used while circling is the real glide source.
+
+**Pass 14 done (commit `b84bb7c`, `audits/2026-10-01_16v16_pass14_leg_glitches_ankle_toe_arms.md`):** leg-solver glitches fixed (soft reach near straight leg, smoothed forward-biased knee plane), ankle slope alignment + toe flex implemented, arm secondary motion (spring follow, 6 Hz / damping 0.75, capped 14/20 deg, fades on fast clip arm motion, off in MidAirClash; workspace `SecondaryMotion` A/B) - it reduces arm spikes vs the clips. Owner asked whether whole-body procedural is worth it: answered "light secondary motion yes, full procedural/active ragdoll no". Remaining snaps are in the clips (fight transitions).
+
+**Pass 15 done (commit `f115c80`, `audits/2026-10-02_16v16_pass15_shuffle_tpose_pj_kits.md`):** batch 1 of [[quin-open-requests-20261002]]. Key finds: overlapping hit-stops froze tracks for seconds (fixed in AnimationModule.applyHitStop); Survey clip shares the fight-idle asset id/track (T-pose); full-body glance clips froze legs at a run.
+
+**Pass 16 done (commit `488ed18`, `audits/2026-10-02_16v16_pass16_tilt_strafe_navigation_hurdles.md`):** batch 2. New `Modules/NavigationModule`; GaitModule directional modes; ImpulseModule publishes `Priority` on its mover; `movement_test` command usable.
+
+**Earlier "Next" (superseded):** rest of Phase 4 (jump validity on every jump, OB platforms as fight/flee places, believed positions inside states), watch natural retreats; then Phase 5 (tilt, IK experiment, VFX). The user wants male and female Quins to behave 1:1 (only the base rig differs) and fights to look fast and aggressive, not timid.
+
+**Why:** the user wants brawling with force that reads, launches as an earned chance (they like the one-punch launch), behaviour that emerges from rules, and the ability to switch cognition layers off to see the difference.
+**How to apply:** follow the plan file; keep the measure -> fix cause -> re-measure loop from [[quin-movement-audit-workflow]]; open leftovers are listed at the end of the pass 6 audit note and in [[quin-open-requests-20261001]].

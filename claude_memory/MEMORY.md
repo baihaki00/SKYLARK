@@ -1,0 +1,52 @@
+- [Quin movement audit workflow](quin-movement-audit-workflow.md) — how to launch/measure/screenshot the 16v16 in QUIN_COMBAT.rbxl, traps (arena centre, mixed clocks, CRLF, rig scale, shared clips)
+- [Quin open requests 2026-10-01](quin-open-requests-20261001.md) — user's ordered list after passes 3-4: shuffling, circling, walking, GASP removal, landing clips, slides, realism
+- [QuinCore phased plan 2026-10-01](quincore-phased-plan-20261001.md) — approved 6-phase plan (combat, debug overlays, cognition layers, traversal, motion/VFX); all six phases have a first pass; later passes (17-22) are tracked in quin-open-requests-20261002; open items listed inside
+- [Retreat/chase scale feedback](quin-retreat-chase-scale-feedback.md) — circling and retreat/chase must use the whole 600x600+ arena, break line of sight, relentless pursuer (Phase 4)
+- [Studio to git export](studio-git-export.md) — how to snapshot Studio scripts into QUINCORE_BACKUP and push
+- [Quin open requests 2026-10-02](quin-open-requests-20261002.md) — 18-item list + animation swaps after pass 14; #4 shuffle is top priority
+- [Body tilt: keep](body-tilt-keep.md) — owner loves the whole-body running tilt; never break it, keep it switchable
+- [Animation authoring plan (parked)](quin-animation-authoring-plan.md) — Blender bpy base clips for the owner to polish; priority clip list; GASP port rejected
+- [Quin test modes](quin-test-modes.md) — Quin Manager > TEST MODES; Arena System [O] toggles (crowd, clothes, random music) + DEBUG COMBAT button; how to add more
+- [Combat animation guide](combat-animation-guide.md) — marker naming convention + full combat clip list (COMBAT_ANIMATION_GUIDE.md); owner authors markers, combat reorg later
+- [CrowdFX system](crowdfx-system.md) — 75 crowd sounds in ArenaSoundFX.CrowdFX/<Group>/<Category>; procedural spatial crowd + anthem _CrowdFX/_DrumFX through crowd emitters
+- [Arena generation](arena-generation.md) — procedural mirrored arena (ArenaGenerator, Pass 27): rules, test hooks, open choices
+- [Combat whiff audit](combat-whiff-audit.md) — Pass 29: why Quins whiffed, fixes, 16v16 baseline (66% hit / 8% whiff), Y-axis race fix, how to re-measure
+- [Social layer](social-layer.md) — Pack Leaders / Respect Custom / lulls / late-game pressure (Pass 30-35), mind panel, attribute contract, owner decisions
+- [Working place: V4](place-v3.md) — work now in QUIN_COMBATV4 (placeId 95070334615130) since 2026-10-08; V3 before, V2 broke in a moderation hold
+- [IKLab IKControl experiment](iklab-ikcontrol-experiment.md) — IK Lab test mode (4 lanes, D full procedural), IKControl facts on bone rigs, what each layer measured, verdict: animations + small foot layer
+- [Animation placeholders, body awareness](animation-placeholders-body-awareness.md) — Pass 36: `borrows` placeholders (one id per animation), strafe clip facts + open rename, Quins steer round bodies
+- [Procedural port, body layers](procedural-port-body-layers.md) — lane D mechanics into QuinCore: Layers registry (ablation), SquareUp done (Pass 37), owner choices, open solver question, probe timing trap
+- [Shared loop ownership trap](quincore-shared-loop-ownership.md) — module loops connected from Main die with that Quin (ImpulseModule: air-fighting bug, Pass 40); start shared loops from Server
+- [Quin open requests 2026-10-05](quin-open-requests-20261005.md) — 25-item list after the body-layer port: falls, edges, platforms, obstacles, projectile jump, playable walls, death/teleport VFX, combo moves, indecision audit
+- [Combat follow-ups parked](combat-markers-future.md) — after the strike marker reader (Pass 72): limb hitbox, counters/clash/specials on markers, Whoosh/Windup/Cancel, own special clips; owner said later
+- [Player Quin mode](player-quin-mode.md) — Pass 73: owner pilots a Quin vs AI on the dais (Solo mode Pass 75, movement audit Pass 76); player's machine moves the body since Pass 77; test hooks/traps
+- [Quin creature vision](quin-creature-vision.md) — owner's core direction: a living creature made for combat; QUIN_CREATURE_DESIGN.md roadmap; protect the 16v16, judge by flow + owner's eye
+- [Humanoid hovers over sideways parts](humanoid-sideways-part-hover.md) — running-jump landing on a cylinder / part turned 90° on Z hovers 1.75 studs; walkable tops must be upright parts
+- [Pilot camera: centred](pilot-camera-centred.md) — piloted Quin camera stays dead-centre like Play As Quin; no follow lag (reverted)
+- [Cascadeur to Quin converter](cascadeur-to-quin-converter.md) — one-click retarget of Cascadeur FBX onto the Quin's Mixamo rig (ANIMATIONCASCADEUR\run_cascadeur_to_quin.bat); never rename rig bones
+- [Owner overwhelm: small steps](owner-overwhelm-small-steps.md) — when scope overwhelms, give know / do-now / not-your-problem + one next action; "it'll get hard" is avoidance
+- [Quin body design](quin-body-design.md) — the real Quin template: mannequin look, ball-bearing joints, 3 colour zones, wristbands for teams; D:\SKYLARK\QUIN_DESIGN; owner's own male body is LIVE as QuinType.QuinMale (pipeline: tools/quin_body_pipeline)
+- [Skylark lore](skylark-lore.md) — lore work toward AoT-level depth; known names have no settled history; my proposals aren't canon until the owner picks
+- [Skylark MVP target](skylark-mvp-target.md) — MVP before 2027; core loop a–h; schedule fairness proposals (windows of rounds, NPQ fill, season = 1 real week)
+- [Skylark time + schedule](skylark-time-schedule.md) — SST clock, arena schedule, TIME debug panel (F7), Auto Events → orchestrator; command-bar hooks
+- [Economy design](skylark-economy-design.md) — SC, seats, score, no P2W; steps 1-3 built (entry/payouts, condition/repair/Trainer/Specialist via QuinCare); MCP VM trap for module tests
+- [Quin temperament + habits](quin-temperament-habits.md) — CORE, built 2026-10-24: mood/habits/temperament, leanings only (no scripted rules), no time drift-back, 1:3 vs training
+- [Placeholder world: intentional](placeholder-world-intentional.md) — bare spawn/grey terminals/no onboarding are on purpose; core loop first, polish later
+- [Many arenas: think big](skylark-many-arenas.md) — never "the arena": name the arena, per-arena UI via SkylarkArenas; server is still single-arena (design before changing)
+- [NPC owner queue plan](npc-owner-queue-plan.md) — approved 3 steps: room picker (done), NPC owners register for real, visible queues + DEBUG toggles
+- [NPC dialog + reception](npc-dialog-reception.md) — reusable side-view NpcDialog (NPC left, menu right), receptionist, queue platforms, arena grounds rule; test traps
+- [Clothing + accessories design](clothing-accessories-design.md) — 2026-10-25: unique copies, Robux/SC, hologram bands, 6 clinics (future); quinwear catalogue 104 items, fit labels, hat rule + build checks; handbook CLOTHING_PIPELINE.md + snapshots
+- [Performance plan](skylark-performance-plan.md) — 60+ fps goal; A, B done; D baked clothes live; blinking = Roblox bug, max 60 different clothing meshes per fight (80 blinks), budget built into QuinWardrobe; clothing parked as future
+- [In-house clothing tool (later)](inhouse-clothing-tool.md) — owner wants a Skylark .exe: describe a garment, one click fits any Quin body; non-modeller friendly; after step D
+- [Visual bug testing](visual-bug-testing.md) — instant 16v16 + crowd via ArenaDevCommand, owner's eyes judge, code measures; no screenshot hunting
+- [Evasion + ClashOrbit pass](evasion-clashorbit.md) — focused dash/quick evade, mid-air orbit, StopRun/slam/reentry/endgame fixes; what's untested
+- [Quin momentum](quin-momentum.md) — owner's core movement direction: momentum/parkour as a trait, not a state; Modules/Momentum steps, backup tag, demo command
+- [Team coordination](team-coordination.md) — 5-step pack plan (approved); steps 1-2 built in TargetingModule (crowd penalty, cover); baseline numbers; steps 3-5 open
+- [Lantern Siege + brain steps](lantern-siege-brain.md) — design doc link, build order, step 1 callouts built + numbers
+- [Improve Quins in general](quins-improve-in-general.md) — every Quin behaviour/movement/look fix goes into shared QuinCore and must show in the 16v16; modes only add objectives
+- [Quin pace, eyes, gestures](quin-pace-eyes-gestures.md) — 2026-10-27 general pass: Pace/PaceOff, posts+scan, QuinEyes styles switch, gestures; 16v16 chase back-and-forth still open
+- [QuinCore audit 2026-10-27](quincore-audit-20261027.md) — full sweep + 7-step refactor order; Beam Struggle deleted; all 7 steps done 2026-10-27; child-module trap noted; open owner calls
+- [Server CFrame writes snap on clients](server-cframe-teleport-snap.md) — CFrame write/anchor = client teleport; teleport smoother + RootPriority (6b5ea97); how to probe the drawn body
+- [Duel dash / air polish (parked)](duel-dash-air-polish-parked.md) — owner's 3 items: 200-stud dashes fly, slow dash among obstacles, smackdown at a distance; after ground locomotion
+- [Movement commitment + POI](movement-commitment-poi.md) — owner 2026-10-28 plan steps 1-7; done: head limit, flip points (5f79aa0); parked: mid-speed run clip + lock lean; next step 4 senses bypasses
+- [Quin debugger](quin-debugger.md) — 2026-10-28 revamp: Show: switches, QuinRecorder, QuinReplay F6 live slow-mo; test handles, T-pose/skinning trap; steps 4-5 open
