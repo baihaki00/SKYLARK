@@ -687,13 +687,54 @@ closeCardButton.MouseButton1Click:Connect(function()
 	showCard(nil)
 end)
 
-local function rebuildRows(rows)
+local ROW_WINDOW = 150 -- rows drawn at once (a 120 s recording can hold many more)
+local rowButtons = {} -- { button, t } in order
+
+-- The scrubber's moment in the list (owner 2026-10-28: the list follows the scrubber): the last
+-- change at or before it is gold, the changes after it are dimmed; scrolled into view when moved
+local markedCursor = nil
+local function markCursor(cursorT, scroll)
+	markedCursor = cursorT
+	local current
+	for _, entry in ipairs(rowButtons) do
+		local after = cursorT ~= nil and entry.t > cursorT + 1e-4
+		entry.button.TextTransparency = after and 0.65 or 0
+		if not after then current = entry end
+	end
+	for _, entry in ipairs(rowButtons) do
+		local picked = entry.t == pickedT
+		entry.button.BackgroundColor3 = (cursorT and entry == current) and Color3.fromRGB(120, 95, 20) or Color3.fromRGB(20, 26, 38)
+		entry.button.BackgroundTransparency = ((cursorT and entry == current) or picked) and 0 or 0.6
+	end
+	if scroll and cursorT and current then
+		task.defer(function()
+			if not current.button.Parent then return end
+			local y = current.button.AbsolutePosition.Y - rowsFrame.AbsolutePosition.Y
+			local window = inspectScroll.AbsoluteWindowSize.Y
+			inspectScroll.CanvasPosition = Vector2.new(0, math.clamp(y - window / 2, 0, math.max(0, inspectScroll.AbsoluteCanvasSize.Y - window)))
+		end)
+	end
+end
+
+-- (with a scrubber, the window of rows sits round it; without, the newest)
+local function windowStart(rows, cursorT)
+	local newest = math.max(1, #rows - ROW_WINDOW + 1)
+	if not cursorT then return newest end
+	local at = 0
+	for index, row in ipairs(rows) do
+		if row.t <= cursorT + 1e-4 then at = index else break end
+	end
+	return math.clamp(at - ROW_WINDOW + 50, 1, newest)
+end
+
+local function rebuildRows(rows, cursorT)
 	local atBottom = inspectScroll.CanvasPosition.Y >= inspectScroll.AbsoluteCanvasSize.Y - inspectScroll.AbsoluteWindowSize.Y - 30
 	for _, child in ipairs(rowsFrame:GetChildren()) do
 		if child:IsA("TextButton") then child:Destroy() end
 	end
-	-- (the newest 150: a 120 s replay can hold many more)
-	for index = math.max(1, #rows - 149), #rows do
+	rowButtons = {}
+	local first = windowStart(rows, cursorT)
+	for index = first, math.min(#rows, first + ROW_WINDOW - 1) do
 		local row = rows[index]
 		local b = Instance.new("TextButton")
 		b.LayoutOrder = index
@@ -709,13 +750,15 @@ local function rebuildRows(rows)
 		b.TextTruncate = Enum.TextTruncate.AtEnd
 		b.Text = " " .. row.text
 		b.Parent = rowsFrame
+		table.insert(rowButtons, { button = b, t = row.t })
 		b.MouseButton1Click:Connect(function()
 			if inspectData and inspectData.onPick then inspectData.onPick(row.t) end
 			showCard(row.t)
 			rowSignature = nil -- (redraw the highlight)
 		end)
 	end
-	if atBottom then
+	markCursor(cursorT, cursorT ~= nil)
+	if atBottom and not cursorT then
 		task.defer(function()
 			inspectScroll.CanvasPosition = Vector2.new(0, math.max(0, inspectScroll.AbsoluteCanvasSize.Y - inspectScroll.AbsoluteWindowSize.Y))
 		end)
@@ -739,7 +782,7 @@ function DebugDock.setInspect(data)
 		inspectTitle.Text = "Nothing to inspect yet.\nPAUSE (F4) and click a Quin."
 		inspectInfo.Text, inspectClips.Text, changesHeader.Text = "", "", ""
 		rebuildRows({})
-		rowSignature = nil
+		rowSignature, markedCursor = nil, nil
 		showCard(nil)
 		return
 	end
@@ -749,10 +792,12 @@ function DebugDock.setInspect(data)
 	local rows = data.rows or {}
 	changesHeader.Text = ("CHANGES (%d)  - click one for its before / after"):format(#rows)
 	local last = rows[#rows]
-	local signature = ("%s|%d|%s|%s"):format(data.title or "", #rows, last and tostring(last.t) or "", tostring(pickedT))
+	local signature = ("%s|%d|%s|%s|%d"):format(data.title or "", #rows, last and tostring(last.t) or "", tostring(pickedT), windowStart(rows, data.cursor))
 	if signature ~= rowSignature then
 		rowSignature = signature
-		rebuildRows(rows)
+		rebuildRows(rows, data.cursor)
+	elseif data.cursor ~= markedCursor then
+		markCursor(data.cursor, true)
 	end
 	if not sameQuin then
 		showCard(nil)

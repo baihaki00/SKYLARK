@@ -9,8 +9,9 @@
 --   timeline  click or drag to scrub; coloured by the followed Quin's state, ticks where its
 --             clips started (white) and its task / tactics changed (gold)
 --   , and .   one recorded frame back / forward
---   click a Quin to follow it and inspect it (the debug menu's Inspect tab); click the ground to
---   stop following. The wheel zooms the follow camera.
+--   click a Quin (or its card on the debug menu) to follow it and inspect it (the debug menu's
+--   Inspect tab); click the ground to stop following. Right mouse drag orbits round it, the wheel
+--   zooms.
 --
 -- Studio, Admins only.
 
@@ -397,6 +398,7 @@ local function inspectData()
 			.. QuinTimeline.stateLine(QuinTimeline.attributesAt(track, cursor), pose, true, "#FFC83C"),
 		clips = QuinTimeline.clipsLine(pose, true),
 		rows = QuinTimeline.rows(track, openedAt),
+		cursor = cursor, -- (the list follows the scrubber)
 		pick = function(t) return QuinTimeline.card(track, frames, name, t, openedAt, true) end,
 		report = function(t) return QuinTimeline.card(track, frames, name, t, openedAt, false) end,
 		onPick = function(t)
@@ -445,7 +447,29 @@ local function follow(name)
 	refreshInfo(true)
 end
 
+-- (owner 2026-10-28: orbit round the followed Quin) right mouse drag turns the camera round it;
+-- the height stays between just above the ground and nearly overhead. Read each frame from the
+-- cursor's place: with a free cursor the input events carry no movement
+local lastOrbitAt
+local function orbit()
+	if not (followOffset and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)) then
+		lastOrbitAt = nil
+		return
+	end
+	local at = UserInputService:GetMouseLocation()
+	local delta = UserInputService:GetMouseDelta()
+	if delta.Magnitude < 1e-3 then delta = lastOrbitAt and (at - lastOrbitAt) or Vector2.zero end
+	lastOrbitAt = at
+	if delta.Magnitude < 1e-3 then return end
+	local distance = followOffset.Magnitude
+	local flat = Vector3.new(followOffset.X, 0, followOffset.Z)
+	local yaw = math.atan2(flat.X, flat.Z) - delta.X * 0.006
+	local pitch = math.clamp(math.atan2(followOffset.Y, flat.Magnitude) + delta.Y * 0.006, math.rad(-5), math.rad(80))
+	followOffset = Vector3.new(math.sin(yaw) * math.cos(pitch), math.sin(pitch), math.cos(yaw) * math.cos(pitch)) * distance
+end
+
 local function updateCamera()
+	orbit()
 	local ghost = followed and ghosts[followed]
 	if not (ghost and followOffset and ghost.root and ghost.model.Parent) then
 		shared.ReplayCameraCFrame = nil
@@ -583,6 +607,14 @@ UserInputService.InputChanged:Connect(function(input, processed)
 		followOffset = followOffset * (input.Position.Z > 0 and 0.88 or 1.14)
 	end
 end)
+
+-- A Quin picked on the debug menu's cards (QuinDebugHUD: Workspace SpectatedQuin) is followed here
+-- too while paused: the cards move this camera, not only the usual one
+Workspace:GetAttributeChangedSignal("SpectatedQuin"):Connect(function()
+	if not open then return end
+	local name = Workspace:GetAttribute("SpectatedQuin")
+	if type(name) == "string" and ghosts[name] and name ~= followed then follow(name) end
+end)
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then scrubbing = false end
 end)
@@ -652,6 +684,7 @@ control.OnInvoke = function(what, arg)
 	local lastRow = data and data.rows[#data.rows]
 	return { open = open, ghosts = count, followed = followed, cursor = cursor - startT, span = endT - startT,
 		info = data and data.info, clips = data and data.clips, rows = data and #data.rows,
-		report = lastRow and data.report and data.report(lastRow.t) }
+		report = lastRow and data.report and data.report(lastRow.t),
+		followOffset = followOffset and tostring(followOffset), camera = shared.ReplayCameraCFrame ~= nil }
 end
 control.Parent = script
