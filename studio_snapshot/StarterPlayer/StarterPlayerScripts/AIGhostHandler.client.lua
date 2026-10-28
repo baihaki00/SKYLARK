@@ -1,3 +1,4 @@
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local renderMode = workspace:GetAttribute("QuinRenderMode") or "Direct"
 local enableghostmode = renderMode == "Ghost"
 
@@ -257,6 +258,9 @@ if renderMode == "Direct" then
 		poseDt += dt
 		-- (Workspace PoseEditEveryFrame = true: the old behaviour, for comparison)
 		local editPose, editDt = poseFresh or workspace:GetAttribute("PoseEditEveryFrame") == true, poseDt
+		-- (god pause, GameFreeze: the pose is still edited, so the lean and the look stay on the held
+		-- clip, but with no time passing, so nothing settles or turns)
+		if GameClock.frozen() then editDt = 0 end
 		if editPose then
 			poseFresh = false
 			poseDt = 0

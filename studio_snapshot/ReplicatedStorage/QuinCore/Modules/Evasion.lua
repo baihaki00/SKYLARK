@@ -167,6 +167,7 @@ local function drive(fighter, humanoid, rootPart, move, displacement, dirAt, tra
 	local covered = 0
 	local conn
 	conn = RunService.Heartbeat:Connect(function()
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		local t = GameClock.now() - start
 		local targetRoot = move.target and move.target.Parent and move.target
 		if active[fighter] ~= move or not stillFree(fighter, humanoid) then

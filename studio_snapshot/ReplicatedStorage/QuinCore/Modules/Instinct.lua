@@ -180,6 +180,7 @@ function Instinct.start()
 	if started then return end
 	started = true
 	RunService.Heartbeat:Connect(function()
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		local ok, err = pcall(step)
 		if not ok then warn("[Instinct] " .. tostring(err)) end
 	end)

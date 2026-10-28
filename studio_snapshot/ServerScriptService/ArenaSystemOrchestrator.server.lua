@@ -9,6 +9,7 @@
 -- client brings the ribbon ring up 1s after the globe (LiveFeedScreen).
 -- SKIP ends the whole current phase, including what that phase was playing (anthem, ARIA line).
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -64,7 +65,7 @@ local activeConfig = {
 -- an empty arena). Only the inputs differ from an AI Quin (PilotedState, Modules/PilotInput).
 local pilotPlayer = nil
 local matchDais = nil
-local matchDaisUpAt = 0 -- (os.clock() when the dais has finished rising)
+local matchDaisUpAt = 0 -- (GameClock.now() when the dais has finished rising)
 
 -- Players' own Quins in this round (ArenaRegistration.pickRound, at the preparation room):
 -- { player | npc, quin, team, model }; NPC owners (ArenaNpcOwners) take some of the seats players
@@ -221,7 +222,7 @@ function Orchestrator.getTeamHealthStats()
 end
 
 local function replicateState()
-    local remaining = math.max(0, math.ceil(phaseEndTime - os.clock()))
+    local remaining = math.max(0, math.ceil(phaseEndTime - GameClock.now()))
     if currentPhase == "IDLE" then
         remaining = 0
     end
@@ -256,7 +257,7 @@ end
 local function beginPhase(name, seconds, title, subtitle)
     currentPhase = name
     phaseDuration = seconds
-    phaseEndTime = os.clock() + seconds
+    phaseEndTime = GameClock.now() + seconds
     -- (for the services that sell seats and pay out: the phase, and which round this is)
     if name == "ARENA_OPEN" then
         Workspace:SetAttribute("ArenaRound", (Workspace:GetAttribute("ArenaRound") or 0) + 1)
@@ -272,12 +273,12 @@ end
 -- Wait until the phase deadline (or `untilTime`); returns false if the phase was skipped
 local function waitPhase(epoch, untilTime)
     local deadline = untilTime or phaseEndTime
-    while os.clock() < deadline do
+    while GameClock.now() < deadline do
         if skipEpoch ~= epoch then
             return false
         end
         replicateState()
-        task.wait(0.25)
+        GameClock.wait(0.25)
     end
     return skipEpoch == epoch
 end
@@ -370,8 +371,8 @@ local function spawnFighters(window, epoch)
         local cfgPQ = CombatConfig.PlayerQuin or {}
         -- (on top of the dais only once it has risen: stood on it while it rose, the Quin was
         -- inside it and the physics pushed it out onto the floor)
-        if matchDais and os.clock() < matchDaisUpAt then
-            task.wait(matchDaisUpAt - os.clock())
+        if matchDais and GameClock.now() < matchDaisUpAt then
+            GameClock.wait(matchDaisUpAt - GameClock.now())
         end
         local top = (floorY or center.Y) + (matchDais and SocialRespect.daisTop() or 0) + 3
         local radius = matchDais and SocialRespect.daisRadius() or 80
@@ -483,7 +484,7 @@ local function spawnFighters(window, epoch)
             VfxModule.holoGlitch(q, ArenaConfig.Teleport.GlitchTime, "in")
         end
         if window > 0 and i < #jobs and (epoch == nil or skipEpoch == epoch) then
-            task.wait(window / #jobs)
+            GameClock.wait(window / #jobs)
         end
     end
 end
@@ -557,7 +558,7 @@ local function matchAverages()
 end
 
 local function snapshotOwned()
-    local now = os.clock()
+    local now = GameClock.now()
     local length = matchStartedAt and (now - matchStartedAt) or 0
     for _, q in ipairs(getTournamentFighters()) do
         local id = q:GetAttribute("QuinId")
@@ -603,7 +604,7 @@ end)()
 
 local function recordOwned(winnerName, winnerTeam, reason)
     local average = matchAverages()
-    local length = matchStartedAt and (os.clock() - matchStartedAt) or 1
+    local length = matchStartedAt and (GameClock.now() - matchStartedAt) or 1
     local results = {} -- [player] = { quins = {...}, fee, earned }
     for _, e in ipairs(roundEntrants) do
         local id = e.player and e.quin and e.quin.QuinId
@@ -707,7 +708,7 @@ local function runMatchLifecycle()
     if toggle("Announcer") then
         ArenaAria.speak("ARIA_ArenaOpen")
     end
-    if waitPhase(epoch, os.clock() + math.min(HOLOGRAM_IGNITION_TIME, openTime)) then
+    if waitPhase(epoch, GameClock.now() + math.min(HOLOGRAM_IGNITION_TIME, openTime)) then
         igniteHolograms()
         waitPhase(epoch)
     end
@@ -739,7 +740,7 @@ local function runMatchLifecycle()
         end)
         generationCompleted = waitPhase(epoch)
         while not finished do
-            task.wait(0.1)
+            GameClock.wait(0.1)
         end
     elseif mode == "PlayerQuin" or mode == "PlayerSolo" then
         ArenaGenerator.clearArena() -- (Player Quin, obstacles off: nothing but the dais)
@@ -753,7 +754,7 @@ local function runMatchLifecycle()
         local center, floorY = ArenaGenerator.getCenter()
         if center then
             matchDais = SocialRespect.buildDais(center, floorY)
-            matchDaisUpAt = os.clock() + SocialRespect.daisRiseTime()
+            matchDaisUpAt = GameClock.now() + SocialRespect.daisRiseTime()
             if matchDais then
                 matchDais.folder.Name = "PlayerQuinDais"
             else
@@ -779,7 +780,7 @@ local function runMatchLifecycle()
         task.spawn(function()
             if generationCompleted then
                 ArenaAria.speakAndWait("ARIA_ArenaGenerationCompleted")
-                task.wait(ArenaConfig and ArenaConfig.AriaGapAfterGeneration or 5)
+                GameClock.wait(ArenaConfig and ArenaConfig.AriaGapAfterGeneration or 5)
             end
             if skipEpoch == prepEpoch and currentPhase == "PREPARATION_ROOM" then
                 ArenaAria.speak("ARIA_AnnouncementPreparationRoomGuide")
@@ -816,7 +817,7 @@ local function runMatchLifecycle()
     epoch = beginPhase("STADIUM_ANTHEM", cutAnthem and anthemWindow or math.max(anthemWindow, anthemLength + ANTHEM_RING_OUT), "STADIUM ANTHEM", "ALL RISE FOR THE ARENA ONE ANTHEM")
     ArenaScreen.displayAnnouncement("STADIUM ANTHEM // CEREMONIAL TRADITION", 4.0, "CEREMONY", Color3.fromRGB(212, 175, 55))
     print(string.format("[ArenaSystemOrchestrator] Anthem %s: %.2fs, starts at T+%.2fs of a %.0fs window", anthemPrefix, anthemLength, startDelay, phaseDuration))
-    if waitPhase(epoch, os.clock() + startDelay) and toggle("ProceduralMusic") then
+    if waitPhase(epoch, GameClock.now() + startDelay) and toggle("ProceduralMusic") then
         ArenaAudio.stopPregameMusic(2.0) -- (handing over: the pre-game music fades as the anthem begins)
         ArenaAudio.playAnthem(anthemPrefix, 1.0)
     end
@@ -831,7 +832,7 @@ local function runMatchLifecycle()
         if toggle("Announcer") then
             ArenaAria.speak("ARIA_54321GameCountdown")
         end
-        if waitPhase(epoch, os.clock() + math.min(1.0, phaseDuration)) and toggle("Drones") then
+        if waitPhase(epoch, GameClock.now() + math.min(1.0, phaseDuration)) and toggle("Drones") then
             ArenaDroneManager.startDrones()
         end
         waitPhase(epoch)
@@ -841,12 +842,12 @@ local function runMatchLifecycle()
     instantLeadIn = false -- (an instant match is an ordinary match from here on)
     Workspace:SetAttribute("MatchStarted", true)
     epoch = beginPhase("IN_GAME", duration("GameTime"), "COMBAT ENGAGEMENT", "SECTOR ALPHA VS SECTOR BETA")
-    matchStartedAt = os.clock()
+    matchStartedAt = GameClock.now()
     -- (the Quins know how long they have: SocialTension)
     -- (Solo has no time limit: no end for the Quins to feel coming either)
     local timed = mode ~= "PlayerSolo" and mode ~= "LanternSiege" -- (Lantern Siege keeps its own round clocks)
     Workspace:SetAttribute("MatchLength", timed and duration("GameTime") or nil)
-    Workspace:SetAttribute("MatchEndsAt", timed and (Workspace:GetServerTimeNow() + duration("GameTime")) or nil)
+    Workspace:SetAttribute("MatchEndsAt", timed and (GameClock.serverNow() + duration("GameTime")) or nil)
     if not toggle("TimerPreGame") then
         ArenaAudio.playWarhorn(1.0)
         if toggle("Drones") then
@@ -865,7 +866,7 @@ local function runMatchLifecycle()
         end
         if wait then
             q:SetAttribute("PlanHesitating", true)
-            task.delay(wait, release)
+            GameClock.delay(wait, release)
         else
             release()
         end
@@ -884,9 +885,9 @@ local function runMatchLifecycle()
         })
         lanternResult = { winnerTeam = winnerTeam, reason = why }
     end
-    while mode ~= "LanternSiege" and (not timed or os.clock() < phaseEndTime) and skipEpoch == epoch do
+    while mode ~= "LanternSiege" and (not timed or GameClock.now() < phaseEndTime) and skipEpoch == epoch do
         if not timed then
-            phaseEndTime = os.clock() + phaseDuration -- (Solo: the clock holds; the match runs until the Quin falls or it is stopped / skipped)
+            phaseEndTime = GameClock.now() + phaseDuration -- (Solo: the clock holds; the match runs until the Quin falls or it is stopped / skipped)
         end
         replicateState()
         local _, _, _, _, alphaAlive, betaAlive = Orchestrator.getTeamHealthStats()
@@ -898,7 +899,7 @@ local function runMatchLifecycle()
             break
         end
         snapshotOwned()
-        task.wait(0.25)
+        GameClock.wait(0.25)
     end
 
     -- PHASE 8: WINNER DETERMINATION / VICTORY CEREMONY
@@ -934,7 +935,7 @@ local function runMatchLifecycle()
     if toggle("Announcer") then
         ArenaAria.speak("ARIA_ArenaClosing")
     end
-    local postStart = os.clock()
+    local postStart = GameClock.now()
     local guideAt = postStart + math.clamp(postTime * 0.15, 2.5, 6.0)
     local outroLead = math.min(15.0, postTime)
     local outroAt = math.max(guideAt + 2.0, postStart + postTime - outroLead)
@@ -943,7 +944,7 @@ local function runMatchLifecycle()
         ArenaAria.speak("ARIA_LeaveTheArenaGuide")
     end
     if waitPhase(epoch, outroAt) and toggle("Drones") then
-        ArenaDroneManager.startOutro(math.max(1, postStart + postTime - os.clock()))
+        ArenaDroneManager.startOutro(math.max(1, postStart + postTime - GameClock.now()))
         ArenaScreen.displayAnnouncement("ARENA DRONES OUTRO -- FORMATION CLIMB", 2.5, "ARENA BROADCAST", Color3.fromRGB(220, 80, 255))
     end
     if waitPhase(epoch, closureAt) then
@@ -1001,7 +1002,7 @@ function Orchestrator.startMatch(settings, player)
         end
     end
 
-    matchStats.StartTime = os.clock()
+    matchStats.StartTime = GameClock.now()
     matchStats.Winner = nil
     matchStats.WinnerTeam = nil
     matchStats.EndReason = nil
@@ -1076,7 +1077,7 @@ function Orchestrator.skipPhase()
 end
 
 function Orchestrator.getPhase()
-    return currentPhase, math.max(0, phaseEndTime - os.clock())
+    return currentPhase, math.max(0, phaseEndTime - GameClock.now())
 end
 
 -- Wire Remotes

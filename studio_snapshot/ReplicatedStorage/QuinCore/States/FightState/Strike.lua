@@ -349,6 +349,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		local opened = GameClock.now()
 		local conn
 		conn = RunService.Heartbeat:Connect(function()
+			if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 			-- (the window also closes when the Quin is knocked out of its fight or dies mid-swing)
 			local stillSwinging = fighter.Parent and humanoid.Health > 0 and fighter:GetAttribute("CurrentState") == "Fight"
 			if stillSwinging then

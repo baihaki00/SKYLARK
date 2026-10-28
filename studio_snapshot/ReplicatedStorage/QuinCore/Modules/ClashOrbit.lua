@@ -905,6 +905,7 @@ function ClashOrbit.run(leader, follower, center)
 	local hums = { L = lHum, F = fHum }
 	local start = GameClock.now()
 	conn = RunService.Heartbeat:Connect(function()
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		local grace = GameClock.now() - start < 0.4 -- (the follower enters the clash a tick later)
 		if not inClash(leader) or (not grace and not inClash(follower)) then
 			finish("broken")
@@ -1002,6 +1003,7 @@ function ClashOrbit.startClient()
 	end)
 
 	RunService:BindToRenderStep("ClashOrbitDraw", Enum.RenderPriority.Camera.Value - 1, function()
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		local now = GameClock.serverNow()
 		for leader, run in pairs(running) do
 			local sim = run.sim

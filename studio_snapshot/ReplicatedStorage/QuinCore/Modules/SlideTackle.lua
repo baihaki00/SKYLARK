@@ -107,6 +107,7 @@ local function flip(victim, root, humanoid, axis, side, airtime)
 		att:Destroy()
 	end
 	conn = RunService.Heartbeat:Connect(function()
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		if not root.Parent or humanoid.Health <= 0 or victim:GetAttribute("CurrentState") == "Recovery" then
 			finish()
 			return

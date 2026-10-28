@@ -699,6 +699,7 @@ function GaitModule.bindGroundContract(model, humanoid, rootPart, shouldHandle)
 	end
 	local connection
 	connection = RunService.Heartbeat:Connect(function(dt)
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		if not model.Parent or not humanoid.Parent or humanoid.Health <= 0 then
 			connection:Disconnect()
 			return

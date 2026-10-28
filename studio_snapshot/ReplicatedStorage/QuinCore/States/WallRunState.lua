@@ -162,6 +162,7 @@ function WallRunState.enter(fighter, humanoid, rootPart)
 	-- wall. (Stepped in the 10 Hz update, the climb changed speed in visible steps of 4 studs/s.)
 	-- The update only watches for the end of the run.
 	data.stepConn = RunService.Heartbeat:Connect(function(dt)
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		if wallRunData[fighter] ~= data or not data.linearVelocity then return end
 		data.rise -= Workspace.Gravity * (CombatConfig.WallRun_GravityScale or 0.20) * dt
 		data.along = math.max(data.along - (CombatConfig.WallRun_Drag or 3) * dt, 0)

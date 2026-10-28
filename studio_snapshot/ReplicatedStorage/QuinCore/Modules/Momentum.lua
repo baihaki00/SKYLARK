@@ -649,6 +649,7 @@ function Momentum.start()
 	if Momentum.started then return end
 	Momentum.started = true
 	RunService.Heartbeat:Connect(function(dt)
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		for _, rec in pairs(moves) do
 			local ok, err = pcall(step, rec, dt)
 			if not ok then

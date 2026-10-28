@@ -79,6 +79,7 @@ local function requestFactor(request, now)
 end
 
 local function step()
+	if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 	local now = GameClock.now()
 	for model, body in pairs(bodies) do
 		if not model.Parent or not body.root.Parent or not body.mover.Parent then

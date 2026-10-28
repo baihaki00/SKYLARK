@@ -392,6 +392,7 @@ function ProjectileJumpState.enter(fighter, humanoid, rootPart)
 	-- the end of a strafe, arena containment, and touchdown.
 	local data = stateData[fighter]
 	data.guardConn = RunService.Heartbeat:Connect(function(dt)
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		if stateData[fighter] ~= data or not rootPart.Parent or not lv.Parent then
 			data.guardConn:Disconnect()
 			return

@@ -16,6 +16,7 @@
 -- Drawn on this client only while Workspace.LanternSiege exists or a timed match runs
 -- (Workspace MatchEndsAt). Reads only what the server publishes.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -49,7 +50,7 @@ local views = {}     -- per gui
 local drawnKey = nil -- what the static map was drawn for (round / arena seed)
 local builtFor = nil -- "siege" | "battle"
 
-local function now() return Workspace:GetServerTimeNow() end
+local function now() return GameClock.serverNow() end
 
 local function arena()
 	local root = Workspace:FindFirstChild("argoniaonion")

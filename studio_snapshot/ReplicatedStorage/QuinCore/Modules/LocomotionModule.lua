@@ -378,6 +378,7 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 	if steerConns[fighter] then return end
 	local conn
 	conn = RunService.Heartbeat:Connect(function(frameDt)
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		local data = locoData[fighter]
 		if not data or not fighter.Parent or not humanoid.Parent or humanoid.Health <= 0 or not rootPart.Parent then
 			conn:Disconnect()
@@ -984,6 +985,7 @@ local function runSkidOver(fighter, humanoid, rootPart, speed, rise, direction)
 	local start = GameClock.now()
 	local conn
 	conn = RunService.Heartbeat:Connect(function(dt)
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		local t = GameClock.now() - start
 		if t >= duration or not fighter.Parent or humanoid.Health <= 0 then
 			conn:Disconnect()
@@ -1631,6 +1633,7 @@ function LocomotionModule.slide(fighter, humanoid, rootPart, slideDir, _legacyDu
 
 	local startClock = GameClock.now()
 	slide.conn = RunService.Heartbeat:Connect(function()
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		if not fighter.Parent or not humanoid.Parent or humanoid.Health <= 0 or not rootPart.Parent then
 			endSlide(fighter, humanoid, rootPart, false)
 			return

@@ -453,6 +453,7 @@ function MomentumDuel.start()
 	end
 	local lastScan = 0
 	RunService.Heartbeat:Connect(function()
+		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		if not MomentumDuel.enabled() then
 			for i = #duels, 1, -1 do endDuel(duels[i], "switched off") end
 			return

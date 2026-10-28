@@ -27,6 +27,7 @@
 -- DetonateAt, DefuseProgress, Defuser; the Lantern part's
 -- State / Carrier; Shrines/A, Shrines/B). Tuning: CombatConfig.LanternSiege.
 
+local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -58,7 +59,7 @@ local TEAMS = { "TeamAlpha", "TeamBeta" }
 local COLOR = { TeamAlpha = Color3.fromRGB(80, 160, 255), TeamBeta = Color3.fromRGB(255, 90, 90) }
 local LANTERN_COLOR = Color3.fromRGB(255, 190, 80)
 
-local function now() return Workspace:GetServerTimeNow() end
+local function now() return GameClock.serverNow() end
 
 local function other(team) return team == "TeamAlpha" and "TeamBeta" or "TeamAlpha" end
 
@@ -189,7 +190,7 @@ local function park(q)
 	q:SetAttribute("IsInert", true)
 	q:SetAttribute("InCombat", false)
 	VfxModule.holoGlitch(q, 0.5, "out")
-	task.delay(0.5, function()
+	GameClock.delay(0.5, function()
 		if not rec.parked or not q.Parent then return end
 		CollectionService:RemoveTag(q, "Quin") -- (nobody's senses, targets or counts see it)
 		local root = q:FindFirstChild("HumanoidRootPart")
@@ -302,7 +303,7 @@ local function heroLand(q, hold, position)
 	AudioModule.playSlam(position or root.Position)
 	local token = {}
 	q:SetAttribute("HeroLandToken", tostring(token))
-	task.delay(hold, function()
+	GameClock.delay(hold, function()
 		if q:GetAttribute("HeroLandToken") == tostring(token) and onField(q) and field and field.folder:GetAttribute("Live") then
 			q:SetAttribute("IsInert", false)
 		end
@@ -405,24 +406,24 @@ local function playRound(attackers, isCancelled, announce)
 
 	setPhase("Huddle", cfg("HuddleTime", 10))
 	announce(string.format("ROUND %d  //  %s ATTACK", folder:GetAttribute("Round"), attackers == "TeamAlpha" and "ALPHA" or "BETA"), 4, "LANTERN SIEGE", COLOR[attackers])
-	local t = os.clock() + cfg("HuddleTime", 10)
-	while os.clock() < t do
+	local t = GameClock.now() + cfg("HuddleTime", 10)
+	while GameClock.now() < t do
 		if isCancelled() then return nil end
-		task.wait(0.2)
+		GameClock.wait(0.2)
 	end
 
 	folder:SetAttribute("Live", true)
 	setPhase("Live", cfg("LiveTime", 100))
 	warhorn()
 	release()
-	local liveEnds = os.clock() + cfg("LiveTime", 100)
+	local liveEnds = GameClock.now() + cfg("LiveTime", 100)
 	folder:SetAttribute("RoundEndsAt", now() + cfg("LiveTime", 100))
 	local lantern = field.lantern
 	local planter, plantAt, plantHit, plantShrine = nil, 0, 0, nil
 	local detonateAt = nil
 	local defuser, defuseHit, defuse, defuseLand = nil, 0, 0, 0
 	local zone = nil -- the blast ring on the ground
-	local last = os.clock()
+	local last = GameClock.now()
 
 	local function drop(at, why)
 		placeLantern(groundAt(at) + Vector3.new(0, 1, 0), "Dropped")
@@ -430,9 +431,9 @@ local function playRound(attackers, isCancelled, announce)
 	end
 
 	while true do
-		task.wait(0.1)
+		GameClock.wait(0.1)
 		if isCancelled() then return nil end
-		local clock = os.clock()
+		local clock = GameClock.now()
 		local dt = clock - last
 		last = clock
 		local state = lantern:GetAttribute("State")
@@ -639,10 +640,10 @@ function LanternSiege.run(hooks)
 		warhorn()
 		announce(string.format("%s TAKE ROUND %d  -  %s  (%d - %d)", winner == "TeamAlpha" and "ALPHA" or "BETA", round, why:upper(), score.TeamAlpha, score.TeamBeta), 4, "LANTERN SIEGE", COLOR[winner])
 		print(string.format("[LanternSiege] round %d: %s (%s)  %d-%d", round, winner, why, score.TeamAlpha, score.TeamBeta))
-		local t = os.clock() + cfg("RoundOverTime", 4)
-		while os.clock() < t do
+		local t = GameClock.now() + cfg("RoundOverTime", 4)
+		while GameClock.now() < t do
 			if isCancelled() then LanternSiege.cleanup() return nil, "Stopped" end
-			task.wait(0.2)
+			GameClock.wait(0.2)
 		end
 	end
 	local winner = score.TeamAlpha > score.TeamBeta and "TeamAlpha" or "TeamBeta"
