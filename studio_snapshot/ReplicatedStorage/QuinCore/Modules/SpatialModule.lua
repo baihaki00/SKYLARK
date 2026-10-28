@@ -947,10 +947,27 @@ end
 -- LINE OF SIGHT & ENVIRONMENTAL SENSING (Section 41 & 44)
 -- ============================================================
 
--- Eye-level sensory position for 8-stud tall Quin (eyes at Y + 3.0 above HRP center)
+-- Where a Quin sees from: its eyes, just above the head bone, measured once per body from the
+-- rig's rest pose (any rig size). It was the root + 3.0 studs, written for an 8-stud Quin: on
+-- today's rig (head bone +1.7) that is about a stud over the head, and every sight line, its
+-- raycast and the Vision overlay started up there (owner 2026-10-29).
+local eyeHeights = setmetatable({}, { __mode = "k" })
+-- (QuinEyes puts the eyes 0.3 up the head bone; in the rest pose the head bone sits ~0.25 lower
+-- than in the fight stance: 1.43 against 1.68 above the root, measured on the Quin rig)
+local EYE_ABOVE_HEAD_BONE = 0.55
 function SpatialModule.getEyePosition(rootPart)
 	if not rootPart then return Vector3.zero end
-	return rootPart.Position + Vector3.new(0, 3.0, 0)
+	local height = eyeHeights[rootPart]
+	if not height then
+		local head = rootPart.Parent and rootPart.Parent:FindFirstChild("mixamorig:Head", true)
+		if head and head:IsA("Bone") then
+			height = math.clamp(rootPart.CFrame:PointToObjectSpace(head.WorldPosition).Y + EYE_ABOVE_HEAD_BONE, 1.2, 3.0)
+			eyeHeights[rootPart] = height
+		else
+			height = 2.0 -- (no head bone yet: about where it is on the Quin rig)
+		end
+	end
+	return rootPart.Position + Vector3.new(0, height, 0)
 end
 
 function SpatialModule.checkLineOfSight(posA, posB, ignoreInstances)

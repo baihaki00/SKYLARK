@@ -22,7 +22,7 @@ local KNOWN_TRACK_LENGTHS = {
 	["rbxassetid://103890244670922"] = 1.233, -- Attacks.Kicks.WheelDriveLeft
 	["rbxassetid://90752953215195"] = 1.000, -- Attacks.Punches.LeftPunch
 	["rbxassetid://100294955898321"] = 1.000, -- Attacks.Punches.RightPunch, Tactics.DesperateCounter
-	["rbxassetid://109837817595150"] = 3.867, -- Idles.CombatIdle, Idles.FightIdle, Idles.SurveyIdle, Transition.AssessTarget
+	["rbxassetid://109837817595150"] = 3.867, -- Idles.CombatIdle, Idles.FightIdle
 	["rbxassetid://71743026406362"] = 2.733, -- Attacks.Special.ProceduralSmackDown
 	["rbxassetid://79207866638803"] = 3.200, -- Reactions.GetUpBackFast
 	["rbxassetid://82896239168564"] = 3.200, -- Reactions.GetUpFrontFast
@@ -193,6 +193,44 @@ local function clipGroup(paths)
 	return ids
 end
 
+-- Body channels (FIGHT_PROGRAMME.md step 2). A clip's `channel` in AnimationConfig says which part
+-- of the body it drives: "Body" (all of it: every clip today), "Arms" (keys only the upper body, e.g.
+-- an arms-only punch) or "Legs". Two actions stop each other only when their channels overlap, so an
+-- arms-only strike plays over a footwork clip and the gait without cutting them. A clip with no
+-- channel is "Body", except a Movement-tier one (the gait, strafes, steps): that is the legs'.
+local channelCache = { ids = {}, builtAt = -math.huge }
+local function channelIds()
+	if GameClock.now() - channelCache.builtAt < 1.0 then return channelCache.ids end
+	local ids = {}
+	local ac = getAnimationConfig()
+	local function walk(tbl, depth)
+		for _, v in pairs(tbl) do
+			if type(v) == "table" and depth < 6 then
+				if type(v.id) == "string" then
+					if v.channel then ids[v.id] = v.channel end
+				else
+					walk(v, depth + 1)
+				end
+			end
+		end
+	end
+	if ac and ac.Registry then walk(ac.Registry, 0) end
+	channelCache.ids, channelCache.builtAt = ids, GameClock.now()
+	return ids
+end
+
+function AnimationModule.channelOf(trackId, priorityValue)
+	local base = type(trackId) == "string" and trackId:match("^([^#]+)") or trackId
+	local channel = channelIds()[base]
+	if channel then return channel end
+	if priorityValue and priorityValue <= Enum.AnimationPriority.Movement.Value then return "Legs" end
+	return "Body"
+end
+
+local function channelsOverlap(a, b)
+	return not ((a == "Arms" and b == "Legs") or (a == "Legs" and b == "Arms"))
+end
+
 -- Lazy-load RuntimeTracer for execution logging
 local _RuntimeTracer = nil
 local function getRuntimeTracer()
@@ -324,9 +362,9 @@ end
 
 -- Get or load a track
 -- A config entry may ask for its own track ("id#trackKey") when it shares an asset with another
--- entry: SurveyIdle (one-shot, Action2) and FightIdle/CombatIdle (looped idle) are one asset, and
--- with one cached track per id, playing the survey turned the fight idle into a one-shot - when
--- it ended nothing was posed (single-frame T-poses in Circling).
+-- entry: e.g. a one-shot on the looped FightIdle asset - with one cached track per id, playing
+-- the one-shot turned the fight idle into a one-shot and when it ended nothing was posed
+-- (single-frame T-poses in Circling; the old SurveyIdle did this).
 local function trackIdFor(entry)
 	if entry and entry.trackKey then
 		return entry.id .. "#" .. entry.trackKey
@@ -510,7 +548,7 @@ function AnimationModule.stopCategory(humanoid, category, fadeOut)
 	collectIds(catData)
 	
 	for animId, track in pairs(animationTracks[humanoid]) do
-		-- (never the base idle: Transition.AssessTarget shares the fight
+		-- (never the base idle: a one-shot may share the fight
 		-- idle's asset, so stopping "Attacks" on entering Fight / Circling stopped the idle loop
 		-- itself and the body showed its bind pose until the no-pose watchdog caught it)
 		if idsToStop[animId] and track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Idle then
@@ -576,12 +614,19 @@ function AnimationModule.play(humanoid, animIdOrPath, priority, looped, speed, f
 	-- Stop competing tracks in the same priority tier, but NEVER stop underlying Idle tracks!
 	if not overlay and animationTracks[humanoid] then
 		local newPrioVal = targetPrio.Value
+		local newChannel = AnimationModule.channelOf(animId, newPrioVal)
 		for otherId, otherTrack in pairs(animationTracks[humanoid]) do
 			if otherId ~= animId and otherTrack.IsPlaying then
 				local otherPrioVal = otherTrack.Priority.Value
 				-- Do NOT stop underlying Idle unless the new track is explicitly replacing Idle
 				if otherTrack.Priority == Enum.AnimationPriority.Idle and targetPrio ~= Enum.AnimationPriority.Idle then
 					-- Leave Idle active in background
+				elseif not channelsOverlap(newChannel, AnimationModule.channelOf(otherId, otherPrioVal)) then
+					-- Different parts of the body (arms-only strike over the legs' clip): both play on.
+					-- Only a finished one-shot lingering at its end pose is cleared.
+					if not otherTrack.Looped and otherTrack.Length > 0 and otherTrack.TimePosition >= (otherTrack.Length - 0.08) then
+						otherTrack:Stop(fadeIn or 0.08)
+					end
 				elseif newPrioVal >= Enum.AnimationPriority.Action.Value and otherPrioVal >= Enum.AnimationPriority.Action.Value then
 					-- Competing action (e.g. punch replacing previous punch) -> stop old action
 					otherTrack:Stop(fadeIn or 0.08)
@@ -707,7 +752,7 @@ function AnimationModule.stopCategory(humanoid, category, fadeOut)
 	end
 	
 	for animId, track in pairs(animationTracks[humanoid]) do
-		-- (never the base idle: Transition.AssessTarget shares the fight
+		-- (never the base idle: a one-shot may share the fight
 		-- idle's asset, so stopping "Attacks" on entering Fight / Circling stopped the idle loop
 		-- itself and the body showed its bind pose until the no-pose watchdog caught it)
 		if idsToStop[animId] and track.IsPlaying and track.Priority ~= Enum.AnimationPriority.Idle then

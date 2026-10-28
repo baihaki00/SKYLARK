@@ -171,7 +171,8 @@ ArenaConfig.DefaultToggles = {
     InstantMatch        = false, -- straight to the fight: no opening, preparation, anthem or countdown, fighters placed at once
     CrowdAvatars        = true,  -- the 1000 avatars in the stands (Workspace CrowdNpcs, ArenaCrowdNpcs); CrowdFX is their sound
     Clothes             = true,  -- clothes on the fighters (Workspace WardrobeOff, QuinWardrobe)
-    RandomMusic         = false, -- a random track of each playlist (pre-game, in-game, post-game) instead of the selected one
+    RandomMusic         = true,  -- (on by default, owner 2026-10-29) a random track of each playlist (pre-game, in-game, post-game) instead of the selected one
+    ArmsOnlyPunches     = false, -- Studio test (FIGHT_PROGRAMME step 2): punches drive only the arms, the legs keep their footwork (Workspace Test_ArmsOnlyPunches, Modules/ChannelLab)
 }
 
 -- Deployment teleport (ArenaSystemOrchestrator, TELEPORTING_QUINS): fighters arrive one at a time

@@ -1747,4 +1747,35 @@ end
 
 LocomotionModule.performJump = LocomotionModule.jump
 
+-- The look back over the shoulder. Its clip is full-body (the legs stand still in it): it plays only
+-- while the body is all but still, and fades out the moment the body moves off, the head and
+-- shoulders looking back for the rest of the look instead (GlanceBackUntil, LookController).
+-- Started at a walk and kept through a break into a run, the clip held the legs for its whole
+-- ~3 s and the feet slid (owner 2026-10-29).
+function LocomotionModule.glanceBack(fighter, humanoid, rootPart, runtimeSpeed, lookSeconds)
+	local maxSpeed = CombatConfig.Glance_ClipMaxSpeed or 3
+	local function moving()
+		local v = rootPart.AssemblyLinearVelocity
+		return Vector3.new(v.X, 0, v.Z).Magnitude > maxSpeed
+	end
+	if moving() then
+		fighter:SetAttribute("GlanceBackUntil", GameClock.serverNow() + lookSeconds)
+		return
+	end
+	local track = AnimationModule.playConfig(humanoid, "Awareness.RearThreatGlance", runtimeSpeed, Enum.AnimationPriority.Action2, false)
+	if not track then return end
+	local startedAt = GameClock.now()
+	local function watch()
+		if not track.IsPlaying or not fighter.Parent then return end
+		if moving() then
+			track:Stop(0.15)
+			local left = lookSeconds - (GameClock.now() - startedAt)
+			if left > 0.1 then fighter:SetAttribute("GlanceBackUntil", GameClock.serverNow() + left) end
+			return
+		end
+		GameClock.delay(0.05, watch)
+	end
+	GameClock.delay(0.05, watch)
+end
+
 return LocomotionModule

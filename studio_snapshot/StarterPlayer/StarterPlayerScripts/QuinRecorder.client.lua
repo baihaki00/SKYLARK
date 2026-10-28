@@ -7,11 +7,15 @@
 -- pose of every part and bone, the clips playing (name, weight, speed, time), velocity and the
 -- humanoid state. Beside the frames, each Quin's attribute changes (the noisy per-frame ones left
 -- out, NOISY) and clip starts, with the time they happened - the state transitions the replay
--- marks on its timeline.
+-- marks on its timeline. And what the pause view draws over them as it was at the time: every
+-- label on a Quin (each BillboardGui's text and whether it shows, with a copy to rebuild it from)
+-- and the server's 3D debug drawings (DebugDraw batches, as they arrived).
 --
 -- Studio, Admins only. Read through shared.QuinRecorder:
 --   .snapshot()  -> { frames = { { t, quins = { [name] = pose } } } oldest first,
---                     tracks = { [name] = { model, partNames, boneNames, events, base } } }
+--                     tracks = { [name] = { model, partNames, boneNames, events, base,
+--                                labelBase, labelEvents, labelTemplates } },
+--                     drawings = { { t, batch } } }
 --   .live()      -> the same, not copied: the replay reads it as it grows
 --   .stats()     -> a one-line summary
 -- (or script.Query:Invoke("stats"))
@@ -77,6 +81,7 @@ end
 -- The recording
 local frames = {}
 local tracks = {} -- Quin name -> track (kept after the Quin is gone, until its frames fall off)
+local drawings = {} -- { t, batch }: the server's 3D debug drawings (DebugDraw), as they arrived
 local recording = false
 local lastFrameAt = 0
 
@@ -84,12 +89,77 @@ local function relativeName(instance, model)
 	return instance:GetFullName():sub(#model:GetFullName() + 2)
 end
 
+-- Labels: every BillboardGui on a Quin (the state tag, PointTag, InterestTag, the debug values).
+-- A label's state is whether it shows and the text and visibility of each of its text objects, in
+-- order (they often share a name). Kept apart from the events, so the Inspect list is not flooded by text.
+local function isText(d)
+	return d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")
+end
+
+local function labelState(entry)
+	local texts, visible = {}, {}
+	for i, label in ipairs(entry.texts) do
+		texts[i] = label.Text
+		visible[i] = label.Visible
+	end
+	return { enabled = entry.gui.Enabled, texts = texts, visible = visible }
+end
+
+local function unwatchLabel(entry)
+	for _, connection in ipairs(entry.connections) do connection:Disconnect() end
+	table.clear(entry.connections)
+end
+
+local function watchLabel(track, gui, initial)
+	if track.labels[gui] or not gui:IsDescendantOf(track.model) then return end
+	local entry = { gui = gui, path = relativeName(gui, track.model), texts = {}, connections = {} }
+	track.labels[gui] = entry
+	local function changed()
+		table.insert(track.labelEvents, { t = now(), path = entry.path, state = labelState(entry) })
+	end
+	-- (its text objects and a copy to rebuild it from: again when its contents change)
+	local function relist()
+		unwatchLabel(entry)
+		table.clear(entry.texts)
+		for _, d in ipairs(gui:GetDescendants()) do
+			if isText(d) then
+				table.insert(entry.texts, d)
+				table.insert(entry.connections, d:GetPropertyChangedSignal("Text"):Connect(changed))
+				table.insert(entry.connections, d:GetPropertyChangedSignal("Visible"):Connect(changed))
+			end
+		end
+		local archivable = gui.Archivable
+		gui.Archivable = true
+		track.labelTemplates[entry.path] = gui:Clone()
+		gui.Archivable = archivable
+		table.insert(entry.connections, gui:GetPropertyChangedSignal("Enabled"):Connect(changed))
+		table.insert(entry.connections, gui.DescendantAdded:Connect(function(d)
+			if isText(d) then task.defer(function() relist() changed() end) end
+		end))
+		table.insert(entry.connections, gui.AncestryChanged:Connect(function()
+			if gui:IsDescendantOf(track.model) then return end
+			unwatchLabel(entry)
+			track.labels[gui] = nil
+			table.insert(track.labelEvents, { t = now(), path = entry.path, state = false })
+		end))
+	end
+	relist()
+	if initial then
+		track.labelBase[entry.path] = labelState(entry)
+	else
+		changed()
+	end
+end
+
+local function dropTrack(track)
+	for _, connection in ipairs(track.connections) do connection:Disconnect() end
+	for _, entry in pairs(track.labels) do unwatchLabel(entry) end
+end
+
 local function addQuin(model)
 	if not recording or (tracks[model.Name] and tracks[model.Name].model == model) then return end
 	local old = tracks[model.Name]
-	if old then
-		for _, connection in ipairs(old.connections) do connection:Disconnect() end
-	end
+	if old then dropTrack(old) end
 	local humanoid = model:FindFirstChildWhichIsA("Humanoid")
 	local track = {
 		model = model,
@@ -100,6 +170,10 @@ local function addQuin(model)
 		events = {},
 		base = model:GetAttributes(), -- the state before the first change
 		connections = {},
+		labels = {}, -- BillboardGui -> entry (watchLabel)
+		labelBase = {}, -- path -> state before the first label change
+		labelEvents = {}, -- { t, path, state (false: gone) }
+		labelTemplates = {}, -- path -> a copy of the label to rebuild it from
 	}
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("BasePart") then
@@ -110,6 +184,23 @@ local function addQuin(model)
 			table.insert(track.boneNames, relativeName(d, model))
 		end
 	end
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BillboardGui") then watchLabel(track, d, true) end
+	end
+	-- Parts and bones still streaming in are added as they arrive (at the end of the lists, so the
+	-- frames already kept stay valid). A Quin first seen half-streamed was recorded without its arm
+	-- bones, and its ghost in the pause view held its arms in the bind pose.
+	table.insert(track.connections, model.DescendantAdded:Connect(function(d)
+		if d:IsA("BasePart") then
+			table.insert(track.parts, d)
+			table.insert(track.partNames, relativeName(d, model))
+		elseif d:IsA("Bone") then
+			table.insert(track.bones, d)
+			table.insert(track.boneNames, relativeName(d, model))
+		elseif d:IsA("BillboardGui") then
+			task.defer(watchLabel, track, d, false) -- (its text arrives with it)
+		end
+	end))
 	table.insert(track.connections, model.AttributeChanged:Connect(function(name)
 		if NOISY[name] then return end
 		table.insert(track.events, { t = now(), kind = "attr", name = name, value = model:GetAttribute(name) })
@@ -123,10 +214,8 @@ local function addQuin(model)
 end
 
 local function clear()
-	for _, track in pairs(tracks) do
-		for _, connection in ipairs(track.connections) do connection:Disconnect() end
-	end
-	frames, tracks = {}, {}
+	for _, track in pairs(tracks) do dropTrack(track) end
+	frames, tracks, drawings = {}, {}, {}
 end
 
 local function trim()
@@ -136,6 +225,9 @@ local function trim()
 	local drop = 0
 	while frames[drop + 1] and frames[drop + 1].t < cutoff do drop += 1 end
 	dropFront(frames, drop)
+	drop = 0
+	while drawings[drop + 1] and drawings[drop + 1].t < cutoff do drop += 1 end
+	dropFront(drawings, drop)
 	for name, track in pairs(tracks) do
 		-- changes that fall off the front become the state the recording starts in
 		local dropEvents = 0
@@ -145,8 +237,15 @@ local function trim()
 			dropEvents += 1
 		end
 		dropFront(track.events, dropEvents)
+		local dropLabels = 0
+		while track.labelEvents[dropLabels + 1] and track.labelEvents[dropLabels + 1].t < cutoff do
+			local event = track.labelEvents[dropLabels + 1]
+			track.labelBase[event.path] = event.state or nil
+			dropLabels += 1
+		end
+		dropFront(track.labelEvents, dropLabels)
 		if not track.model.Parent and (track.lastSeen or 0) < cutoff then
-			for _, connection in ipairs(track.connections) do connection:Disconnect() end
+			dropTrack(track)
 			tracks[name] = nil
 		end
 	end
@@ -175,7 +274,14 @@ local function poseOf(track)
 		table.sort(pose.clips, function(a, b) return a.weight > b.weight end)
 	end
 	if track.root then pose.velocity = track.root.AssemblyLinearVelocity end
-	if track.humanoid then pose.humanoidState = track.humanoid:GetState().Name end
+	if track.humanoid then
+		pose.humanoidState = track.humanoid:GetState().Name
+		pose.health = track.humanoid.Health
+	end
+	-- (per-frame values left out of the attribute changes, NOISY: the overhead label and the
+	-- last-seen layer of the 3D overlay read them)
+	pose.energy = track.model:GetAttribute("Energy")
+	pose.lastSeen = track.model:GetAttribute("LastSeenTargetPosition")
 	return pose
 end
 
@@ -209,6 +315,12 @@ local function sync()
 		for _, model in ipairs(CollectionService:GetTagged("Quin")) do addQuin(model) end
 	end
 end
+-- (the client's DebugDraw draws these live; kept here so the pause view can draw them again)
+ReplicatedStorage.QuinCore:WaitForChild("DebugDrawEvent").OnClientEvent:Connect(function(batch)
+	if recording and Workspace:GetAttribute("GameFrozen") ~= true and type(batch) == "table" then
+		table.insert(drawings, { t = now(), batch = batch })
+	end
+end)
 CollectionService:GetInstanceAddedSignal("Quin"):Connect(function(model)
 	task.defer(addQuin, model) -- (its parts and bones stream in with it)
 end)
@@ -232,15 +344,18 @@ shared.QuinRecorder = {
 				boneNames = track.boneNames,
 				events = table.clone(track.events),
 				base = table.clone(track.base),
+				labelBase = table.clone(track.labelBase),
+				labelEvents = table.clone(track.labelEvents),
+				labelTemplates = track.labelTemplates,
 			}
 		end
-		return { frames = table.clone(frames), tracks = copy }
+		return { frames = table.clone(frames), tracks = copy, drawings = table.clone(drawings) }
 	end,
 	-- a clip's name in the animation registry (the tracks are all called "Animation")
 	clipName = clipName,
 	-- the live buffer itself (not a copy: it grows and is trimmed as the fight goes on)
 	live = function()
-		return { frames = frames, tracks = tracks }
+		return { frames = frames, tracks = tracks, drawings = drawings }
 	end,
 	stats = function()
 		if not recording then return "not recording" end

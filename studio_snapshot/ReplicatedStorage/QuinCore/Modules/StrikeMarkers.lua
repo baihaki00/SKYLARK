@@ -70,6 +70,13 @@ function StrikeMarkers.get(id)
 	return nil
 end
 
+-- A clip made from another one keeps its markers (Modules/ChannelLab's arms-only copies: their
+-- temporary ids can't be read back). Yields while the source is read.
+function StrikeMarkers.alias(sourceId, newId)
+	if cache[sourceId] == nil then read(sourceId) end
+	cache[newId] = cache[sourceId]
+end
+
 -- Every strike clip in AnimationConfig.Attacks, read now (in the background)
 function StrikeMarkers.preload()
 	local function walk(tbl)

@@ -822,8 +822,8 @@ end
 
 -- ============================================================
 -- Labels over the heads (DebugSwitches): Look / Gait / Foot write a value on the Quin, shown here
--- for the Quins in scope; scrubbed back while paused, every label is hidden (they show the pause
--- moment, not the scrubber's: QuinReplay)
+-- for the Quins in scope. While paused the real Quins' labels are off and the ghosts carry the
+-- recorded ones, as they were at the scrubber's moment (QuinRecorder, QuinReplay)
 -- ============================================================
 local VALUE_LABELS = {
 	{ switch = "LookDebug", attribute = "LookDbg", label = "look" },
@@ -831,7 +831,6 @@ local VALUE_LABELS = {
 	{ switch = "FootDebug", attribute = "FootDbg", label = "foot L" },
 	{ switch = "FootDebug", attribute = "FootDbgR", label = "foot R" },
 }
-local SERVER_LABELS = { PointTag = true, InterestTag = true }
 
 local function valueTag(root)
 	local gui = root:FindFirstChild("DebugValuesTag")
@@ -862,12 +861,14 @@ RunService.Heartbeat:Connect(function(dt)
 	labelSince = 0
 	syncScope()
 	local replay = shared.QuinReplay
-	local scrubbedBack = replay and replay.atPause and not replay.atPause()
+	local paused = replay and replay.isOpen and replay.isOpen()
 	for _, model in ipairs(game:GetService("CollectionService"):GetTagged("Quin")) do
 		local root = model:FindFirstChild("HumanoidRootPart")
-		if root then
+		if root and paused then
+			-- (left as they were at the pause: the recorder would count a change made now as the game's)
+		elseif root then
 			local lines = {}
-			if not scrubbedBack and DebugSwitches.inScope(model) then
+			if DebugSwitches.inScope(model) then
 				for _, value in ipairs(VALUE_LABELS) do
 					local v = DebugSwitches.isOn(value.switch) and model:GetAttribute(value.attribute)
 					if v ~= nil and v ~= false then table.insert(lines, value.label .. ": " .. tostring(v)) end
@@ -877,9 +878,6 @@ RunService.Heartbeat:Connect(function(dt)
 				valueTag(root).TextLabel.Text = table.concat(lines, "\n")
 			elseif root:FindFirstChild("DebugValuesTag") then
 				root.DebugValuesTag:Destroy()
-			end
-			for _, child in ipairs(root:GetChildren()) do
-				if SERVER_LABELS[child.Name] and child:IsA("BillboardGui") then child.Enabled = not scrubbedBack end
 			end
 		end
 	end
@@ -1420,12 +1418,16 @@ RunService.Heartbeat:Connect(function()
 	-- 3D Debug Visualizers (LoS, LKP, Trajectories, Platform Intent)
 	-- Only while the Spectator HUD is open: closed, nothing is drawn over the Quins
 	if RuntimeVisualizer then
-		-- (for the selected Quin only - never a stand-in; scrubbed back while paused they would draw
-		-- the pause moment, so they are taken off until the scrubber is back at the pause)
+		-- (for the selected Quin only - never a stand-in; while paused, drawn from the recording at
+		-- the scrubber's moment: QuinReplay.overlay)
 		local replay = shared.QuinReplay
-		local scrubbedBack = replay and replay.atPause and not replay.atPause()
-		if isHudVisible and not hideOverride and not scrubbedBack then
-			RuntimeVisualizer.update(curSpectated, quins)
+		local recorded = replay and replay.overlay and replay.overlay()
+		if isHudVisible and not hideOverride then
+			if recorded then
+				RuntimeVisualizer.updateReplay(recorded)
+			else
+				RuntimeVisualizer.update(curSpectated, quins)
+			end
 			visualizerDrawn = true
 		elseif visualizerDrawn then
 			RuntimeVisualizer.stop()

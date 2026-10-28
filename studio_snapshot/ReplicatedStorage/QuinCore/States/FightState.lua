@@ -13,6 +13,7 @@ local TargetingModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitF
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local HitboxModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("HitboxModule"))
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
+local Spacing = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Spacing")) -- (where a strike stops)
 local ComboModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ComboModule"))
 local DamageModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DamageModule"))
 local AudioModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AudioModule"))
@@ -277,7 +278,11 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			local lungeDir = (cTargetHRP.Position - rootPart.Position)
 			local lungeFlat = Vector3.new(lungeDir.X, 0, lungeDir.Z)
 			if lungeFlat.Magnitude > 0.01 then
-				KnockbackModule.applyLunge(fighter, lungeFlat.Unit, 32, 0.22)
+				-- (only as far as the punch's own gap: Modules/Spacing)
+				local room = lungeFlat.Magnitude - Spacing.strikeStopGap(animData.reach)
+				if room > 0.25 then
+					KnockbackModule.applyLunge(fighter, lungeFlat.Unit, 32, 0.22, room)
+				end
 			end
 			
 			-- Sound
@@ -455,6 +460,7 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	-- run slid on 56-59% of frames. The strike's own lunge is the step.
 	local striking = fighter:GetAttribute("Attacking") == true and now < (data.attackFinishTime or 0)
 		and CombatConfig.Fight_PlantWhileStriking ~= false
+		and fighter:GetAttribute("StrikeChannel") ~= "Arms" -- (an arms-only strike: the legs keep their footwork)
 	if striking then
 		LocomotionModule.brake(fighter, humanoid, rootPart, locoDt)
 	elseif data.closingGap then
@@ -490,6 +496,11 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	else
 		-- Inside the combat sweet spot: hold stance firmly with momentum continuity
 		LocomotionModule.brake(fighter, humanoid, rootPart, locoDt)
+	end
+	-- An arms-only strike leaves the legs theirs: they step with whatever moves the body (the
+	-- step-in, the brake) instead of standing in the fight idle while it glides
+	if fighter:GetAttribute("Attacking") == true and fighter:GetAttribute("StrikeChannel") == "Arms" then
+		GaitModule.update(humanoid, rootPart, locoDt)
 	end
 	
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
@@ -651,13 +662,8 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		data.currentAction = "anticipate"
 		data.actionEndTime = now + (0.3 / speedMult)
 		data.attackFinishTime = now + (0.3 / speedMult)
-		-- (full-body clip: on the move only the head and shoulders look back)
-		local v = rootPart.AssemblyLinearVelocity
-		if Vector3.new(v.X, 0, v.Z).Magnitude > 6 then
-			fighter:SetAttribute("GlanceBackUntil", GameClock.serverNow() + 0.6)
-		else
-			AnimationModule.playConfig(humanoid, "Awareness.RearThreatGlance", 1.0, Enum.AnimationPriority.Action2, false)
-		end
+		-- (the full-body clip only while standing; on the move the head and shoulders)
+		LocomotionModule.glanceBack(fighter, humanoid, rootPart, 1.0, 0.6)
 		return FightState
 		
 	elseif action == "block" then
@@ -702,8 +708,21 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			local flatRight = Vector3.new(right.X, 0, right.Z)
 			local lateral = flatRight.Magnitude > 0.01 and slideDir:Dot(flatRight.Unit) or 0
 			local evadeClip = (lateral > 0.5 and "Tactics.QuickEvadeRight") or (lateral < -0.5 and "Tactics.QuickEvadeLeft") or "Tactics.QuickEvadeBack"
-			AnimationModule.playConfig(humanoid, evadeClip, CombatConfig.Flow_DodgeClipSpeed or 1.2, Enum.AnimationPriority.Action3, false)
-			KnockbackModule.applySlide(fighter, slideDir, 35, 0.25)
+			-- A strike on its way in is leaned out of on the spot (Modules/Evasion: the clip's own
+			-- ~1.4-stud sway; the strike misses while the lean is in). The clip is an in-place lean:
+			-- under the old 35 studs/s slide (~8 studs) its feet skated.
+			local windupUntil = target:GetAttribute("AttackWindupUntil")
+			local evaded = target:GetAttribute("Attacking") == true and windupUntil and windupUntil > GameClock.tick()
+				and require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Evasion")).evade(fighter, humanoid, rootPart, target, targetHRP, windupUntil)
+			if evaded then
+				if evaded == "right" then
+					fighter:SetAttribute("CounterUntil", GameClock.tick() + (CombatConfig.Flow_CounterWindow or 0.7) + 0.3)
+				end
+			else
+				-- nothing coming: a short step off the line with the lean, not a skate
+				AnimationModule.playConfig(humanoid, evadeClip, CombatConfig.Flow_DodgeClipSpeed or 1.2, Enum.AnimationPriority.Action3, false)
+				KnockbackModule.applySlide(fighter, slideDir, CombatConfig.Flow_DodgeSlideSpeed or 12, 0.25)
+			end
 		end
 		return FightState
 		

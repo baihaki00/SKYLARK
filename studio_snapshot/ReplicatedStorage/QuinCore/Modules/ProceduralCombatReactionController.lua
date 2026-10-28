@@ -944,6 +944,7 @@ function ProceduralCombatReactionController:update(dt)
 		-- its knee swung to stay over a foot that is in the air on purpose, bent the leg out of the
 		-- strike. While it strikes the solver lets go (fading from where it held the foot).
 		local striking = serverModel ~= nil and serverModel:GetAttribute("Attacking") == true
+			and serverModel:GetAttribute("StrikeChannel") ~= "Arms" -- (an arms-only strike leaves the legs' feet planted)
 			and Layers.isOn("StrikeFeetFree", serverModel)
 		local footsFree = self.wasAirborne or serverState == "Recovery" or serverState == "Knockback"
 			or (self.humanoid and self.humanoid.PlatformStand)

@@ -151,6 +151,13 @@ local function applyWorldToggles()
             end
         end
     end
+    -- Studio test: arms-only punches (Server.server.lua hands it to Modules/ChannelLab)
+    if game:GetService("RunService"):IsStudio() and activeConfig.Toggles.ArmsOnlyPunches ~= nil then
+        local armsOnly = activeConfig.Toggles.ArmsOnlyPunches == true
+        if (Workspace:GetAttribute("Test_ArmsOnlyPunches") == true) ~= armsOnly then
+            Workspace:SetAttribute("Test_ArmsOnlyPunches", armsOnly)
+        end
+    end
 end
 
 -- RandomMusic: a random track of that playlist (Music.<kind>Music) instead of the selected one

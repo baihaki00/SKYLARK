@@ -278,7 +278,12 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		
 		-- Hit Animation Overlay (Action3 so it never cancels the defender's own attack track;
 		-- during a simultaneous exchange both jabs now play out instead of being wiped by the flinch)
-		if not isKnocked then
+		-- A light hit is only the procedural flinch (ImpactTime above, drawn on the client): the
+		-- full-body clip is for a blow that means something (heavy, crit, finisher, from behind, or
+		-- a body whose posture is worn down). (Fight programme step 3; every jab played it before.)
+		local meant = isHeavy or damageInfo.isCrit or damageInfo.isFinisher or damageInfo.isBackAttack
+			or posture <= (CombatConfig.Hits_ClipBelowPosture or 40)
+		if not isKnocked and (meant or CombatConfig.Hits_ClipOnLight == true) then
 			local hitAnims = AnimationIds.Hits
 			if hitAnims and #hitAnims > 0 then
 				local randHit = hitAnims[math.random(1, #hitAnims)]

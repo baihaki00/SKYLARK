@@ -426,7 +426,15 @@ CombatConfig.Combat_UseStrikeMarkers = true       -- strikes use the markers in 
 CombatConfig.Combat_TradeWindow = 0.08               -- a strike this close to landing still comes out when its thrower is hit (a trade)
 CombatConfig.Combat_HitOwnsLegs = true                -- no walking during the flinch stun; a hit clip fades once the Quin walks again (Main)
 CombatConfig.Combat_LungeMaxSpeed = 60             -- studs/s ceiling of the step-in; its real speed is whatever closes the gap
-CombatConfig.Combat_LungeStopDistance = 4.8            -- an attack lunge stops this far from the target (outside Melee_SweetSpotMin; a jab reaches 6.5)
+CombatConfig.Combat_LungeStopDistance = 4.8            -- an attack lunge stops this far from the target (outside Melee_SweetSpotMin; a jab reaches 6.5); a clip with a reach stops at its own gap (Spacing_*)
+-- Spacing (Modules/Spacing, FIGHT_PROGRAMME.md step 1): bodies keep their room
+CombatConfig.Spacing_Enabled = true                   -- off: bodies walk into each other until the collision boxes stop them (Studio: Ablate_Spacing)
+CombatConfig.Spacing_BodyGap = 3.0                    -- roots never walk or get pushed closer than this (two body radii)
+CombatConfig.Spacing_ApartSlack = 0.5                 -- bodies closer than BodyGap minus this are eased apart
+CombatConfig.Spacing_TargetRadius = 0.72              -- the target's torso radius on the drawn body (0.3 x spine, measured)
+CombatConfig.Spacing_ContactDepth = 0.25              -- how far a strike's limb goes into the body at the stop gap
+CombatConfig.Spacing_LookAhead = 0.1                  -- seconds ahead a closing body's gap is judged (the hold reaches the body's own machine a frame or two late)
+CombatConfig.Spacing_LookAheadMax = 0.75               -- studs: the most that look-ahead takes off the gap (a strike's lunge must still reach)
 CombatConfig.Combat_GuardStrength = 0.70               -- chance a raised guard holds against a frontal strike
 CombatConfig.Combat_DesperateCounterCooldown = 6.0     -- seconds between a Quin's cornered counter-strikes
 CombatConfig.Combat_ComboBreakChance = 0.25            -- chance per incoming combo strike to get a guard up (scaled 0.5-1.5x by defense preference)
@@ -1073,6 +1081,16 @@ CombatConfig.ProjectileJump_SetDownSnap = true -- a dive whose floor is within t
 -- own (true brings the overlay back). Fight plants the body while its own strike plays.
 CombatConfig.Chase_PushOffOverlay = false
 CombatConfig.Fight_PlantWhileStriking = true
+CombatConfig.Flow_DodgeSlideSpeed = 12              -- studs/s of a dodge with no strike coming (a short step with the quick evade lean); a strike coming is evaded in place (Modules/Evasion)
+-- Fight programme step 3 (hits). A strike counts only when its clip's reach gets to the body
+CombatConfig.Hits_ContactCheck = true
+CombatConfig.Hits_ContactSlack = 0.6 -- studs past reach + body radius still counted as contact
+-- A light hit is only the procedural flinch; the full-body hit clip is kept for heavy hits, crits,
+-- finishers, hits from behind and a body at or below this posture. true = every hit plays it (old)
+CombatConfig.Hits_ClipOnLight = false
+CombatConfig.Hits_ClipBelowPosture = 40
+-- The look-back clip is full-body: it plays only below this speed (studs/s) and fades when the body moves off
+CombatConfig.Glance_ClipMaxSpeed = 3
 -- Overwatch holds only tops at least this wide both ways (pillar and wall tops are not lookouts)
 CombatConfig.Overwatch_MinTopWidth = 10
 

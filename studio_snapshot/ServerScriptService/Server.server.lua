@@ -339,6 +339,19 @@ require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChi
 -- Reflexes: every Quin answers a strike it sees coming, every frame (Modules/Instinct)
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Instinct")).start()
 
+-- Fighting bodies keep their room: no walking into each other (Modules/Spacing)
+require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Spacing")).start()
+
+-- Studio: Workspace attribute Test_ArmsOnlyPunches plays arms-only copies of the punches (Modules/ChannelLab)
+if game:GetService("RunService"):IsStudio() then
+	local function applyArmsOnly()
+		require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ChannelLab")).setArmsOnlyPunches(workspace:GetAttribute("Test_ArmsOnlyPunches") == true)
+	end
+	workspace:GetAttributeChangedSignal("Test_ArmsOnlyPunches"):Connect(applyArmsOnly)
+	-- (also when it was ticked in Edit before Play: then it never changes)
+	if workspace:GetAttribute("Test_ArmsOnlyPunches") == true then task.spawn(applyArmsOnly) end
+end
+
 -- A player's input to the Quin they pilot (Player Quin match mode)
 require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("PilotInput")).start()
 

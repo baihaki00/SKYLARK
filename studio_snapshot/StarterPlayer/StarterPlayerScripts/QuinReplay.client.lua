@@ -5,6 +5,8 @@
 -- the moment of the pause. Drag the scrubber back to see any moment before it: the real Quins are
 -- hidden on this machine and ghost copies, posed from the recording, take their place. PLAY
 -- closes it and the real game carries on from the pause, wherever the scrubber was left.
+-- The ghosts carry the labels as they were at the scrubber's moment (state tag, PointTag,
+-- InterestTag, debug values), and the 3D overlays draw from the recording too (overlay()).
 --
 --   timeline  click or drag to scrub; coloured by the followed Quin's state, ticks where its
 --             clips started (white) and its task / tactics changed (gold)
@@ -120,7 +122,8 @@ local function makeGhost(name, track)
 	copy.Name = name
 	copy:SetAttribute("ReplayGhost", true)
 
-	local ghost = { model = copy, parts = {}, placed = {}, motors = {}, bones = {}, boneParent = {}, root = copy:FindFirstChild("HumanoidRootPart") }
+	local ghost = { model = copy, parts = {}, placed = {}, motors = {}, bones = {}, boneParent = {}, root = copy:FindFirstChild("HumanoidRootPart"),
+		labels = {} } -- (path -> { gui, texts }: the recorded labels, rebuilt on the ghost; poseLabels)
 	local partIndex = {}
 	for i, path in ipairs(track.partNames) do
 		local part = resolve(copy, path)
@@ -217,6 +220,56 @@ local function poseGhosts(t)
 					end
 					if parentWorld then
 						bone.Transform = (parentWorld * bone.CFrame):Inverse() * target
+					end
+				end
+			end
+		end
+	end
+end
+
+-- The labels over each ghost as they were at time t (QuinRecorder: each label's state, and a copy
+-- of it to rebuild it from). A label that did not exist then is switched off.
+local function ghostLabel(ghost, track, path)
+	local held = ghost.labels[path]
+	if held and held.gui.Parent then return held end
+	local template = track.labelTemplates and track.labelTemplates[path]
+	local parent = resolve(ghost.model, path:match("^(.*)%.[^%.]+$") or "")
+	if not template or not parent then return nil end
+	local gui = template:Clone()
+	-- (one pointed at a part of the real Quin points at the ghost's)
+	local adornee = template.Adornee
+	if adornee and track.model and adornee:IsDescendantOf(track.model) then
+		gui.Adornee = resolve(ghost.model, adornee:GetFullName():sub(#track.model:GetFullName() + 2))
+	end
+	local texts = {}
+	for _, d in ipairs(gui:GetDescendants()) do
+		if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then table.insert(texts, d) end
+	end
+	gui.Parent = parent
+	held = { gui = gui, texts = texts }
+	ghost.labels[path] = held
+	return held
+end
+
+local function poseLabels(t)
+	for name, ghost in pairs(ghosts) do
+		local track = recording.tracks[name]
+		if track and track.labelBase then
+			local states = table.clone(track.labelBase)
+			for _, event in ipairs(track.labelEvents) do
+				if event.t > t then break end
+				states[event.path] = event.state or nil
+			end
+			for path, held in pairs(ghost.labels) do
+				if not states[path] then held.gui.Enabled = false end
+			end
+			for path, state in pairs(states) do
+				local held = ghostLabel(ghost, track, path)
+				if held then
+					held.gui.Enabled = state.enabled
+					for i, label in ipairs(held.texts) do
+						if state.texts[i] ~= nil and label.Text ~= state.texts[i] then label.Text = state.texts[i] end
+						if state.visible and state.visible[i] ~= nil then label.Visible = state.visible[i] end
 					end
 				end
 			end
@@ -415,9 +468,6 @@ local function refreshInfo(force)
 	timeLabel.Text = followed
 		and ("<b>%s</b>  ·  %s  ·  colour = its state  ·  white tick = a clip starts  ·  gold tick = task / tactics change  ·  drag to scrub"):format(QuinTimeline.escape(followed), when)
 		or (when .. "  ·  drag to scrub  ·  click a Quin to follow it: the timeline shows its states and clips")
-	if endT - cursor >= 1e-3 then
-		timeLabel.Text ..= "  ·  <font color='#FFC83C'>labels + 3D overlays hidden (they show the pause moment)</font>"
-	end
 	-- (a few times a second: the rows are rebuilt only when they change)
 	local now = os.clock()
 	if not force and now - dockSince < 0.15 then
@@ -544,6 +594,7 @@ local function load()
 	openedAt = endT
 	local watched = Workspace:GetAttribute("SpectatedQuin")
 	poseGhosts(cursor)
+	poseLabels(cursor)
 	follow(ghosts[watched] and watched or nil)
 	return true
 end
@@ -573,11 +624,50 @@ local function setOpen(value)
 	end
 end
 
+-- What the 3D overlays (RuntimeVisualizer.updateReplay) draw while paused: each ghost as a view at
+-- the cursor (its posed root, the velocity, health and attributes recorded then) and the server's
+-- drawings that were on screen at that moment. nil when closed: the overlays draw the live game.
+local function overlay()
+	if not open or not recording or #recording.frames == 0 then return nil end
+	local frame = framesAround(cursor)
+	local function view(name)
+		local ghost, pose = ghosts[name], frame.quins[name]
+		if not (ghost and pose and ghost.root and ghost.model.Parent) then return nil end
+		local attributes = attributesAt(name, cursor)
+		local targetName = attributes.CurrentTarget or attributes.TargetQuin
+		local target = type(targetName) == "string" and ghosts[targetName]
+		return {
+			name = name,
+			root = ghost.root,
+			velocity = pose.velocity or Vector3.zero,
+			health = pose.health or 0,
+			attr = function(key)
+				if key == "Energy" then return pose.energy end
+				if key == "LastSeenTargetPosition" then return pose.lastSeen end
+				return attributes[key]
+			end,
+			targetRoot = target and target.model.Parent and target.root or nil,
+			targetName = targetName,
+			exclude = { ghostFolder },
+		}
+	end
+	local names = {}
+	for name in pairs(ghosts) do table.insert(names, name) end
+	local primitives = {}
+	for _, drawn in ipairs(recording.drawings or {}) do
+		if drawn.t > cursor then break end
+		for _, primitive in ipairs(drawn.batch) do
+			if drawn.t + (primitive[6] or 0.2) > cursor then table.insert(primitives, primitive) end
+		end
+	end
+	return { view = view, names = names, spectated = followed, primitives = primitives }
+end
+
 -- (PAUSE opens it, PLAY closes it: GodPauseClient)
 shared.QuinReplay = {
 	open = function() if allowedToOpen() then setOpen(true) end end,
-	-- at the pause: the live labels and 3D overlays are right (scrubbed back they are hidden, QuinDebugHUD)
 	atPause = function() return not open or not recording or endT - cursor < 1e-3 end,
+	overlay = overlay,
 	close = function() setOpen(false) end,
 	isOpen = function() return open end,
 }
@@ -678,6 +768,7 @@ RunService:BindToRenderStep("QuinReplay", Enum.RenderPriority.Camera.Value - 1, 
 	end
 	if cursor ~= lastDrawn or playing then
 		poseGhosts(cursor)
+		poseLabels(cursor)
 		refreshInfo()
 		lastDrawn = cursor
 	elseif dockPending then
@@ -686,6 +777,29 @@ RunService:BindToRenderStep("QuinReplay", Enum.RenderPriority.Camera.Value - 1, 
 	hideReal(true) -- (re-applied: other scripts reset the transparency modifier, new Quins appear)
 	updateCamera()
 end)
+
+-- (for the test handle: the labels shown on the followed ghost, and what the overlays would draw)
+local function labelSummary()
+	local ghost = followed and ghosts[followed]
+	if not ghost then return nil end
+	local out = {}
+	for path, held in pairs(ghost.labels) do
+		local texts = {}
+		for _, label in ipairs(held.texts) do
+			if label.Text ~= "" and label.Visible then table.insert(texts, label.Text) end
+		end
+		table.insert(out, ("%s %s: %s"):format(path, held.gui.Enabled and "on" or "off", table.concat(texts, " / ")))
+	end
+	return table.concat(out, " | ")
+end
+
+local function overlaySummary()
+	local data = overlay()
+	if not data then return nil end
+	local v = data.spectated and data.view(data.spectated)
+	return ("%d server primitives; followed: %s"):format(#data.primitives,
+		v and ("%s energy %s target %s"):format(tostring(v.attr("CurrentState")), tostring(v.attr("Energy")), tostring(v.targetName)) or "none")
+end
 
 -- Test handle (a Studio test run has its own shared): Control:Invoke("open" | "close" | "state", arg)
 local control = Instance.new("BindableFunction")
@@ -703,6 +817,7 @@ control.OnInvoke = function(what, arg)
 	return { open = open, ghosts = count, followed = followed, cursor = cursor - startT, span = endT - startT,
 		info = data and data.info, clips = data and data.clips, rows = data and #data.rows,
 		report = lastRow and data.report and data.report(lastRow.t),
-		followOffset = followOffset and tostring(followOffset), camera = shared.ReplayCameraCFrame ~= nil }
+		followOffset = followOffset and tostring(followOffset), camera = shared.ReplayCameraCFrame ~= nil,
+		labels = labelSummary(), overlay = overlaySummary() }
 end
 control.Parent = script

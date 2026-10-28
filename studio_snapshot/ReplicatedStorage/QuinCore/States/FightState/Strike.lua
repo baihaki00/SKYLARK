@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AnimationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local HitboxModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("HitboxModule"))
 local KnockbackModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("KnockbackModule"))
+local Spacing = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Spacing")) -- (where a strike stops)
 local ComboModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("ComboModule"))
 local DamageModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("DamageModule"))
 local AudioModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AudioModule"))
@@ -172,6 +173,9 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		finishDelay = effectiveDuration
 	end
 	fighter:SetAttribute("StrikeTiming", markers and "markers" or "ratios") -- (debug HUD, probes)
+	-- which part of the body the clip drives (AnimationConfig channel): an arms-only strike leaves
+	-- the legs to the footwork (FightState does not plant them; the client's feet keep planting)
+	fighter:SetAttribute("StrikeChannel", animData.channel or "Body")
 
 	-- Set telegraphing attributes for causal defense (impact window driven by config)
 	local now = GameClock.tick()
@@ -205,7 +209,10 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- striking distance and never drives into (or through) its target
 	local lungeSpeed = CombatConfig.Combat_LungeMaxSpeed or 60
 	local lungeTime = math.min(effectiveDuration * 0.4, 0.35)
-	local stopDistance = CombatConfig.Combat_LungeStopDistance or 4.8
+	-- (where this clip's limb lands in the target's body: AnimationConfig reach, Modules/Spacing
+	-- holds the attacker there for the whole strike, whatever else moves it)
+	local stopDistance = Spacing.strikeStopGap(animData.reach)
+	fighter:SetAttribute("StrikeStopGap", stopDistance)
 	-- The step goes toward where the target will be at impact (its velocity, Combat_StrikeLead
 	-- ahead), not along the body's facing toward where it was
 	local function stepIn(timeLeft)
@@ -248,12 +255,25 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	local landed = false
 	local result = "Whiff"
 
+	-- (the box is wider and longer than any limb: a body in it counts only once this clip's limb
+	-- can get there, its reach plus the body's radius and a little slack; a fist that stops a stud
+	-- short is a whiff, not a hit. Fight programme step 3)
+	local contactRange = (CombatConfig.Hits_ContactCheck ~= false and animData.reach)
+		and animData.reach + (CombatConfig.Spacing_TargetRadius or 0.72) + (CombatConfig.Hits_ContactSlack or 0.6) or nil
+	local function inReach(hitModel)
+		local r = contactRange and hitModel:FindFirstChild("HumanoidRootPart")
+		if not r then return true end
+		local d = r.Position - rootPart.Position
+		return Vector3.new(d.X, 0, d.Z).Magnitude <= contactRange
+	end
+
 	local function check()
 		local hitModels = HitboxModule.castInFront(rootPart, moveData.hitboxSize, Vector3.new(0, 0, -3), fighter)
 		for _, hitModel in ipairs(hitModels) do
-			if not struck[hitModel] then
+			if not struck[hitModel] and inReach(hitModel) then
 				struck[hitModel] = true
 				local damageInfo = DamageModule.calculate(fighter, hitModel, moveData.step, moveData.damageMultiplier)
+				damageInfo.isFinisher = moveData.isFinisher
 				local applied, isKill, status = DamageModule.apply(fighter, hitModel, damageInfo)
 
 				if status == "Blocked" or status == "Dodged" then

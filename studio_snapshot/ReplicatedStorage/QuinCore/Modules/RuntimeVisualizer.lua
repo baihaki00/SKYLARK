@@ -9,6 +9,8 @@
 --     steering, pursuit, jump plans, retreat options, decision scores) and only drawn here.
 -- Everything is drawn immediate-mode from pools: each frame the active layers ask for lines,
 -- spheres, rings and text; whatever was not asked for is hidden.
+-- The client layers read a view of a Quin (liveView: the real one; while paused, QuinReplay's
+-- ghosts at the scrubber's moment, updateReplay), so the pause view draws what was true then.
 
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -256,59 +258,79 @@ local function findTarget(fighter)
 	return quinServer:FindFirstChild(targetName) or Workspace:FindFirstChild(targetName)
 end
 
+-- What the layers read of a Quin: { name, root, velocity, health, attr(key), targetRoot,
+-- targetName, exclude (left out of the flight raycasts) }
+local function liveView(fighter)
+	local rootPart = fighter:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return nil end
+	local target = findTarget(fighter)
+	local humanoid = fighter:FindFirstChildOfClass("Humanoid")
+	return {
+		name = fighter.Name,
+		root = rootPart,
+		velocity = rootPart.AssemblyLinearVelocity,
+		health = humanoid and humanoid.Health or 0,
+		attr = function(key) return fighter:GetAttribute(key) end,
+		targetRoot = target and target:FindFirstChild("HumanoidRootPart"),
+		targetName = target and target.Name,
+		exclude = { fighter, Workspace:FindFirstChild("QuinServer") },
+	}
+end
+
 local clientLayers = {}
 
 -- State, health, energy, speed and what the Quin reports about obstacles
-function clientLayers.Label(fighter, rootPart)
-	local humanoid = fighter:FindFirstChildOfClass("Humanoid")
-	draw.text(rootPart.Position + Vector3.new(0, 5.2, 0), string.format("%s | %s\nHP %d | Mana %d | %.1f studs/s\n%s | %s\nknows %d enemies (notices %d) | target via %s",
-		fighter.Name,
-		string.upper(fighter:GetAttribute("CurrentState") or "None"),
-		humanoid and math.round(humanoid.Health) or 0,
-		fighter:GetAttribute("Energy") or 100,
-		rootPart.AssemblyLinearVelocity.Magnitude,
-		fighter:GetAttribute("TacticalState") or "-",
-		fighter:GetAttribute("ObstacleAwareness") or "Clear",
-		fighter:GetAttribute("KnownEnemies") or 0,
-		fighter:GetAttribute("NoticedEnemies") or 0,
-		fighter:GetAttribute("TargetContact") or "-"), COLOR.label)
+function clientLayers.Label(view)
+	draw.text(view.root.Position + Vector3.new(0, 5.2, 0), string.format("%s | %s\nHP %d | Mana %d | %.1f studs/s\n%s | %s\nknows %d enemies (notices %d) | target via %s",
+		view.name,
+		string.upper(view.attr("CurrentState") or "None"),
+		math.round(view.health),
+		view.attr("Energy") or 100,
+		view.velocity.Magnitude,
+		view.attr("TacticalState") or "-",
+		view.attr("ObstacleAwareness") or "Clear",
+		view.attr("KnownEnemies") or 0,
+		view.attr("NoticedEnemies") or 0,
+		view.attr("TargetContact") or "-"), COLOR.label)
 end
 
 -- Eye-to-eye line to the current target: green with line of sight, red without
-function clientLayers.Target(fighter, rootPart, target)
-	local targetRoot = target and target:FindFirstChild("HumanoidRootPart")
-	if not targetRoot then return end
-	local hasLoS = fighter:GetAttribute("TargetHasLoS") == true
-	draw.line(SpatialModule.getEyePosition(rootPart), SpatialModule.getEyePosition(targetRoot), hasLoS and COLOR.clear or COLOR.blocked, hasLoS and 3 or 5)
+function clientLayers.Target(view)
+	if not view.targetRoot then return end
+	local hasLoS = view.attr("TargetHasLoS") == true
+	draw.line(SpatialModule.getEyePosition(view.root), SpatialModule.getEyePosition(view.targetRoot), hasLoS and COLOR.clear or COLOR.blocked, hasLoS and 3 or 5)
 end
 
 -- Where the Quin last saw its target, while it cannot see it
-function clientLayers.Memory(fighter, rootPart, target)
-	local lastSeen = fighter:GetAttribute("LastSeenTargetPosition")
-	if not lastSeen or fighter:GetAttribute("TargetHasLoS") == true then return end
+function clientLayers.Memory(view)
+	local lastSeen = view.attr("LastSeenTargetPosition")
+	if typeof(lastSeen) ~= "Vector3" or view.attr("TargetHasLoS") == true then return end
 	draw.ring(lastSeen + Vector3.new(0, 0.2, 0), 3, COLOR.memory)
-	draw.line(rootPart.Position, lastSeen, COLOR.memory, 2)
-	draw.text(lastSeen + Vector3.new(0, 2.5, 0), "last seen: " .. (target and target.Name or "target"), COLOR.memory)
+	draw.line(view.root.Position, lastSeen, COLOR.memory, 2)
+	draw.text(lastSeen + Vector3.new(0, 2.5, 0), "last seen: " .. (view.targetName or "target"), COLOR.memory)
 end
 
 -- Velocity (half a second of travel) and facing
-function clientLayers.Velocity(fighter, rootPart)
-	local origin = rootPart.Position
-	draw.line(origin, origin + rootPart.AssemblyLinearVelocity * 0.5, COLOR.velocity, 4)
-	draw.line(origin, origin + rootPart.CFrame.LookVector * 5, COLOR.facing, 2)
+function clientLayers.Velocity(view)
+	local origin = view.root.Position
+	draw.line(origin, origin + view.velocity * 0.5, COLOR.velocity, 4)
+	draw.line(origin, origin + view.root.CFrame.LookVector * 5, COLOR.facing, 2)
 end
 
 -- Ballistic prediction of a body in flight, with the landing point
-function clientLayers.Trajectory(fighter, rootPart)
-	local velocity = rootPart.AssemblyLinearVelocity
-	local state = fighter:GetAttribute("CurrentState") or ""
+function clientLayers.Trajectory(view)
+	local velocity = view.velocity
+	local state = view.attr("CurrentState") or ""
 	local inFlight = state == "Airborne" or state == "Knockback" or state == "ProjectileJump"
 		or math.abs(velocity.Y) > 10
 	if not inFlight then return end
 
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = { fighter, getContainer(), Workspace:FindFirstChild("QuinServer") }
+	local exclude = table.clone(view.exclude)
+	table.insert(exclude, getContainer())
+	rayParams.FilterDescendantsInstances = exclude
+	local rootPart = view.root
 
 	local position = rootPart.Position
 	local step = 0.05
@@ -327,13 +349,11 @@ function clientLayers.Trajectory(fighter, rootPart)
 	end
 end
 
-local function drawClientLayers(fighter)
-	local rootPart = fighter:FindFirstChild("HumanoidRootPart")
-	if not rootPart then return end
-	local target = findTarget(fighter)
+local function drawClientLayers(view)
+	if not view then return end
 	for _, layer in ipairs(DebugDraw.Layers) do
 		if layer.source == "client" and layerEnabled[layer.id] then
-			clientLayers[layer.id](fighter, rootPart, target)
+			clientLayers[layer.id](view)
 		end
 	end
 end
@@ -371,13 +391,36 @@ function RuntimeVisualizer.update(spectatedFighter, allFighters)
 
 	if watchAll and allFighters then
 		for _, fighter in ipairs(allFighters) do
-			if fighter.Parent then drawClientLayers(fighter) end
+			if fighter.Parent then drawClientLayers(liveView(fighter)) end
 		end
 	elseif spectatedName then
-		drawClientLayers(spectatedFighter)
+		drawClientLayers(liveView(spectatedFighter))
 	end
 
 	DebugDraw.forEachLive(drawServerPrimitive)
+	finishFrame()
+end
+
+-- Paused (QuinReplay.overlay()): the same layers drawn from the recording at the scrubber's moment.
+-- replay = { view(name) -> view, names, spectated, primitives (the server's drawings then) }
+function RuntimeVisualizer.updateReplay(replay)
+	if not isEnabled then
+		DebugDraw.configure({}, false, nil)
+		return
+	end
+	-- (the server keeps its choice of layers and Quin: the game carries on with it after PLAY)
+	DebugDraw.configure(layerEnabled, watchAll, replay.spectated)
+
+	local cameraFrame = Workspace.CurrentCamera.CFrame
+	anchorOrigin = cameraFrame.Position + cameraFrame.LookVector * 12
+	getAnchor().CFrame = CFrame.new(anchorOrigin)
+
+	if watchAll then
+		for _, name in ipairs(replay.names) do drawClientLayers(replay.view(name)) end
+	elseif replay.spectated then
+		drawClientLayers(replay.view(replay.spectated))
+	end
+	for _, primitive in ipairs(replay.primitives) do drawServerPrimitive(primitive) end
 	finishFrame()
 end
 

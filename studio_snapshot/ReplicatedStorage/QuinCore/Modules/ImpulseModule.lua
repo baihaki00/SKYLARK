@@ -233,6 +233,22 @@ function ImpulseModule.cancel(model, tag)
 	release(model)
 end
 
+-- Stop the pushes that carry the body toward `direction` (more than minDot along it) and leave
+-- the rest; a knockback is never stopped. keepTag is spared (Modules/Spacing's own hold).
+function ImpulseModule.cancelToward(model, direction, minDot, keepTag)
+	local body = bodies[model]
+	if not body then return end
+	local flat = Vector3.new(direction.X, 0, direction.Z)
+	if flat.Magnitude < 0.001 then return end
+	flat = flat.Unit
+	for tag, request in pairs(body.requests) do
+		if tag ~= keepTag and request.priority < ImpulseModule.Priority.Knockback and request.direction:Dot(flat) > (minDot or 0.3) then
+			body.requests[tag] = nil
+		end
+	end
+	if next(body.requests) == nil then release(model) end
+end
+
 function ImpulseModule.isActive(model, tag)
 	local body = bodies[model]
 	if not body then return false end

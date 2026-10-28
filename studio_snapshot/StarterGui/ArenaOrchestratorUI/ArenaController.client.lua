@@ -524,6 +524,7 @@ local toggleDefs = {
     { key = "CrowdAvatars",      name = "Crowd in the Stands (1000 avatars)" },
     { key = "Clothes",           name = "Clothes on the Fighters" },
     { key = "RandomMusic",       name = "Randomize Music (a random track per playlist)" },
+    { key = "ArmsOnlyPunches",   name = "TEST: Arms-only punches (legs keep stepping; Studio)" },
 }
 
 local checkboxWidgets = {}

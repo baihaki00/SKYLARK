@@ -132,7 +132,6 @@ setmetatable(AnimationIds, {
 		-- Behavioral Polish Aliases (Phase 1 - 6)
 		if key == "StartSprint" then return reg.Movement and reg.Movement.StartSprint and reg.Movement.StartSprint.id end
 		if key == "BrakingStop" then return reg.Movement and reg.Movement.BrakingStop and reg.Movement.BrakingStop.id end
-		if key == "AssessTarget" then return reg.Transition and reg.Transition.AssessTarget and reg.Transition.AssessTarget.id end
 		if key == "RearThreatGlance" then return reg.Awareness and reg.Awareness.RearThreatGlance and reg.Awareness.RearThreatGlance.id end
 		if key == "Turn180Pivot" then return reg.Awareness and reg.Awareness.Turn180Pivot and reg.Awareness.Turn180Pivot.id end
 		if key == "RetreatBackstep" then return reg.Tactics and reg.Tactics.RetreatBackstep and reg.Tactics.RetreatBackstep.id end

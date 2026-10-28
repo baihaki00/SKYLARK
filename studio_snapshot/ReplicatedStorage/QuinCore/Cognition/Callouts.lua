@@ -111,6 +111,8 @@ function Callouts.maybeCall(board, quinModel, rootPart, fresh, now)
 
 	table.sort(fresh, function(a, b) return a.distance < b.distance end)
 	for _, percept in ipairs(fresh) do
+		-- (an enemy this close is plain to the team already: no arm in its face)
+		if point and percept.distance and percept.distance < cfg("PointMinRange", 15) then continue end
 		local inFront = true
 		if point then
 			local off = Vector3.new(percept.position.X - rootPart.Position.X, 0, percept.position.Z - rootPart.Position.Z)

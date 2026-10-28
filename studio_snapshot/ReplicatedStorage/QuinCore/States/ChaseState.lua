@@ -362,14 +362,9 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		elseif distToLKP <= 7.0 then
 			if not data.surveyingAtLKP then
 				data.surveyingAtLKP = now
-				-- Full-body clip: only once the body has slowed (it froze the legs of a Quin still
-				-- arriving at the spot); otherwise the head looks around
-				local v = rootPart.AssemblyLinearVelocity
-				if Vector3.new(v.X, 0, v.Z).Magnitude < 4 then
-					AnimationModule.playConfig(humanoid, "Idles.SurveyIdle", 1.2, Enum.AnimationPriority.Action2, false)
-				else
-					fighter:SetAttribute("GlanceBackUntil", GameClock.serverNow() + 0.8)
-				end
+				-- The head looks around; no full-body clip (the old SurveyIdle one-shot pinned the
+				-- legs for ~3 s while the Quin moved on after 0.9 s: foot sliding)
+				fighter:SetAttribute("GlanceBackUntil", GameClock.serverNow() + 0.8)
 			elseif (now - data.surveyingAtLKP) >= 0.9 then
 				data.surveyingAtLKP = nil
 				data.targetLKP = nil
@@ -502,14 +497,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 			if (now - lastGlance) >= (2.8 / speedMult) then
 				data.lastRearGlanceTime = now
 				fighter:SetAttribute("LastRearGlanceTime", now)
-				-- The glance clip is full-body: played at a run it froze the legs mid-stride.
-				-- On the move only the head and shoulders look back (LookController).
-				local v = rootPart.AssemblyLinearVelocity
-				if Vector3.new(v.X, 0, v.Z).Magnitude > 6 then
-					fighter:SetAttribute("GlanceBackUntil", GameClock.serverNow() + 0.8)
-				else
-					AnimationModule.playConfig(humanoid, "Awareness.RearThreatGlance", 1.3, Enum.AnimationPriority.Action2, false)
-				end
+				-- (the full-body clip only while standing; on the move the head and shoulders)
+				LocomotionModule.glanceBack(fighter, humanoid, rootPart, 1.3, 0.8)
 			end
 		end
 	end

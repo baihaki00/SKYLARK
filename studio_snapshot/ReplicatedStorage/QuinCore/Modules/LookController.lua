@@ -34,6 +34,8 @@ local SHAKE_AMP = math.rad(16)
 -- little across the body, never behind it), and the chest turns part of the way.
 local COG = okConfig and CombatConfig.Cognition or {}
 local POINT_DURATION = COG.PointDuration or 1.1
+local POINT_BUSY_STATES = { Fight = true, Knockback = true, Recovery = true, Death = true, Airborne = true,
+	ProjectileJump = true, MidAirClash = true, Special = true, WallRun = true }
 local POINT_REACH = 0.97           -- hand distance as a share of the arm's full length: ~28 degrees at the elbow (0.9 gave 52, a bent arm)
 local POINT_ACROSS = math.rad(25)  -- furthest the aim goes across the body
 local POINT_OUT = math.rad(120)    -- furthest out to its own side
@@ -353,6 +355,14 @@ function LookController:preparePoint()
 	if not at or Workspace:GetAttribute("PointOff") == true then return end
 	local t = GameClock.serverNow() - at
 	if t < 0 or t >= POINT_DURATION then return end
+	-- busy with its body (fighting, striking, in the air, hit): the arm comes down in 0.2 s, and
+	-- stays down for this point (owner 2026-10-29: an arm left up into a jump pointed at the sky)
+	local busy = POINT_BUSY_STATES[model:GetAttribute("CurrentState") or ""] or model:GetAttribute("Attacking") == true
+	if busy and self.pointBusyKey ~= at then
+		self.pointBusyKey, self.pointBusyAt = at, t
+	end
+	local busyFade = self.pointBusyKey == at and smooth(self.pointBusyAt, self.pointBusyAt + 0.2, t) or 0
+	if busyFade >= 1 then return end
 	-- at a Quin (PointAtName), or at a place (PointAtPos: a spot, a thing, where to go)
 	local targetPos
 	local name = model:GetAttribute("PointAtName")
@@ -372,7 +382,7 @@ function LookController:preparePoint()
 		self.pointSide = localPos.X >= 0 and "Right" or "Left" -- (the arm on its side)
 	end
 	if not self.arms[self.pointSide] then return end
-	local w = smooth(0, 0.18, t) * (1 - smooth(POINT_DURATION - 0.3, POINT_DURATION, t))
+	local w = smooth(0, 0.18, t) * (1 - smooth(POINT_DURATION - 0.3, POINT_DURATION, t)) * (1 - busyFade)
 	local yaw = math.atan2(-localPos.X, -localPos.Z)
 	-- the enemy swung round behind it mid-point: the arm comes down rather than wrench back
 	w *= 1 - smooth(math.rad(105), math.rad(140), math.abs(yaw))
