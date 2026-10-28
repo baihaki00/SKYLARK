@@ -1,11 +1,10 @@
 --// GodPauseClient.client.lua
--- The god pause (owner 2026-10-28): F4 or the bar at the top freezes the real game and resumes
--- it where it was (QuinCore Modules/GameFreeze). While frozen the cameras still fly (B, the
--- spectator camera) so the frozen fight can be walked round, and:
---   * click a Quin (the dot in the middle aims when the cursor is locked) to inspect it: what it
---     is doing and why, the clips held on it (weight, where in the clip, the speed it had), and
---     its last changes before the freeze (the flight recorder, QuinRecorder);
---   * "." or the buttons step the real game on by one frame or 0.1 s and freeze it again.
+-- The god pause (owner 2026-10-28): one button, PAUSE / PLAY (F4). PAUSE freezes the real game
+-- (QuinCore Modules/GameFreeze) and opens the scrubber (QuinReplay) to go back through what led
+-- up to it; PLAY closes the scrubber and the game carries on from the pause. While paused the
+-- cameras still fly (B) and a click on a Quin inspects it (the debug menu's Inspect tab; the dot
+-- in the middle aims when the cursor is locked). If nothing was recorded yet the pause still
+-- works, and the inspector here reads the live (frozen) Quin instead.
 -- Studio, Admins only.
 
 local Players = game:GetService("Players")
@@ -24,7 +23,6 @@ local GameClock = require(Modules:WaitForChild("GameClock"))
 local GameFreeze = require(Modules:WaitForChild("GameFreeze")) -- (also starts this machine's side)
 local QuinTimeline = require(script.Parent:WaitForChild("QuinTimeline"))
 
-local FRAME = 1 / 60
 
 local function isAdmin()
 	return player:GetAttribute("SkylarkRole") == "Admin"
@@ -33,11 +31,8 @@ end
 local escape = QuinTimeline.escape
 
 ----------------------------------------------------------------------------------------
--- UI: one bar at the top (owner 2026-10-28: the resume beside the steps, not panels everywhere;
--- "make sure there's no extra buttons that do the same thing"): the GAME bar - its state, freeze /
--- resume, the steps (only while frozen) and Open replay. While the replay is open this bar hides
--- and the replay's own bar takes its place (QuinReplay), so one button per action is on screen.
--- What the clicked Quin is doing goes to the debug menu's Inspect tab (QuinDebugHUD).
+-- UI: one button at the top (owner 2026-10-28: "buttons: PAUSE/PLAY ... we already have the
+-- scrubber"); the scrubber sits under it while paused (QuinReplay).
 ----------------------------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "GodPauseUI"
@@ -86,15 +81,7 @@ local function button(text, width)
 	return b
 end
 
-local stateChip = button("GAME RUNNING", 120)
-stateChip.AutoButtonColor = false
-stateChip.Active = false
-local freezeButton = button("Freeze game [F4]", 130)
-local frameButton = button("Step 1 frame [.]", 112)
-local tenthButton = button("Step 0.1 s", 76)
-local secondButton = button("Step 1 s", 64)
-local replayButton = button("Open replay [F6]", 120)
-local stepButtons = { frameButton, tenthButton, secondButton }
+local pauseButton = button("PAUSE [F4]", 130)
 
 local dot = Instance.new("Frame")
 dot.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -136,7 +123,7 @@ local function sendInspect()
 	local dock = shared.DebugDock
 	if not dock then return end
 	if not selected or not selected.Parent then
-		dock.setInspect({ source = "frozen", title = "Frozen", info = "Click a Quin to see what it is doing and why  ·  B flies  ·  middle mouse frees the cursor", rows = {} })
+		dock.setInspect({ source = "paused", title = "Paused", info = "Click a Quin to see what it is doing and why  ·  B flies  ·  middle mouse frees the cursor", rows = {} })
 		return
 	end
 	local name = selected.Name
@@ -184,7 +171,7 @@ local function sendInspect()
 	local track = recorder and recorder.tracks[name]
 	local refT = frozenAt or os.clock()
 	dock.setInspect({
-		source = "frozen",
+		source = "paused",
 		title = name,
 		info = table.concat(parts, "  ·  "),
 		clips = #clips > 0 and table.concat(clips, "  ·  ") or "none",
@@ -197,13 +184,10 @@ end
 local function refresh()
 	local frozen = GameClock.frozen()
 	local replay = replayOpen()
-	bar.Visible = isAdmin() and not replay
-	stateChip.Text = frozen and "GAME FROZEN" or "GAME RUNNING"
-	stateChip.BackgroundColor3 = frozen and Color3.fromRGB(60, 170, 255) or Color3.fromRGB(30, 140, 100)
-	stateChip.TextColor3 = frozen and Color3.new(0, 0, 0) or Color3.new(1, 1, 1)
-	freezeButton.Text = frozen and "Resume game [F4]" or "Freeze game [F4]"
+	bar.Visible = isAdmin()
+	pauseButton.Text = frozen and "PLAY [F4]" or "PAUSE [F4]"
+	pauseButton.BackgroundColor3 = frozen and Color3.fromRGB(30, 140, 100) or Color3.fromRGB(32, 40, 58)
 	stroke.Color = frozen and Color3.fromRGB(60, 170, 255) or Color3.fromRGB(40, 50, 70)
-	for _, b in ipairs(stepButtons) do b.Visible = frozen end
 	local inspecting = frozen and isAdmin() and not replay
 	dot.Visible = inspecting and UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
 	if not inspecting then
@@ -218,7 +202,9 @@ GameClock.changed:Connect(function(frozen)
 	if Workspace:GetAttribute("GameStepping") then return end
 	if frozen then
 		frozenAt = os.clock()
-		if isAdmin() and shared.DebugDock and not replayOpen() then shared.DebugDock.open("Inspect") end
+		-- the scrubber, up to this moment
+		if isAdmin() and shared.QuinReplay then shared.QuinReplay.open() end
+		if isAdmin() and shared.DebugDock then shared.DebugDock.open("Inspect") end
 		-- start on the Quin being watched
 		local watched = Workspace:GetAttribute("SpectatedQuin")
 		if not selected and type(watched) == "string" and watched ~= "" then
@@ -228,6 +214,7 @@ GameClock.changed:Connect(function(frozen)
 		end
 	else
 		frozenAt = nil
+		if shared.QuinReplay then shared.QuinReplay.close() end
 	end
 	refresh()
 end)
@@ -236,18 +223,8 @@ player:GetAttributeChangedSignal("SkylarkRole"):Connect(refresh)
 ----------------------------------------------------------------------------------------
 -- Input
 ----------------------------------------------------------------------------------------
-freezeButton.MouseButton1Click:Connect(function()
+pauseButton.MouseButton1Click:Connect(function()
 	GameFreeze.request("toggle")
-end)
-local function stepBy(seconds)
-	if GameClock.frozen() then GameFreeze.request("step", seconds) end
-end
-frameButton.MouseButton1Click:Connect(function() stepBy(FRAME) end)
-tenthButton.MouseButton1Click:Connect(function() stepBy(0.1) end)
-secondButton.MouseButton1Click:Connect(function() stepBy(1) end)
-replayButton.MouseButton1Click:Connect(function()
-	if shared.QuinReplay then shared.QuinReplay.toggle() end
-	task.defer(refresh)
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -257,9 +234,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		return
 	end
 	if not GameClock.frozen() or replayOpen() then return end
-	if input.KeyCode == Enum.KeyCode.Period then
-		GameFreeze.request("step", FRAME)
-	elseif input.UserInputType == Enum.UserInputType.MouseButton1 and not processed then
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and not processed then
 		local at = UserInputService:GetMouseLocation()
 		local ray = camera:ViewportPointToRay(at.X, at.Y)
 		local params = RaycastParams.new()

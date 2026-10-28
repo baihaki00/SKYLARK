@@ -569,7 +569,7 @@ end
 
 local inspectTitle = inspectLabel(1, 13, Color3.fromRGB(255, 215, 0))
 inspectTitle.Font = Enum.Font.GothamBold
-inspectTitle.Text = "Nothing to inspect yet.\nFreeze (F4) and click a Quin, or open the replay (F6) and click a ghost."
+inspectTitle.Text = "Nothing to inspect yet.\nPAUSE (F4) and click a Quin."
 local inspectInfo = inspectLabel(2, 11, Color3.fromRGB(220, 230, 245))
 local inspectClips = inspectLabel(3, 11, Color3.fromRGB(160, 175, 200))
 
@@ -736,7 +736,7 @@ function DebugDock.setInspect(data)
 	local sameQuin = inspectData and data and inspectData.title == data.title and inspectData.source == data.source
 	inspectData = data
 	if not data then
-		inspectTitle.Text = "Nothing to inspect yet.\nFreeze (F4) and click a Quin, or open the replay (F6) and click a ghost."
+		inspectTitle.Text = "Nothing to inspect yet.\nPAUSE (F4) and click a Quin."
 		inspectInfo.Text, inspectClips.Text, changesHeader.Text = "", "", ""
 		rebuildRows({})
 		rowSignature = nil

@@ -1,19 +1,16 @@
 --// QuinReplay.client.lua
--- The replay (debugger step 3, owner 2026-10-28): F6 shows the fight through the flight recorder
--- (QuinRecorder) on this machine only, so it can be slowed down, paused or scrubbed back while the
--- game itself goes on as it is (the server and everyone else never see any of it). The real Quins
--- are hidden here and ghost copies take their place, posed from the recording, which keeps growing
--- while the replay is open: it opens live, 0.5x falls behind and watches the fight go on slowed,
--- "Live" catches up again. Close shows the real Quins again.
+-- The pause timeline (owner 2026-10-28: "buttons: PAUSE/PLAY ... we already have the scrubber ...
+-- when I replay the scrubber the game stops where I last pause it"). PAUSE (F4, GodPauseClient)
+-- freezes the real game and opens this: the timeline of the flight recorder (QuinRecorder) up to
+-- the moment of the pause. Drag the scrubber back to see any moment before it: the real Quins are
+-- hidden on this machine and ghost copies, posed from the recording, take their place. PLAY
+-- closes it and the real game carries on from the pause, wherever the scrubber was left.
 --
---   F6        open / close
---   X         play / pause          , and .   one frame back / forward
---   speeds    0.1x 0.3x 0.5x 1x (buttons)
 --   timeline  click or drag to scrub; coloured by the followed Quin's state, ticks where its
 --             clips started (white) and its task / tactics changed (gold)
---   click a ghost to follow it (the camera keeps its offset; the wheel zooms); "Free camera" lets
---   the usual cameras fly (B). While following, the cursor is free (SmoothCamera); in the free
---   camera the middle mouse button (or L) frees it for the buttons.
+--   , and .   one recorded frame back / forward
+--   click a Quin to follow it and inspect it (the debug menu's Inspect tab); click the ground to
+--   stop following. The wheel zooms the follow camera.
 --
 -- Studio, Admins only.
 
@@ -29,7 +26,6 @@ local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 local QuinTimeline = require(script.Parent:WaitForChild("QuinTimeline"))
 
-local SPEEDS = { 0.1, 0.3, 0.5, 1 }
 local STATE_COLORS = {
 	Idle = Color3.fromRGB(110, 120, 140), Chase = Color3.fromRGB(240, 170, 60), Fight = Color3.fromRGB(230, 70, 70),
 	Circling = Color3.fromRGB(120, 200, 255), Retreat = Color3.fromRGB(160, 120, 255), Knockback = Color3.fromRGB(255, 90, 200),
@@ -277,16 +273,14 @@ gui.DisplayOrder = 50
 gui.Enabled = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- (at the top, in the GAME bar's place: that bar hides while the replay is open (GodPauseClient),
--- so one button per action is on screen. The followed Quin's state, clips and changes go to the
--- debug menu's Inspect tab, QuinDebugHUD)
+-- (under the PAUSE / PLAY bar, GodPauseClient: only the scrubber and what it shows; the followed
+-- Quin's state, clips and changes go to the debug menu's Inspect tab, QuinDebugHUD)
 local REPLAY_GOLD = Color3.fromRGB(255, 200, 60)
-local BUTTON_COLOR = Color3.fromRGB(32, 40, 58)
 
 local panel = Instance.new("Frame")
 panel.AnchorPoint = Vector2.new(0.5, 0)
-panel.Position = UDim2.new(0.5, 0, 0, 8)
-panel.Size = UDim2.new(0, 960, 0, 96)
+panel.Position = UDim2.new(0.5, 0, 0, 46)
+panel.Size = UDim2.new(0, 900, 0, 62)
 panel.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
 panel.BackgroundTransparency = 0.12
 panel.BorderSizePixel = 0
@@ -294,60 +288,14 @@ panel.Active = true -- (the wheel over it does not reach the camera)
 panel.Parent = gui
 Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
 local panelStroke = Instance.new("UIStroke", panel)
-panelStroke.Color = REPLAY_GOLD
+panelStroke.Color = Color3.fromRGB(60, 170, 255)
 panelStroke.Transparency = 0.4
-
-local row = Instance.new("Frame")
-row.Position = UDim2.new(0, 8, 0, 6)
-row.Size = UDim2.new(1, -16, 0, 26)
-row.BackgroundTransparency = 1
-row.Parent = panel
-local rowList = Instance.new("UIListLayout")
-rowList.FillDirection = Enum.FillDirection.Horizontal
-rowList.VerticalAlignment = Enum.VerticalAlignment.Center
-rowList.Padding = UDim.new(0, 4)
-rowList.SortOrder = Enum.SortOrder.LayoutOrder
-rowList.Parent = row
-
-local buttonCount = 0
-local function button(text, width, color)
-	buttonCount += 1
-	local b = Instance.new("TextButton")
-	b.LayoutOrder = buttonCount
-	b.Size = UDim2.new(0, width, 0, 24)
-	b.BackgroundColor3 = color or BUTTON_COLOR
-	b.TextColor3 = Color3.fromRGB(235, 240, 255)
-	b.Font = Enum.Font.SourceSansBold -- (Gotham drew "0.1" as "0J")
-	b.TextSize = 14
-	b.Text = text
-	b.AutoButtonColor = true
-	b.BorderSizePixel = 0
-	b.Parent = row
-	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
-	return b
-end
-
--- what this is: a replay on this machine only, and what the real game is doing meanwhile
-local title = button("REPLAY", 150, REPLAY_GOLD)
-title.AutoButtonColor = false
-title.Active = false
-title.TextColor3 = Color3.new(0, 0, 0)
-local playButton = button("Pause replay [X]", 118, Color3.fromRGB(30, 140, 100))
-local backButton = button("< 1 frame [,]", 88)
-local forwardButton = button("1 frame [.] >", 88)
-local speedButtons = {}
-for _, s in ipairs(SPEEDS) do
-	speedButtons[s] = button(s .. "x", 38)
-end
-local latestButton = button("Back to live", 88)
-local freeButton = button("Stop following", 100)
-local closeButton = button("Close replay [F6]", 120, Color3.fromRGB(120, 40, 40))
 
 -- Timeline
 local bar = Instance.new("TextButton")
 bar.Text = ""
 bar.AutoButtonColor = false
-bar.Position = UDim2.new(0, 10, 0, 38)
+bar.Position = UDim2.new(0, 10, 0, 8)
 bar.Size = UDim2.new(1, -20, 0, 26)
 bar.BackgroundColor3 = Color3.fromRGB(24, 28, 40)
 bar.BorderSizePixel = 0
@@ -364,7 +312,7 @@ playhead.Parent = bar
 
 -- under the timeline: whose it is, where the cursor is, what the colours and ticks mean
 local timeLabel = Instance.new("TextLabel")
-timeLabel.Position = UDim2.new(0, 10, 0, 68)
+timeLabel.Position = UDim2.new(0, 10, 0, 36)
 timeLabel.Size = UDim2.new(1, -20, 0, 22)
 timeLabel.BackgroundTransparency = 1
 timeLabel.Font = Enum.Font.SourceSans
@@ -424,15 +372,6 @@ local function drawTimeline()
 end
 
 local function refreshButtons()
-	local frozen = Workspace:GetAttribute("GameFrozen") == true
-	title.Text = frozen and "REPLAY (game frozen)" or "REPLAY (game runs on)"
-	playButton.Text = playing and "Pause replay [X]" or "Play replay [X]"
-	for s, b in pairs(speedButtons) do
-		b.BackgroundColor3 = s == speed and REPLAY_GOLD or BUTTON_COLOR
-		b.TextColor3 = s == speed and Color3.new(0, 0, 0) or Color3.fromRGB(235, 240, 255)
-	end
-	latestButton.Visible = not live
-	freeButton.Visible = followed ~= nil
 	for name, ghost in pairs(ghosts) do
 		ghost.highlight.OutlineTransparency = name == followed and 0 or 1
 	end
@@ -440,18 +379,19 @@ end
 
 local openedAt = 0 -- the recorder time the replay opened: the changes are timed from it
 local dockSince = 0
+local dockPending = false -- (a throttled update still owed to the Inspect tab)
 
 -- The followed Quin, to the Inspect tab (QuinTimeline): its state and clips at the cursor and its
 -- changes; a change's before / after and report; picking one moves the cursor there
 local function inspectData()
 	if not followed then
-		return { source = "replay", title = "Replay", info = "Click a ghost to follow it and see its state, clips and changes.", rows = {} }
+		return { source = "paused", title = "Paused", info = "Click a Quin to see what it is doing and why; drag the scrubber to go back in time.", rows = {} }
 	end
 	local name, frames = followed, recording.frames
 	local track = recording.tracks[name]
 	local pose = QuinTimeline.poseAt(frames, name, cursor)
 	return {
-		source = "replay",
+		source = "paused",
 		title = name,
 		info = ("<font color='#AAAAAA'>%+.2f s</font>  "):format(cursor - openedAt)
 			.. QuinTimeline.stateLine(QuinTimeline.attributesAt(track, cursor), pose, true, "#FFC83C"),
@@ -469,15 +409,17 @@ end
 
 local function refreshInfo(force)
 	playhead.Position = UDim2.new(fraction(cursor), -1, 0, 0)
-	latestButton.Visible = not live
-	local when = live and "<font color='#5AE6A0'><b>LIVE</b></font>" or ("<b>%.2f s behind live</b>"):format(endT - cursor)
+	local when = endT - cursor < 1e-3 and "<b>at the pause</b>" or ("<b>%.2f s before the pause</b>"):format(endT - cursor)
 	timeLabel.Text = followed
-		and ("<b>%s</b>  ·  %s  ·  colour = its state  ·  white tick = a clip starts  ·  gold tick = task / tactics change  ·  click or drag to scrub"):format(QuinTimeline.escape(followed), when)
-		or (when .. "  ·  click a Quin to follow it: the timeline shows its states and clips")
+		and ("<b>%s</b>  ·  %s  ·  colour = its state  ·  white tick = a clip starts  ·  gold tick = task / tactics change  ·  drag to scrub"):format(QuinTimeline.escape(followed), when)
+		or (when .. "  ·  drag to scrub  ·  click a Quin to follow it: the timeline shows its states and clips")
 	-- (a few times a second: the rows are rebuilt only when they change)
 	local now = os.clock()
-	if not force and now - dockSince < 0.15 then return end
-	dockSince = now
+	if not force and now - dockSince < 0.15 then
+		dockPending = true
+		return
+	end
+	dockSince, dockPending = now, false
 	if shared.DebugDock then shared.DebugDock.setInspect(inspectData()) end
 end
 
@@ -554,11 +496,11 @@ local function load()
 	ghostFolder.Name = "QuinReplayGhosts"
 	ghostFolder.Parent = Workspace
 	addGhosts()
-	-- open live, playing, on the Quin being watched
+	-- open at the pause, still, on the Quin being watched
 	cursor = math.huge
 	syncBounds()
 	lastDrawn = nil
-	playing, speed, live = true, 1, true
+	playing, speed, live = false, 1, false
 	openedAt = endT
 	local watched = Workspace:GetAttribute("SpectatedQuin")
 	poseGhosts(cursor)
@@ -591,9 +533,10 @@ local function setOpen(value)
 	end
 end
 
--- (the Replay button on the debug bar, GodPauseClient)
+-- (PAUSE opens it, PLAY closes it: GodPauseClient)
 shared.QuinReplay = {
-	toggle = function() if allowedToOpen() then setOpen(not open) end end,
+	open = function() if allowedToOpen() then setOpen(true) end end,
+	close = function() setOpen(false) end,
 	isOpen = function() return open end,
 }
 
@@ -618,26 +561,6 @@ end
 local function allowed()
 	return player:GetAttribute("SkylarkRole") == "Admin"
 end
-
-playButton.MouseButton1Click:Connect(function()
-	playing = not playing
-	refreshButtons()
-end)
-backButton.MouseButton1Click:Connect(function() step(-1) end)
-forwardButton.MouseButton1Click:Connect(function() step(1) end)
-for s, b in pairs(speedButtons) do
-	b.MouseButton1Click:Connect(function()
-		speed = s
-		refreshButtons()
-	end)
-end
-latestButton.MouseButton1Click:Connect(function()
-	cursor = endT
-	playing, speed, live = true, 1, true
-	refreshButtons()
-end)
-freeButton.MouseButton1Click:Connect(function() follow(nil) end)
-closeButton.MouseButton1Click:Connect(function() setOpen(false) end)
 
 local scrubbing = false
 local function scrubTo(x)
@@ -666,20 +589,13 @@ end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if UserInputService:GetFocusedTextBox() then return end
-	if input.KeyCode == Enum.KeyCode.F6 and allowed() then
-		setOpen(not open)
-		return
-	end
 	if not open then return end
-	if input.KeyCode == Enum.KeyCode.X then
-		playing = not playing
-		refreshButtons()
-	elseif input.KeyCode == Enum.KeyCode.Comma then
+	if input.KeyCode == Enum.KeyCode.Comma then
 		step(-1)
 	elseif input.KeyCode == Enum.KeyCode.Period then
 		step(1)
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 and not processed and ghostFolder then
-		-- click a ghost to follow it
+		-- click a Quin to follow it, the ground to stop following
 		local at = UserInputService:GetMouseLocation()
 		local ray = camera:ViewportPointToRay(at.X, at.Y)
 		local params = RaycastParams.new()
@@ -688,7 +604,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
 		local model = hit and hit.Instance:FindFirstAncestorWhichIsA("Model")
 		while model and model.Parent ~= ghostFolder do model = model.Parent end
-		if model then follow(model.Name) end
+		follow(model and model.Name or nil)
 	end
 end)
 
@@ -708,12 +624,14 @@ RunService:BindToRenderStep("QuinReplay", Enum.RenderPriority.Camera.Value - 1, 
 		housekeeping = 0
 		addGhosts()
 		drawTimeline()
-		refreshButtons() -- (the game's state in the title)
+		refreshButtons()
 	end
 	if cursor ~= lastDrawn or playing then
 		poseGhosts(cursor)
 		refreshInfo()
 		lastDrawn = cursor
+	elseif dockPending then
+		refreshInfo()
 	end
 	hideReal(true) -- (re-applied: other scripts reset the transparency modifier, new Quins appear)
 	updateCamera()
