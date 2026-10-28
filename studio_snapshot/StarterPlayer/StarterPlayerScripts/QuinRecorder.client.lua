@@ -12,6 +12,7 @@
 -- Studio, Admins only. Read through shared.QuinRecorder:
 --   .snapshot()  -> { frames = { { t, quins = { [name] = pose } } } oldest first,
 --                     tracks = { [name] = { model, partNames, boneNames, events, base } } }
+--   .live()      -> the same, not copied: the replay reads it as it grows
 --   .stats()     -> a one-line summary
 -- (or script.Query:Invoke("stats"))
 -- Workspace RecorderOff = true stops it; RecorderSeconds / RecorderHz change the length and rate.
@@ -129,7 +130,9 @@ local function clear()
 end
 
 local function trim()
-	local cutoff = now() - seconds()
+	-- (while the replay is open the buffer holds up to RecorderHoldSeconds, so what is being
+	-- watched slowed down or paused does not fall off the front)
+	local cutoff = now() - (shared.QuinRecorderHold and (Workspace:GetAttribute("RecorderHoldSeconds") or 120) or seconds())
 	local drop = 0
 	while frames[drop + 1] and frames[drop + 1].t < cutoff do drop += 1 end
 	dropFront(frames, drop)
@@ -215,7 +218,7 @@ sync()
 
 -- After the camera, so the pose read is the one drawn this frame (procedural layers included)
 RunService:BindToRenderStep("QuinRecorder", Enum.RenderPriority.Camera.Value + 2, function()
-	if recording and not shared.QuinRecorderPaused then record() end
+	if recording then record() end
 end)
 
 shared.QuinRecorder = {
@@ -231,6 +234,10 @@ shared.QuinRecorder = {
 			}
 		end
 		return { frames = table.clone(frames), tracks = copy }
+	end,
+	-- the live buffer itself (not a copy: it grows and is trimmed as the fight goes on)
+	live = function()
+		return { frames = frames, tracks = tracks }
 	end,
 	stats = function()
 		if not recording then return "not recording" end

@@ -196,6 +196,7 @@ local function menuOpen()
 		local g = playerGui:FindFirstChild(name)
 		if g and g.Enabled then return true end
 	end
+	if shared.ReplayCameraCFrame then return true end -- (the replay following a ghost: QuinReplay)
 	local results = playerGui:FindFirstChild("MatchResultsUI") -- (the match results card: MatchResultsClient)
 	if results and results.Enabled then return true end
 	local care = playerGui:FindFirstChild("QuinCareUI") -- (the Workshop / Trainer / Specialist dialog: QuinCareClient)
@@ -578,6 +579,12 @@ end)
 RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera.Value + 1, function(dt)
 	-- (shared.TerminalCameraCFrame: a preparation room terminal's view, PrepRoomClient; its own key,
 	-- as the drone cameras clear CameraOverrideCFrame every frame they are not flying)
+	-- (shared.ReplayCameraCFrame: the replay following a ghost, QuinReplay)
+	if shared.ReplayCameraCFrame then
+		Camera.CameraType = Enum.CameraType.Scriptable
+		Camera.CFrame = shared.ReplayCameraCFrame
+		return
+	end
 	local isOverride = (workspace:GetAttribute("CameraOverrideActive") == true) or (shared.CameraOverrideCFrame ~= nil) or (shared.TerminalCameraCFrame ~= nil)
 	if isOverride then
 		Camera.CameraType = Enum.CameraType.Scriptable
