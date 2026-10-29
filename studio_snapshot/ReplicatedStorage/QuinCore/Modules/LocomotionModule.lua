@@ -394,6 +394,10 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			releaseFacing(data, humanoid, rootPart)
 		end
 		local steering = data.steerTarget and GameClock.now() <= (data.steerUntil or 0)
+		if Workspace:GetAttribute("LocoDebug") then -- (probes: why the driver is or is not moving the body)
+			fighter:SetAttribute("LocoDbg", (not data.steerTarget and "noTarget") or (not steering and "expired")
+				or (activeSlides[fighter] and "slide") or (humanoid.PlatformStand and "platformStand") or nil)
+		end
 		if not steering or activeSlides[fighter] or humanoid.PlatformStand or fighter:GetAttribute("IsPlayerControlled") == true then
 			if data.reversal then
 				-- (a reversal only lives under continuous steering)
@@ -474,6 +478,11 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 			end
 		end
 		fighter:SetAttribute("ReversalPhase", reversal and reversal.phase or nil)
+		if Workspace:GetAttribute("LocoDebug") then
+			local hold = GameClock.now() < math.max(data.landingHoldUntil or 0, fighter:GetAttribute("LandingHoldUntil") or 0)
+			fighter:SetAttribute("LocoDbg", string.format("asked=%d target=%d%s%s", math.floor(data.steerSpeed or -1), math.floor(target),
+				hold and " landingHold" or "", reversal and (" rev:" .. reversal.phase) or ""))
+		end
 
 		-- In the air a body keeps the flight it has: it can only lean it a little (air control).
 		-- (With the ground drive in the air the horizontal motion followed the input at once:

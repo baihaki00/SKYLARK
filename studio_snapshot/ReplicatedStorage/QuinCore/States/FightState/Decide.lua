@@ -67,7 +67,7 @@ local function decideAction(fighter, target, distance, data)
 
 	-- DEFENSE MATRIX: If target is doing a Projectile Jump at us!
 	local targetState = target:GetAttribute("CurrentState")
-	if targetState == "ProjectileJump" then
+	if targetState == "ProjectileJump" and not require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("JumpRead")).enabled() then -- (JumpRead on: Main reads the jump instead)
 		local lastReaction = fighter:GetAttribute("LastReactionTime") or 0
 		if now - lastReaction > 1.5 then
 			fighter:SetAttribute("LastReactionTime", now)

@@ -795,6 +795,21 @@ CombatConfig.Circling_ProwlThreshold = 0.6             -- aggression or mobility
 CombatConfig.Circling_DurationScale = 0.7              -- scale on the standoff length
 CombatConfig.Circling_OpeningMinTime = 0.5             -- seconds in the standoff before an opening can be taken
 CombatConfig.Chase_StalkWalkMaxTime = 2.5            -- seconds a ConfidentWalk / WalkThenSprint chase walks before it commits to a run
+CombatConfig.Chase_TargetDownWalkRange = 22         -- studs: a chaser walks up to a downed target only from this close (further, it runs)
+CombatConfig.Chase_HoldSpeed = true                -- a chase keeps its run: no walks (downed target, stalk, soft landing) and no pace gears; only out of breath walks (Workspace ChaseHoldSpeedOff)
+CombatConfig.Gait_RateMatched = true               -- walk/jog/run mix chosen so the blended stride x cadence is the speed: no slow-motion run clip (GaitModule; Workspace GaitRateMatchOff)
+CombatConfig.Gait_RateMatchedFollowRate = 16       -- 1/s: how fast the walk/jog/run mix follows the speed when rate-matched (Gait_BlendFollowRate 7 otherwise)
+CombatConfig.JumpRead_Enabled = true                -- a Quin reads an enemy's projectile jump from the ground: where it lands, and clear / punish / intercept / ignore (Modules/JumpRead; Workspace JumpReadOff)
+CombatConfig.JumpRead_ClearSpeed = 40               -- studs/s it runs out of a landing spot
+CombatConfig.JumpRead_ClearMargin = 4               -- studs past the slam's edge it runs to
+CombatConfig.JumpRead_PunishRange = 24              -- studs: from further off it does not go at a landing jumper (it is up again ~0.35 s after)
+CombatConfig.JumpRead_PunishMax = 2                -- Quins at most waiting to punish one jumper
+CombatConfig.JumpRead_PunishCommit = 1.5           -- seconds a punisher holds the landed jumper as its target (TargetOverride)
+CombatConfig.JumpRead_Sidestep = true               -- a Quin a dive is aimed at sidesteps across the dive line just before it lands (focus dash; Workspace JumpSidestepOff)
+CombatConfig.JumpRead_SidestepLead = 0.2            -- seconds before the dive's touchdown the sidestep starts
+CombatConfig.PJLanding_Punishable = true            -- a projectile jump's own landing can be struck (no get-up protection; RecoveryState PJLandingOpen; Workspace PJLandingProtectOn)
+CombatConfig.JumpRead_InterceptWeight = 0.6         -- times aggression: leaning to go up and meet a rising jumper
+CombatConfig.JumpRead_IgnoreWeight = 0.35           -- times aggression: leaning to stay on its own fight (never for a jump aimed at it)
 CombatConfig.Circling_OpeningChancePerTick = 0.35      -- per tick, times aggression, to take a turned back
 
 -- === Force lean and per-Quin style (ProceduralCombatReactionController, client) ===

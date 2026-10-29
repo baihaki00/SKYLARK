@@ -147,7 +147,48 @@ local function hasLocomotionAction(humanoid)
 end
 
 -- Weights for Walk / Jog / Run at a given planar speed
-local function blendWeights(speed)
+-- Rate-matched blend (owner 2026-10-29: "running animation slowing down"). The run clip took the
+-- whole pose from 18 studs/s, but it is authored at 29.5: from 18 to ~27 it played at 0.6-0.9x,
+-- running in slow motion (21% of all moving frames in a 16v16). The clips also step at different
+-- rates (walk 1.03 s a cycle, jog 0.83, run 0.47), so a speed-only blend cannot keep them at 1x.
+-- Here the mix t between two neighbours is the one whose blended stride (sum w * speed * length)
+-- times blended natural cadence (sum w / length) is the speed: every clip plays at the shared
+-- cadence of that mix, and a clip that leads the pose plays close to its own pace.
+-- (Workspace GaitRateMatchOff = true or CombatConfig.Gait_RateMatched = false: the old bands)
+local function rateMatchOn()
+	return CombatConfig.Gait_RateMatched ~= false and workspace:GetAttribute("GaitRateMatchOff") ~= true
+end
+
+local function rateMatchedWeights(speed, lens)
+	local s, l = {}, {}
+	for i, clip in ipairs(CLIPS) do
+		s[i] = CombatConfig[clip.speedKey] or clip.speed
+		l[i] = math.max(lens[i] or 1, 0.05)
+	end
+	local function speedAt(a, b, t)
+		local cadence = (1 - t) / l[a] + t / l[b]
+		local stride = (1 - t) * s[a] * l[a] + t * s[b] * l[b]
+		return cadence * stride
+	end
+	if speed <= s[1] then return { 1, 0, 0 } end
+	if speed >= s[3] then return { 0, 0, 1 } end
+	local a, b = 1, 2
+	if speed >= s[2] then a, b = 2, 3 end
+	local lo, hi = 0, 1
+	for _ = 1, 12 do
+		local mid = (lo + hi) / 2
+		if speedAt(a, b, mid) < speed then lo = mid else hi = mid end
+	end
+	local t = (lo + hi) / 2
+	local w = { 0, 0, 0 }
+	w[a], w[b] = 1 - t, t
+	return w
+end
+
+local function blendWeights(speed, lens)
+	if lens and rateMatchOn() then
+		return rateMatchedWeights(speed, lens)
+	end
 	local walkEnd = CombatConfig.Gait_WalkToJogStart or 7.5
 	local jogFull = CombatConfig.Gait_WalkToJogEnd or 10.0
 	local jogEnd = CombatConfig.Gait_JogToRunStart or 11.0
@@ -469,12 +510,21 @@ function GaitModule.update(humanoid, rootPart, dt)
 	local blendSpeed = speed
 	if softBlendOn() then
 		st.blendSpeed = st.blendSpeed or speed
-		st.blendSpeed += (speed - st.blendSpeed) * (1 - math.exp(-(CombatConfig.Gait_BlendFollowRate or 7) * dt))
+		-- (rate-matched, the mix already spreads walk -> run over 7-30 studs/s, so it follows the
+		-- speed faster: at 7/s a Quin speeding up showed an over-cranked jog, slowing a slow-motion run.
+		-- Workspace GaitBlendFollowRate overrides, for A/B)
+		local follow = workspace:GetAttribute("GaitBlendFollowRate")
+			or (rateMatchOn() and (CombatConfig.Gait_RateMatchedFollowRate or 16)) or (CombatConfig.Gait_BlendFollowRate or 7)
+		st.blendSpeed += (speed - st.blendSpeed) * (1 - math.exp(-follow * dt))
 		blendSpeed = st.blendSpeed
 	else
 		st.blendSpeed = speed
 	end
-	local weights = blendWeights(blendSpeed)
+	local clipLens = {}
+	for i, clip in ipairs(CLIPS) do
+		clipLens[i] = tracks[i].Length > 0 and tracks[i].Length or AnimationModule.getRawLength(clip.path)
+	end
+	local weights = blendWeights(blendSpeed, clipLens)
 	local lens, plants = {}, {}
 	local cycleDistance = 0
 	local lead = 1

@@ -19,6 +19,16 @@ local HeadroomAwareness = {}
 local CFG = CombatConfig.Headroom
 local DIRECTIONS = 8
 
+-- The exit each Quin is heading for. The search starts from its facing, and the body turns as it
+-- walks, so a fresh search every tick picked a new direction each time: it spun on the spot
+-- (~1300°/s under stepping stones). It keeps the point until it is there, the point has no room
+-- any more, or StickyTime runs out. Off: Workspace HeadroomStickyOff.
+local sticky = setmetatable({}, { __mode = "k" })
+local STICKY_TIME = 3
+local function stickyOn()
+	return CFG.Sticky ~= false and Workspace:GetAttribute("HeadroomStickyOff") ~= true
+end
+
 local params = RaycastParams.new()
 params.FilterType = Enum.RaycastFilterType.Exclude
 params.RespectCanCollide = true
@@ -41,7 +51,16 @@ function HeadroomAwareness.exit(fighter: Model, rootPart: BasePart, humanoid: Hu
 	local position = rootPart.Position
 	local feetY = position.Y - (humanoid.HipHeight + rootPart.Size.Y / 2)
 	if standingRoom(position.X, position.Z, feetY) then
+		sticky[fighter] = nil
 		return nil
+	end
+	local useSticky = stickyOn()
+	local held = useSticky and sticky[fighter]
+	if held and os.clock() - held.at < STICKY_TIME then
+		local flat = Vector3.new(held.point.X - position.X, 0, held.point.Z - position.Z)
+		if flat.Magnitude > 1 and (held.fallback or standingRoom(held.point.X, held.point.Z, feetY)) then
+			return held.point
+		end
 	end
 	-- Rings outward, the way it is facing first: the nearest spot with a floor and room over it
 	local look = rootPart.CFrame.LookVector
@@ -52,12 +71,20 @@ function HeadroomAwareness.exit(fighter: Model, rootPart: BasePart, humanoid: Hu
 			local x, z = position.X + math.sin(angle) * distance, position.Z + math.cos(angle) * distance
 			local roomy, floorY = standingRoom(x, z, feetY)
 			if roomy and floorY then
-				return Vector3.new(x, position.Y + (floorY - feetY), z)
+				local point = Vector3.new(x, position.Y + (floorY - feetY), z)
+				if useSticky then
+					sticky[fighter] = { point = point, at = os.clock() }
+				end
+				return point
 			end
 		end
 	end
 	-- nowhere found: back the way it came
-	return position - Vector3.new(look.X, 0, look.Z).Unit * CFG.SearchRadius
+	local back = position - Vector3.new(look.X, 0, look.Z).Unit * CFG.SearchRadius
+	if useSticky then
+		sticky[fighter] = { point = back, at = os.clock(), fallback = true }
+	end
+	return back
 end
 
 return HeadroomAwareness

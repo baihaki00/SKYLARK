@@ -158,6 +158,23 @@ function NavigationModule.detourWaypoint(fighter, rootPart, targetPosition)
 		if flat.Magnitude > 4 then break end
 		entry.index += 1
 	end
+	-- Skip the points already passed. A path is planned in the background from where the body
+	-- was when it asked, and every re-plan (Nav_PathRefresh) started again at its second point,
+	-- 6 studs from that old start: at a run the body was already past it, turned back for it
+	-- (a plant-and-pivot reversal) and turned round again on the next point - the stop-go
+	-- "running in place" of a chase going round (owner's bookmarks 2-4, 2026-10-29: 34 of 93
+	-- reversals in 50 s, repeating every 0.7-1.3 s). A point is passed when the body is beyond
+	-- it along the leg to the next one. Workspace NavSkipPassedOff = true: off.
+	if Workspace:GetAttribute("NavSkipPassedOff") ~= true and CombatConfig.Nav_SkipPassedWaypoints ~= false then
+		local here = rootPart.Position
+		while entry.index < #waypoints do
+			local a, b = waypoints[entry.index].Position, waypoints[entry.index + 1].Position
+			local leg = Vector3.new(b.X - a.X, 0, b.Z - a.Z)
+			local fromA = Vector3.new(here.X - a.X, 0, here.Z - a.Z)
+			if leg.Magnitude < 0.1 or fromA:Dot(leg.Unit) <= 0 then break end
+			entry.index += 1
+		end
+	end
 	local waypoint = waypoints[entry.index]
 	if not waypoint then return nil end
 	-- Off the path (thrown by a knockback, carried by a slide): a path from where it used to

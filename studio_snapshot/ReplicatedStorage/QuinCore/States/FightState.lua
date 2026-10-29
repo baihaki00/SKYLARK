@@ -424,7 +424,8 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	-- stand over it, hold its ground, circle it, or turn on another enemy still on its feet.
 	-- (Before: always Circling, so every knockdown read the same. Fight_DownedChoice = false.)
 	local targetState = target:GetAttribute("CurrentState")
-	if targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true then
+	if targetState == "Knockback" or targetState == "Airborne" or (targetState == "Recovery" and target:GetAttribute("PJLandingOpen") ~= true)
+		or target:GetAttribute("GetUpProtection") == true then -- (a jump's own landing is open: RecoveryState)
 		if CombatConfig.Fight_DownedChoice == false then
 			return States.Circling
 		end

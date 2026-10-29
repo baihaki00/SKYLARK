@@ -51,7 +51,9 @@ function Steer.update(fighter, humanoid, rootPart, data, target, targetHRP, targ
 	local speed = fighter:GetAttribute("Speed") or 40
 	-- Walking is the Walk clip's own pace. It used to be 16 studs/s, which is a hard jog: the
 	-- legs were over-cranked and it never read as a walk.
-	if not shouldWalk and Pace.enabled() then
+	-- (a chase holds its run: no Jog gear far out, no shift down as the urgency drops; ChaseState)
+	local holdSpeed = CombatConfig.Chase_HoldSpeed ~= false and workspace:GetAttribute("ChaseHoldSpeedOff") ~= true
+	if not shouldWalk and Pace.enabled() and not holdSpeed then
 		local urgency, why = chaseUrgency(fighter, target, distance, targetState)
 		speed = math.min(speed, (Pace.gear(fighter, urgency, why)))
 	end
@@ -373,6 +375,7 @@ function Steer.update(fighter, humanoid, rootPart, data, target, targetHRP, targ
 	end
 
 	-- Authoritative single-driver steering & speed modulation
+	if workspace:GetAttribute("LocoDebug") then fighter:SetAttribute("SteerTick", os.clock()) end -- (probes: Chase steered)
 	LocomotionModule.steer(fighter, humanoid, rootPart, arcTarget, targetSpeed, dt)
 	
 	-- Fall cover and touchdown belong to the ground contract (GaitModule.bindGroundContract).

@@ -145,7 +145,9 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 	end
 	
 	-- GET-UP PROTECTION: Fighters rising from a knockdown have temporary poise armor
-	if targetModel:GetAttribute("GetUpProtection") == true or targetModel:GetAttribute("CurrentState") == "Recovery" then
+	-- (a projectile jump's own landing is not a knockdown: RecoveryState's PJLandingOpen)
+	if targetModel:GetAttribute("GetUpProtection") == true
+		or (targetModel:GetAttribute("CurrentState") == "Recovery" and targetModel:GetAttribute("PJLandingOpen") ~= true) then
 		return false, false, "GetUpProtected"
 	end
 	

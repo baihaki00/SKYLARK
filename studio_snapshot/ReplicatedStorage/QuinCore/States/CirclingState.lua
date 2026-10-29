@@ -299,7 +299,8 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Snap condition 3: Enemy moved too far away (above max circling range) -> ChaseState
 	local minCircleRange = (CombatConfig.CombatRange or 8.2) * 0.7
 	local maxCircleRange = (CombatConfig.CombatRange or 8.2) * 4.5
-	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true)
+	local isTargetDown = (targetState == "Knockback" or targetState == "Airborne" or (targetState == "Recovery" and target:GetAttribute("PJLandingOpen") ~= true)
+		or target:GetAttribute("GetUpProtection") == true) -- (a jump's own landing is open: RecoveryState)
 
 	local now = GameClock.tick()
 	if not TEST_MODE_ACTIVE and not isTargetDown and not keepingAway and not standoffGap then

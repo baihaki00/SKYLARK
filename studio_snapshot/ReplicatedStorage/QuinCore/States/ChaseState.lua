@@ -185,6 +185,7 @@ function ChaseState.exit(fighter, humanoid, rootPart)
 end
 
 function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
+	if workspace:GetAttribute("LocoDebug") then fighter:SetAttribute("ChaseTick", os.clock()) end -- (probes: Chase ran)
 	-- Respect-custom spectators must never chase
 	local showdownRole = fighter:GetAttribute("RespectRole")
 	if require(game:GetService("ReplicatedStorage").QuinCore.Modules.SocialSystem).standsDown(fighter) then
@@ -521,7 +522,11 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	if data.fatigued then
 		shouldWalk = true
 		paceReason = "Fatigue"
-	elseif targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" then
+	elseif (targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery")
+		and (distance <= (CombatConfig.Chase_TargetDownWalkRange or 22) or workspace:GetAttribute("TargetDownFarRunOff") == true) then
+		-- (the stroll up to a downed opponent is for the last stretch: from across the arena it
+		-- walked 25-60 studs at walking pace and the target was up long before it got there.
+		-- Workspace TargetDownFarRunOff = true: it walks from any distance, as before)
 		shouldWalk = true
 		paceReason = "TargetDown"
 	else
@@ -678,7 +683,8 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		inRange = false
 	end
 	if reachable and inRange then
-		if math.random() > 0.7 then
+		-- (a jumper in its own landing is struck, not circled: JumpRead's punish)
+		if math.random() > 0.7 and target:GetAttribute("PJLandingOpen") ~= true then
 			return States.Circling
 		else
 			return States.Fight
@@ -691,6 +697,15 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 		targetState, distance, now, hpRatio, confidence, inShowdown, shouldWalk)
 	if nextState then
 		return nextState
+	end
+
+	-- A chase holds its run (owner 2026-10-29: "no slowing down, just maintain the speed"): none of
+	-- the walks above (a downed target, a stalk, a soft landing, a casual walk off a ledge) slows
+	-- it; only being out of breath does. Steer skips the pace gears too. (Workspace
+	-- ChaseHoldSpeedOff = true or CombatConfig.Chase_HoldSpeed = false: as before)
+	if shouldWalk and not data.fatigued and CombatConfig.Chase_HoldSpeed ~= false and workspace:GetAttribute("ChaseHoldSpeedOff") ~= true then
+		shouldWalk = false
+		fighter:SetAttribute("PaceReason", "Sprint")
 	end
 
 	-- How it runs there: pace, clip, lead, room for teammates, arcs, path, the steer (ChaseState/Steer)

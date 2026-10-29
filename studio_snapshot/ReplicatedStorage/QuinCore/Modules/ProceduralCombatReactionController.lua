@@ -1025,6 +1025,15 @@ function ProceduralCombatReactionController:update(dt)
 		-- after FootIK_PlantRearmTime without a lift (counted from the let-go, or from when it came
 		-- down if it lost its pin some other way).
 		local lowHold = Layers.isOn("PlantLowHold", serverModel)
+		-- Walk clip feet (layer WalkClipFeet): moving at a walk or a strafe, low hold and glide pinned
+		-- the swinging foot mid-stride (a slow stride keeps it low) and the solver stepped it on
+		-- itself: 0.46 own steps per foot per second in a slow strafe against 0.14 without them,
+		-- about half the clip's strides replaced (owner: "looks weird when a quin is walking or
+		-- strafing slowly", bookmark 1, 2026-10-29). Moving, not striking, the clip's stride has
+		-- the feet; standing and strikes keep both rules.
+		if Layers.isOn("WalkClipFeet", serverModel) and not striking and speed >= (CombatConfig.FootIK_WalkClipFeetSpeed or 1.5) then
+			plantGlide, lowHold = false, false
+		end
 		local lowTime = CombatConfig.FootIK_PlantLowTime or 0.08
 		local rearmTime = CombatConfig.FootIK_PlantRearmTime or 0.3
 		self.lowSince = self.lowSince or {}
@@ -1036,6 +1045,13 @@ function ProceduralCombatReactionController:update(dt)
 		-- with the body, so it is never twisted far off the leg.
 		local pinnedYaw = Layers.isOn("PinnedYaw", serverModel)
 		local pinnedYawMax = math.rad(CombatConfig.FootIK_PinnedYawMax or 60)
+		-- Ankle limit (layer AnkleLimit): the leg solve moves the knee to reach the goal but kept the
+		-- clip's foot rotation in the world (plus the pinned yaw and the surface tilt), so against
+		-- the new shin the ankle could roll and twist past anything an ankle does: a "broken
+		-- ankle" in slow strafes (owner, 2026-10-29: "constrain each bone religiously"). The foot
+		-- may differ from the clip's own ankle angle (foot against shin) by at most
+		-- FootIK_AnkleLimitDegrees; past that it follows the shin.
+		local ankleLimit = Layers.isOn("AnkleLimit", serverModel) and math.rad(CombatConfig.FootIK_AnkleLimitDegrees or 25) or nil
 		self.lockDir = self.lockDir or {}
 		self.lockFor = self.lockFor or {}
 		-- Turn hold (layer PlantTurnHold): the turn attenuation above let go of pinned feet whenever
@@ -1392,6 +1408,17 @@ function ProceduralCombatReactionController:update(dt)
 				if axis.Magnitude > 1e-4 then
 					footRot = CFrame.fromAxisAngle(axis.Unit, tilt * math.clamp(weight or 1, 0, 1)) * footRot
 				end
+			end
+			local clipRel = (leg.kneeW - leg.kneeW.Position):Inverse() * (leg.footW - leg.footW.Position)
+			local shinRot = newKneeW - newKneeW.Position
+			local newRel = shinRot:Inverse() * footRot
+			local _, bent = (clipRel:Inverse() * newRel):ToAxisAngle()
+			bent = math.abs(bent)
+			if ankleLimit and bent > ankleLimit then
+				footRot = shinRot * clipRel:Lerp(newRel, ankleLimit / bent)
+			end
+			if self.aiModel and workspace:GetAttribute("FootDebug") then -- (probes: how far the solve bent the ankle off the clip)
+				self.aiModel:SetAttribute(leg.foot == self.leftFootBone and "AnkleBentL" or "AnkleBentR", math.deg(bent))
 			end
 			local newFootW = CFrame.new(newAnkle) * footRot
 			leg.foot.Transform = (newKneeW * leg.foot.CFrame):Inverse() * newFootW

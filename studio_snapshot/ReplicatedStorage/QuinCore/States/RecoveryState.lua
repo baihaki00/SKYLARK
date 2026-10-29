@@ -97,7 +97,15 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 	humanoid:Move(Vector3.zero, false)
 	humanoid.WalkSpeed = 0
 	humanoid.PlatformStand = false
-	fighter:SetAttribute("GetUpProtection", true)
+	-- A projectile jump's own landing is on its feet, not a knockdown: it can be hit while it lands
+	-- (owner 2026-10-29, "punishable"; JumpRead's punishers wait for it). PJLandingOpen tells
+	-- DamageModule, Fight and Circling. (Workspace PJLandingProtectOn = true: protected, as before)
+	local landingOpen = (kbType == "slam_landing" or kbType == "traversal_landing")
+		and CombatConfig.PJLanding_Punishable ~= false and workspace:GetAttribute("PJLandingProtectOn") ~= true
+	fighter:SetAttribute("PJLandingOpen", landingOpen or nil)
+	if not landingOpen then
+		fighter:SetAttribute("GetUpProtection", true)
+	end
 
 	local upY = rootPart.CFrame.UpVector.Y
 	if upY < 0.85 then
@@ -189,6 +197,7 @@ function RecoveryState.exit(fighter, humanoid, rootPart)
 	end
 
 	fighter:SetAttribute("KnockbackType", nil)
+	fighter:SetAttribute("PJLandingOpen", nil)
 	fighter:SetAttribute("KnockdownHeavy", nil)
 	fighter:SetAttribute("FallSide", nil)
 	fighter:SetAttribute("GetUpHeldForSkid", nil)

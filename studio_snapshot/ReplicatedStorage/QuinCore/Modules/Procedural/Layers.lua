@@ -39,6 +39,8 @@ Layers.List = {
 	{ name = "PlantLowHold", label = "plant a foot that stays down", attribute = "Layer_PlantLowHold", added = true, default = function() return CombatConfig.FootIK_PlantLowHold ~= false end },
 	{ name = "PinnedYaw", label = "a pinned foot keeps its direction", attribute = "Layer_PinnedYaw", added = true, default = function() return CombatConfig.FootIK_PinnedYaw ~= false end },
 	{ name = "PlantTurnHold", label = "a pinned foot holds through a turn", attribute = "Layer_PlantTurnHold", added = true, default = function() return CombatConfig.FootIK_PlantTurnHold ~= false end },
+	{ name = "WalkClipFeet", label = "a slow walk or strafe keeps the clip's own stride", attribute = "Layer_WalkClipFeet", added = true, default = function() return CombatConfig.FootIK_WalkClipFeet ~= false end },
+	{ name = "AnkleLimit", label = "an ankle bends no further than the clip's by FootIK_AnkleLimitDegrees", attribute = "Layer_AnkleLimit", added = true, default = function() return CombatConfig.FootIK_AnkleLimit ~= false end },
 	{ name = "WallHand", label = "hand on the wall in a wall run", attribute = "Layer_WallHand", added = true, default = function() return CombatConfig.ProceduralLayers.WallHand.Enabled ~= false end },
 	{ name = "Footfall", label = "weight on each footfall", attribute = "Layer_Footfall", added = true, default = function() return CombatConfig.ProceduralLayers.Footfall.Enabled ~= false end },
 	{ name = "AirHold", label = "air pose until the body shown is down", attribute = "Layer_AirHold", default = function() return CombatConfig.Presentation_AirHold ~= false end },

@@ -151,11 +151,13 @@ local function faceGyro(rootPart)
 	if g and g.Enabled then return g end
 end
 
-local function stillFree(fighter, humanoid)
+-- (opts.anyState: a move started outside a fight, the jump read's sidestep, runs in any of these)
+local STANDING = { Fight = true, Circling = true, Idle = true, Chase = true, Retreat = true, Overwatch = true }
+local function stillFree(fighter, humanoid, move)
 	if not fighter.Parent or humanoid.Health <= 0 or fighter:GetAttribute("IsInert") == true then return false end
 	if (fighter:GetAttribute("StunEndTime") or 0) > GameClock.tick() then return false end
 	local state = fighter:GetAttribute("CurrentState")
-	return state == "Fight" or state == "Circling"
+	return state == "Fight" or state == "Circling" or (move ~= nil and move.anyState == true and STANDING[state] == true)
 end
 
 -- Drive the body along a path each frame: displacement(t) studs along dir(t). The body is steered
@@ -170,7 +172,7 @@ local function drive(fighter, humanoid, rootPart, move, displacement, dirAt, tra
 		if GameClock.frozen() then return end -- (god pause: GameFreeze holds the game)
 		local t = GameClock.now() - start
 		local targetRoot = move.target and move.target.Parent and move.target
-		if active[fighter] ~= move or not stillFree(fighter, humanoid) then
+		if active[fighter] ~= move or not stillFree(fighter, humanoid, move) then
 			conn:Disconnect()
 			ImpulseModule.cancel(fighter, tag)
 			if active[fighter] == move then active[fighter] = nil end
@@ -274,7 +276,7 @@ function Evasion.focusDash(fighter, humanoid, rootPart, targetRoot, want, opts)
 	local path = DASH_PATH[kind]
 	local orbit = (kind == "Left" or kind == "Right") and cfg("FocusDash_OrbitBlend", 0.6) or 0
 
-	local move = { kind = kind, target = targetRoot }
+	local move = { kind = kind, target = targetRoot, anyState = opts.anyState == true }
 	move.freeAt = math.max(m.Recover / playSpeed, travelEnd)
 	move.until_ = GameClock.now() + move.freeAt
 	active[fighter] = move

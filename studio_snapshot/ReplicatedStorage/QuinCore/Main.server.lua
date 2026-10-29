@@ -45,6 +45,7 @@ local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("
 local GaitModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("GaitModule"))
 local SocialSystem = require(QuinCore:WaitForChild("Modules"):WaitForChild("SocialSystem"))
 local HeadroomAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("HeadroomAwareness"))
+local JumpRead = require(QuinCore:WaitForChild("Modules"):WaitForChild("JumpRead")) -- (reading an enemy's projectile jump from the ground)
 local ArenaTrespass = require(QuinCore:WaitForChild("Modules"):WaitForChild("ArenaTrespass"))
 local EdgeAwareness = require(QuinCore:WaitForChild("Modules"):WaitForChild("EdgeAwareness"))
 local BodyStamina = require(QuinCore:WaitForChild("Modules"):WaitForChild("BodyStamina"))
@@ -648,6 +649,20 @@ task.spawn(function()
 		end
 		
 		local newState = forceState
+		-- An enemy's projectile jump coming down on it: it reads where it lands and gets out (or
+		-- goes up to meet it, or stays on its own fight), before its state does anything else
+		if not newState and STANDING_STATES[currentState.name] and not isPiloted() and JumpRead.enabled()
+			and humanoid.FloorMaterial ~= Enum.Material.Air and not humanoid.PlatformStand
+			and not LocomotionModule.isSliding(Quin) then
+			local clearTo, hold = JumpRead.update(Quin, rootPart, humanoid)
+			if clearTo then
+				LocomotionModule.steer(Quin, humanoid, rootPart, clearTo, CombatConfig.JumpRead_ClearSpeed or 40, 0.1)
+				GaitModule.update(humanoid, rootPart, 0.1)
+				newState = currentState
+			elseif hold then
+				newState = currentState -- (its sidestep dash has the body)
+			end
+		end
 		-- Under something lower than itself it cannot stand, wait or fight: it knows, and gets out
 		-- to the nearest spot with room before its state does anything else (HeadroomAwareness).
 		if not newState and STANDING_STATES[currentState.name] and CombatConfig.Headroom.Enabled ~= false and not isPiloted()
