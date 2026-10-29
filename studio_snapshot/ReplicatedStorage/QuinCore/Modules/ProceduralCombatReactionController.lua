@@ -285,6 +285,36 @@ function ProceduralCombatReactionController:applyGroundCorrection(mode, dt)
 	end
 end
 
+-- `floorFeet`: a clip that crouches deeper than the body stands is raised until its feet are on
+-- the floor. NinjaLanding (the jump's landing) took the hips 3.6 studs under a standing pose over
+-- its first half with the body at standing height: the feet 1.3-2.4 studs in the floor on 86-100%
+-- of those frames (owner's bookmarks 3 and 9, 2026-10-29). Workspace ClipFloorFeetOff = true: off.
+local FLOOR_FEET_BONES = { "LeftFoot", "RightFoot", "LeftToeBase", "RightToeBase" }
+local FLOOR_FEET_MAX_LIFT = 4
+function ProceduralCombatReactionController:applyFloorFeet()
+	local hips = self.hipsBone
+	if not self.floorFeetBones then
+		self.floorFeetBones = {}
+		for _, name in ipairs(FLOOR_FEET_BONES) do
+			local bone = self.ghostModel:FindFirstChild("mixamorig:" .. name, true)
+			if bone then table.insert(self.floorFeetBones, bone) end
+		end
+	end
+	local lowest = math.huge
+	for _, bone in ipairs(self.floorFeetBones) do
+		lowest = math.min(lowest, bone.TransformedWorldCFrame.Position.Y)
+	end
+	local root = self.ghostRootPart or self.rootPart
+	local hit = lowest < math.huge and Workspace:Raycast(root.Position, Vector3.new(0, -(self.standHeight + 2), 0), self.ikRayParams)
+	if not hit then return end
+	local lift = math.min(hit.Position.Y - lowest, FLOOR_FEET_MAX_LIFT)
+	if lift > 0.01 then
+		local parent = hips.Parent
+		local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame
+		hips.Transform = (parentW * hips.CFrame):Inverse() * (hips.TransformedWorldCFrame + Vector3.new(0, lift, 0))
+	end
+end
+
 function ProceduralCombatReactionController:applyClipCorrections(dt)
 	local corrections = CombatConfig.ClipCorrections
 	if not corrections or not self.hipsBone or not self.humanoid then return end
@@ -334,6 +364,9 @@ function ProceduralCombatReactionController:applyClipCorrections(dt)
 		local parent = hips.Parent
 		local parentW = parent:IsA("Bone") and parent.TransformedWorldCFrame or parent.CFrame
 		hips.Transform = (parentW * hips.CFrame):Inverse() * turned
+	end
+	if correction.floorFeet and Workspace:GetAttribute("ClipFloorFeetOff") ~= true then
+		self:applyFloorFeet()
 	end
 	self:applyGroundCorrection((correction.ground and "ground") or (correction.settle and "settle") or nil, dt)
 end

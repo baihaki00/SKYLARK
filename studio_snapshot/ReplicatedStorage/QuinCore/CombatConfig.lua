@@ -847,7 +847,7 @@ CombatConfig.SecondaryMotion_FastClipSpeed = 12      -- studs/s of clip arm moti
 CombatConfig.ClipCorrections = {
 	["90572410559809"] = { yaw = 180, translationScale = 0.1 },  -- NINJA PROJECTILE JUMP
 	["107304638987317"] = { yaw = 180, translationScale = 0.1 }, -- NINJA AIRBORNE LOOP
-	["92021932752253"] = { yaw = 180, translationScale = 0.1 },  -- NINJA CONFIDENT LANDING
+	["92021932752253"] = { yaw = 180, translationScale = 0.1, floorFeet = true }, -- NINJA CONFIDENT LANDING (the jump's landing: see PCRC applyFloorFeet)
 	["121127010274438"] = { yaw = 180 },                         -- PROJECTILE JUMP
 	-- `noLift`: the clip's own hip rise is taken out; the body's arc is the jump. Jump Launch lifts
 	-- the hips 4.3 studs over the root and holds them there through the apex: the body shot up
