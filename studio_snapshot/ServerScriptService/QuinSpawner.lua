@@ -309,6 +309,21 @@ function QuinSpawner.spawn(typeNameOrInstance, position, teamTag, optionalElemen
 		-- Player costume: outside the tournament entirely (no tags, no AI)
 		clone:SetAttribute("IsCostume", true)
 		clone:SetAttribute("IsPlayerControlled", true)
+	elseif teamTag == "Defeated" then
+		-- Out of the fight (ArenaPrepRoom.bringHome): inert from its first tick and never a
+		-- fighter. Marked only after the spawn returned, its Main could start a Chase first and
+		-- then freeze in it - KO'd Quins in the prep room still chasing.
+		clone:SetAttribute("IsInert", true)
+		clone:SetAttribute("ForceState", "Idle")
+		clone:SetAttribute("CurrentState", "Idle")
+		clone:SetAttribute("Defeated", true)
+		CollectionService:AddTag(clone, teamTag)
+		local mainScript = ReplicatedStorage:WaitForChild("QuinCore"):FindFirstChild("Main")
+		if mainScript then
+			local mainClone = mainScript:Clone()
+			mainClone.Parent = clone
+			mainClone.Disabled = false
+		end
 	else
 		-- Tags
 		CollectionService:AddTag(clone, "Quin")

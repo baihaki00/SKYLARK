@@ -54,6 +54,10 @@ local PACE_HOLD = 1.15
 local function strafeClipsFor(data, distance)
 	local maxTurn = math.rad(CombatConfig.Circling_MaxStrafeTurnRate or 40)
 	local pace = STRAFE_CLIPS[data.tension] and data.tension or "walk"
+	-- (no run strafe while its clips are off, Strafe_RunClips: the walk pace instead)
+	if pace == "run" and CombatConfig.Strafe_RunClips ~= true then
+		pace = "walk"
+	end
 	while true do
 		local clipSet = STRAFE_CLIPS[pace]
 		local speed = CombatConfig[clipSet.speedKey] or clipSet.speed
@@ -453,11 +457,24 @@ function CirclingState.update(fighter, humanoid, rootPart, DEBUG)
 	end
 	-- Momentum that is not yet along the intended path (arriving head-on at the target) is run
 	-- off the same way: the strafe clips cannot step forward
-	local offPath = planar.Magnitude > clipSpeed * 0.5 and planar.Unit:Dot(moveDirection) < 0.5
+	-- (Both lines hold the form it is in by Circling_FormHysteresis degrees. At one line the form
+	-- flipped between strafe and travel every tick or so: the facing swung between square and
+	-- travel and the speed between the strafe pace and the jog, under a strafe run clip - the
+	-- owner's "slows down, then speeds up", 22% of run-strafe circling. 0 = one line, as before.)
+	local hold = data.strafeForm and math.rad(CombatConfig.Circling_FormHysteresis or 15) or 0
+	local offPath = planar.Magnitude > clipSpeed * 0.5 and planar.Unit:Dot(moveDirection) < math.cos(math.rad(60) + hold)
 	local drifting = data.carryingMomentum or offPath
-	local strafing = math.abs(side) >= math.cos(maxBias) and not drifting
+	local strafing = math.abs(side) >= math.cos(maxBias + hold) and not drifting
+	data.strafeForm = strafing
+	DebugReadouts.set(fighter, "CirclingForm", strafing and "strafe" or data.carryingMomentum and "travel: carrying momentum"
+		or offPath and "travel: moving off the path" or "travel: path not along the circle")
 	local travelSpeed = (data.tension == "run") and (CombatConfig.Player_JogSpeed or 12.0) or (CombatConfig.Player_WalkSpeed or 7.5)
-	local targetSpeed = (strafing and clipSpeed or travelSpeed) * speedMult
+	-- Running momentum off, or settling onto the circle, it eases down to the strafe pace it is about
+	-- to take, not below it. (It slowed to the jog: a Quin arriving at 36-44 studs/s dropped to 12
+	-- under a run strafe clip at 0.6x, then sped back up to strafe at 18.8 - the owner's "slows down,
+	-- then speeds up", 2026-10-29. Circling_DriftAtStrafePace = false: the jog, as before.)
+	local driftPace = drifting and CombatConfig.Circling_DriftAtStrafePace ~= false
+	local targetSpeed = ((strafing or driftPace) and clipSpeed or travelSpeed) * speedMult
 
 	local dt = math.clamp(now - (data.lastUpdateTime or (now - 0.05)), 0.016, 0.25)
 	data.lastUpdateTime = now

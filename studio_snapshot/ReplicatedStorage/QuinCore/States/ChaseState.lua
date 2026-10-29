@@ -634,6 +634,11 @@ function ChaseState.update(fighter, humanoid, rootPart, DEBUG)
 	-- Close only counts when it can be reached: a wall or a platform edge between them is not
 	-- a fight (they used to stand facing each other through it for the rest of the match)
 	local reachable = NavigationModule.isReachable(rootPart, targetHRP)
+	-- (a fight only where a strike can land: a target on a box 5-7 studs up was "reachable" on
+	-- foot, so Chase handed over to Fight and they struck at each other through its edge)
+	if reachable and not NavigationModule.canStrikeAt(rootPart, targetHRP) then
+		reachable = false
+	end
 	-- A Quin going round keeps to its path until the straight line has stayed clear for
 	-- Nav_ClearHoldTime: a line that opened for a moment while rounding a pillar flipped it
 	-- between the path and the straight line, and it ran in circles next to its target.

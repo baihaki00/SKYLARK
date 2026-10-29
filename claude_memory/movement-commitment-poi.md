@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 0ff340fb-2a3d-4252-85c7-bcb1f4382fce
-  modified: 2026-10-27T17:17:45.848Z
+  modified: 2026-10-28T21:16:16.195Z
 ---
 
 Owner direction 2026-10-28 (watching from spectator 3rd-person):
@@ -53,5 +53,17 @@ Watcher chain (2026-10-28, owner "i want realistic chain"): Callouts.react(watch
 Play control (2026-10-28): owner said "you can do this yourself" (stop / push / start). start_stop_play needs is_start=true/false. Start right after stop stalls the MCP plugin ("Start play hasn't finished yet", stays stuck until F5) - wait ~5 s after stop before start; if it still stalls, ask the owner for F5 once, no retry loops.
 
 **Step 6 (2026-10-28):** owner: POI is NOT distance based - "what" it sensed matters. Cognition/Interest (4286e72 noticing, ea079a4 acting): brawl 3+ / leader fighting / slam, follows the event through its Quins, gets used to it (InterestUsedTo 6, LetGo 0.5, Rest 5-8, Remember 12), MinScore 85; all thresholds live-tunable via Workspace attrs of the same name. 16v16: interest 45% of time, 4 new/min, held 6.6 s. Owner chose option "3": free Quins (no target / target 60+ off and not after it) join (aggressive) or watch from edge 28 studs (careful, only brawls <=120 studs), InterestActChance 0.2 every 3 s. Only ~2% of interest holders are free in a 16v16 (53% in Fight). Joins verified; watch circling at the edge NOT yet seen (brawls end / hit first). Path bend in steer tried, dropped (1% of movement). Switches: InterestOff, InterestDebug. Next: step 7 platforms.
+
+**Strafe run, 2026-10-29** (owner: "slows down while using the run animation, then speeds up", and the head looks 90° off the run, drawn from the top). Report: `audits/2026-10-29_strafe_run_speed_head.md`. Not committed; waiting on the owner's eye.
+- **Dip:** Circling's carrying-momentum mode ran the arrival speed (36-44 studs/s) down to the jog (12), under the run strafe clip at 0.6x.
+  - Fix: `Circling_DriftAtStrafePace` eases down only to the strafe pace.
+  - Result: the 9-15 studs/s band went from 21-34% to 11% of Circling's run-strafe frames.
+  - `Circling_FormHysteresis` (15°) on its own did nothing measurable.
+  - Debug readout `CirclingForm`.
+- **Head:** `SquareUp.runLead` (sideways, 10-15 studs/s) stops the chest squaring up. LookController holds the head within `Look_RunMaxOffTravel` 50° of the travel.
+  - A/B in one 16v16: 73° -> 55° mean.
+  - Switch: Workspace `RunLeadOff` (it can be set on the client).
+- **Probe trap:** on the client, `TransformedWorldCFrame` misses this frame's script offsets. Rebuild the world rotation as part.CFrame * each bone's CFrame*Transform down the chain.
+- **Open:** in Fight, a strafe clip keeps its rate while WalkSpeed is 0 during a strike (31% of Fight's strafe-run frames, mostly hidden under strike clips).
 
 **Step 7 (2026-10-28, a118768):** owner's platform complaint = the LANDING on a higher top looks snappy (arc jump and stepping-stone hop alike - both are ProjectileJump), NOT the route choice (they corrected me). Cause: PJ set-down snap + exit CFrame.lookAt = client teleports (80-101 studs down, 50-174 deg turn in a frame). Fix: climbs (land 4+ above startY) use velocity set-down, no place/turn on exit; dives unchanged; switch PJClimbSoftOff. Client test 0/3 -> 9/17 clean landings. Platform scene recipe: 3v3, biggest OB top 30-60 high, team A on top, team B 60 studs off, server loop re-pivots every 9 s + refills health, logs PJ exits above top; client BindToRenderStep samples Quin_Joints (no Alpha_Surface on the male body) and flags step > 3*prev+2 or yaw > 20 deg within -0.6..+1 s of a landing. In 16v16 Quins spend ~0% on tops (they go up by chance and come down when the target is below).

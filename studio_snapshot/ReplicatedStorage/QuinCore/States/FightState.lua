@@ -130,7 +130,69 @@ function FightState.backStepDir(fighter, rootPart, data, awayFlat, now)
 	return (awayFlat * math.cos(a) + side * (back.sign * math.sin(a))).Unit
 end
 
+-- What a Quin does while its opponent is down (the downed branch in update): weights, not rules.
+-- Returns the reaction ("press", "hold", "circle", "switch") and, for a switch, the new enemy.
+function FightState.downedReaction(fighter, rootPart, target, distance)
+	local aggression = Pers.get(fighter, "Aggression")
+	local confidence = Pers.get(fighter, "Confidence")
+	local mobility = Pers.get(fighter, "MobilityPreference")
+	local weights = {
+		press = (0.3 + aggression * 0.9 + confidence * 0.4) * (distance < 18 and 1 or 0.4),
+		hold = 0.35 + (1 - aggression) * 0.6 + (1 - mobility) * 0.3,
+		circle = 0.3 + mobility * 0.8,
+	}
+	-- another enemy still on its feet close by: the knockdown is a chance to turn on it
+	local switchTo
+	for _, e in ipairs(TargetingModule.getEnemiesInRange(rootPart, CombatConfig.Fight_DownedSwitchRange or 30)) do
+		local st = e.model:GetAttribute("CurrentState")
+		if e.model ~= target and st ~= "Knockback" and st ~= "Airborne" and st ~= "Recovery"
+			and e.model:GetAttribute("IsInert") ~= true then
+			switchTo = e.model
+			weights.switch = 0.4 + aggression * 0.8
+			break
+		end
+	end
+	local total = 0
+	for _, w in pairs(weights) do total += w end
+	local roll = math.random() * total
+	for _, name in ipairs({ "press", "hold", "circle", "switch" }) do
+		local w = weights[name]
+		if w then
+			roll -= w
+			if roll <= 0 then return name, switchTo end
+		end
+	end
+	return "circle", switchTo
+end
+
 function FightState.faceTarget(rootPart, targetHRP, data)
+	-- Through its own strike, up to the strike's cancel point, the body keeps the line it threw
+	-- the strike along: it turns after the Quin it struck at no faster than Fight_StrikeTurnRate,
+	-- and never after a new target. (Owner's bookmarks 2026-10-29: the gyro followed the current
+	-- target at full speed, so a body whipped round 450-730 deg/s mid-punch, the hit box in front
+	-- of it swung onto a Quin behind, and the knockback went along the swung facing.)
+	-- Switch: Fight_StrikeFacingLock = false.
+	local now = GameClock.tick()
+	if data and data.strikeAim and (data.currentAction == "light" or data.currentAction == "heavy") and now < (data.actionEndTime or 0) then
+		local struck = data.strikeAimAt
+		if struck and struck.Parent then
+			local to = Vector3.new(struck.Position.X - rootPart.Position.X, 0, struck.Position.Z - rootPart.Position.Z)
+			if to.Magnitude > 0.5 then
+				to = to.Unit
+				local maxTurn = math.rad(CombatConfig.Fight_StrikeTurnRate or 180) * math.clamp(now - (data.strikeAimT or now), 0, 0.25)
+				local angle = math.acos(math.clamp(data.strikeAim:Dot(to), -1, 1))
+				if angle <= maxTurn then
+					data.strikeAim = to
+				else
+					local sign = data.strikeAim:Cross(to).Y >= 0 and 1 or -1
+					data.strikeAim = CFrame.Angles(0, sign * maxTurn, 0):VectorToWorldSpace(data.strikeAim).Unit
+				end
+			end
+		end
+		data.strikeAimT = now
+		Facing.hold(rootPart, "Fight").CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + data.strikeAim)
+		return
+	end
 	local yDiff = math.abs(targetHRP.Position.Y - rootPart.Position.Y)
 	if yDiff >= 5 then return end
 	local lookCF = CFrame.lookAt(rootPart.Position, Vector3.new(targetHRP.Position.X, rootPart.Position.Y, targetHRP.Position.Z))
@@ -154,6 +216,14 @@ function FightState.throwStrike(fighter, humanoid, rootPart, target, weight, dat
 	local now = GameClock.tick()
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 	data.currentAction = (weight == "Heavy") and "heavy" or "light"
+	-- (the line the strike is thrown along: the body's facing now; faceTarget holds it)
+	local look = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+	if CombatConfig.Fight_StrikeFacingLock ~= false and look.Magnitude > 0.01 then
+		data.strikeAim, data.strikeAimT = look.Unit, now
+		data.strikeAimAt = target and target:FindFirstChild("HumanoidRootPart")
+	else
+		data.strikeAim = nil
+	end
 	local attackDuration, cancelDelay = executeAttack(fighter, humanoid, rootPart, target, moveData, data, DEBUG)
 	data.actionEndTime = now + (cancelDelay / speedMult)
 	data.attackFinishTime = now + (attackDuration / speedMult)
@@ -349,11 +419,47 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		return States.Chase
 	end
 
-	-- DO NOT attack downed or recovering opponents!
+	-- A downed or recovering opponent is not struck. What to do meanwhile is the Quin's own call,
+	-- made once per knockdown and leaned by its temperament and the moment (downedReaction):
+	-- stand over it, hold its ground, circle it, or turn on another enemy still on its feet.
+	-- (Before: always Circling, so every knockdown read the same. Fight_DownedChoice = false.)
 	local targetState = target:GetAttribute("CurrentState")
 	if targetState == "Knockback" or targetState == "Airborne" or targetState == "Recovery" or target:GetAttribute("GetUpProtection") == true then
-		if DEBUG then print("[Fight] Opponent is down/recovering! Entering tactical standoff.") end
-		return States.Circling
+		if CombatConfig.Fight_DownedChoice == false then
+			return States.Circling
+		end
+		-- (picked again after Fight_DownedRepick seconds: a choice left from an earlier knockdown,
+		-- made while it was in another state, does not carry over)
+		if data.downedTarget ~= target or now - (data.downedAt or 0) > (CombatConfig.Fight_DownedRepick or 3) then
+			data.downedTarget, data.downedAt = target, now
+			data.downedReaction, data.downedSwitchTo = FightState.downedReaction(fighter, rootPart, target, distance)
+			fighter:SetAttribute("DownedReaction", data.downedReaction)
+			RuntimeTracer.checkpoint(fighter, "Opponent down: " .. data.downedReaction)
+		end
+		local reaction = data.downedReaction
+		if reaction == "switch" and data.downedSwitchTo and data.downedSwitchTo.Parent then
+			TargetingModule.setTarget(fighter, data.downedSwitchTo, "DownedSwitch")
+			data.downedSwitchTo = nil
+			return States.Chase
+		elseif reaction ~= "press" and reaction ~= "hold" then
+			return States.Circling
+		end
+		-- press / hold: it stays in the fight, facing the body, without striking
+		local locoDt = math.clamp(now - (data.lastLocoTime or (now - 0.05)), 1 / 60, 0.25)
+		data.lastLocoTime = now
+		FightState.faceTarget(rootPart, targetHRP, data)
+		local gap = CombatConfig.Fight_DownedPressGap or 6
+		if reaction == "press" and distance > gap + 1 then
+			LocomotionModule.steer(fighter, humanoid, rootPart, targetHRP.Position, math.clamp((distance - gap) * 3 + 6, 8, 22), locoDt)
+		else
+			LocomotionModule.brake(fighter, humanoid, rootPart, locoDt)
+		end
+		GaitModule.update(humanoid, rootPart, locoDt)
+		return FightState
+	end
+	if data.downedTarget then
+		data.downedTarget, data.downedReaction, data.downedSwitchTo = nil, nil, nil
+		fighter:SetAttribute("DownedReaction", nil)
 	end
 	
 	-- Early exit for Projectile Jumps (tactical aerial leap, strictly gated by mana & cooldown)
@@ -423,18 +529,29 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 	else
 		tooFar = distance > (CombatConfig.CombatRange or 8.2) * 2.5
 	end
-	if tooFar then
+	-- (not while its own strike is still before its cancel point: a kick thrown from a run at a
+	-- target moving off was dropped half-way and the body ran off sideways - owner's bookmark 8,
+	-- 2026-10-29. The strike plays out, then the chase. Switch: Fight_FinishStrike = false)
+	local midStrike = CombatConfig.Fight_FinishStrike ~= false
+		and (data.currentAction == "light" or data.currentAction == "heavy") and now < (data.actionEndTime or 0)
+	if tooFar and not midStrike then
 		if DEBUG then print("[Fight] Target too far -> Chase") end
 		return States.Chase
 	end
 
 	-- Close but out of reach (a wall or a platform edge between them): Chase finds the way
 	-- round. Half a second of grace so a body passing between them does not end the fight.
-	if NavigationModule.isReachable(rootPart, targetHRP) then
+	-- (and close enough in height, with nothing between, for a strike to land: canStrikeAt. A
+	-- target merely in the air comes back down: only one standing up there or down there counts)
+	local strikeOk, strikeWhy = NavigationModule.canStrikeAt(rootPart, targetHRP)
+	local targetHum = target:FindFirstChildOfClass("Humanoid")
+	local targetStanding = targetHum ~= nil and targetHum.FloorMaterial ~= Enum.Material.Air
+	fighter:SetAttribute("StrikeHeld", (not strikeOk) and strikeWhy or nil) -- (probes, inspect card)
+	if NavigationModule.isReachable(rootPart, targetHRP) and (strikeOk or (strikeWhy ~= "wall" and not targetStanding)) then
 		data.unreachableSince = nil
 	else
 		data.unreachableSince = data.unreachableSince or now
-		if now - data.unreachableSince > 0.5 then
+		if now - data.unreachableSince > 0.5 and not midStrike then
 			data.unreachableSince = nil
 			return States.Chase
 		end
@@ -503,6 +620,28 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		GaitModule.update(humanoid, rootPart, locoDt)
 	end
 	
+	-- Sideways no faster than the walk strafe can step (owner 2026-10-29, with the run strafe
+	-- clips off: a body carrying its own speed sideways at 15-20 studs/s, turning to a target that
+	-- moved, slid its feet under the walk strafe on 30% of Fight's walk-strafe frames). Only its
+	-- own motion: a push (a hit, a knockback, a strike's lunge: ImpulseModule) is left alone.
+	-- (Fight_MaxStrafeSpeed = false: no cap; back on with the run strafe clips)
+	local strafeCap = CombatConfig.Fight_MaxStrafeSpeed
+	if strafeCap and CombatConfig.Strafe_RunClips ~= true then
+		local pushed = rootPart:FindFirstChild("ImpulseLV")
+		if not (pushed and pushed.Enabled and pushed.VectorVelocity.Magnitude > 1) then
+			local v = rootPart.AssemblyLinearVelocity
+			local right = rootPart.CFrame.RightVector
+			right = Vector3.new(right.X, 0, right.Z)
+			if right.Magnitude > 0.01 then
+				right = right.Unit
+				local side = v:Dot(right)
+				if math.abs(side) > strafeCap then
+					rootPart.AssemblyLinearVelocity = v - right * (side - math.sign(side) * strafeCap)
+				end
+			end
+		end
+	end
+
 	local speedMult = workspace:GetAttribute("GameSpeedMultiplier") or 1.0
 
 	-- Currently executing an action? (Respects dynamic cancel window)
@@ -597,6 +736,10 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 		-- range (9): a Quin left 9-10 studs out neither struck nor closed, and two of them stood
 		-- facing each other (21% of close fighting, up to 11 s at a time).
 		data.closingGap = true
+		return FightState
+	end
+	-- No strike that cannot land: too high, too low, or through something solid (canStrikeAt)
+	if (action == "light" or action == "heavy") and not strikeOk then
 		return FightState
 	end
 	-- ...and only once the body faces the target (the facing gyro turns it meanwhile)
@@ -721,7 +864,13 @@ function FightState.update(fighter, humanoid, rootPart, DEBUG)
 			else
 				-- nothing coming: a short step off the line with the lean, not a skate
 				AnimationModule.playConfig(humanoid, evadeClip, CombatConfig.Flow_DodgeClipSpeed or 1.2, Enum.AnimationPriority.Action3, false)
-				KnockbackModule.applySlide(fighter, slideDir, CombatConfig.Flow_DodgeSlideSpeed or 12, 0.25)
+				-- (in place: the lean is the dodge, no push under it; QuickEvade_InPlace = false: the step)
+				if CombatConfig.QuickEvade_InPlace == false then
+					KnockbackModule.applySlide(fighter, slideDir, CombatConfig.Flow_DodgeSlideSpeed or 12, 0.25)
+				else
+					local v = rootPart.AssemblyLinearVelocity
+					rootPart.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+				end
 			end
 		end
 		return FightState

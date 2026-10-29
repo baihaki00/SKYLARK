@@ -54,6 +54,23 @@ function DamageModule.calculate(attackerModel, targetModel, comboStep, damageMul
 	}
 end
 
+-- Balance (Posture, 0-100): worn by hits (more by blows to the legs) and by whiffs, and back by
+-- Posture_RecoverPerSecond while nothing wears it. Read through here: the attribute holds the value
+-- at its last change (PostureAt), the recovery since then is added on reading. (It never came
+-- back before: over a long match every Quin drifted down toward a guard break.)
+function DamageModule.posture(model)
+	local value = model:GetAttribute("Posture") or 100
+	local since = GameClock.tick() - (model:GetAttribute("PostureAt") or 0)
+	return math.min(100, value + math.max(since, 0) * (CombatConfig.Posture_RecoverPerSecond or 6))
+end
+
+function DamageModule.wearPosture(model, amount)
+	local value = math.clamp(DamageModule.posture(model) - amount, 0, 100)
+	model:SetAttribute("Posture", value)
+	model:SetAttribute("PostureAt", GameClock.tick())
+	return value
+end
+
 -- What a landed strike does to the victim's footing
 DamageModule.Outcome = {
 	Flinch = "Flinch", -- slides back a little, stays in the exchange
@@ -72,7 +89,7 @@ function DamageModule.resolveOutcome(attackerModel, targetModel, moveData, damag
 	if damageInfo.isBackAttack then
 		chance *= CombatConfig.Combat_BackAttackLaunchMultiplier or 1.5
 	end
-	local posture = math.clamp((targetModel:GetAttribute("Posture") or 100) / 100, 0, 1)
+	local posture = math.clamp(DamageModule.posture(targetModel) / 100, 0, 1)
 	chance *= 1 + (1 - posture) * (CombatConfig.Combat_BrokenPostureLaunchBonus or 0.8)
 	chance *= (attackerModel:GetAttribute("LaunchPower") or 1.0) / (targetModel:GetAttribute("Weight") or 1.0)
 
@@ -212,16 +229,20 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 	local isHeavy = damageInfo.damage > (attackerModel:GetAttribute("Damage") or 10) * 1.5
 	
 	-- Posture System & Accumulated Damage
-	local posture = targetModel:GetAttribute("Posture") or 100
 	local postureDamage = isHeavy and 25 or 8
 	if damageInfo.isBackAttack then
 		postureDamage = math.floor(postureDamage * 1.5)
 	end
-	posture = posture - postureDamage
+	-- (a blow to the legs takes the footing: Hits_LegsPosture times as much)
+	if damageInfo.zone == "Legs" then
+		postureDamage = math.floor(postureDamage * (CombatConfig.Hits_LegsPosture or 1.6))
+	end
+	local posture = DamageModule.wearPosture(targetModel, postureDamage)
 	
 	if posture <= 0 then
 		-- GUARD BREAK!
 		posture = 100
+		targetModel:SetAttribute("Posture", posture)
 		
 		-- Force them into a heavy stagger instead of a knockdown recovery
 		if hrp and attackerHRP then
@@ -231,7 +252,6 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 			AudioModule.playSlam(hrp.Position)
 		end
 	end
-	targetModel:SetAttribute("Posture", posture)
 	
 	-- Audio Hook
 	if hrp then
@@ -259,6 +279,9 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		KnockbackModule.applyMicroKnockback(targetModel, pushDir, pushAmount)
 
 		-- Procedural Combat Reaction Telemetry (replicated to visual ghost)
+		-- (where it landed: head / body / legs, set before ImpactTime so the client reads them together;
+		-- nil for blows with no zone, which react as before)
+		targetModel:SetAttribute("ImpactZone", damageInfo.zone)
 		targetModel:SetAttribute("ImpactTime", serverTime)
 		targetModel:SetAttribute("ImpactDir", pushDir)
 		targetModel:SetAttribute("ImpactMag", math.clamp(pushAmount / 6, 0.2, 1.0))
@@ -282,7 +305,7 @@ function DamageModule.apply(attackerModel, targetModel, damageInfo)
 		-- full-body clip is for a blow that means something (heavy, crit, finisher, from behind, or
 		-- a body whose posture is worn down). (Fight programme step 3; every jab played it before.)
 		local meant = isHeavy or damageInfo.isCrit or damageInfo.isFinisher or damageInfo.isBackAttack
-			or posture <= (CombatConfig.Hits_ClipBelowPosture or 40)
+			or posture <= (CombatConfig.Hits_ClipBelowPosture or 20)
 		if not isKnocked and (meant or CombatConfig.Hits_ClipOnLight == true) then
 			local hitAnims = AnimationIds.Hits
 			if hitAnims and #hitAnims > 0 then

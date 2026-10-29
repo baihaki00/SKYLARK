@@ -85,7 +85,7 @@ if renderMode == "Direct" then
 		if entry.reaction then
 			entry.reaction:destroy()
 		end
-		local motor = entry.smoothOffset and model:FindFirstChild("HumanoidRootPart") and model.HumanoidRootPart:FindFirstChild("RootJoint")
+		local motor = (entry.smoothOffset or entry.lead) and model:FindFirstChild("HumanoidRootPart") and model.HumanoidRootPart:FindFirstChild("RootJoint")
 		if motor then
 			motor.C0 = entry.baseC0
 		end
@@ -193,7 +193,7 @@ if renderMode == "Direct" then
 		local root = model:FindFirstChild("HumanoidRootPart")
 		local motor = root and root:FindFirstChild("RootJoint")
 		if not motor or dt <= 0 then return end
-		if not entry.smoothOffset then
+		if not entry.smoothOffset and not entry.lead then
 			entry.baseC0 = motor.C0
 		end
 		local pos = root.Position
@@ -240,6 +240,109 @@ if renderMode == "Direct" then
 		motor.C0 = CFrame.new(root.CFrame:VectorToObjectSpace(offset)) * entry.baseC0
 	end
 
+	-- A launch (a knockback, an uppercut) is set on the server at the contact, but this client draws
+	-- server physics ~0.18 s behind (its interpolation buffer: measured 2026-10-29 over 32 launches,
+	-- 0.10-0.31 s), while the hit's clips and attributes arrive at once: the struck body stood still,
+	-- then flew (owner: "late reaction for knockback"). From the moment the launch arrives the body
+	-- is drawn on its flight (the server's LaunchVel and gravity, stopped short of walls); once the
+	-- real body moves, the lead it had drains away over LEAD_DRAIN. (Workspace LaunchLeadOff = true: off)
+	local LEAD_DRAIN = 0.5
+	local LEAD_WAIT = 0.45 -- (the longest it draws ahead of a body that has not moved)
+	local function launchLead(entry, model, root, motor)
+		local at = model:GetAttribute("LaunchedAt")
+		if not entry.launchWatched then
+			entry.launchWatched, entry.launchSeen = true, at -- (a launch from before this client saw the body)
+		end
+		if at ~= entry.launchSeen then
+			local first = false
+			entry.launchSeen = at
+			local v0 = model:GetAttribute("LaunchVel")
+			if not first and at and typeof(v0) == "Vector3" and v0.Magnitude > 10 and root.AssemblyRootPart == root
+				and Workspace:GetAttribute("LaunchLeadOff") ~= true then
+				if not entry.lead and not entry.smoothOffset then
+					entry.baseC0 = motor.C0
+				end
+				entry.lead = { t0 = os.clock(), p0 = root.Position, v0 = v0 }
+				model:SetAttribute("LaunchLeads", (model:GetAttribute("LaunchLeads") or 0) + 1) -- (probes)
+			end
+		end
+		local lead = entry.lead
+		if not lead then return nil end
+		local state = model:GetAttribute("CurrentState")
+		if state == "Death" or state == "MidAirClash" or state == "ReEntry" then
+			entry.lead = nil
+			return nil
+		end
+		local t = os.clock() - lead.t0
+		if not lead.movedAt and ((root.Position - lead.p0).Magnitude > 1 or t > LEAD_WAIT) then
+			lead.movedAt = t
+		end
+		if not lead.movedAt then
+			local predicted = lead.p0 + lead.v0 * t - Vector3.new(0, Workspace.Gravity * 0.5 * t * t, 0)
+			local offset = predicted - root.Position
+			if offset.Magnitude > 0.05 then
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { model }
+				local hit = Workspace:Raycast(root.Position, offset, params)
+				if hit and hit.Instance.CanCollide then
+					offset = offset.Unit * math.max((hit.Position - root.Position).Magnitude - 1.5, 0)
+				end
+			end
+			lead.held = offset
+			return offset
+		end
+		local w = 1 - (t - lead.movedAt) / LEAD_DRAIN
+		if w <= 0 then
+			entry.lead = nil
+			return nil
+		end
+		return lead.held * w
+	end
+	-- The attacker's clip is drawn on this client ~0.1 s behind the server too (measured
+	-- 2026-10-29: a punch the server struck with at 60% of its clip was at 41% here). With the
+	-- launch lead the struck body flew before the fist got there (owner's bookmarks 4-5). At a
+	-- landed hit the server publishes where in its clip it connected (StrikeContactClip / Pos / At,
+	-- FightState/Strike); a clip still short of that here jumps to it. (Workspace StrikeSyncOff = true: off)
+	local function syncStrikeContact(entry, model)
+		local at = model:GetAttribute("StrikeContactAt")
+		if not entry.contactWatched then
+			entry.contactWatched, entry.contactSeen = true, at -- (a contact from before this client saw the body)
+			return
+		end
+		if at == entry.contactSeen then return end
+		entry.contactSeen = at
+		local clip, pos = model:GetAttribute("StrikeContactClip"), model:GetAttribute("StrikeContactPos")
+		if type(clip) ~= "string" or type(pos) ~= "number" then return end
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+		if not animator then return end
+		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+			if track.Animation and track.Animation.AnimationId == clip then
+				local behind = pos - track.TimePosition
+				model:SetAttribute("StrikeSyncLag", math.round(behind * 1000) / 1000) -- (probes)
+				if behind > 0.02 and pos < track.Length and Workspace:GetAttribute("StrikeSyncOff") ~= true then
+					track.TimePosition = pos
+				end
+				break
+			end
+		end
+	end
+
+	local function applyLaunchLead(entry, model)
+		local root = model:FindFirstChild("HumanoidRootPart")
+		local motor = root and root:FindFirstChild("RootJoint")
+		if not motor then return end
+		local lead = launchLead(entry, model, root, motor)
+		if lead then
+			motor.C0 = CFrame.new(root.CFrame:VectorToObjectSpace((entry.smoothOffset or Vector3.zero) + lead)) * entry.baseC0
+			entry.leadDrawn = true
+		elseif entry.leadDrawn then
+			entry.leadDrawn = nil
+			motor.C0 = entry.smoothOffset and CFrame.new(root.CFrame:VectorToObjectSpace(entry.smoothOffset)) * entry.baseC0 or entry.baseC0
+		end
+	end
+
 	-- The controllers edit, in place, the pose the Animator wrote. The Animator does not write
 	-- on every rendered frame: above about 60 fps some frames have no animation step (1 in 13
 	-- at 235 fps). Editing again on such a frame stacked this frame's offsets on last frame's -
@@ -278,6 +381,8 @@ if renderMode == "Direct" then
 			end
 			if model.Parent then
 				smoothTeleport(entry, model, dt)
+				syncStrikeContact(entry, model)
+				applyLaunchLead(entry, model)
 			end
 			if model.Parent and entry.reaction and entry.look then
 				local isDead = model:GetAttribute("CurrentState") == "Death"

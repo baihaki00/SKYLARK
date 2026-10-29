@@ -376,7 +376,18 @@ function Evasion.evade(defender, humanoid, rootPart, attacker, attackerRoot, con
 	humanoid:Move(Vector3.zero, false)
 	AnimationModule.playConfig(humanoid, clipPath, playSpeed / (clip.speed or 1), Enum.AnimationPriority.Action3, false)
 
-	local studsPerMetre = cfg("QuickEvade_StudsPerMetre", 4.1)
+	-- In place (owner 2026-10-29: "there's force in play, they should be in place"): the lean is
+	-- the clip's alone and the body is held where it stands (the drive with no sway: it pushes
+	-- back any drift along the lean). QuickEvade_InPlace = false: the clip's sway driven by
+	-- physics as well (~1.4 studs, ~10 studs/s).
+	local inPlace = cfg("QuickEvade_InPlace", true) ~= false
+	if inPlace then
+		-- (it stops where it stands: the speed it came in with carried it 7 studs/s through the lean)
+		ImpulseModule.cancel(defender, "slide")
+		local v = rootPart.AssemblyLinearVelocity
+		rootPart.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+	end
+	local studsPerMetre = inPlace and 0 or cfg("QuickEvade_StudsPerMetre", 4.1)
 	local path = EVADE_PATH[kind]
 	local step = (2 / FPS) / playSpeed
 	drive(defender, humanoid, rootPart, move,

@@ -314,6 +314,9 @@ local function driveDiagonal(humanoid, st, tracks, weights, lens, plants, cycleD
 
 	local sideClips = STRAFE_CLIPS[side]
 	local toRun = smoothstep(CombatConfig.Gait_StrafeWalkToRunStart or 8, CombatConfig.Gait_StrafeWalkToRunEnd or 13, speed)
+	if CombatConfig.Strafe_RunClips ~= true then
+		toRun = 0 -- (the run strafe clips are off: Strafe_RunClips)
+	end
 	local sideWeights = { 1 - toRun, toRun }
 	local sideTracks, sideLens, sidePlants = {}, {}, {}
 	local sideCycle = 0
@@ -560,7 +563,9 @@ function GaitModule.update(humanoid, rootPart, dt)
 		local right = rootPart.CFrame.RightVector
 		local flatRight = Vector3.new(right.X, 0, right.Z)
 		local lateral = flatRight.Magnitude > 0.01 and planarVel:Dot(flatRight.Unit) or 0
-		local useRun = speed > (CombatConfig.Gait_StrafeRunSpeed or 10)
+		-- (the run strafe clips are off unless Strafe_RunClips = true: owner 2026-10-29, they need
+		-- polish; the walk strafe plays, sped up to its limit)
+		local useRun = CombatConfig.Strafe_RunClips == true and speed > (CombatConfig.Gait_StrafeRunSpeed or 10)
 		local path = lateral > 0 and (useRun and "Strafe.StrafeRightRun" or "Strafe.StrafeRightWalk")
 			or (useRun and "Strafe.StrafeLeftRun" or "Strafe.StrafeLeftWalk")
 		local authored = useRun and (CombatConfig.Strafe_RunAuthoredSpeed or 18.8) or (CombatConfig.Strafe_WalkAuthoredSpeed or 7.3)

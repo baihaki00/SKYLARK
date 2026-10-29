@@ -92,6 +92,8 @@ function KnockbackModule.applyKnockback(targetModel, direction, force, duration)
 		local launchV = math.min(effectiveForce * 1.5, CombatConfig.Knockback_MaxLaunchVertical or 75)
 		targetHRP.AssemblyLinearVelocity = flatDirection * launchH + Vector3.new(0, launchV, 0)
 	end
+	-- (clients draw the body on its flight from the contact with this: AIGhostHandler's launch lead)
+	targetModel:SetAttribute("LaunchVel", targetHRP.AssemblyLinearVelocity)
 
 	-- Procedural Combat Reaction Telemetry
 	targetModel:SetAttribute("ImpactTime", GameClock.tick())
@@ -125,6 +127,7 @@ function KnockbackModule.applyLaunch(targetModel, verticalForce, horizontalForce
 	humanoid.PlatformStand = true
 	
 	targetHRP.AssemblyLinearVelocity = Vector3.new(0, verticalForce * 1.2, 0) + targetHRP.CFrame.LookVector * (-horizontalForce * 1.2)
+	targetModel:SetAttribute("LaunchVel", targetHRP.AssemblyLinearVelocity) -- (AIGhostHandler's launch lead)
 
 	-- Procedural Combat Reaction Telemetry
 	targetModel:SetAttribute("ImpactTime", GameClock.tick())

@@ -32,6 +32,25 @@ end
 local SquareUp = {}
 SquareUp.__index = SquareUp
 
+-- Running sideways (owner 2026-10-29, the strafe run): the head staring 90 degrees off the way
+-- the body runs looked goofy. Fast and sideways, the chest stays turned into the run as the clip
+-- has it (no square-up) and the head looks at most Look_RunMaxOffTravel off the travel
+-- (LookController). 0 = walking or moving along the facing, 1 = sideways at a run.
+-- Workspace RunLeadOff = true: square to the front at every pace, as before.
+function SquareUp.runLead(rootPart: BasePart): number
+	if workspace:GetAttribute("RunLeadOff") == true or CombatConfig.Look_RunLead == false then return 0 end
+	local v = rootPart.AssemblyLinearVelocity
+	local flat = Vector3.new(v.X, 0, v.Z)
+	local speed = flat.Magnitude
+	if speed < 1 then return 0 end
+	local look = rootPart.CFrame.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+	if flatLook.Magnitude < 0.01 then return 0 end
+	local along = math.abs(flat.Unit:Dot(flatLook.Unit))
+	local function ss(a, b, x) local t = math.clamp((x - a) / (b - a), 0, 1) return t * t * (3 - 2 * t) end
+	return ss(CombatConfig.Look_RunLeadFrom or 10, CombatConfig.Look_RunLeadFull or 15, speed) * (1 - ss(0.5, 0.8, along))
+end
+
 function SquareUp.new(ghostModel: Model, humanoid: Humanoid?)
 	local function bone(name: string): Bone?
 		return ghostModel:FindFirstChild("mixamorig:" .. name, true)
@@ -68,11 +87,13 @@ end
 
 -- rootCF: where the Quin faces. on: the layer's switch (off, the twist eases out). Call once per
 -- fresh animation step, before anything else turns the spine.
-function SquareUp:apply(rootCF: CFrame, on: boolean, dt: number)
+-- runLead: SquareUp.runLead of the body (the chest is left turned into a sideways run).
+function SquareUp:apply(rootCF: CFrame, on: boolean, dt: number, runLead: number?)
 	if not self.complete then return end
 	local turned = 0
 	local share = self:strafeShare()
 	self.share = share
+	share *= 1 - (runLead or 0)
 	if on and share > 0 then
 		local across = rootCF:VectorToObjectSpace(
 			self.rightShoulder.TransformedWorldCFrame.Position - self.leftShoulder.TransformedWorldCFrame.Position)

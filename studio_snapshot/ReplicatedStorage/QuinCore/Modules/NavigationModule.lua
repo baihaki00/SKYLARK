@@ -55,6 +55,26 @@ function NavigationModule.isReachable(rootPart, targetRoot)
 	return true
 end
 
+-- Whether a strike can land from here. A walk allows Nav_MaxHeightOnFoot (7) studs of height
+-- (isReachable), but no limb reaches a body more than Fight_StrikeMaxRise above or Fight_StrikeMaxDrop
+-- below (the clips land from 2.8 below the root to 1.7 above; a body spans 3 below to 2.5 above),
+-- and nothing solid may stand between the two chests. (Owner's bookmarks 2026-10-29: two Quins 7
+-- studs apart, one on a box, traded strikes - and hits - through its edge for seconds.)
+-- Fight does not strike without it and hands over to Chase; Chase does not hand back until it
+-- holds, and climbs or drops in the meantime. Switch: Fight_StrikeHeightCheck = false.
+function NavigationModule.canStrikeAt(rootPart, targetRoot)
+	if CombatConfig.Fight_StrikeHeightCheck == false or not rootPart or not targetRoot then return true end
+	local rise = targetRoot.Position.Y - rootPart.Position.Y
+	if rise > (CombatConfig.Fight_StrikeMaxRise or 4.5) then return false, "above" end
+	if rise < -(CombatConfig.Fight_StrikeMaxDrop or 5) then return false, "below" end
+	local chest = Vector3.new(0, 1, 0)
+	local offset = (targetRoot.Position + chest) - (rootPart.Position + chest)
+	if offset.Magnitude > 0.5 and Workspace:Raycast(rootPart.Position + chest, offset, sweepParams(rootPart.Parent, targetRoot.Parent)) then
+		return false, "wall"
+	end
+	return true
+end
+
 -- Nothing in the way on a straight walk to a point (at the Quin's own height)
 function NavigationModule.isClearTo(rootPart, point)
 	if not rootPart then return true end
@@ -161,6 +181,32 @@ local STONE_SEARCH_RADIUS = 70
 local STONE_MIN_WIDTH = 2.5
 local STONE_INSET = 1.2
 
+-- Stones it hopped for and did not end up on (a head into a canopy, a top that was not one):
+-- skipped for Nav_StoneFailMemory seconds, so it does not try the same one over and over.
+-- fighter -> { try = { part, at }, failed = { [part] = until } }
+local stoneTries = setmetatable({}, { __mode = "k" })
+
+function NavigationModule.noteStoneTry(fighter, part)
+	local entry = stoneTries[fighter] or { failed = {} }
+	stoneTries[fighter] = entry
+	entry.try = { part = part, at = os.clock() }
+end
+
+-- Visible anchored geometry in a column above a point (non-collidable leaves count: a body
+-- jumping up through them looks wrong, and the solid blocks inside a canopy hide in them)
+local function columnBlocked(origin, height, exclude)
+	local overlap = OverlapParams.new()
+	overlap.FilterType = Enum.RaycastFilterType.Exclude
+	overlap.FilterDescendantsInstances = exclude
+	local box = CFrame.new(origin + Vector3.new(0, 0.3 + height / 2, 0))
+	for _, p in ipairs(Workspace:GetPartBoundsInBox(box, Vector3.new(2, height, 2), overlap)) do
+		if p.Anchored and (p.CanCollide or p.Transparency < 0.95) then
+			return true
+		end
+	end
+	return false
+end
+
 function NavigationModule.nextStone(fighter, rootPart, targetRoot, minClimb)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -171,6 +217,19 @@ function NavigationModule.nextStone(fighter, rootPart, targetRoot, minClimb)
 	local targetFloor = Workspace:Raycast(targetRoot.Position, Vector3.new(0, -9, 0), params)
 	if not myFloor or not targetFloor then return nil end -- in the air, or not standing on anything
 	local fy, ty = myFloor.Position.Y, targetFloor.Position.Y
+	-- How the last hop went: standing on the stone it went for, or not (judged once it is down)
+	local tries = stoneTries[fighter]
+	if tries and tries.try and os.clock() - tries.try.at > 1.5 then
+		if myFloor.Instance ~= tries.try.part then
+			tries.failed[tries.try.part] = os.clock() + (CombatConfig.Nav_StoneFailMemory or 20)
+			fighter:SetAttribute("StoneFails", (fighter:GetAttribute("StoneFails") or 0) + 1) -- (probes)
+		end
+		tries.try = nil
+	end
+	local failed = tries and tries.failed or {}
+	-- Little room over its own head (under a canopy, a ledge): only stones it moves out to
+	local lowCeiling = Workspace:Raycast(here, Vector3.new(0, 10, 0), params) ~= nil
+	local exclude = { fighter, targetRoot.Parent, Workspace:FindFirstChild("QuinServer") }
 	-- (a few studs up is a run and a vault, not a climb)
 	if ty - fy < (minClimb or CombatConfig.Nav_StoneMinClimb or 8) then return nil end
 
@@ -186,7 +245,8 @@ function NavigationModule.nextStone(fighter, rootPart, targetRoot, minClimb)
 	local best = nil
 	for _, part in ipairs(Workspace:GetPartBoundsInRadius(here, STONE_SEARCH_RADIUS, overlap)) do
 		if part.Anchored and part.CanCollide and part ~= myFloor.Instance and math.abs(part.CFrame.UpVector.Y) > 0.98
-			and math.min(part.Size.X, part.Size.Z) >= STONE_MIN_WIDTH then
+			and math.min(part.Size.X, part.Size.Z) >= STONE_MIN_WIDTH
+			and not (failed[part] and failed[part] > os.clock()) then
 			local topY = part.Position.Y + part.Size.Y / 2
 			local rise = topY - fy
 			if rise >= 1.5 and rise <= (CombatConfig.Nav_StoneMaxRise or 40) then
@@ -198,8 +258,16 @@ function NavigationModule.nextStone(fighter, rootPart, targetRoot, minClimb)
 				local hx = math.max(part.Size.X / 2 - inX, 0)
 				local hz = math.max(part.Size.Z / 2 - inZ, 0)
 				local point = part.CFrame:PointToWorldSpace(Vector3.new(math.clamp(rel.X, -hx, hx), part.Size.Y / 2, math.clamp(rel.Z, -hz, hz)))
-				-- room to stand (nothing within 8 studs overhead)
-				if not Workspace:Raycast(point + Vector3.new(0, 0.2, 0), Vector3.new(0, 8, 0), params) then
+				-- A real top: a ray down at the point lands on this part (a mesh's box top is not a
+				-- surface: tree trunks were taken for stones). Room to stand: nothing within 8 studs
+				-- overhead, leaves included (blocks hidden inside canopies were picked, and Quins
+				-- hit their heads on the leaves going up to them).
+				local surface = Workspace:Raycast(point + Vector3.new(0, 1.5, 0), Vector3.new(0, -3, 0), params)
+				local hopOut = Vector3.new(point.X - here.X, 0, point.Z - here.Z).Magnitude
+				if surface and surface.Instance == part
+					and not Workspace:Raycast(point + Vector3.new(0, 0.2, 0), Vector3.new(0, 8, 0), params)
+					and not columnBlocked(point, 8, exclude)
+					and not (lowCeiling and hopOut < (CombatConfig.Nav_StoneCeilingHop or 10)) then
 					local left = remaining(point, topY)
 					local hop = Vector3.new(point.X - here.X, 0, point.Z - here.Z).Magnitude
 					if left < now - 4 and hop <= (CombatConfig.Nav_StoneMaxHop or 60) then

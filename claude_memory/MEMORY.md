@@ -49,4 +49,7 @@
 - [Server CFrame writes snap on clients](server-cframe-teleport-snap.md) — CFrame write/anchor = client teleport; teleport smoother + RootPriority (6b5ea97); how to probe the drawn body
 - [Duel dash / air polish (parked)](duel-dash-air-polish-parked.md) — owner's 3 items: 200-stud dashes fly, slow dash among obstacles, smackdown at a distance; after ground locomotion
 - [Movement commitment + POI](movement-commitment-poi.md) — owner 2026-10-28 plan steps 1-7; done: head limit, flip points (5f79aa0); parked: mid-speed run clip + lock lean; next step 4 senses bypasses
+- [Fight programme](fight-programme.md) — approved 10-step fighting plan (FIGHT_PROGRAMME.md); steps 0-2 built 2026-10-29 (spacing approved; channels await the eye via Test_ArmsOnlyPunches); probe + edit traps
+- [No refactor spiral](no-refactor-spiral.md) — build inside the current QuinCore seams; any refactor needs its damage + risk stated first
+- [Quin name: "kwin"](quin-name-pronunciation.md) — pronunciation settled; projectile-jump naming options (PJ = pyjamas)
 - [Quin debugger](quin-debugger.md) — 2026-10-28 revamp: Show: switches, QuinRecorder, QuinReplay F6 live slow-mo; test handles, T-pose/skinning trap; steps 4-5 open

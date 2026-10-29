@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 0ff340fb-2a3d-4252-85c7-bcb1f4382fce
-  modified: 2026-10-27T15:28:28.647Z
+  modified: 2026-10-28T23:34:24.690Z
 ---
 
 Measured 2026-10-27 with a falling test part:
@@ -33,6 +33,8 @@ In the 16v16 this was:
 - Use the metric "step > 3 × previous step + 4". Plain second-difference counts every landing.
 - Never sample with RenderStepped + task.defer: that created fake one-frame spikes.
 - execute_luau runs in its own VM: `shared` is not the game's.
+
+**Launch lead (2026-10-29).** A server velocity launch is drawn ~0.18 s late on the client (interpolation buffer), while clips and attributes arrive at once. `KnockbackModule` publishes `LaunchVel`. `AIGhostHandler.applyLaunchLead`, run after smoothTeleport, draws the mesh on the predicted arc via `RootJoint.C0` until the root moves, then drains over 0.5 s. The visible delay went from 0.148 s to 0.043 s. Switch: Workspace `LaunchLeadOff`. Trap: track "already seen" with a separate init flag; a nil-start check skipped every Quin's first launch.
 
 **Owner rule (2026-10-27):**
 - Leave ProjectileJump dives as they are. Only platform/stair-hop landings were meant to change.

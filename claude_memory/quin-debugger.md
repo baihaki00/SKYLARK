@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: b059c2f4-3bd5-4c8f-aaf9-9534ac2c09b1
-  modified: 2026-10-28T12:09:21.451Z
+  modified: 2026-10-28T22:57:03.649Z
 ---
 
 Owner's request 2026-10-28: slow-mo / pause / scrub "without interfering the actual game" to judge state transitions and animations, more hands-on debugging. Plan of 5 steps approved ("yup"):
@@ -17,6 +17,46 @@ Owner's request 2026-10-28: slow-mo / pause / scrub "without interfering the act
 ef5c187 SUPERSEDES the bar design below: owner "buttons: PAUSE/PLAY ... we already have the scrubber ... the game stops where I last pause it". Pause IS the replay: one PAUSE/PLAY [F4] button (GodPauseClient); PAUSE freezes the real game and opens the scrubber (QuinReplay, no own buttons, opens at the pause); PLAY closes it and the game continues from the pause. No Open replay / Back to live / Play replay / speeds / game steps. Don't re-add them. 8fe00fb: Inspect list follows the scrubber (gold row = scrubber moment, later rows dimmed); menu cards move the paused camera; right-drag orbits (read per frame via GetMouseLocation - with a free cursor InputChanged carries no Delta). Trap: Studio MCP synthetic mouse drags/scrolls are flaky (first drag often missed, scroll never arrives) - check per-frame state, not one try.
 0ec5293 (owner: "every label and prints 3d overlays correct, for the selected quin, toggle this quin / all quin"): Switches tab top = scope bar ScopeThis / ScopeAll (default This). Workspace DebugScopeQuin (DebugSwitches.requestScope, Admin) gates PointTag/InterestTag/Tactical/Look/Gait/Foot via an inline check in each consumer; RuntimeVisualizer watchAll follows it; overlays never fall back to quins[1]. Look/Gait/Foot values = DebugValuesTag labels (QuinDebugHUD). Labels + overlays hidden while scrubbed back (QuinReplay.atPause). Selection is one thing: shared/_G/Workspace SpectatedQuin. Verified both modes in 16v16. InterestTag draws only when a Quin's interest changes (pre-existing). Trap: Studio MCP coordinate clicks on the HUD don't register, instance_path clicks do - give buttons unique Names.
 (older) f448642 (owner: two bars "ambiguous / mixed", "no extra buttons that do the same thing"): ONE bar at a time at the top - GAME bar (chip GAME RUNNING/FROZEN, Freeze/Resume game F4, steps only while frozen, Open replay F6) hides while the replay is open; the REPLAY bar takes its place (chip shows the game's state, Close replay F6). Keep it that way: never two buttons for one action, label which clock a control drives. shared.PointerOverMenu() (QuinDebugHUD) = cameras ignore the wheel over the menu/bars (SmoothCamera, replay). SST clock badge renamed "SST CLOCK • PAUSED". Trap: Studio MCP user_mouse_input scroll does not reach the game - wheel fixes cannot be tested that way.
+
+2026-10-29, not committed (owner: "labels doesnt come out from quin when im on pause it should also be a replay"): before this, `hideReal` switched off every BillboardGui on the real Quins while paused, and ghosts are cloned with BillboardGuis stripped, so no label showed even at the pause.
+- **QuinRecorder** now also keeps:
+  - every BillboardGui per Quin: `labelBase` / `labelEvents` / `labelTemplates`, with Enabled plus each text object's Text and Visible, matched by order because they share names. These are kept apart from `events`, so the Inspect list isn't flooded;
+  - `pose.health` / `energy` / `lastSeen`;
+  - `drawings`, the DebugDrawEvent batches with their arrival time.
+- **QuinReplay:**
+  - `poseLabels(t)` rebuilds the labels on the ghosts from the templates (Adornee re-pointed);
+  - `shared.QuinReplay.overlay()` returns `{ view(name), names, spectated, primitives }`;
+  - test handle `state` returns `labels` / `overlay` summaries.
+- **RuntimeVisualizer:** the client layers take a view (`liveView` or the replay's); `updateReplay(overlay)`.
+- **QuinDebugHUD:** draws overlays from `overlay()` while paused, and leaves real labels alone while paused. The scrubbed-back hiding is gone.
+- **Tested once (1v1):**
+  - the ghost carries its label;
+  - recorded energy and state follow the scrubber.
+  - The always-present root `BillboardGui` "[ STATE: Idle ]" has its text objects at Visible = false: a dormant tag, invisible live too.
+- **Tested 2026-10-29:**
+  - A server test label, counting and toggling, replayed exactly (text and on/off by scrubber time); the real label was off while paused.
+  - About 190 recorded server drawings come back per moment.
+  - `updateReplay` drew every client layer from a view.
+  - No errors.
+  - Not seen by eye yet.
+- **Test trap:** look/gait values weren't written in a 1v1, and point/interest labels are rare. Test with a self-made server BillboardGui instead.
+- **MCP trap:** a start-play that times out leaves the MCP stuck at "Start play hasn't finished yet"; the owner pressing Play unblocks it.
+
+**Bug bookmarks (2026-10-29, not committed).** Built after the owner asked what report would help most.
+- Key **N** in `QuinRecorder` (B was taken) saves the last `BookmarkSeconds` (6 s) of the spectated Quin, or the one nearest the screen centre. The report holds: floor part, target, the state at the start, a timeline every 0.1 s (state, speed, vy, facing, turn deg/s, humanoid, top 3 clips), and timestamped changes.
+- Each bookmark is a StringValue in `PlayerScripts.QuinRecorder.Bookmarks["1".."n"]`. Read it from the Client context while Play still runs; it's gone when Play stops.
+- Test trigger: `Query:Invoke("bookmark")`.
+- Owner flow: press N and say "bookmark 3".
+- **Range comments (same day):** the strip under the pause scrubber (`QuinReplay`). Drag to mark a range of the followed Quin, type a note, then Enter or Save; Esc or Cancel drops it. Each saved range becomes a bookmark via `shared.QuinRecorder.report(name, from, to, note)`, with an `OWNER'S NOTE` line. Saved ranges stay drawn on that Quin's strip while paused.
+- Test handle: `Control:Invoke("mark", {from, to, comment})`.
+- Not tried by hand yet.
+- **Same day, after the owner tried the pipeline ("okay so it works"):**
+  - The report's target line now reads the target at the END of the range, plus "(it started on X)" if it changed.
+  - CHANGES leaves out MatchScore, InterestPos, EscapeFeasibility, OccupiedQuadrants and numeric attributes ending in At / Until / Since (`REPORT_NOISE` / `reportNoise`). ChaseCommitment and InterceptionLeadTime still tick often; filter them too if they get in the way.
+  - Fixed: N during a pause gave an empty report, because the recorder stops while frozen and the range is now cut to the last frame. Fixed: the floor ray hit the replay ghost's own clothes; the filter list is now built first.
+- **Space in the pause (QuinReplay):** plays the recording at 1× from the white line, Space again stops it, and it stops by itself at the pause. Measured: about 1.05 s of recording per real second. The time label says "Space plays from the white line / stops". Space also lifts SmoothCamera's free camera; that's the other session's file, so it isn't handled.
+
+**F fly (StarterPlayerScripts.TheArchitectCode), 2026-10-29:** the owner reported it kept rising with no keys pressed and never fully stopped. The cause: the hover ray pointed UP and hit the flyer's own head, so it lifted every frame. `flyHoldStill = true`: the ray looks down past the body, lifts only within `hoverHeight` of the ground, and the body stops dead once the keys are let go (`stopRate` 8, snaps below 2 studs/s). Measured: 0.01 studs of drift in 4 s. Setting `false` gives the old behaviour. The B / R free camera is SmoothCamera, a separate script.
 
 Traps:
 - execute_luau has its own `shared`; test through BindableFunctions: QuinRecorder.Query:Invoke("stats"|"snapshot"), QuinReplay.Control:Invoke("open"|"close"|"follow",name|"seek",0..1|"play",speed|"live").

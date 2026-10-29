@@ -343,10 +343,13 @@ function Obstacles.update(fighter, humanoid, rootPart, data, target, targetHRP, 
 				elseif problem == "TooHigh" then
 					data.lastHighGroundJump, data.highGroundSince = now, nil
 				else
-					-- too close for the jump: back off for the run-up; otherwise up to the rim, facing it
-					local away = problem == "TooClose" and -14 or 14
-					fighter:SetAttribute("ObstacleAwareness", problem == "TooClose" and "Backing off for a run-up" or "Lining up the climb")
-					LocomotionModule.steer(fighter, humanoid, rootPart, rootPart.Position + toEdge.Unit * away, 24.0, 0.05)
+					-- too close for the jump: back off for the run-up (committed, ChaseState/Climb);
+					-- otherwise up to the rim, facing it
+					if problem == "TooClose" and require(script.Parent:WaitForChild("Climb")).runUpBackOff(fighter, humanoid, rootPart, data, edge) then
+						return States.Chase
+					end
+					fighter:SetAttribute("ObstacleAwareness", "Lining up the climb")
+					LocomotionModule.steer(fighter, humanoid, rootPart, rootPart.Position + toEdge.Unit * 14, 24.0, 0.05)
 					GaitModule.update(humanoid, rootPart, 0.1)
 					return States.Chase
 				end

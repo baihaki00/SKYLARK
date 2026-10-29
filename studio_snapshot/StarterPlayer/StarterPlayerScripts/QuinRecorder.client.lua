@@ -370,6 +370,169 @@ shared.QuinRecorder = {
 	end,
 }
 
+-- Bug bookmarks (owner 2026-10-29): N marks "something is wrong right now". The last
+-- BookmarkSeconds (6) of the spectated Quin (or the one nearest the middle of the screen) become a
+-- short text report: where it stands and on what, a timeline every 0.1 s (state, speed, fall
+-- speed, facing, turn rate, humanoid state, clips) and every change with its time. Kept in
+-- script.Bookmarks as StringValues "1", "2", ... so Claude reads them straight from the running
+-- game: say "bookmark 3", nothing to copy. (Gone when the test stops.)
+local UserInputService = game:GetService("UserInputService")
+local bookmarks = Instance.new("Folder")
+bookmarks.Name = "Bookmarks"
+bookmarks.Parent = script
+
+local function short(v)
+	if typeof(v) == "Vector3" then return ("(%.0f, %.0f, %.0f)"):format(v.X, v.Y, v.Z) end
+	if type(v) == "number" then return ("%.4g"):format(v) end
+	if type(v) == "string" and #v > 60 then return v:sub(1, 60) .. "..." end
+	return tostring(v)
+end
+
+local function bookmarkQuin()
+	local model = shared.SpectatedQuin or _G.SpectatedQuin
+	if model and tracks[model.Name] then return model end
+	local camera = Workspace.CurrentCamera
+	local mid = camera.ViewportSize / 2
+	local best, bestGap = nil, math.huge
+	for _, track in pairs(tracks) do
+		if track.root and track.model.Parent then
+			local point, onScreen = camera:WorldToViewportPoint(track.root.Position)
+			local gap = (Vector2.new(point.X, point.Y) - mid).Magnitude
+			if onScreen and gap < bestGap then best, bestGap = track.model, gap end
+		end
+	end
+	return best
+end
+
+-- Changes the report leaves out: bookkeeping that moves all the time and says nothing about
+-- the bug (a score ticking, a point of interest drifting a stud, the time something happened)
+local REPORT_NOISE = { MatchScore = true, InterestPos = true, EscapeFeasibility = true, OccupiedQuadrants = true }
+local function reportNoise(event)
+	if REPORT_NOISE[event.name] then return true end
+	return type(event.value) == "number" and (event.name:sub(-2) == "At" or event.name:sub(-5) == "Until" or event.name:sub(-5) == "Since")
+end
+
+-- The report on one Quin between two recorder times (t0, t1); `comment` is the owner's note
+-- (a range marked on the pause timeline, QuinReplay). Saved as the next bookmark; returns its number.
+local function report(name, t0, t1, comment)
+	local track = tracks[name]
+	if not track then return nil end
+	local model = track.model
+	local number = #bookmarks:GetChildren() + 1
+	local lines = {}
+	local function add(line) table.insert(lines, line) end
+	add(("BOOKMARK %d: %s, %.1f s at %s (t = seconds before the end of the range)"):format(number, name, t1 - t0, os.date("%H:%M:%S")))
+	if comment and comment ~= "" then add("OWNER'S NOTE: " .. comment) end
+	-- where it was at the end of the range, and its target
+	local rootIndex = table.find(track.partNames, "HumanoidRootPart")
+	local lastPose, lastFrame
+	for _, frame in ipairs(frames) do
+		if frame.t > t1 then break end
+		if frame.quins[name] then lastPose, lastFrame = frame.quins[name], frame end
+	end
+	local rootCF = lastPose and rootIndex and lastPose.parts[rootIndex]
+	if rootCF then
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		-- (the list is built first: inserting into FilterDescendantsInstances changes a copy)
+		params.FilterDescendantsInstances = { model, Workspace:FindFirstChild("QuinReplayGhosts") }
+		local floor = Workspace:Raycast(rootCF.Position, Vector3.new(0, -8, 0), params)
+		add("at " .. short(rootCF.Position) .. " on " .. (floor and floor.Instance:GetFullName() or "nothing (in the air)"))
+	end
+	-- the attributes as they stood when the range opens
+	local state = table.clone(track.base)
+	local events = track.events
+	local index = 1
+	while events[index] and events[index].t < t0 do
+		if events[index].kind == "attr" then state[events[index].name] = events[index].value end
+		index += 1
+	end
+	local startTarget = state.CurrentTarget
+	local targetLine = #lines + 1 -- (filled in once the end of the range is known)
+	add("")
+	add(("AT START: State %s | Task %s | Target %s | Obstacle %s | Pace %s"):format(short(state.CurrentState), short(state.Task),
+		short(state.CurrentTarget), short(state.ObstacleAwareness), short(state.PaceGear)))
+	add("TIMELINE (0.1 s): t | state | speed | vy | facing | turn deg/s | humanoid | clips (weight time/length xspeed)")
+	local lastT, lastYaw = -math.huge, nil
+	for _, frame in ipairs(frames) do
+		if frame.t > t1 then break end
+		while events[index] and events[index].t <= frame.t do
+			if events[index].kind == "attr" then state[events[index].name] = events[index].value end
+			index += 1
+		end
+		local pose = frame.quins[name]
+		if frame.t >= t0 and pose and frame.t - lastT >= 0.095 then
+			local yaw
+			local cf = rootIndex and pose.parts[rootIndex]
+			if cf then
+				local look = cf.LookVector
+				yaw = math.deg(math.atan2(-look.X, -look.Z))
+			end
+			local turn = (yaw and lastYaw) and ((yaw - lastYaw + 180) % 360 - 180) / (frame.t - lastT) or 0
+			local v = pose.velocity or Vector3.zero
+			local clips = {}
+			for i = 1, math.min(#pose.clips, 3) do
+				local c = pose.clips[i]
+				table.insert(clips, ("%s %.2f %.2f/%.2f x%.2f"):format(c.name, c.weight, c.time, c.length, c.speed))
+			end
+			add(("%6.2f | %s | %4.1f | %5.1f | %4.0f | %5.0f | %s | %s"):format(frame.t - t1, short(state.CurrentState),
+				Vector3.new(v.X, 0, v.Z).Magnitude, v.Y, yaw or 0, turn, pose.humanoidState or "?", table.concat(clips, ", ")))
+			lastT, lastYaw = frame.t, yaw
+		end
+	end
+	-- its target at the end of the range (and the one it started with, if that changed)
+	while events[index] and events[index].t <= t1 do
+		if events[index].kind == "attr" then state[events[index].name] = events[index].value end
+		index += 1
+	end
+	local targetName = state.CurrentTarget
+	local target = type(targetName) == "string" and tracks[targetName]
+	local targetIndex = target and table.find(target.partNames, "HumanoidRootPart")
+	local targetPose = target and lastFrame and lastFrame.quins[targetName]
+	local targetText = "target at the end: " .. short(targetName)
+	if targetPose and targetIndex and targetPose.parts[targetIndex] then
+		targetText ..= " at " .. short(targetPose.parts[targetIndex].Position)
+	end
+	if startTarget ~= targetName then
+		targetText ..= " (it started on " .. short(startTarget) .. ")"
+	end
+	lines[targetLine] = targetText
+	add("CHANGES (timestamps, MatchScore, InterestPos, EscapeFeasibility, OccupiedQuadrants left out):")
+	for _, event in ipairs(events) do
+		if event.t >= t0 and event.t <= t1 and not (event.kind == "attr" and reportNoise(event)) then
+			add(("%6.2f %s"):format(event.t - t1, event.kind == "clip" and ("clip " .. event.name) or (event.name .. " = " .. short(event.value))))
+		end
+	end
+	local value = Instance.new("StringValue")
+	value.Name = tostring(number)
+	value.Value = table.concat(lines, "\n")
+	value:SetAttribute("Quin", name)
+	value:SetAttribute("Comment", comment)
+	value.Parent = bookmarks
+	print(("[QuinRecorder] bookmark %d saved: %s, %d lines (tell Claude \"bookmark %d\")"):format(number, name, #lines, number))
+	return number
+end
+
+-- N: the last BookmarkSeconds of the spectated Quin (or the one nearest the middle of the screen)
+local function bookmark()
+	local model = bookmarkQuin()
+	if not (model and tracks[model.Name]) then return nil end
+	-- (paused, the recorder stops: the range ends at its last frame, not at the clock)
+	local t1 = frames[#frames] and math.min(now(), frames[#frames].t) or now()
+	local number = report(model.Name, t1 - (Workspace:GetAttribute("BookmarkSeconds") or 6), t1)
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", { Title = "Bookmark " .. number, Text = model.Name .. ": the last 6 s are saved", Duration = 3 })
+	end)
+	return number
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed or input.KeyCode ~= Enum.KeyCode.N or UserInputService:GetFocusedTextBox() then return end
+	if recording then bookmark() end
+end)
+shared.QuinRecorder.bookmark = bookmark
+shared.QuinRecorder.report = report -- (QuinReplay: a range marked on the pause timeline)
+
 -- The same from outside this script (a test run in Studio has its own shared): Query:Invoke("stats")
 local query = Instance.new("BindableFunction")
 query.Name = "Query"

@@ -20,7 +20,7 @@ local WHISTLE_PITCH_MAX = 1.4
 local WHISTLE_VOLUME = 0.1
 
 local BOOM_VOLUME_MIN = 5
-local BOOM_VOLUME_MAX = 6
+local BOOM_VOLUME_MAX = 7
 local BOOM_PITCH_MIN = 0.8
 local BOOM_PITCH_MAX = 1.1
 

@@ -17,9 +17,76 @@ local RuntimeTracer = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitFor
 local NavigationModule = require(ReplicatedStorage:WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("NavigationModule"))
 local States = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("States")) -- (every state by name)
 
+local Facing = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Facing")) -- (turning on the spot)
+
 local Climb = {}
 
+-- Backing off for a run-up, committed (both climbs use it: the jump onto a perched target's top
+-- below, and ChaseState/Obstacles' high-ground climb). Out to a spot fixed when it starts, then
+-- it turns to face the rim on that spot, then the run-up is the caller's again. Re-decided every
+-- tick, it backed off facing away, turned round running at the rim, was too close again and
+-- backed off: it spun in place (owner, 2026-10-29), with "Going round" and the other branches
+-- taking turns in between. Returns true while it is still backing off or turning.
+-- (RunUp_Committed = false: the old tick-by-tick back-off)
+function Climb.runUpBackOff(fighter, humanoid, rootPart, data, edge)
+	if CombatConfig.RunUp_Committed == false then
+		if not edge then return false end
+		local toEdge = Vector3.new(edge.X - rootPart.Position.X, 0, edge.Z - rootPart.Position.Z)
+		if toEdge.Magnitude < 0.1 then return false end
+		fighter:SetAttribute("ObstacleAwareness", "Backing off for a run-up")
+		LocomotionModule.steer(fighter, humanoid, rootPart, rootPart.Position - toEdge.Unit * 14, 24.0, 0.05)
+		GaitModule.update(humanoid, rootPart, 0.1)
+		return true
+	end
+	local now = GameClock.tick()
+	local r = data.runUpBack
+	if r and (now > r.giveUp or not fighter.Parent) then
+		data.runUpBack = nil
+		Facing.drop(rootPart, "Idle")
+		r = nil
+	end
+	if not r then
+		if not edge then return false end
+		local toEdge = Vector3.new(edge.X - rootPart.Position.X, 0, edge.Z - rootPart.Position.Z)
+		if toEdge.Magnitude < 0.1 then return false end
+		r = {
+			spot = rootPart.Position - toEdge.Unit * (CombatConfig.RunUp_BackOffStuds or 14),
+			edge = edge,
+			giveUp = now + (CombatConfig.RunUp_BackOffMaxTime or 4),
+		}
+		data.runUpBack = r
+		fighter:SetAttribute("RunUpBackOffs", (fighter:GetAttribute("RunUpBackOffs") or 0) + 1) -- (probes)
+	end
+	local toSpot = Vector3.new(r.spot.X - rootPart.Position.X, 0, r.spot.Z - rootPart.Position.Z)
+	local toEdge = Vector3.new(r.edge.X - rootPart.Position.X, 0, r.edge.Z - rootPart.Position.Z)
+	if not r.turning and toSpot.Magnitude > 2 then
+		fighter:SetAttribute("ObstacleAwareness", "Backing off for a run-up")
+		LocomotionModule.steer(fighter, humanoid, rootPart, r.spot, math.clamp(toSpot.Magnitude * 2, 10, 22), 0.05)
+	else
+		r.turning = true
+		if toEdge.Magnitude > 0.1 and rootPart.CFrame.LookVector:Dot(toEdge.Unit) < 0.9 then
+			fighter:SetAttribute("ObstacleAwareness", "Turning to the run-up")
+			LocomotionModule.brake(fighter, humanoid, rootPart, 0.05)
+			local gyro = Facing.hold(rootPart, "Idle")
+			if gyro then
+				gyro.CFrame = CFrame.lookAt(Vector3.zero, toEdge.Unit)
+			end
+		else
+			-- facing the rim from far enough out: the caller's run-up and jump from here
+			data.runUpBack = nil
+			Facing.drop(rootPart, "Idle")
+			return false
+		end
+	end
+	GaitModule.update(humanoid, rootPart, 0.1)
+	return true
+end
+
 function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inShowdown)
+	-- A back-off for a run-up already under way is seen through first
+	if data.runUpBack and Climb.runUpBackOff(fighter, humanoid, rootPart, data, nil) then
+		return States.Chase
+	end
 	-- Vertical gap awareness: target is perched on high ground
 	local verticalGap = targetHRP.Position.Y - rootPart.Position.Y
 	local lastPJ = fighter:GetAttribute("LastPositioningJumpTime") or 0 -- GameClock.tick() timestamp
@@ -57,7 +124,7 @@ function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inSh
 	data.jumpClimbSince = jumpable and (data.jumpClimbSince or GameClock.tick()) or nil
 	local jumpFirst = jumpable and GameClock.tick() - data.jumpClimbSince < (CombatConfig.HighGround_ClimbPatience or 5)
 	local stoneClimb = not jumpFirst and (verticalGap >= (CombatConfig.Nav_StoneMinClimb or 8)
-		or (verticalGap >= 2 and not NavigationModule.isReachable(rootPart, targetHRP)))
+		or (verticalGap >= 2 and not (NavigationModule.isReachable(rootPart, targetHRP) and NavigationModule.canStrikeAt(rootPart, targetHRP))))
 	if not inShowdown and stoneClimb and LocomotionModule.isOnGround(rootPart, humanoid) and not LocomotionModule.isSliding(fighter) then
 		local stone = NavigationModule.nextStone(fighter, rootPart, targetHRP, 2)
 		if stone then
@@ -77,6 +144,7 @@ function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inSh
 				if jumpTo and LocomotionModule.jump(fighter, humanoid, rootPart, jumpTo.height, jumpTo.speed, "jump") then
 					fighter:SetAttribute("ObstacleAwareness", string.format("Jump to a stone: %.0f up, %.0f across", stone.rise, stone.hop))
 					fighter:SetAttribute("StoneJumps", (fighter:GetAttribute("StoneJumps") or 0) + 1) -- (probes)
+					NavigationModule.noteStoneTry(fighter, stone.part)
 					require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("AirDash")).noteJump(fighter, stone.point)
 					return States.Chase
 				end
@@ -90,9 +158,20 @@ function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inSh
 				fighter:SetAttribute("JumpWhy", "spot hop to a stepping stone (it is up high)") -- (JumpLog, team step 5)
 				local ProjectileJumpState = States.ProjectileJump
 				ProjectileJumpState.aimAtPoint(fighter, stone.point)
+				NavigationModule.noteStoneTry(fighter, stone.part)
+				fighter:SetAttribute("StoneHops", (fighter:GetAttribute("StoneHops") or 0) + 1) -- (probes)
 				return ProjectileJumpState
 			end
-			LocomotionModule.brake(fighter, humanoid, rootPart, 0.1)
+			-- Between hops it works its way to the stone and lines up with it, instead of standing
+			-- still until the next hop is due (a Quin stood at speed 0 in Chase, "Stepping stone:
+			-- 40 up, 38 across", for the whole cooldown). Close enough, it waits facing it.
+			local toStone = Vector3.new(stone.point.X - rootPart.Position.X, 0, stone.point.Z - rootPart.Position.Z)
+			if toStone.Magnitude > (CombatConfig.Nav_StoneWaitGap or 8) then
+				LocomotionModule.steer(fighter, humanoid, rootPart, stone.point, math.clamp(toStone.Magnitude, 10, 20), 0.1)
+			else
+				LocomotionModule.brake(fighter, humanoid, rootPart, 0.1)
+			end
+			GaitModule.update(humanoid, rootPart, 0.1)
 			return States.Chase
 		end
 	end
@@ -111,10 +190,7 @@ function Climb.update(fighter, humanoid, rootPart, data, target, targetHRP, inSh
 			local toEdge = Vector3.new(edge.X - rootPart.Position.X, 0, edge.Z - rootPart.Position.Z)
 			local depth = platform and PlatformCatalogue.landingDepth(platform, edge, rootPart.Position) or nil
 			local solution, problem = TraversalModule.solveJumpOnto(verticalGap, toEdge.Magnitude, CombatConfig.Jump_MaxReach or 25.0, depth)
-			if problem == "TooClose" and toEdge.Magnitude > 0.1 then
-				fighter:SetAttribute("ObstacleAwareness", "Backing off for a run-up")
-				LocomotionModule.steer(fighter, humanoid, rootPart, rootPart.Position - toEdge.Unit * 14, 24.0, 0.05)
-				GaitModule.update(humanoid, rootPart, 0.1)
+			if problem == "TooClose" and toEdge.Magnitude > 0.1 and Climb.runUpBackOff(fighter, humanoid, rootPart, data, edge) then
 				return States.Chase
 			end
 			local facingEdge = toEdge.Magnitude > 0.1 and rootPart.CFrame.LookVector:Dot(toEdge.Unit) > 0.85

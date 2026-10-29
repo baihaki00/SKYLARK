@@ -26,6 +26,12 @@ local hoverHeight = 4 -- 🪄 Maintain 4 studs above ground
 local liftStrength = 250 -- Smooth hover correction force
 local acceleration = 2 -- 🌀 Speed buildup rate
 local deceleration = 1 -- 🌙 Slowdown rate
+-- Owner 2026-10-29: "fly mode is levitating gradually even when im not moving ... never full stop".
+-- The hover ray pointed UP and hit the flyer's own head, so it lifted every frame. On (true): the
+-- ray looks down past the body and only lifts off the ground, and letting go of the keys stops dead.
+-- false = the old hover and the slow glide to a stop.
+local flyHoldStill = true
+local stopRate = 8 -- (how fast the body stops once the keys are let go, with flyHoldStill)
 local flyEnabled = false
 local speedBoost = false
 local normalSpeed = 180
@@ -167,19 +173,31 @@ local function startFlying()
 
 		-- === Hover logic ===
 		local rayOrigin = humanoidRootPart.Position
-		local rayDirection = Vector3.new(0, 50, 0)
-		local raycastResult = Workspace:Raycast(rayOrigin, rayDirection)
-
 		local verticalCorrection = 0
-		if raycastResult then
-			local groundDistance = (rayOrigin - raycastResult.Position).Magnitude
-			local heightDiff = hoverHeight - groundDistance
-			verticalCorrection = heightDiff * liftStrength * dt
+		if flyHoldStill then
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.FilterDescendantsInstances = { character }
+			local ground = Workspace:Raycast(rayOrigin, Vector3.new(0, -hoverHeight, 0), params)
+			if ground then -- (closer than hoverHeight to the ground: lift clear of it, never pull down)
+				verticalCorrection = (hoverHeight - (rayOrigin.Y - ground.Position.Y)) * liftStrength * dt
+			end
+		else
+			local raycastResult = Workspace:Raycast(rayOrigin, Vector3.new(0, 50, 0))
+			if raycastResult then
+				local groundDistance = (rayOrigin - raycastResult.Position).Magnitude
+				local heightDiff = hoverHeight - groundDistance
+				verticalCorrection = heightDiff * liftStrength * dt
+			end
 		end
 
 		-- === SMOOTH MOVEMENT (ACCELERATION/DECELERATION) ===
 		local targetVelocity = targetDirection * flySpeed
-		currentVelocity = currentVelocity:Lerp(targetVelocity, math.clamp(dt * (targetDirection.Magnitude > 0 and acceleration or deceleration), 0, 1))
+		local slowRate = flyHoldStill and stopRate or deceleration
+		currentVelocity = currentVelocity:Lerp(targetVelocity, math.clamp(dt * (targetDirection.Magnitude > 0 and acceleration or slowRate), 0, 1))
+		if flyHoldStill and targetDirection.Magnitude == 0 and currentVelocity.Magnitude < 2 then
+			currentVelocity = Vector3.zero
+		end
 
 		-- === Apply velocity with hover lift ===
 		local finalVelocity = currentVelocity + Vector3.new(0, verticalCorrection, 0)

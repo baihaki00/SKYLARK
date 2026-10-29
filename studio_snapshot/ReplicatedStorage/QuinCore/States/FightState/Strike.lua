@@ -44,7 +44,28 @@ end
 
 -- Footing consequence of a landed strike. A flinch needs nothing here: DamageModule.apply has
 -- already slid the victim back on its feet.
-local function applyHitOutcome(rootPart, hitModel, moveData, outcome)
+-- How hard an air knockback throws, by the weight of the hit (owner 2026-10-29: "scale it"). The
+-- floor (Combat_LaunchMinForce 60) x 1.5, x 1.5 again in applyKnockback put every launch over the
+-- 110 studs/s cap: a jab threw a body as far as a finisher, 86 studs (median of 55 in a 16v16).
+-- Now the move's knockback (ComboModule: Jab 18 .. PowerPunch 105, OverheadSlam 126) sets the
+-- launch speed between Knockback_LightLaunch and Knockback_HeavyLaunch, a crit or a hit from behind
+-- counting Knockback_CritWeight heavier. The upward part stays min(speed, 75): a jab ~20 studs,
+-- an uppercut ~38, a finisher the full ~80. Switch: Knockback_ScaleByHit = false.
+local function launchForce(moveData, damageInfo)
+	local knockback = moveData.knockback or 0
+	if CombatConfig.Knockback_ScaleByHit == false then
+		return math.max(knockback, CombatConfig.Combat_LaunchMinForce or 60) * 1.5
+	end
+	local light, heavy = CombatConfig.Knockback_LightForce or 18, CombatConfig.Knockback_HeavyForce or 105
+	local weight = math.clamp((knockback - light) / (heavy - light), 0, 1)
+	if damageInfo and (damageInfo.isCrit or damageInfo.isBackAttack) then
+		weight = math.min(weight + (CombatConfig.Knockback_CritWeight or 0.25), 1)
+	end
+	local slow, fast = CombatConfig.Knockback_LightLaunch or 45, CombatConfig.Knockback_HeavyLaunch or 110
+	return (slow + (fast - slow) * weight) / 1.5 -- (applyKnockback launches at force x 1.5)
+end
+
+local function applyHitOutcome(rootPart, hitModel, moveData, outcome, damageInfo)
 	local hitRoot = hitModel:FindFirstChild("HumanoidRootPart")
 	if not hitRoot or outcome == DamageModule.Outcome.Flinch then return end
 
@@ -53,8 +74,8 @@ local function applyHitOutcome(rootPart, hitModel, moveData, outcome)
 	StateRequest.ask(hitModel, "Knockback", StateRequest.HIT, "struck")
 	if outcome == DamageModule.Outcome.AirKnockback then
 		hitModel:SetAttribute("KnockbackType", "air")
-		local force = math.max(moveData.knockback, CombatConfig.Combat_LaunchMinForce or 60) * 1.5
-		KnockbackModule.applyKnockback(hitModel, away, force)
+		KnockbackModule.applyKnockback(hitModel, away, launchForce(moveData, damageInfo))
+		hitModel:SetAttribute("LaunchMove", moveData.name) -- (probes)
 	else
 		hitModel:SetAttribute("KnockbackType", "ground")
 		local minStuds = CombatConfig.Combat_GroundKnockbackMinStuds or 10
@@ -104,9 +125,43 @@ local function chooseStrike(fighter, target, distance, punches, kicks)
 			if kind == "punch" then wPunch *= (1.25 - stopRate) else wKick *= (1.25 - stopRate) end
 		end
 	end
-	local useKick = math.random() * (wPunch + wKick) < wKick
-	local pool = useKick and kicks or punches
-	return pool[math.random(1, #pool)], reason or (memory and "learned" or nil)
+	-- Then each clip on its own: where would it land? A clip whose limb would pass over the
+	-- target's head or under its feet (a punch at a body standing a platform below) is a poor
+	-- choice, so it is weighted down, not ruled out (Answers_HeightAware = false: kind, then any clip)
+	local myRoot = fighter:FindFirstChild("HumanoidRootPart")
+	local theirRoot = target:FindFirstChild("HumanoidRootPart")
+	if CombatConfig.Answers_HeightAware == false or not myRoot or not theirRoot then
+		local useKick = math.random() * (wPunch + wKick) < wKick
+		local pool = useKick and kicks or punches
+		return pool[math.random(1, #pool)], reason or (memory and "learned" or nil)
+	end
+	local low = CombatConfig.Answers_BodyBelow or -3.0
+	local high = CombatConfig.Answers_BodyAbove or 2.5
+	local floor = CombatConfig.Answers_OffBodyWeight or 0.08
+	local rise = myRoot.Position.Y - theirRoot.Position.Y
+	local choices, total, bestFit = {}, 0, 0
+	for _, kind in ipairs({ { punches, wPunch / #punches }, { kicks, wKick / #kicks } }) do
+		for _, entry in ipairs(kind[1]) do
+			local fit = 1
+			if entry.height then
+				local land = rise + entry.height
+				local off = math.max(low - land, land - high, 0)
+				fit = math.max(1 - off / 1.5, floor)
+			end
+			bestFit = math.max(bestFit, fit)
+			local w = kind[2] * fit
+			total += w
+			table.insert(choices, { entry, w })
+		end
+	end
+	local roll = math.random() * total
+	local picked = choices[#choices][1]
+	for _, c in ipairs(choices) do
+		roll -= c[2]
+		if roll <= 0 then picked = c[1] break end
+	end
+	if bestFit < 1 or math.abs(rise) > 1.5 then reason = reason or "height" end
+	return picked, reason or (memory and "learned" or nil)
 end
 
 local function remember(fighter, target, entry, result)
@@ -143,6 +198,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	local chosen, answerReason = chooseStrike(fighter, target, targetDistance, punches, kicks)
 	local animData = chosen or { id = AnimationIds.Punches[1], speed = 1.3, fadeTime = 0.01, impactRatio = 0.35, cancelRatio = 0.70 }
 	fighter:SetAttribute("StrikeAnswer", answerReason) -- (probes, mind panel)
+	fighter:SetAttribute("StrikeKind", isKick(chosen) and "kick" or "punch") -- (probes)
 
 	local playSpeed = math.max((fighter:GetAttribute("AttackSpeed") or 1.0) * (animData.speed or 1.0) * fatigueScale, 0.01)
 	local fadeTime = animData.fadeTime or 0.01
@@ -260,11 +316,44 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 	-- short is a whiff, not a hit. Fight programme step 3)
 	local contactRange = (CombatConfig.Hits_ContactCheck ~= false and animData.reach)
 		and animData.reach + (CombatConfig.Spacing_TargetRadius or 0.72) + (CombatConfig.Hits_ContactSlack or 0.6) or nil
+	-- (and only where the limb lands in the body's height, with nothing solid between the two
+	-- chests: hits went through a box's edge to a Quin 7 studs below. Fight_StrikeHeightCheck)
+	local heightParams
 	local function inReach(hitModel)
-		local r = contactRange and hitModel:FindFirstChild("HumanoidRootPart")
+		local body = hitModel:FindFirstChild("HumanoidRootPart")
+		if body and CombatConfig.Fight_StrikeHeightCheck ~= false then
+			local land = rootPart.Position.Y + (animData.height or 0)
+			local slack = CombatConfig.Hits_HeightSlack or 1.0
+			if land < body.Position.Y + (CombatConfig.Answers_BodyBelow or -3) - slack
+				or land > body.Position.Y + (CombatConfig.Answers_BodyAbove or 2.5) + slack then
+				return false
+			end
+			if not heightParams then
+				heightParams = RaycastParams.new()
+				heightParams.FilterType = Enum.RaycastFilterType.Exclude
+				heightParams.RespectCanCollide = true
+			end
+			heightParams.FilterDescendantsInstances = { fighter, hitModel, workspace:FindFirstChild("QuinServer") }
+			local chest = Vector3.new(0, 1, 0)
+			local offset = (body.Position + chest) - (rootPart.Position + chest)
+			if offset.Magnitude > 0.5 and workspace:Raycast(rootPart.Position + chest, offset, heightParams) then
+				return false
+			end
+		end
+		local r = contactRange and body
 		if not r then return true end
 		local d = r.Position - rootPart.Position
 		return Vector3.new(d.X, 0, d.Z).Magnitude <= contactRange
+	end
+	-- Where on the body it lands: the clip's height (AnimationConfig) against the target's root, so
+	-- a punch to someone below is a head shot and a kick to someone above takes the legs
+	local function zoneOf(hitModel)
+		local r = CombatConfig.Hits_Zones ~= false and animData.height and hitModel:FindFirstChild("HumanoidRootPart")
+		if not r then return nil end
+		local above = rootPart.Position.Y + animData.height - r.Position.Y
+		if above >= (CombatConfig.Hits_HeadAbove or 1.5) then return "Head" end
+		if above < (CombatConfig.Hits_LegsBelow or -1.0) then return "Legs" end
+		return "Body"
 	end
 
 	local function check()
@@ -274,6 +363,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 				struck[hitModel] = true
 				local damageInfo = DamageModule.calculate(fighter, hitModel, moveData.step, moveData.damageMultiplier)
 				damageInfo.isFinisher = moveData.isFinisher
+				damageInfo.zone = zoneOf(hitModel)
 				local applied, isKill, status = DamageModule.apply(fighter, hitModel, damageInfo)
 
 				if status == "Blocked" or status == "Dodged" then
@@ -284,6 +374,14 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 				elseif applied then
 					landed = true
 					result = "Hit"
+					-- where in its clip the strike connected: clients draw this clip ~0.1 s behind,
+					-- and bring the fist up to here so the body does not fly before it arrives
+					-- (AIGhostHandler.syncStrikeContact)
+					if track then
+						fighter:SetAttribute("StrikeContactClip", animData.id)
+						fighter:SetAttribute("StrikeContactPos", track.TimePosition)
+						fighter:SetAttribute("StrikeContactAt", GameClock.tick())
+					end
 					-- the contact holds a beat (Modules/HitStop): kicks, finishers and crits longer
 					local held = HitStop.apply(fighter, hitModel, (isKick(animData) and 0.6 or 0.15) + ((moveData.isFinisher or damageInfo.isCrit) and 0.4 or 0))
 					-- (its clip reaches Recover that much later: so does its freedom)
@@ -305,7 +403,7 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 						StateRequest.ask(hitModel, "Knockback", StateRequest.HIT, "struck")
 						if DEBUG then print("[Fight] LAUNCH! -> Airborne pursuit") end
 					else
-						applyHitOutcome(rootPart, hitModel, moveData, DamageModule.resolveOutcome(fighter, hitModel, moveData, damageInfo))
+						applyHitOutcome(rootPart, hitModel, moveData, DamageModule.resolveOutcome(fighter, hitModel, moveData, damageInfo), damageInfo)
 					end
 				end
 			end
@@ -325,6 +423,8 @@ local function executeAttack(fighter, humanoid, rootPart, target, moveData, data
 		if result == "Whiff" and next(struck) == nil then
 			local tHRP = target and target:FindFirstChild("HumanoidRootPart")
 			fighter:SetAttribute("StrikeMissDist", tHRP and math.floor((tHRP.Position - rootPart.Position).Magnitude * 10) / 10 or -1)
+			-- (swinging at air costs balance: a Quin that keeps whiffing is open to the next blow)
+			DamageModule.wearPosture(fighter, CombatConfig.Posture_WhiffCost or 6)
 		end
 		fighter:SetAttribute("StrikeResult", result)
 		fighter:SetAttribute("StrikeSeq", (fighter:GetAttribute("StrikeSeq") or 0) + 1)

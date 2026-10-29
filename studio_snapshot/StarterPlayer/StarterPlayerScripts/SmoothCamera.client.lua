@@ -226,6 +226,8 @@ local function updateMouseBehavior()
 	end
 end
 
+local flyKeepsCursor = false -- (R with the Spectator HUD open: entering the free camera leaves the cursor free)
+
 local function lockMouse()
 	cursorFree = false
 	updateMouseBehavior()
@@ -522,7 +524,14 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		shared.SpectatedQuin = nil
 		_G.SpectatedQuin = nil
 		workspace:SetAttribute("SpectatedQuin", "")
-		lockMouse()
+		-- (with the Spectator HUD open the cursor stays free: cards and Quins can be clicked; L /
+		-- middle mouse locks it for mouse look)
+		if shared.SpectatorHudOpen and shared.SpectatorHudOpen() then
+			unlockMouse()
+			flyKeepsCursor = true
+		else
+			lockMouse()
+		end
 		print("[SmoothCamera] Fly Spectator.")
 		return
 	end
@@ -671,9 +680,10 @@ RunService:BindToRenderStep("SpectatorFreeflyCamera", Enum.RenderPriority.Camera
 	end
 	-- entering any flying / spectating mode starts with mouse look on
 	if cameraMode ~= lastCameraMode then
-		if cameraMode ~= "DEFAULT" and lastCameraMode ~= nil then
+		if cameraMode ~= "DEFAULT" and lastCameraMode ~= nil and not flyKeepsCursor then
 			cursorFree = false
 		end
+		flyKeepsCursor = false
 		lastCameraMode = cameraMode
 		Camera:SetAttribute("SpectatorMode", cameraMode) -- (for tests and other scripts)
 	end

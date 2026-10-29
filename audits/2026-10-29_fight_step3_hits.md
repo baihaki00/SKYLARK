@@ -46,8 +46,51 @@ Step 3 of [FIGHT_PROGRAMME.md](../FIGHT_PROGRAMME.md), started 2026-10-29 in Stu
 - The big reaction should come only with heavy kicks, crits, finishers, hits from behind, or a Quin that has been worn down.
 - Strikes that visibly stop short should now count as misses.
 
+# Round 2: where the hit lands, and balance
+
+Built 2026-10-29, same day. **Waiting on:** the owner's eye in a 1v1.
+
+## What changed
+
+| Where | Change |
+|---|---|
+| `AnimationConfig` Attacks | Each clip gets `height`: studs above the attacker's root where the limb lands. Punches 1.1, low kicks −2.8, high and wheel kicks 1.7. **These are estimates, not probed.** Measure them with the reach probe when a clip is replaced. |
+| `States/FightState/Strike` | `zoneOf(hitModel)`: the attacker's root height plus the clip's `height`, compared with the target's root. At least `Hits_HeadAbove` (1.5) above it is the **head**, below `Hits_LegsBelow` (−1.0) is the **legs**, anything between is the **body**. A punch to someone standing lower becomes a head shot; a kick to someone standing higher takes the legs. A true whiff (nothing struck) costs the striker `Posture_WhiffCost` (6) balance. |
+| `Modules/DamageModule` | `DamageModule.posture(model)` and `wearPosture(model, amount)`. Posture now **comes back**, `Posture_RecoverPerSecond` (6/s) after its last change. It is worked out when read (`PostureAt`), so no loop is needed. Before this it never recovered, so every Quin drifted toward a guard break over a match. A blow to the legs wears `Hits_LegsPosture` (1.6×) as much posture. `resolveOutcome` reads posture through the new function. `ImpactZone` is set just before `ImpactTime`. |
+| `Modules/ProceduralCombatReactionController` | `triggerImpact(dir, mag, type, zone)`. **Head:** a new neck and head spring snaps the head away from the blow; the chest moves only 0.45×. **Body:** the chest folds over the blow instead of rocking back, and the hips dip (about 0.1 stud). **Legs:** the hips drop (about 0.25 stud) and the body tips over the struck side (roll 1.6×). No zone: the old reaction. |
+| `CombatConfig` | `Hits_Zones`, `Hits_HeadAbove`, `Hits_LegsBelow`, `Hits_LegsPosture`, `Posture_RecoverPerSecond`, `Posture_WhiffCost`. `Hits_ClipBelowPosture` goes from 40 to **20** (see below). |
+
+**Switches:**
+- `Hits_Zones = false` brings back the single reaction for every blow.
+- `Posture_RecoverPerSecond = 0` and `Posture_WhiffCost = 0` bring back the old posture.
+
+## Measured (server, 80 s 16v16 unless noted)
+
+| | Round 1 | Zones, head line 1.2 | Head line 1.5, kicks 1.7 | + clip at posture ≤ 20 |
+|---|---|---|---|---|
+| Hit / whiff / blocked / interrupted, % | 64 / 10 / 2 / 24 | 57 / 9 / 3 / 28 | 60 / 7 / 2 / 27 | 60 / 6 / 2 / 28 |
+| Zones, head / body / legs | — | 364 / 258 / 180 | 342 / 330 / 181 | 361 / 355 / 178 |
+| Hit clips per impact | 15% | 34% | 35% (180 of 336 from posture ≤ 40) | **21%** |
+| Guard breaks | — | 32 | 45 | 32 |
+| Mean posture | — | 83 | 82 | 84 |
+| Server frame, mean ms | 23 (median) | 25.7 | 22.4 | 21.9 |
+
+- **1v1 (60 s):** body 23, head 17, legs 6; posture never fell below 19, mean 82. No errors on the server or the client.
+- **Impacts with no zone** (81–118 per run) come from blows that aren't Strike clips, such as slams. They react as before.
+- **Hit clips:** recovering posture made worn Quins common in a 16v16 (ganged bodies sit at ≤ 40), so the clip rate doubled. With the threshold at 20 it is 21%: still above round 1's 15%, but each clip now comes from a heavy, crit, finisher or back hit, or a body close to a guard break.
+- **Interrupted rose from 24% to about 28%.** It is likely the guard-break stuns. Watch it in step 4 (rules and openings).
+- **Not measured:** the client springs, by number. The PCRC lives in the client's module copy, which an MCP call can't reach. Judge them by eye.
+
+## For the owner to judge (1v1)
+
+- A **head shot** (a high kick, or a punch from higher ground) snaps the head; the chest barely moves.
+- A **body shot** folds the chest in over the blow.
+- A **low kick** drops the hips and tips the body over the struck leg.
+- A Quin that keeps whiffing gets easier to stagger.
+- A Quin left alone for a few seconds gets its footing back.
+
 ## Still to do in step 3
 
-- **Real base hit clips.** `HitLight` is still the braking-stop placeholder; it now plays only on worn-down bodies and crits. The plan lists the owner's base clips (flinch, stagger, buckle, knockdown, launch) for this step.
-- **Where the hit lands:** a head / body / legs zone and side passed into `DamageModule.apply` and `PCRC.triggerImpact`, so the flinch bends where the blow lands.
-- **Balance:** let whiffs and bad footing wear `Posture`, not only hits.
+- **Real base hit clips.** `HitLight` is still the braking-stop placeholder. The plan lists the owner's base clips (flinch, stagger, buckle, knockdown, launch).
+- **Probe `height` per clip** with the reach probe, instead of the estimates.
+- **The side of the hit** (left/right) is still read from the direction of the blow. The striking limb (`StrikeSide`) isn't used yet.

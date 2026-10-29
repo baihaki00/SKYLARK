@@ -8,6 +8,7 @@ local QuinCore = ReplicatedStorage:WaitForChild("QuinCore")
 local AnimationModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("AnimationModule"))
 local AnimationIds = require(QuinCore:WaitForChild("AnimationIds"))
 local CombatConfig = require(QuinCore:WaitForChild("CombatConfig"))
+local Pers = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("Pers")) -- (personality reads)
 local RuntimeTracer = require(QuinCore:WaitForChild("Modules"):WaitForChild("RuntimeTracer"))
 local LocomotionModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("LocomotionModule"))
 local TargetingModule = require(QuinCore:WaitForChild("Modules"):WaitForChild("TargetingModule"))
@@ -113,6 +114,7 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 
 	local clipPath = nil
 	local duration
+	local heldTrack = nil
 	if kbType == "ground" and upY >= 0.85 then
 		-- Light ground flinch, still on its feet
 		duration = 0.2
@@ -138,16 +140,30 @@ function RecoveryState.enter(fighter, humanoid, rootPart)
 		duration = AnimationModule.getEffectiveDuration(humanoid, clipPath, 1.0) * GET_UP_HANDOVER
 	else
 		clipPath = getUpClip(fighter, humanoid, isHeavy)
-		AnimationModule.playConfig(humanoid, clipPath, 1.0, Enum.AnimationPriority.Action4, false)
+		local track = AnimationModule.playConfig(humanoid, clipPath, 1.0, Enum.AnimationPriority.Action4, false)
 		-- The state lasts as long as the clip: a fixed 1.2s cut the get-up off mid-rise
 		duration = AnimationModule.getEffectiveDuration(humanoid, clipPath, 1.0) * GET_UP_HANDOVER
+		-- Still carried by the knockback skid: the get-up waits on its first frame (down on the
+		-- ground) until the skid has run off, then rises. It rose at once, so a body still
+		-- skidding at 57 studs/s was on its feet with them sliding (owner, 2026-10-29).
+		-- (Recovery_WaitForSkid = false: rises at once)
+		local v = rootPart.AssemblyLinearVelocity
+		if track and CombatConfig.Recovery_WaitForSkid ~= false
+			and Vector3.new(v.X, 0, v.Z).Magnitude > (CombatConfig.Recovery_GetUpMaxSpeed or 8) then
+			track:AdjustSpeed(0)
+			heldTrack = track
+		end
 	end
 
 	recoveryData[fighter] = {
 		enterTime = GameClock.tick(),
 		clipPath = clipPath,
 		duration = duration,
+		heldTrack = heldTrack,
 	}
+	if heldTrack then
+		fighter:SetAttribute("GetUpHeldForSkid", true) -- (probes)
+	end
 
 	RuntimeTracer.checkpoint(fighter, string.format("Enter Recovery (Type=%s, Heavy=%s, UpY=%.2f, %.2fs)", kbType, tostring(isHeavy), upY, duration))
 end
@@ -175,6 +191,7 @@ function RecoveryState.exit(fighter, humanoid, rootPart)
 	fighter:SetAttribute("KnockbackType", nil)
 	fighter:SetAttribute("KnockdownHeavy", nil)
 	fighter:SetAttribute("FallSide", nil)
+	fighter:SetAttribute("GetUpHeldForSkid", nil)
 	-- Clear GetUpProtection after a brief 0.3s poise buffer so character is not instantly re-knocked
 	GameClock.delay(0.30, function()
 		if fighter and fighter.Parent then
@@ -193,6 +210,22 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 	local data = recoveryData[fighter]
 	if not data then return States.Idle end
 
+	-- The get-up held for the skid (enter): it rises once the body has slowed, or after
+	-- Recovery_SkidWaitMax at most; the state's time starts from there
+	if data.heldTrack then
+		local v = rootPart.AssemblyLinearVelocity
+		local now = GameClock.tick()
+		if Vector3.new(v.X, 0, v.Z).Magnitude <= (CombatConfig.Recovery_GetUpMaxSpeed or 8)
+			or now - data.enterTime >= (CombatConfig.Recovery_SkidWaitMax or 1.0) then
+			data.heldTrack:AdjustSpeed(1)
+			data.heldTrack = nil
+			data.enterTime = now
+			fighter:SetAttribute("GetUpHeldForSkid", nil)
+		end
+		humanoid.WalkSpeed = 0
+		return RecoveryState
+	end
+
 	if GameClock.tick() - data.enterTime >= data.duration then
 		local chaseRange = CombatConfig.ChaseRange or 800
 		local target, distance = TargetingModule.getCommittedTarget(fighter, rootPart, chaseRange)
@@ -206,7 +239,12 @@ function RecoveryState.update(fighter, humanoid, rootPart, DEBUG)
 				-- Opponent in melee proximity: defend or fight
 				return States.Fight
 			elseif distance <= combatRange * 3.5 then
-				-- Standoff range: circular pacing
+				-- Standoff range: it circles, or (its own call, leaned by aggression) steps straight
+				-- back in (Recovery_ReengageChoice = false: always circles)
+				if CombatConfig.Recovery_ReengageChoice ~= false
+					and math.random() < 0.15 + Pers.get(fighter, "Aggression") * 0.45 then
+					return States.Fight
+				end
 				return States.Circling
 			end
 		end

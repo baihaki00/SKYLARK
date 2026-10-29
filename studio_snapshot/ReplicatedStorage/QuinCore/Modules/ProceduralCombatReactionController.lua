@@ -216,6 +216,10 @@ function ProceduralCombatReactionController.new(ghostModel, aiModel)
 	-- Centripetal Torso Banking state
 	self.currentBankRoll = 0
 
+	-- Head snap (a blow to the head throws the neck and head on their own spring)
+	self.headSnapPitch, self.headSnapRoll = 0, 0
+	self.headSnapVelPitch, self.headSnapVelRoll = 0, 0
+
 	-- Telemetry tracking
 	self.lastImpactTime = 0
 	self.activeReactionType = "NONE"
@@ -380,7 +384,10 @@ function ProceduralCombatReactionController:holdAirPose(dt)
 end
 
 -- Trigger a directional hit recoil impulse
-function ProceduralCombatReactionController:triggerImpact(dirWorld, magnitude, impactType)
+-- zone (server, Strike): "Head" snaps the head and barely moves the chest; "Body" folds the chest
+-- in round the blow and dips the hips; "Legs" takes the footing: the hips drop and the body tips
+-- over the struck side. nil = the old reaction.
+function ProceduralCombatReactionController:triggerImpact(dirWorld, magnitude, impactType, zone)
 	if not self.enabled or not self.rootPart then return end
 	magnitude = math.clamp(magnitude or 0.5, 0.1, 1.0)
 	impactType = impactType or "NORMAL"
@@ -408,12 +415,27 @@ function ProceduralCombatReactionController:triggerImpact(dirWorld, magnitude, i
 
 	-- Apply impulse velocity to the spring
 	local mult = (impactType == "HEAVY" or impactType == "KNOCKBACK") and 1.4 or 1.0
+	local hipsDrop = 0.4
+	if zone == "Head" then
+		self.headSnapVelPitch += (targetPitchImpulse > 0 and 1 or -1) * 12.5 * magnitude * mult
+		self.headSnapVelRoll += (targetRollImpulse > 0 and 1 or -1) * 8 * magnitude * mult
+		targetPitchImpulse *= 0.45
+		targetRollImpulse *= 0.45
+	elseif zone == "Body" then
+		targetPitchImpulse = -targetPitchImpulse -- (winded: the chest folds over the blow)
+		hipsDrop = 3
+	elseif zone == "Legs" then
+		targetPitchImpulse *= 0.35
+		targetRollImpulse *= -1.6 -- (the struck leg gives: the body tips over it)
+		hipsDrop = 8
+	end
 	self.velocityPitch = self.velocityPitch + (targetPitchImpulse * self.impulseScale * mult)
 	self.velocityRoll = self.velocityRoll + (targetRollImpulse * self.impulseScale * mult)
 	self.velocityYaw = self.velocityYaw + (targetYawImpulse * self.impulseScale * mult)
 
 	-- Hips stagger impulse
-	self.hipsVelocity = self.hipsVelocity - (0.4 * magnitude * mult)
+	self.hipsVelocity = self.hipsVelocity - (hipsDrop * magnitude * mult)
+	self.lastImpactZone = zone
 end
 
 -- Update procedural physical offsets each frame
@@ -433,7 +455,7 @@ function ProceduralCombatReactionController:update(dt)
 	-- 0b. A strafe clip walks with the chest turned toward its travel: turned back to the front,
 	-- before anything below reads or turns the spine
 	local facingPart = self.ghostRootPart or self.rootPart
-	self.squareUp:apply(facingPart.CFrame, Layers.isOn("SquareUp", serverModel), dt)
+	self.squareUp:apply(facingPart.CFrame, Layers.isOn("SquareUp", serverModel), dt, SquareUp.runLead(self.rootPart))
 	if serverModel and serverModel.Parent then
 		local impactTime = serverModel:GetAttribute("ImpactTime")
 		if impactTime and impactTime ~= self.lastImpactTime then
@@ -441,7 +463,7 @@ function ProceduralCombatReactionController:update(dt)
 			local dir = serverModel:GetAttribute("ImpactDir") or Vector3.new(0, 0, 1)
 			local mag = serverModel:GetAttribute("ImpactMag") or 0.5
 			local iType = serverModel:GetAttribute("ImpactType") or "NORMAL"
-			self:triggerImpact(dir, mag, iType)
+			self:triggerImpact(dir, mag, iType, serverModel:GetAttribute("ImpactZone"))
 		end
 	end
 
@@ -457,6 +479,11 @@ function ProceduralCombatReactionController:update(dt)
 	local forceY = -self.springK * self.currentYaw - self.damping * self.velocityYaw
 	self.velocityYaw = self.velocityYaw + forceY * dt
 	self.currentYaw = self.currentYaw + self.velocityYaw * dt
+
+	self.headSnapVelPitch += (-300 * self.headSnapPitch - 26 * self.headSnapVelPitch) * dt
+	self.headSnapPitch += self.headSnapVelPitch * dt
+	self.headSnapVelRoll += (-300 * self.headSnapRoll - 26 * self.headSnapVelRoll) * dt
+	self.headSnapRoll += self.headSnapVelRoll * dt
 
 	-- 3. Airborne Velocity Orientation & Ground Impact Detection
 	local rootVel = self.rootPart.AssemblyLinearVelocity
@@ -733,8 +760,8 @@ function ProceduralCombatReactionController:update(dt)
 	-- Neck and head counter-rotate against the cumulative torso bank roll (-spineRoll)
 	-- perfectly cancelling out lateral spine tilt so the head remains rock-solid level with the world horizon!
 	local vorCounterRoll = -spineRoll
-	local nPitch, nRoll  = totalPitch * 0.20, (headRoll * 0.20) + (vorCounterRoll * 0.50)
-	local hPitch, hRoll  = totalPitch * 0.15, headRoll * 0.15
+	local nPitch, nRoll  = totalPitch * 0.20 + self.headSnapPitch * 0.5, (headRoll * 0.20) + (vorCounterRoll * 0.50) + self.headSnapRoll * 0.5
+	local hPitch, hRoll  = totalPitch * 0.15 + self.headSnapPitch * 0.5, headRoll * 0.15 + self.headSnapRoll * 0.5
 
 	-- Apply to bones multiplicatively on top of evaluated animation track
 	local hasHipsOffset = math.abs(self.hipsOffset) > 0.001 or math.abs(self.hipsDipOffset or 0) > 0.001
@@ -946,6 +973,43 @@ function ProceduralCombatReactionController:update(dt)
 		local striking = serverModel ~= nil and serverModel:GetAttribute("Attacking") == true
 			and serverModel:GetAttribute("StrikeChannel") ~= "Arms" -- (an arms-only strike leaves the legs' feet planted)
 			and Layers.isOn("StrikeFeetFree", serverModel)
+		-- Strike stance (layer StrikeStance): freeing both feet for the whole strike skated them
+		-- under every lunge and brake (65% of all planted-foot sliding, measured 2026-10-29). Now
+		-- the feet stay planted through a strike; only a foot the clip moves against the body (the
+		-- kicking foot, a step in the clip) is let go. Knee over toe still stays out of a strike.
+		local strikeStance = striking and Layers.isOn("StrikeStance", serverModel)
+		local strikeFootFree = CombatConfig.FootIK_StrikeFootFreeSpeed or 5
+		-- Glide plant (layer PlantGlide): a stance clip carried by a moving body holds its foot still
+		-- against the body, so over the ground the foot moves at the body's speed and was never
+		-- "still" enough to plant - it glided. Such a foot plants too, and the step logic steps it
+		-- along. Only below FootIK_StepMaxSpeed, where steps are taken.
+		local plantGlide = Layers.isOn("PlantGlide", serverModel)
+		-- Low hold (layer PlantLowHold): measured on the solver's own reasons, a foot that was down
+		-- but not pinned slid 64-99% of the time: "armed" (the clip still moves it, so the still
+		-- rule above refused it) or "waitLift" (let go, waiting for a lift some clips never make).
+		-- A foot the clip keeps down for FootIK_PlantLowTime plants anyway (the walk's heel reaches
+		-- for ~4 frames, so the still rule keeps its job there), and a foot let go may plant again
+		-- after FootIK_PlantRearmTime without a lift (counted from the let-go, or from when it came
+		-- down if it lost its pin some other way).
+		local lowHold = Layers.isOn("PlantLowHold", serverModel)
+		local lowTime = CombatConfig.FootIK_PlantLowTime or 0.08
+		local rearmTime = CombatConfig.FootIK_PlantRearmTime or 0.3
+		self.lowSince = self.lowSince or {}
+		self.letGoAt = self.letGoAt or {}
+		-- Pinned yaw (layer PinnedYaw): a pinned ankle still took the clip's rotation every frame,
+		-- so as the body turned the foot swung round the pin and the toe swept the floor (a pinned
+		-- foot at full weight slid 47% of start frames, measured 2026-10-29). A pinned foot keeps
+		-- the direction it came down in; past FootIK_PinnedYawMax degrees from the clip it turns
+		-- with the body, so it is never twisted far off the leg.
+		local pinnedYaw = Layers.isOn("PinnedYaw", serverModel)
+		local pinnedYawMax = math.rad(CombatConfig.FootIK_PinnedYawMax or 60)
+		self.lockDir = self.lockDir or {}
+		self.lockFor = self.lockFor or {}
+		-- Turn hold (layer PlantTurnHold): the turn attenuation above let go of pinned feet whenever
+		-- the body turned past 4 rad/s, and a Quin swings round to its heading as it sets off. Below
+		-- FootIK_TurnHoldSpeed a pinned foot keeps its full weight; the body pivots on it, and the
+		-- drift / overreach rules still step it round.
+		local turnHold = Layers.isOn("PlantTurnHold", serverModel) and speed < (CombatConfig.FootIK_TurnHoldSpeed or 6)
 		local footsFree = self.wasAirborne or serverState == "Recovery" or serverState == "Knockback"
 			or (self.humanoid and self.humanoid.PlatformStand)
 			or (serverModel and serverModel:GetAttribute("LandingSlide") == true)
@@ -986,9 +1050,13 @@ function ProceduralCombatReactionController:update(dt)
 			-- How fast the clip itself is moving this foot over the ground
 			local prevClip = self.clipFootPrev[side]
 			local clipFootSpeed = 0
+			local clipFootVel = Vector3.zero
 			if prevClip and now > prevClip.t then
-				clipFootSpeed = Vector3.new(animFootPos.X - prevClip.pos.X, 0, animFootPos.Z - prevClip.pos.Z).Magnitude / (now - prevClip.t)
+				clipFootVel = Vector3.new(animFootPos.X - prevClip.pos.X, 0, animFootPos.Z - prevClip.pos.Z) / (now - prevClip.t)
+				clipFootSpeed = clipFootVel.Magnitude
 			end
+			-- (and against the body: about 0 for a foot the clip carries along with it)
+			local clipFootRelSpeed = (clipFootVel - flatVel).Magnitude
 			self.clipFootPrev[side] = { pos = animFootPos, t = now }
 			local hipPos = leg.hipW.Position
 			local maxReach = leg.reach * 0.98 -- just short of a locked knee
@@ -1019,8 +1087,18 @@ function ProceduralCombatReactionController:update(dt)
 				-- Plant
 				local lock = self.plant[side]
 				local step = self.step[side]
-				if plantOn and not pushed and not striking and reachable and hit.Normal.Y >= 0.7 then
-					if liftAboveSurface > plantLift then
+				if plantOn and not pushed and (not striking or strikeStance) and reachable and hit.Normal.Y >= 0.7 then
+					if liftAboveSurface <= plantLift then
+						self.lowSince[side] = self.lowSince[side] or now
+					else
+						self.lowSince[side] = nil
+					end
+					if strikeStance and clipFootRelSpeed > strikeFootFree then
+						-- The strike moves this foot itself: the clip has it until it is still again
+						self.plantFade[side] = (step and stepPosition(step)) or lock or self.plantFade[side]
+						lock, step = nil, nil
+						self.plantArmed[side] = true
+					elseif liftAboveSurface > plantLift then
 						-- The clip lifts the foot: it walks by itself
 						self.plantFade[side] = (step and stepPosition(step)) or lock or self.plantFade[side]
 						lock, step = nil, nil
@@ -1068,13 +1146,18 @@ function ProceduralCombatReactionController:update(dt)
 								self.plantFade[side] = lock
 								lock = nil
 								self.plantArmed[side] = false
+								self.letGoAt[side] = now
 							end
 							-- otherwise it holds a moment longer, until the other foot is down
 						end
-					elseif self.plantArmed[side] and liftAboveSurface <= plantContact
-						and (not plantWhenStill or clipFootSpeed <= plantStillSpeed) then
+					elseif (self.plantArmed[side] or (lowHold and now - (self.letGoAt[side] or self.lowSince[side] or now) >= rearmTime))
+						and ((liftAboveSurface <= plantContact
+							and (not plantWhenStill or clipFootSpeed <= plantStillSpeed
+								or (plantGlide and speed < stepMaxSpeed and clipFootRelSpeed <= plantStillSpeed)))
+							or (lowHold and self.lowSince[side] and now - self.lowSince[side] >= lowTime)) then
 						lock = Vector3.new(animFootPos.X, floorY + ankleHeight, animFootPos.Z)
 						self.plantArmed[side] = false
+						self.letGoAt[side] = nil
 						self.plantFade[side] = nil
 					end
 				else
@@ -1083,6 +1166,17 @@ function ProceduralCombatReactionController:update(dt)
 				end
 				self.plant[side] = lock
 				self.step[side] = step
+				if lock and not step and pinnedYaw then
+					if self.lockFor[side] ~= lock then -- (a new pin: the direction it came down in)
+						local toe = isLeft and self.leftToeBone or self.rightToeBone
+						local along = toe and (leg.footW:VectorToWorldSpace(toe.CFrame.Position)) or leg.footW.LookVector
+						local flat = Vector3.new(along.X, 0, along.Z)
+						self.lockDir[side] = flat.Magnitude > 1e-3 and flat.Unit or nil
+						self.lockFor[side] = lock
+					end
+				else
+					self.lockDir[side], self.lockFor[side] = nil, nil
+				end
 
 				if step then
 					targetPos = stepPosition(step)
@@ -1090,7 +1184,7 @@ function ProceduralCombatReactionController:update(dt)
 					planted = true
 				elseif lock then
 					targetPos = lock
-					targetWeight = turnDampen
+					targetWeight = turnHold and 1 or turnDampen
 					planted = true
 				else
 					-- A foot that is not planted on flat ground follows the clip untouched
@@ -1119,6 +1213,7 @@ function ProceduralCombatReactionController:update(dt)
 				self.plantFade[side] = nil
 				self.plantArmed[side] = true
 				self.legWeight[side] = 0
+				self.lockDir[side], self.lockFor[side] = nil, nil
 			end
 
 			-- A released plant fades from where it was pinned (no snap to the clip)
@@ -1154,7 +1249,7 @@ function ProceduralCombatReactionController:update(dt)
 
 		-- Two-bone solve: put the ankle on goal, knee in the plane the clip bends it in, the
 		-- foot keeping the clip's orientation. Writes the three Transforms.
-		local function applyLeg(leg, goal, normal, weight)
+		local function applyLeg(leg, goal, normal, weight, heldDir, toeBone)
 			local H, K, A = leg.hipW.Position, leg.kneeW.Position, leg.footW.Position
 			local L1, L2 = (K - H).Magnitude, (A - K).Magnitude
 			local toGoal = goal - H
@@ -1240,6 +1335,24 @@ function ProceduralCombatReactionController:update(dt)
 			-- flat to this surface is laid over the clip's own heel-strike and toe-off angles.
 			-- Flat ground leaves the clip untouched.
 			local footRot = leg.footW - leg.footW.Position
+			-- (PinnedYaw: held exactly while pinned; once let go it eases back onto the clip's own
+			-- direction in about a tenth of a second instead of snapping)
+			self.yawOffset = self.yawOffset or {}
+			local yawNow = self.yawOffset[leg.foot] or 0
+			local yawHeld = nil
+			if heldDir then
+				local along = toeBone and footRot:VectorToWorldSpace(toeBone.CFrame.Position) or footRot.LookVector
+				local flat = Vector3.new(along.X, 0, along.Z)
+				if flat.Magnitude > 1e-3 then
+					flat = flat.Unit
+					yawHeld = math.clamp(math.atan2(flat:Cross(heldDir).Y, flat:Dot(heldDir)), -pinnedYawMax, pinnedYawMax)
+				end
+			end
+			yawNow = yawHeld or (yawNow * (1 - math.clamp(12 * dt, 0, 1)))
+			self.yawOffset[leg.foot] = yawNow
+			if math.abs(yawNow) > 1e-4 then
+				footRot = CFrame.fromAxisAngle(Vector3.yAxis, yawNow * math.clamp(weight or 1, 0, 1)) * footRot
+			end
 			if ankleConform and normal and normal.Y > 0.5 and normal.Y < 0.999 then
 				local tilt = math.acos(math.clamp(normal.Y, -1, 1))
 				local axis = Vector3.yAxis:Cross(normal)
@@ -1266,8 +1379,8 @@ function ProceduralCombatReactionController:update(dt)
 		end
 		local lW = blendWeight("Left", lWeight, lPlanted)
 		local rW = blendWeight("Right", rWeight, rPlanted)
-		if lLeg and lPos and lW > 0 then applyLeg(lLeg, lLeg.footW.Position:Lerp(lPos, lW), self.footNormal.Left, lW) end
-		if rLeg and rPos and rW > 0 then applyLeg(rLeg, rLeg.footW.Position:Lerp(rPos, rW), self.footNormal.Right, rW) end
+		if lLeg and lPos and lW > 0 then applyLeg(lLeg, lLeg.footW.Position:Lerp(lPos, lW), self.footNormal.Left, lW, self.lockDir.Left, self.leftToeBone) end
+		if rLeg and rPos and rW > 0 then applyLeg(rLeg, rLeg.footW.Position:Lerp(rPos, rW), self.footNormal.Right, rW, self.lockDir.Right, self.rightToeBone) end
 
 		-- Knee over toe (body layer): a knee too far in or out of its foot is swung round the
 		-- hip-ankle line, on the final leg pose, solved or not

@@ -13,20 +13,22 @@ AnimationConfig.Registry = {
 		-- reach = studs ahead of the root the striking limb gets (median, measured 2026-10-29 by
 		-- QUINCORE_BACKUP/scripts/strike_reach_probe_client.lua): the step-in stops where it lands
 		-- (Modules/Spacing.strikeStopGap). Measure again when a clip is replaced.
+		-- height = studs above the attacker's root the limb lands at (same probe): with the target's
+		-- root it gives the zone struck, head / body / legs (Strike, CombatConfig.Hits_HeadAbove).
 		-- channel = which part of the body the clip drives: "Body" (default), "Arms" (upper body
 		-- only: plays over the legs' footwork) or "Legs" (AnimationModule.channelOf; Modules/ChannelLab
 		-- makes arms-only test copies in Studio).
 		Kicks = {
-			LowKickRight = { id = "rbxassetid://120201409079711", speed = 1.35, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.86, reach = 5.1, name = "Low Kick Right" },
-			LowKickLeft = { id = "rbxassetid://128873647170869", speed = 1.35, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.86, reach = 5.1, name = "Low Kick Left" },
-			HighKickRight = { id = "rbxassetid://112847704540861", speed = 1.20, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.93, reach = 5.25, name = "High Kick Right" },
-			HighKickLeft = { id = "rbxassetid://78628980439076", speed = 1.20, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.93, reach = 5.25, name = "High Kick Left" },
-			WheelDriveRight = { id = "rbxassetid://72225232579765", speed = 1.40, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.47, cancelRatio = 0.89, reach = 5.25, name = "Wheeldrive Kick Right" },
-			WheelDriveLeft = { id = "rbxassetid://103890244670922", speed = 1.40, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.47, cancelRatio = 0.89, reach = 5.25, name = "Wheeldrive Kick Left" },
+			LowKickRight = { id = "rbxassetid://120201409079711", speed = 1.35, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.86, reach = 5.1, height = -2.8, name = "Low Kick Right" },
+			LowKickLeft = { id = "rbxassetid://128873647170869", speed = 1.35, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.86, reach = 5.1, height = -2.8, name = "Low Kick Left" },
+			HighKickRight = { id = "rbxassetid://112847704540861", speed = 1.20, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.93, reach = 5.25, height = 1.7, name = "High Kick Right" },
+			HighKickLeft = { id = "rbxassetid://78628980439076", speed = 1.20, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.43, cancelRatio = 0.93, reach = 5.25, height = 1.7, name = "High Kick Left" },
+			WheelDriveRight = { id = "rbxassetid://72225232579765", speed = 1.40, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.47, cancelRatio = 0.89, reach = 5.25, height = 1.7, name = "Wheeldrive Kick Right" },
+			WheelDriveLeft = { id = "rbxassetid://103890244670922", speed = 1.40, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.47, cancelRatio = 0.89, reach = 5.25, height = 1.7, name = "Wheeldrive Kick Left" },
 		},
 		Punches = {
-			LeftPunch = { id = "rbxassetid://90752953215195", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.60, cancelRatio = 0.83, reach = 4.3, name = "Left Punch" },
-			RightPunch = { id = "rbxassetid://100294955898321", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.60, cancelRatio = 0.83, reach = 4.3, name = "Right Punch" },
+			LeftPunch = { id = "rbxassetid://90752953215195", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.60, cancelRatio = 0.83, reach = 4.3, height = 1.1, name = "Left Punch" },
+			RightPunch = { id = "rbxassetid://100294955898321", speed = 1.30, fadeTime = 0.08, priority = "Action4", looped = false, impactRatio = 0.60, cancelRatio = 0.83, reach = 4.3, height = 1.1, name = "Right Punch" },
 		},
 		Special = {
 			-- the arc jump's one-clip look (ProjectileJumpState): markers ProjectileJump 0.53 s, BodyLanding 1.20 s

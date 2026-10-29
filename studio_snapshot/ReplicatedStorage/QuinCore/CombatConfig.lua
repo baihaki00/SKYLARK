@@ -810,6 +810,8 @@ CombatConfig.Gait_Directional = true
 CombatConfig.Gait_StrafeAngle = 50       -- degrees off the facing from which the strafe clips play
 CombatConfig.Gait_BackpedalAngle = 130   -- degrees from which the forward cycle plays in reverse
 CombatConfig.Gait_StrafeRunSpeed = 10    -- studs/s above which the run strafe is used
+CombatConfig.Strafe_RunClips = false    -- the run strafe clips (StrafeLeftRun / StrafeRightRun): off until polished (owner 2026-10-29)
+CombatConfig.Fight_MaxStrafeSpeed = 11.5  -- studs/s sideways in Fight while the run strafe clips are off (the walk strafe's 1.6x); false: no cap
 -- Diagonal blend (pass 22D): forward and strafe clips mixed continuously by the motion's angle
 -- off the facing, on one phase, instead of the hard 50/130 degree switches above
 CombatConfig.Gait_DiagonalBlend = true
@@ -1088,9 +1090,29 @@ CombatConfig.Hits_ContactSlack = 0.6 -- studs past reach + body radius still cou
 -- A light hit is only the procedural flinch; the full-body hit clip is kept for heavy hits, crits,
 -- finishers, hits from behind and a body at or below this posture. true = every hit plays it (old)
 CombatConfig.Hits_ClipOnLight = false
-CombatConfig.Hits_ClipBelowPosture = 40
+CombatConfig.Hits_ClipBelowPosture = 20
 -- The look-back clip is full-body: it plays only below this speed (studs/s) and fades when the body moves off
 CombatConfig.Glance_ClipMaxSpeed = 3
+-- Step 3 zones: where a blow lands (Strike: clip height vs the target's root), head / body / legs.
+-- The client body reacts per zone (PCRC); a leg blow wears balance Hits_LegsPosture times as much.
+CombatConfig.Hits_Zones = true
+CombatConfig.Hits_HeadAbove = 1.5 -- (studs the landing point sits above the target's root for a head shot)
+CombatConfig.Hits_LegsBelow = -1.0 -- (below this it takes the legs)
+CombatConfig.Hits_LegsPosture = 1.6
+-- Balance (Posture 0-100): comes back while nothing wears it; a whiff costs some.
+CombatConfig.Posture_RecoverPerSecond = 6
+CombatConfig.Posture_WhiffCost = 6
+-- Running sideways (owner 2026-10-29): fast and sideways, the chest stays turned into the run and
+-- the head looks at most Look_RunMaxOffTravel off the travel (SquareUp.runLead, LookController).
+-- Full from Look_RunLeadFull studs/s, none under Look_RunLeadFrom. Workspace RunLeadOff = as before.
+CombatConfig.Look_RunLead = true
+CombatConfig.Look_RunMaxOffTravel = 50
+CombatConfig.Look_RunLeadFrom = 10
+CombatConfig.Look_RunLeadFull = 15
+-- Circling holds its strafe / travel form this many degrees past the line (0 = one line).
+CombatConfig.Circling_FormHysteresis = 15
+-- Running momentum off on entering Circling, it eases down to its strafe pace (false = to the jog).
+CombatConfig.Circling_DriftAtStrafePace = true
 -- Overwatch holds only tops at least this wide both ways (pillar and wall tops are not lookouts)
 CombatConfig.Overwatch_MinTopWidth = 10
 
@@ -1415,6 +1437,7 @@ CombatConfig.FocusDash_CooldownMin = 1.6
 CombatConfig.FocusDash_CooldownMax = 3.2
 -- Quick evade (Modules/Evasion, from Modules/Instinct's slip): a left is slipped right, a right left
 CombatConfig.QuickEvade_Enabled = true
+CombatConfig.QuickEvade_InPlace = true     -- the evade is the clip's lean only: no push, no physics sway (owner 2026-10-29)
 CombatConfig.QuickEvade_BackChance = 0.3       -- leans back instead (right against either side)
 CombatConfig.QuickEvade_MistakeChance = 0.2    -- x (1.5 - awareness): leans into the limb and is hit
 CombatConfig.QuickEvade_StudsPerMetre = 4.1    -- the clip's ~0.35 m sway, driven by physics

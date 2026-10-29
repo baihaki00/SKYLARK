@@ -959,6 +959,28 @@ padding.Parent = scrollFrame
 -- ============================================================
 local cardInstances = {}
 
+-- Downed: sent to the preparation room after a KO (ArenaPrepRoom.bringHome marks the copy)
+local function isDowned(model)
+	return model:GetAttribute("Defeated") == true or model:GetAttribute("InPrepRoom") == true
+end
+
+-- The Quins tab in two sections: In the Arena, then Downed
+local function sectionHeader(name, color)
+	local label = Instance.new("TextLabel")
+	label.Name = name
+	label.Size = UDim2.new(1, 0, 0, 20)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 12
+	label.TextColor3 = color
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Visible = false
+	label.Parent = scrollFrame
+	return label
+end
+local arenaHeader = sectionHeader("__arena_header__", Color3.fromRGB(120, 220, 160))
+local downedHeader = sectionHeader("__downed_header__", Color3.fromRGB(230, 120, 120))
+
 local function getAllAliveQuins()
 	local quins = {}
 	-- STRICT FILTER: Only query QuinServer folder (where arena combatants reside).
@@ -1016,6 +1038,11 @@ end
 
 local function cycleSpectatedQuin(delta)
 	local quins = getAllAliveQuins()
+	local inArena = {}
+	for _, q in ipairs(quins) do
+		if not isDowned(q) then table.insert(inArena, q) end
+	end
+	if #inArena > 0 then quins = inArena end
 	if #quins == 0 then
 		setSpectatedQuin(nil)
 		return
@@ -1104,6 +1131,42 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		end
 	end
 end)
+
+-- Click a Quin in the world to watch it, from the free camera (R) or while watching another.
+-- (While the game is frozen GodPauseClient's inspect takes the same click; both select it.)
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp or input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+	if not (shared.IsAdmin and shared.IsAdmin()) and shared.SpectateFilter == nil then return end
+	if shared.PlayerControlledQuin or _G.PlayerControlledQuin then return end -- (the pilot's click is a strike)
+	local mode = camera:GetAttribute("SpectatorMode")
+	if mode ~= "FREEFLY" and mode ~= "QUIN_SPECTATE" then return end
+	local quins = getAllAliveQuins()
+	if #quins == 0 then return end
+	local byName = {}
+	for _, q in ipairs(quins) do byName[q.Name] = q end
+	local roots = { Workspace:FindFirstChild("QuinServer"), Workspace:FindFirstChild("QuinGhost") }
+	local include = {}
+	for _, r in pairs(roots) do table.insert(include, r) end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = include
+	local at = UserInputService:GetMouseLocation()
+	local ray = camera:ViewportPointToRay(at.X, at.Y)
+	local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1500, params)
+	if not hit then return end
+	-- the model right under its folder; a drawn ghost ("Name_Visual") stands for its Quin
+	local node = hit.Instance
+	while node.Parent and node.Parent.Name ~= "QuinServer" and node.Parent.Name ~= "QuinGhost" do
+		node = node.Parent
+	end
+	local model = byName[(node.Name:gsub("_Visual$", ""))]
+	if model then setSpectatedQuin(model) end
+end)
+
+-- (SmoothCamera: R into the free camera leaves the cursor free while this menu is open)
+function shared.SpectatorHudOpen()
+	return isHudVisible == true and Workspace:GetAttribute("HideSpectatorHUD") ~= true
+end
 
 -- ============================================================
 -- CARD FACTORY
@@ -1204,12 +1267,35 @@ RunService.Heartbeat:Connect(function()
 		end
 	end
 
-	for index, model in ipairs(quins) do
+	-- In the arena first, then the downed, each section under its header
+	local listed = {}
+	for _, model in ipairs(quins) do
+		if not isDowned(model) then table.insert(listed, model) end
+	end
+	local arenaCount = #listed
+	for _, model in ipairs(quins) do
+		if isDowned(model) then table.insert(listed, model) end
+	end
+	local downedCount = #listed - arenaCount
+	if cardsOpen then
+		arenaHeader.Visible = arenaCount > 0
+		arenaHeader.Text = "IN THE ARENA · " .. arenaCount
+		arenaHeader.LayoutOrder = 0
+		downedHeader.Visible = downedCount > 0
+		downedHeader.Text = "DOWNED · " .. downedCount
+		downedHeader.LayoutOrder = arenaCount + 1
+	end
+
+	for index, model in ipairs(listed) do
 		activeQuins[model.Name] = true
 		count = count + 1
+		local order = index <= arenaCount and index or index + 1
+		local existing = cardInstances[model.Name]
+		if existing and existing.btn.LayoutOrder ~= order then existing.btn.LayoutOrder = order end
 		if not cardsOpen or (index + frameCounter) % CARD_STRIDE ~= 0 then continue end
 
 		local card = getOrCreateCard(model)
+		card.btn.LayoutOrder = order
 		local isSpectatingThis = (model == curSpectated)
 
 		card.stroke.Thickness = isSpectatingThis and 2.0 or 0

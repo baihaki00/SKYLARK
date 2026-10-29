@@ -11,6 +11,12 @@
 --   timeline  click or drag to scrub; coloured by the followed Quin's state, ticks where its
 --             clips started (white) and its task / tactics changed (gold)
 --   , and .   one recorded frame back / forward
+--   Space     plays the recording on at normal speed from the white line (the scrubber), and
+--             stops it; it stops by itself at the pause. F4 still resumes the real game.
+--   the strip under the timeline: drag across it to mark a range of the followed Quin, write what
+--             is wrong there, Enter (or Save) keeps it, Esc drops it. Each range becomes a
+--             bookmark (QuinRecorder: tell Claude "bookmark 3") and stays drawn on that Quin's
+--             strip while paused (owner 2026-10-29).
 --   click a Quin (or its card on the debug menu) to follow it and inspect it (the debug menu's
 --   Inspect tab); click the ground to stop following. Right mouse drag orbits round it, the wheel
 --   zooms.
@@ -334,7 +340,7 @@ local REPLAY_GOLD = Color3.fromRGB(255, 200, 60)
 local panel = Instance.new("Frame")
 panel.AnchorPoint = Vector2.new(0.5, 0)
 panel.Position = UDim2.new(0.5, 0, 0, 46)
-panel.Size = UDim2.new(0, 900, 0, 62)
+panel.Size = UDim2.new(0, 900, 0, 80)
 panel.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
 panel.BackgroundTransparency = 0.12
 panel.BorderSizePixel = 0
@@ -366,7 +372,7 @@ playhead.Parent = bar
 
 -- under the timeline: whose it is, where the cursor is, what the colours and ticks mean
 local timeLabel = Instance.new("TextLabel")
-timeLabel.Position = UDim2.new(0, 10, 0, 36)
+timeLabel.Position = UDim2.new(0, 10, 0, 54)
 timeLabel.Size = UDim2.new(1, -20, 0, 22)
 timeLabel.BackgroundTransparency = 1
 timeLabel.Font = Enum.Font.SourceSans
@@ -380,8 +386,154 @@ local function fraction(t)
 	return (t - startT) / math.max(endT - startT, 1e-6)
 end
 
+-- Marked ranges (owner 2026-10-29: "select the range then write a comment ... it works per quin,
+-- and it stays as long as I'm on pause"): the strip under the timeline
+local RANGE_GOLD = Color3.fromRGB(255, 200, 60)
+local marks = {} -- Quin name -> { { from, to, comment, number } }
+local pending -- { name, from, to }: a range waiting for its comment
+local selFrom, selTo -- the range being dragged
+local savedNote, savedNoteUntil = nil, 0 -- (shown in the time label for a moment after a save)
+
+local strip = Instance.new("TextButton")
+strip.Name = "RangeStrip"
+strip.AutoButtonColor = false
+strip.Position = UDim2.new(0, 10, 0, 36)
+strip.Size = UDim2.new(1, -20, 0, 16)
+strip.BackgroundColor3 = Color3.fromRGB(32, 36, 50)
+strip.BorderSizePixel = 0
+strip.ClipsDescendants = true
+strip.Font = Enum.Font.SourceSans
+strip.TextSize = 12
+strip.TextColor3 = Color3.fromRGB(120, 130, 155)
+strip.Text = "drag here to mark a range and say what's wrong in it"
+strip.Parent = panel
+local markFolder = Instance.new("Folder")
+markFolder.Parent = strip
+-- the range being dragged or waiting for its comment, on the strip and over the timeline
+local function rangeBox(parent)
+	local f = Instance.new("Frame")
+	f.BackgroundColor3 = RANGE_GOLD
+	f.BackgroundTransparency = 0.55
+	f.BorderSizePixel = 0
+	f.ZIndex = 4
+	f.Visible = false
+	f.Parent = parent
+	return f
+end
+local selStrip, selBar = rangeBox(strip), rangeBox(bar)
+
+-- the comment box, under the strip while a range waits
+local commentRow = Instance.new("Frame")
+commentRow.Name = "RangeComment"
+commentRow.Position = UDim2.new(0, 10, 0, 78)
+commentRow.Size = UDim2.new(1, -20, 0, 28)
+commentRow.BackgroundTransparency = 1
+commentRow.Visible = false
+commentRow.Parent = panel
+local commentBox = Instance.new("TextBox")
+commentBox.Name = "RangeCommentText"
+commentBox.Size = UDim2.new(1, -170, 1, 0)
+commentBox.BackgroundColor3 = Color3.fromRGB(24, 28, 40)
+commentBox.BorderSizePixel = 0
+commentBox.ClearTextOnFocus = false
+commentBox.Font = Enum.Font.SourceSans
+commentBox.TextSize = 15
+commentBox.TextColor3 = Color3.fromRGB(235, 240, 250)
+commentBox.PlaceholderText = "What's wrong in this range? (Enter saves, Esc drops it)"
+commentBox.PlaceholderColor3 = Color3.fromRGB(120, 130, 155)
+commentBox.TextXAlignment = Enum.TextXAlignment.Left
+commentBox.Text = ""
+commentBox.Parent = commentRow
+Instance.new("UIPadding", commentBox).PaddingLeft = UDim.new(0, 8)
+Instance.new("UICorner", commentBox).CornerRadius = UDim.new(0, 4)
+local function rowButton(name, text, x, color)
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.Position = UDim2.new(1, x, 0, 0)
+	b.Size = UDim2.new(0, 76, 1, 0)
+	b.BackgroundColor3 = color
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.SourceSansBold
+	b.TextSize = 14
+	b.TextColor3 = Color3.new(0, 0, 0)
+	b.Text = text
+	b.Parent = commentRow
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+	return b
+end
+local saveButton = rowButton("RangeSave", "Save", -160, RANGE_GOLD)
+local cancelButton = rowButton("RangeCancel", "Cancel", -78, Color3.fromRGB(150, 155, 170))
+
+local function drawSelection()
+	local from, to
+	if pending then from, to = pending.from, pending.to
+	elseif selFrom and selTo then from, to = math.min(selFrom, selTo), math.max(selFrom, selTo) end
+	for _, box in ipairs({ selStrip, selBar }) do
+		box.Visible = from ~= nil
+		if from then
+			box.Position = UDim2.new(fraction(from), 0, 0, 0)
+			box.Size = UDim2.new(math.max(fraction(to) - fraction(from), 0.002), 0, 1, 0)
+		end
+	end
+end
+
+-- the followed Quin's saved ranges, numbered, with the start of the note where it fits
+local function drawMarks()
+	markFolder:ClearAllChildren()
+	local list = followed and marks[followed] or {}
+	strip.Text = (#list == 0 and not pending and not selFrom) and "drag here to mark a range and say what's wrong in it" or ""
+	for _, mark in ipairs(list) do
+		local f = Instance.new("Frame")
+		f.Position = UDim2.new(fraction(mark.from), 0, 0, 0)
+		f.Size = UDim2.new(math.max(fraction(mark.to) - fraction(mark.from), 0.004), 0, 1, 0)
+		f.BackgroundColor3 = RANGE_GOLD
+		f.BackgroundTransparency = 0.15
+		f.BorderSizePixel = 0
+		f.ZIndex = 2
+		f.Parent = markFolder
+		local l = Instance.new("TextLabel")
+		l.Size = UDim2.fromScale(1, 1)
+		l.BackgroundTransparency = 1
+		l.Font = Enum.Font.SourceSansBold
+		l.TextSize = 12
+		l.TextColor3 = Color3.new(0, 0, 0)
+		l.TextTruncate = Enum.TextTruncate.AtEnd
+		l.Text = ("#%s %s"):format(tostring(mark.number or "?"), mark.comment)
+		l.ZIndex = 3
+		l.Parent = f
+	end
+	drawSelection()
+end
+
+local function setCommentOpen(value)
+	commentRow.Visible = value
+	panel.Size = UDim2.new(0, 900, 0, value and 112 or 80)
+end
+
+local function dropRange()
+	pending, selFrom, selTo = nil, nil, nil
+	commentBox.Text = ""
+	setCommentOpen(false)
+	drawMarks()
+end
+
+local function saveRange()
+	if not pending then return end
+	local comment = commentBox.Text:gsub("^%s+", ""):gsub("%s+$", "")
+	local recorder = shared.QuinRecorder
+	local number = recorder and recorder.report and recorder.report(pending.name, pending.from, pending.to, comment)
+	marks[pending.name] = marks[pending.name] or {}
+	table.insert(marks[pending.name], { from = pending.from, to = pending.to, comment = comment ~= "" and comment or "(no note)", number = number })
+	savedNote = number and ("saved as <b>bookmark %d</b>: tell Claude \"bookmark %d\" before you stop Play"):format(number, number)
+		or "<font color='#FF6060'>not saved: the recorder isn't running</font>"
+	savedNoteUntil = os.clock() + 6
+	lastDrawn = nil -- (the time label shows the note on the next frame)
+	dropRange()
+end
+
 local function drawTimeline()
 	segments:ClearAllChildren()
+	drawMarks()
 	if not followed or not recording.tracks[followed] then return end
 	local track = recording.tracks[followed]
 	local width = bar.AbsoluteSize.X
@@ -465,9 +617,9 @@ end
 local function refreshInfo(force)
 	playhead.Position = UDim2.new(fraction(cursor), -1, 0, 0)
 	local when = endT - cursor < 1e-3 and "<b>at the pause</b>" or ("<b>%.2f s before the pause</b>"):format(endT - cursor)
-	timeLabel.Text = followed
-		and ("<b>%s</b>  ·  %s  ·  colour = its state  ·  white tick = a clip starts  ·  gold tick = task / tactics change  ·  drag to scrub"):format(QuinTimeline.escape(followed), when)
-		or (when .. "  ·  drag to scrub  ·  click a Quin to follow it: the timeline shows its states and clips")
+	timeLabel.Text = (savedNote and os.clock() < savedNoteUntil) and savedNote
+		or followed and ("<b>%s</b>  ·  %s  ·  colour = its state  ·  white tick = a clip starts  ·  gold tick = task / tactics change  ·  drag to scrub  ·  Space %s"):format(QuinTimeline.escape(followed), when, playing and "stops" or "plays from the white line")
+		or (when .. "  ·  drag to scrub  ·  Space " .. (playing and "stops" or "plays from the white line") .. "  ·  click a Quin to follow it: the timeline shows its states and clips")
 	-- (a few times a second: the rows are rebuilt only when they change)
 	local now = os.clock()
 	if not force and now - dockSince < 0.15 then
@@ -618,6 +770,8 @@ local function setOpen(value)
 		hideReal(false)
 		clearGhosts()
 		recording, followed, followOffset = nil, nil, nil
+		marks = {} -- (they last while paused; the reports stay in QuinRecorder.Bookmarks)
+		dropRange()
 		shared.ReplayCameraCFrame = nil
 		shared.QuinRecorderHold = nil
 		if shared.DebugDock then shared.DebugDock.setInspect(nil) end
@@ -707,8 +861,39 @@ bar.InputBegan:Connect(function(input)
 		scrubTo(input.Position.X)
 	end
 end)
+-- marking a range on the strip
+local marking = false
+local function timeAt(x)
+	return startT + math.clamp((x - strip.AbsolutePosition.X) / strip.AbsoluteSize.X, 0, 1) * (endT - startT)
+end
+strip.InputBegan:Connect(function(input)
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1 or not recording then return end
+	if not followed then
+		savedNote, savedNoteUntil = "<font color='#FFC83C'>click a Quin first: a range is marked on the Quin being followed</font>", os.clock() + 4
+		refreshInfo(true)
+		return
+	end
+	pending = nil
+	setCommentOpen(false)
+	marking = true
+	selFrom = timeAt(input.Position.X)
+	selTo = selFrom
+	drawMarks()
+end)
+saveButton.MouseButton1Click:Connect(saveRange)
+cancelButton.MouseButton1Click:Connect(dropRange)
+commentBox.FocusLost:Connect(function(enterPressed, cause)
+	if enterPressed then
+		saveRange()
+	elseif cause and cause.KeyCode == Enum.KeyCode.Escape then
+		dropRange()
+	end
+end)
 UserInputService.InputChanged:Connect(function(input, processed)
-	if scrubbing and input.UserInputType == Enum.UserInputType.MouseMovement then
+	if marking and input.UserInputType == Enum.UserInputType.MouseMovement then
+		selTo = timeAt(input.Position.X)
+		drawSelection()
+	elseif scrubbing and input.UserInputType == Enum.UserInputType.MouseMovement then
 		scrubTo(input.Position.X)
 	elseif open and followOffset and input.UserInputType == Enum.UserInputType.MouseWheel and not processed
 		and not (shared.PointerOverMenu and shared.PointerOverMenu()) then
@@ -724,13 +909,39 @@ Workspace:GetAttributeChangedSignal("SpectatedQuin"):Connect(function()
 	if type(name) == "string" and ghosts[name] and name ~= followed then follow(name) end
 end)
 UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then scrubbing = false end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		scrubbing = false
+		if marking then
+			marking = false
+			local from, to = math.min(selFrom, selTo), math.max(selFrom, selTo)
+			if followed and to - from >= 0.05 then
+				-- a range: it waits for its note
+				pending = { name = followed, from = from, to = to }
+				selFrom, selTo = nil, nil
+				setCommentOpen(true)
+				drawMarks()
+				commentBox:CaptureFocus()
+			else
+				dropRange()
+			end
+		end
+	end
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if UserInputService:GetFocusedTextBox() then return end
 	if not open then return end
-	if input.KeyCode == Enum.KeyCode.Comma then
+	if input.KeyCode == Enum.KeyCode.Escape and pending then
+		dropRange()
+	elseif input.KeyCode == Enum.KeyCode.Space then
+		-- (owner 2026-10-29: "Spacebar as play normally from the point of my white line")
+		if playing then
+			playing = false
+		elseif recording and endT - cursor > 0.05 then
+			playing, speed, live = true, 1, false
+		end
+		lastDrawn = nil
+	elseif input.KeyCode == Enum.KeyCode.Comma then
 		step(-1)
 	elseif input.KeyCode == Enum.KeyCode.Period then
 		step(1)
@@ -759,6 +970,10 @@ RunService:BindToRenderStep("QuinReplay", Enum.RenderPriority.Camera.Value - 1, 
 	if playing then cursor += dt * speed end
 	if live then cursor = math.huge end
 	syncBounds() -- (at the live edge, playing stays live)
+	if playing and not live and cursor >= endT - 1e-6 then
+		playing = false -- (Space's playback stops at the pause)
+		lastDrawn = nil
+	end
 	housekeeping += dt
 	if housekeeping > 0.5 then
 		housekeeping = 0
@@ -809,7 +1024,13 @@ control.OnInvoke = function(what, arg)
 	elseif what == "follow" then follow(arg)
 	elseif what == "seek" then cursor = startT + (arg or 0) * (endT - startT) playing = false
 	elseif what == "play" then speed = arg or speed playing = true
-	elseif what == "live" then cursor, playing, speed, live = endT, true, 1, true end
+	elseif what == "live" then cursor, playing, speed, live = endT, true, 1, true
+	elseif what == "mark" and followed then
+		-- arg = { from = 0..1, to = 0..1, comment = "..." }: as if dragged on the strip and saved
+		pending = { name = followed, from = startT + arg.from * (endT - startT), to = startT + arg.to * (endT - startT) }
+		commentBox.Text = arg.comment or ""
+		saveRange()
+	end
 	local count = 0
 	for _ in pairs(ghosts) do count += 1 end
 	local data = open and recording and inspectData()
@@ -818,6 +1039,7 @@ control.OnInvoke = function(what, arg)
 		info = data and data.info, clips = data and data.clips, rows = data and #data.rows,
 		report = lastRow and data.report and data.report(lastRow.t),
 		followOffset = followOffset and tostring(followOffset), camera = shared.ReplayCameraCFrame ~= nil,
-		labels = labelSummary(), overlay = overlaySummary() }
+		labels = labelSummary(), overlay = overlaySummary(),
+		marks = followed and marks[followed] and #marks[followed] or 0, savedNote = savedNote }
 end
 control.Parent = script

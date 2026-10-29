@@ -105,7 +105,14 @@ local function answer(defender, humanoid, rootPart, attacker, attackerRoot, cont
 		local right = rootPart.CFrame.RightVector
 		local lateral = slipDir:Dot(Vector3.new(right.X, 0, right.Z).Unit)
 		AnimationModule.playConfig(humanoid, (lateral > 0.5 and "Tactics.QuickEvadeRight") or (lateral < -0.5 and "Tactics.QuickEvadeLeft") or "Tactics.QuickEvadeBack", 1.2, Enum.AnimationPriority.Action3, false)
-		KnockbackModule.applySlide(defender, slipDir, cfg("SlipSpeed", 35), 0.25)
+		-- In place: the quick evade is a lean, not a skate (owner, 2026-10-29: "there's force in
+		-- play, they should be in place"). QuickEvade_InPlace = false: the old 35 studs/s slip.
+		if cfg("QuickEvade_InPlace", true) == false then
+			KnockbackModule.applySlide(defender, slipDir, cfg("SlipSpeed", 35), 0.25)
+		else
+			local v = rootPart.AssemblyLinearVelocity
+			rootPart.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+		end
 		local soundPart = defender:FindFirstChild("Sounds")
 		local swish = soundPart and soundPart:FindFirstChild("swish")
 		if swish then swish.Volume = 0.3 swish:Play() end

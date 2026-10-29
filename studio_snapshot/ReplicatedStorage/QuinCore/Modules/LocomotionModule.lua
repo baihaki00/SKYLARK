@@ -411,6 +411,24 @@ local function ensureSteerDriver(fighter, humanoid, rootPart)
 		local toTarget = data.steerTarget - rootPart.Position
 		local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
 		local decel = tune("Locomotion_BrakingDeceleration", 140.0)
+		-- While the run strafe clips are off, no faster sideways to its facing than the walk strafe
+		-- steps (CombatConfig.Fight_MaxStrafeSpeed; the feet slid under it at 15-20). In a fight, and
+		-- (Strafe_CapAllStates) in any other driven state but Circling: a body handed from Fight to
+		-- Chase still faced its old target while it ran off at 26-30 studs/s on the walk strafe
+		-- (owner's bookmark 8). It now slows to what the strafe can step until it has turned its way.
+		local strafeCap = CombatConfig.Fight_MaxStrafeSpeed
+		local capState = fighter:GetAttribute("CurrentState")
+		if strafeCap and CombatConfig.Strafe_RunClips ~= true and not data.reversal
+			and (capState == "Fight" or (CombatConfig.Strafe_CapAllStates ~= false and capState ~= "Circling")) then
+			local heading = data.groundIntentDirection or (flat.Magnitude > 0.1 and flat.Unit)
+			if heading then
+				local look = flatUnit(rootPart.CFrame.LookVector, heading)
+				local sideways = math.abs(heading.X * look.Z - heading.Z * look.X)
+				if sideways > 0.2 then
+					target = math.min(target, strafeCap / sideways)
+				end
+			end
+		end
 
 		local reversal = data.reversal
 		if reversal and (GameClock.now() - reversal.started > 1.2 or isHumanoidAirborne(humanoid)) then

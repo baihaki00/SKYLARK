@@ -5,6 +5,7 @@
 
 local GameClock = require(game:GetService("ReplicatedStorage"):WaitForChild("QuinCore"):WaitForChild("Modules"):WaitForChild("GameClock")) -- (the game's clock: a freeze stops it)
 local Workspace = game:GetService("Workspace")
+local SquareUp = require(script.Parent:WaitForChild("Procedural"):WaitForChild("SquareUp")) -- (runLead: running sideways)
 
 local LookController = {}
 LookController.__index = LookController
@@ -529,9 +530,23 @@ function LookController:updateLook(dt)
 		self.currentPitch += self.pitchVelocity * dt
 	end
 
+	-- Running sideways (owner 2026-10-29: the head stared 90 degrees off the way the body ran - the
+	-- strafe run clip keeps it to the front): the head is held within Look_RunMaxOffTravel of the
+	-- travel (SquareUp.runLead; the chest is left turned into the run too). A deliberate look keeps
+	-- its turn. Workspace RunLeadOff = true: as before.
+	local runLead = (mode ~= "GLANCE_BACK" and mode ~= "SOCIAL") and SquareUp.runLead(self.rootPart) or 0
+	local function leadToTravel(yaw)
+		if runLead <= 0 then return yaw end
+		local lv = self.rootPart.CFrame:VectorToObjectSpace(self.rootPart.AssemblyLinearVelocity)
+		local travelYaw = math.atan2(-lv.X, -lv.Z)
+		local off = math.atan2(math.sin(yaw - travelYaw), math.cos(yaw - travelYaw))
+		local maxOff = math.rad((okConfig and CombatConfig.Look_RunMaxOffTravel) or 50)
+		return yaw + (math.clamp(off, -maxOff, maxOff) - off) * runLead
+	end
+
 	if not targetPos then
 		-- No target: settle back to the clip's own head
-		springTo(0, 0)
+		springTo(leadToTravel(0), 0)
 		if nodPitch == 0 and shakeYaw == 0 and self.pointChestYaw == 0 and math.abs(self.currentYaw) < 0.002 and math.abs(self.currentPitch) < 0.002
 			and math.abs(self.yawVelocity) < 0.01 and math.abs(self.pitchVelocity) < 0.01 then
 			self.currentYaw, self.currentPitch, self.yawVelocity, self.pitchVelocity = 0, 0, 0, 0
@@ -597,6 +612,7 @@ function LookController:updateLook(dt)
 				moving = ss(4, 10, speed) * ss(0.5, 0.85, along)
 			end
 		end
+		rawYaw = leadToTravel(rawYaw)
 		local letGoStart = math.rad(100) + moving * (math.rad((okConfig and CombatConfig.Look_MovingLetGoStart) or 70) - math.rad(100))
 		local letGoEnd = math.rad(125) + moving * (math.rad((okConfig and CombatConfig.Look_MovingLetGoEnd) or 95) - math.rad(125))
 
